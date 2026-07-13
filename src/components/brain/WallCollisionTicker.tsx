@@ -17,8 +17,7 @@ import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
   FEET_SHELL_RADIUS,
   getEarthPose,
-  getEarthLocalSiteFrame,
-  earthLocalToWorld,
+  getLiveSiteFrame,
   worldDisplacementToEarthLocal,
 } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
@@ -45,9 +44,9 @@ function cross(a: Vec3, b: Vec3): Vec3 {
 }
 
 /**
- * Build the village-local basis the same way BuilderBlockView does.
- * `up` is radial at the avatar; `forward` is the tangent projection of
- * the site's local forward; `right = up × forward`.
+ * Build the shared village-local basis used by movement/camera and block
+ * anchoring. Wall extents live in this anchor frame; using the avatar's
+ * changing tangent basis here lets the collider rotate underfoot and miss.
  */
 function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
   origin: Vec3;
@@ -65,15 +64,11 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
   const localLen = Math.hypot(local[0], local[1], local[2]) || 1;
   const localNormal: Vec3 = [local[0] / localLen, local[1] / localLen, local[2] / localLen];
   const groundRadius = FEET_SHELL_RADIUS + sampleSurfaceLift(localNormal);
-  const lf = getEarthLocalSiteFrame(anchorPeerId);
-  const fwdW = earthLocalToWorld(lf.forward, pose);
-  let forward: Vec3 = [
-    fwdW[0] - origin[0], fwdW[1] - origin[1], fwdW[2] - origin[2],
-  ];
+  const live = getLiveSiteFrame(anchorPeerId, pose);
+  let forward: Vec3 = [live.forward[0], live.forward[1], live.forward[2]];
   const d = dot(forward, up);
-  forward = [forward[0] - up[0] * d, forward[1] - up[1] * d, forward[2] - up[2] * d];
-  forward = norm(forward);
-  const right: Vec3 = cross(up, forward);
+  forward = norm([forward[0] - up[0] * d, forward[1] - up[1] * d, forward[2] - up[2] * d]);
+  const right: Vec3 = norm(cross(forward, up));
   return { origin, right, up, forward, groundRadius };
 }
 
