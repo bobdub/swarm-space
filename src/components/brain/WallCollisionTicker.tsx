@@ -116,6 +116,7 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
 }
 
 function listActiveWallColliders(): WallColliderSpec[] {
+  const physics = getBrainPhysics();
   const fromRegistry = Array.from(listWallColliders());
   const seen = new Set(fromRegistry.map((c) => c.id));
   const fromBlocks = getBuilderBlockEngine()
@@ -136,7 +137,36 @@ function listActiveWallColliders(): WallColliderSpec[] {
         halfUp: halfUp as number,
       }];
     });
-  return [...fromRegistry, ...fromBlocks];
+  for (const c of fromBlocks) seen.add(c.id);
+  const fromBodies = physics.getBodies().flatMap((body): WallColliderSpec[] => {
+    const meta = body.meta ?? {};
+    if (meta.structure !== 'bar-wall') return [];
+    const id = String(meta.builderBlockId ?? body.id);
+    if (seen.has(id)) return [];
+    const collider = meta.wallCollider as Partial<WallColliderSpec> | undefined;
+    const anchorPeerId = typeof meta.anchorPeerId === 'string' ? meta.anchorPeerId : undefined;
+    if (!collider || !anchorPeerId) return [];
+    const { rightOffset, forwardOffset, upOffset, halfRight, halfForward, halfUp } = collider;
+    if (
+      !Number.isFinite(rightOffset) ||
+      !Number.isFinite(forwardOffset) ||
+      !Number.isFinite(upOffset) ||
+      !Number.isFinite(halfRight) ||
+      !Number.isFinite(halfForward) ||
+      !Number.isFinite(halfUp)
+    ) return [];
+    return [{
+      id,
+      anchorPeerId,
+      rightOffset: rightOffset as number,
+      forwardOffset: forwardOffset as number,
+      upOffset: upOffset as number,
+      halfRight: halfRight as number,
+      halfForward: halfForward as number,
+      halfUp: halfUp as number,
+    }];
+  });
+  return [...fromRegistry, ...fromBlocks, ...fromBodies];
 }
 
 export function WallCollisionTicker({ selfId }: { selfId: string }) {
