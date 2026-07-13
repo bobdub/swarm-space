@@ -11,7 +11,7 @@
  *
  * No forces, no field writes. Just position + wall-normal velocity kill.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
   FEET_SHELL_RADIUS,
@@ -40,6 +40,49 @@ function cross(a: Vec3, b: Vec3): Vec3 {
     a[2] * b[0] - a[0] * b[2],
     a[0] * b[1] - a[1] * b[0],
   ];
+}
+
+function sweepAabb2D(
+  startR: number,
+  startF: number,
+  endR: number,
+  endF: number,
+  minR: number,
+  maxR: number,
+  minF: number,
+  maxF: number,
+): { t: number; axis: 'r' | 'f'; sign: number } | null {
+  const dR = endR - startR;
+  const dF = endF - startF;
+  let tEnter = 0;
+  let tExit = 1;
+  let axis: 'r' | 'f' = 'r';
+  let sign = 0;
+
+  const update = (start: number, delta: number, min: number, max: number, a: 'r' | 'f'): boolean => {
+    if (Math.abs(delta) < EPS) return start >= min && start <= max;
+    let t0 = (min - start) / delta;
+    let t1 = (max - start) / delta;
+    let entrySign = delta > 0 ? -1 : 1;
+    if (t0 > t1) {
+      const tmp = t0;
+      t0 = t1;
+      t1 = tmp;
+      entrySign = -entrySign;
+    }
+    if (t0 > tEnter) {
+      tEnter = t0;
+      axis = a;
+      sign = entrySign;
+    }
+    tExit = Math.min(tExit, t1);
+    return tEnter <= tExit;
+  };
+
+  if (!update(startR, dR, minR, maxR, 'r')) return null;
+  if (!update(startF, dF, minF, maxF, 'f')) return null;
+  if (tEnter < 0 || tEnter > 1 || sign === 0) return null;
+  return { t: tEnter, axis, sign };
 }
 
 /**
@@ -73,16 +116,22 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
 
 export function WallCollisionTicker({ selfId }: { selfId: string }) {
   const physics = useMemo(() => getBrainPhysics(), []);
+  const previousPos = useRef<Vec3 | null>(null);
 
   useEffect(() => {
-    if (!selfId) return;
+    previousPos.current = null;
+    if (!selfId) return undefined;
     return physics.subscribe(() => {
       const body = physics.getBody(selfId);
       if (!body) return;
       const colliders = listWallColliders();
-      if (colliders.length === 0) return;
+      if (colliders.length === 0) {
+        previousPos.current = [body.pos[0], body.pos[1], body.pos[2]];
+        return;
+      }
 
       const bodyPos: Vec3 = [body.pos[0], body.pos[1], body.pos[2]];
+      const prevBodyPos: Vec3 = previousPos.current ?? bodyPos;
 
       // Group colliders by anchor so we only build the basis once per anchor.
       const byAnchor = new Map<string, WallColliderSpec[]>();
@@ -101,14 +150,18 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
       for (const [anchorPeerId, specs] of byAnchor) {
         const basis = siteBasis(anchorPeerId, bodyPos);
         const rel = sub(bodyPos, basis.origin);
+        const prevRel = sub(prevBodyPos, basis.origin);
         let rL = dot(rel, basis.right);
         let fL = dot(rel, basis.forward);
+        const prevRL = dot(prevRel, basis.right);
+        const prevFL = dot(prevRel, basis.forward);
         // Colliders store `upOffset` in metres above local visible ground,
         // not absolute radius from Earth's centre. The previous comparison
         // used the full ~1700m Earth radius here, so vertical overlap was
         // always false and the avatar could phase through every wall.
         const radialL = dot(rel, basis.up);
         const uL = radialL - basis.groundRadius;
+        const prevUL = dot(prevRel, basis.up) - basis.groundRadius;
 
         // Resolve strongest overlap first for stability.
         const overlaps = specs.map((c) => {
@@ -165,6 +218,51 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
           }
         }
 
+        if (overlaps.length === 0 && (Math.abs(prevRL - rL) > EPS || Math.abs(prevFL - fL) > EPS)) {
+          let bestHit: {
+            c: WallColliderSpec;
+            t: number;
+            axis: 'r' | 'f';
+            sign: number;
+          } | null = null;
+          for (const c of specs) {
+            const expR = c.halfRight + AVATAR_R;
+            const expF = c.halfForward + AVATAR_R;
+            const expU = c.halfUp + AVATAR_H / 2;
+            const verticalNow = expU - Math.abs(uL - c.upOffset);
+            const verticalPrev = expU - Math.abs(prevUL - c.upOffset);
+            if (verticalNow <= 0 && verticalPrev <= 0) continue;
+            const hit = sweepAabb2D(
+              prevRL,
+              prevFL,
+              rL,
+              fL,
+              c.rightOffset - expR,
+              c.rightOffset + expR,
+              c.forwardOffset - expF,
+              c.forwardOffset + expF,
+            );
+            if (!hit) continue;
+            if (!bestHit || hit.t < bestHit.t) bestHit = { c, ...hit };
+          }
+          if (bestHit) {
+            const dR = rL - prevRL;
+            const dF = fL - prevFL;
+            const cushion = 0.02;
+            rL = prevRL + dR * bestHit.t;
+            fL = prevFL + dF * bestHit.t;
+            if (bestHit.axis === 'r') {
+              rL += bestHit.sign * cushion;
+              normalWorld = [basis.right[0] * bestHit.sign, basis.right[1] * bestHit.sign, basis.right[2] * bestHit.sign];
+            } else {
+              fL += bestHit.sign * cushion;
+              normalWorld = [basis.forward[0] * bestHit.sign, basis.forward[1] * bestHit.sign, basis.forward[2] * bestHit.sign];
+            }
+            totalDR += Math.abs(dR);
+            totalDF += Math.abs(dF);
+          }
+        }
+
         if (Math.abs(totalDR) > EPS || Math.abs(totalDF) > EPS) {
           // Write corrected position back to world using the same basis.
           body.pos[0] = basis.origin[0] + basis.right[0] * rL + basis.up[0] * radialL + basis.forward[0] * fL;
@@ -185,6 +283,7 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
           body.vel[2] -= vn * normalWorld[2];
         }
       }
+      previousPos.current = [body.pos[0], body.pos[1], body.pos[2]];
     });
   }, [physics, selfId]);
 
