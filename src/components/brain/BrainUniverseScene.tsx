@@ -44,6 +44,8 @@ import { InfinityBody } from '@/components/brain/InfinityBody';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { AnamorphicStreak } from '@/components/brain/postfx/AnamorphicStreakPass';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
