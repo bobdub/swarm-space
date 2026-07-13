@@ -2059,7 +2059,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
 
         {!isMobile && (
-          <EffectComposer multisampling={0} disableNormalPass>
+          <EffectComposer multisampling={0}>
             <Bloom
               intensity={0.9}
               luminanceThreshold={0.85}
