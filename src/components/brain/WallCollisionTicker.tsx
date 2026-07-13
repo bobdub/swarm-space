@@ -11,8 +11,7 @@
  *
  * No forces, no field writes. Just position + wall-normal velocity kill.
  */
-import { useMemo } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useMemo } from 'react';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
   FEET_SHELL_RADIUS,
@@ -75,117 +74,119 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
 export function WallCollisionTicker({ selfId }: { selfId: string }) {
   const physics = useMemo(() => getBrainPhysics(), []);
 
-  useFrame(() => {
+  useEffect(() => {
     if (!selfId) return;
-    const body = physics.getBody(selfId);
-    if (!body) return;
-    const colliders = listWallColliders();
-    if (colliders.length === 0) return;
+    return physics.subscribe(() => {
+      const body = physics.getBody(selfId);
+      if (!body) return;
+      const colliders = listWallColliders();
+      if (colliders.length === 0) return;
 
-    const bodyPos: Vec3 = [body.pos[0], body.pos[1], body.pos[2]];
+      const bodyPos: Vec3 = [body.pos[0], body.pos[1], body.pos[2]];
 
-    // Group colliders by anchor so we only build the basis once per anchor.
-    const byAnchor = new Map<string, WallColliderSpec[]>();
-    for (const c of colliders) {
-      const list = byAnchor.get(c.anchorPeerId);
-      if (list) list.push(c);
-      else byAnchor.set(c.anchorPeerId, [c]);
-    }
+      // Group colliders by anchor so we only build the basis once per anchor.
+      const byAnchor = new Map<string, WallColliderSpec[]>();
+      for (const c of colliders) {
+        const list = byAnchor.get(c.anchorPeerId);
+        if (list) list.push(c);
+        else byAnchor.set(c.anchorPeerId, [c]);
+      }
 
-    let totalDR = 0;
-    let totalDF = 0;
-    // Track the strongest wall normal in world space for velocity correction.
-    let normalWorld: Vec3 | null = null;
-    let normalPenetration = 0;
+      let totalDR = 0;
+      let totalDF = 0;
+      // Track the strongest wall normal in world space for velocity correction.
+      let normalWorld: Vec3 | null = null;
+      let normalPenetration = 0;
 
-    for (const [anchorPeerId, specs] of byAnchor) {
-      const basis = siteBasis(anchorPeerId, bodyPos);
-      const rel = sub(bodyPos, basis.origin);
-      let rL = dot(rel, basis.right);
-      let fL = dot(rel, basis.forward);
-      // Colliders store `upOffset` in metres above local visible ground,
-      // not absolute radius from Earth's centre. The previous comparison
-      // used the full ~1700m Earth radius here, so vertical overlap was
-      // always false and the avatar could phase through every wall.
-      const radialL = dot(rel, basis.up);
-      const uL = radialL - basis.groundRadius;
+      for (const [anchorPeerId, specs] of byAnchor) {
+        const basis = siteBasis(anchorPeerId, bodyPos);
+        const rel = sub(bodyPos, basis.origin);
+        let rL = dot(rel, basis.right);
+        let fL = dot(rel, basis.forward);
+        // Colliders store `upOffset` in metres above local visible ground,
+        // not absolute radius from Earth's centre. The previous comparison
+        // used the full ~1700m Earth radius here, so vertical overlap was
+        // always false and the avatar could phase through every wall.
+        const radialL = dot(rel, basis.up);
+        const uL = radialL - basis.groundRadius;
 
-      // Resolve strongest overlap first for stability.
-      const overlaps = specs.map((c) => {
-        const dr = rL - c.rightOffset;
-        const df = fL - c.forwardOffset;
-        const du = uL - c.upOffset;
-        const expR = c.halfRight + AVATAR_R;
-        const expF = c.halfForward + AVATAR_R;
-        const expU = c.halfUp + AVATAR_H / 2;
-        const penR = expR - Math.abs(dr);
-        const penF = expF - Math.abs(df);
-        const penU = expU - Math.abs(du);
-        return { c, dr, df, penR, penF, penU };
-      })
-      .filter((o) => o.penR > 0 && o.penF > 0 && o.penU > 0)
-      .sort((a, b) => Math.min(b.penR, b.penF) - Math.min(a.penR, a.penF));
+        // Resolve strongest overlap first for stability.
+        const overlaps = specs.map((c) => {
+          const dr = rL - c.rightOffset;
+          const df = fL - c.forwardOffset;
+          const du = uL - c.upOffset;
+          const expR = c.halfRight + AVATAR_R;
+          const expF = c.halfForward + AVATAR_R;
+          const expU = c.halfUp + AVATAR_H / 2;
+          const penR = expR - Math.abs(dr);
+          const penF = expF - Math.abs(df);
+          const penU = expU - Math.abs(du);
+          return { c, dr, df, penR, penF, penU };
+        })
+        .filter((o) => o.penR > 0 && o.penF > 0 && o.penU > 0)
+        .sort((a, b) => Math.min(b.penR, b.penF) - Math.min(a.penR, a.penF));
 
-      for (const o of overlaps) {
-        // Re-evaluate against the (possibly already corrected) position.
-        const dr = (rL - o.c.rightOffset);
-        const df = (fL - o.c.forwardOffset);
-        const expR = o.c.halfRight + AVATAR_R;
-        const expF = o.c.halfForward + AVATAR_R;
-        const penR = expR - Math.abs(dr);
-        const penF = expF - Math.abs(df);
-        if (penR <= 0 || penF <= 0) continue;
-        // Push out along the shallowest horizontal axis (MTV).
-        if (penR < penF) {
-          const push = dr >= 0 ? penR : -penR;
-          rL += push;
-          totalDR += push;
-          if (penR > normalPenetration) {
-            normalPenetration = penR;
-            const sign = dr >= 0 ? 1 : -1;
-            normalWorld = [
-              basis.right[0] * sign,
-              basis.right[1] * sign,
-              basis.right[2] * sign,
-            ];
+        for (const o of overlaps) {
+          // Re-evaluate against the (possibly already corrected) position.
+          const dr = (rL - o.c.rightOffset);
+          const df = (fL - o.c.forwardOffset);
+          const expR = o.c.halfRight + AVATAR_R;
+          const expF = o.c.halfForward + AVATAR_R;
+          const penR = expR - Math.abs(dr);
+          const penF = expF - Math.abs(df);
+          if (penR <= 0 || penF <= 0) continue;
+          // Push out along the shallowest horizontal axis (MTV).
+          if (penR < penF) {
+            const push = dr >= 0 ? penR : -penR;
+            rL += push;
+            totalDR += push;
+            if (penR > normalPenetration) {
+              normalPenetration = penR;
+              const sign = dr >= 0 ? 1 : -1;
+              normalWorld = [
+                basis.right[0] * sign,
+                basis.right[1] * sign,
+                basis.right[2] * sign,
+              ];
+            }
+          } else {
+            const push = df >= 0 ? penF : -penF;
+            fL += push;
+            totalDF += push;
+            if (penF > normalPenetration) {
+              normalPenetration = penF;
+              const sign = df >= 0 ? 1 : -1;
+              normalWorld = [
+                basis.forward[0] * sign,
+                basis.forward[1] * sign,
+                basis.forward[2] * sign,
+              ];
+            }
           }
-        } else {
-          const push = df >= 0 ? penF : -penF;
-          fL += push;
-          totalDF += push;
-          if (penF > normalPenetration) {
-            normalPenetration = penF;
-            const sign = df >= 0 ? 1 : -1;
-            normalWorld = [
-              basis.forward[0] * sign,
-              basis.forward[1] * sign,
-              basis.forward[2] * sign,
-            ];
-          }
+        }
+
+        if (Math.abs(totalDR) > EPS || Math.abs(totalDF) > EPS) {
+          // Write corrected position back to world using the same basis.
+          body.pos[0] = basis.origin[0] + basis.right[0] * rL + basis.up[0] * radialL + basis.forward[0] * fL;
+          body.pos[1] = basis.origin[1] + basis.right[1] * rL + basis.up[1] * radialL + basis.forward[1] * fL;
+          body.pos[2] = basis.origin[2] + basis.right[2] * rL + basis.up[2] * radialL + basis.forward[2] * fL;
+          totalDR = 0;
+          totalDF = 0;
         }
       }
 
-      if (Math.abs(totalDR) > EPS || Math.abs(totalDF) > EPS) {
-        // Write corrected position back to world using the same basis.
-        body.pos[0] = basis.origin[0] + basis.right[0] * rL + basis.up[0] * radialL + basis.forward[0] * fL;
-        body.pos[1] = basis.origin[1] + basis.right[1] * rL + basis.up[1] * radialL + basis.forward[1] * fL;
-        body.pos[2] = basis.origin[2] + basis.right[2] * rL + basis.up[2] * radialL + basis.forward[2] * fL;
-        totalDR = 0;
-        totalDF = 0;
+      // Kill wall-normal velocity component so the avatar slides instead of
+      // pushing into the wall.
+      if (normalWorld) {
+        const vn = body.vel[0] * normalWorld[0] + body.vel[1] * normalWorld[1] + body.vel[2] * normalWorld[2];
+        if (vn < 0) {
+          body.vel[0] -= vn * normalWorld[0];
+          body.vel[1] -= vn * normalWorld[1];
+          body.vel[2] -= vn * normalWorld[2];
+        }
       }
-    }
-
-    // Kill wall-normal velocity component so the avatar slides instead of
-    // pushing into the wall.
-    if (normalWorld) {
-      const vn = body.vel[0] * normalWorld[0] + body.vel[1] * normalWorld[1] + body.vel[2] * normalWorld[2];
-      if (vn < 0) {
-        body.vel[0] -= vn * normalWorld[0];
-        body.vel[1] -= vn * normalWorld[1];
-        body.vel[2] -= vn * normalWorld[2];
-      }
-    }
-  });
+    });
+  }, [physics, selfId]);
 
   return null;
 }
