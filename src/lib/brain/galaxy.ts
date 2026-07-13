@@ -31,6 +31,8 @@ export const GALAXY_RADIUS_INNER = 8 * WORLD_SCALE;
 export const GALAXY_RADIUS_OUTER = 22 * WORLD_SCALE;
 export const GALAXY_STAR_COUNT = 120;
 export const GALAXY_BG_STAR_COUNT = 3000;
+export const HIGH_DENSITY_STARS = true;
+export const GALAXY_BG_STAR_COUNT_HD = 6000;
 export const GALAXY_CORE_TARGET = -0.6;
 export const GALAXY_STAR_TARGET = 0.8;
 
@@ -44,6 +46,9 @@ export interface NamedStar {
 export interface BgStar {
   pos: [number, number, number];
   size: number;
+  magnitude: number;
+  twinkle: boolean;
+  twinklePhase: number;
 }
 
 export interface Galaxy {
