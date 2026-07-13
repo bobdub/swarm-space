@@ -105,14 +105,22 @@ export function buildGalaxy(seed: number = GALAXY_SEED): Galaxy {
   // Scaled by WORLD_SCALE (×212.5) so stars sit at ~15–19 km, well outside
   // the 1700 m Earth and inside the camera's 50 km far plane.
   const bgStars: BgStar[] = [];
-  for (let i = 0; i < GALAXY_BG_STAR_COUNT; i++) {
+  const bgCount = HIGH_DENSITY_STARS ? GALAXY_BG_STAR_COUNT_HD : GALAXY_BG_STAR_COUNT;
+  for (let i = 0; i < bgCount; i++) {
     const u = rand() * 2 - 1;
     const phi = rand() * Math.PI * 2;
     const r = (70 + rand() * 20) * WORLD_SCALE;
     const sq = Math.sqrt(1 - u * u);
+    // Magnitude skew: ~5% bright, ~20% mid, rest dim.
+    const m = rand();
+    const magnitude = m > 0.95 ? 0.85 + rand() * 0.15 : m > 0.75 ? 0.45 + rand() * 0.35 : rand() * 0.4;
+    const twinkle = rand() < 0.3;
     bgStars.push({
       pos: [r * sq * Math.cos(phi), r * u, r * sq * Math.sin(phi)],
       size: (0.04 + rand() * 0.06) * WORLD_SCALE,
+      magnitude,
+      twinkle,
+      twinklePhase: twinkle ? rand() * Math.PI * 2 : 0,
     });
   }
 
