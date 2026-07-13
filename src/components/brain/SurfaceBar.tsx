@@ -283,6 +283,9 @@ export function SurfaceBar({
           axis: seg.axis,
           length: seg.length,
           wallCollider: {
+            rightOffset: rightOffset + seg.rightOffset,
+            forwardOffset: forwardOffset + seg.forwardOffset,
+            upOffset: WALL_H / 2,
             halfRight: seg.axis === 'x' ? seg.length / 2 : WALL_T / 2,
             halfForward: seg.axis === 'z' ? seg.length / 2 : WALL_T / 2,
             halfUp: WALL_H / 2,
