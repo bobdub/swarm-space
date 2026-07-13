@@ -15,10 +15,13 @@ import { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
+  FEET_SHELL_RADIUS,
   getEarthPose,
   getEarthLocalSiteFrame,
   earthLocalToWorld,
+  worldDisplacementToEarthLocal,
 } from '@/lib/brain/earth';
+import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { listWallColliders, type WallColliderSpec } from '@/lib/brain/wallColliders';
 
 const AVATAR_R = 0.35; // horizontal capsule radius
@@ -51,12 +54,17 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
   right: Vec3;
   up: Vec3;
   forward: Vec3;
+  groundRadius: number;
 } {
   const pose = getEarthPose();
   const origin: Vec3 = [pose.center[0], pose.center[1], pose.center[2]];
   const rel = sub(bodyPos, origin);
   const rLen = Math.hypot(rel[0], rel[1], rel[2]) || 1;
   const up: Vec3 = [rel[0] / rLen, rel[1] / rLen, rel[2] / rLen];
+  const local = worldDisplacementToEarthLocal(rel, pose);
+  const localLen = Math.hypot(local[0], local[1], local[2]) || 1;
+  const localNormal: Vec3 = [local[0] / localLen, local[1] / localLen, local[2] / localLen];
+  const groundRadius = FEET_SHELL_RADIUS + sampleSurfaceLift(localNormal);
   const lf = getEarthLocalSiteFrame(anchorPeerId);
   const fwdW = earthLocalToWorld(lf.forward, pose);
   let forward: Vec3 = [
@@ -66,7 +74,7 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
   forward = [forward[0] - up[0] * d, forward[1] - up[1] * d, forward[2] - up[2] * d];
   forward = norm(forward);
   const right: Vec3 = cross(up, forward);
-  return { origin, right, up, forward };
+  return { origin, right, up, forward, groundRadius };
 }
 
 export function WallCollisionTicker({ selfId }: { selfId: string }) {
@@ -100,7 +108,12 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
       const rel = sub(bodyPos, basis.origin);
       let rL = dot(rel, basis.right);
       let fL = dot(rel, basis.forward);
-      const uL = dot(rel, basis.up);
+      // Colliders store `upOffset` in metres above local visible ground,
+      // not absolute radius from Earth's centre. The previous comparison
+      // used the full ~1700m Earth radius here, so vertical overlap was
+      // always false and the avatar could phase through every wall.
+      const radialL = dot(rel, basis.up);
+      const uL = radialL - basis.groundRadius;
 
       // Resolve strongest overlap first for stability.
       const overlaps = specs.map((c) => {
@@ -159,9 +172,9 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
 
       if (Math.abs(totalDR) > EPS || Math.abs(totalDF) > EPS) {
         // Write corrected position back to world using the same basis.
-        body.pos[0] = basis.origin[0] + basis.right[0] * rL + basis.up[0] * uL + basis.forward[0] * fL;
-        body.pos[1] = basis.origin[1] + basis.right[1] * rL + basis.up[1] * uL + basis.forward[1] * fL;
-        body.pos[2] = basis.origin[2] + basis.right[2] * rL + basis.up[2] * uL + basis.forward[2] * fL;
+        body.pos[0] = basis.origin[0] + basis.right[0] * rL + basis.up[0] * radialL + basis.forward[0] * fL;
+        body.pos[1] = basis.origin[1] + basis.right[1] * rL + basis.up[1] * radialL + basis.forward[1] * fL;
+        body.pos[2] = basis.origin[2] + basis.right[2] * rL + basis.up[2] * radialL + basis.forward[2] * fL;
         totalDR = 0;
         totalDF = 0;
       }
