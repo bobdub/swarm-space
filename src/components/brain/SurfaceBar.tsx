@@ -280,6 +280,7 @@ export function SurfaceBar({
         mass: 40,
         basin: SEG_BASIN,
         meta: {
+          builderBlockId: blockId,
           axis: seg.axis,
           length: seg.length,
           wallCollider: {
