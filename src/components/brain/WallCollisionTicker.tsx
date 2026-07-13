@@ -20,6 +20,7 @@ import {
   worldDisplacementToEarthLocal,
 } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { listWallColliders, type WallColliderSpec } from '@/lib/brain/wallColliders';
 
 const AVATAR_R = 0.35; // horizontal capsule radius
@@ -114,6 +115,30 @@ function siteBasis(anchorPeerId: string, bodyPos: Vec3): {
   return { origin, right, up, forward, groundRadius };
 }
 
+function listActiveWallColliders(): WallColliderSpec[] {
+  const fromRegistry = Array.from(listWallColliders());
+  const seen = new Set(fromRegistry.map((c) => c.id));
+  const fromBlocks = getBuilderBlockEngine()
+    .listBlocks((block) => block.kind === 'bar-wall')
+    .flatMap((block): WallColliderSpec[] => {
+      const collider = block.meta.wallCollider as Partial<Pick<WallColliderSpec, 'halfRight' | 'halfForward' | 'halfUp'>> | undefined;
+      if (!collider || seen.has(block.id)) return [];
+      const { halfRight, halfForward, halfUp } = collider;
+      if (!Number.isFinite(halfRight) || !Number.isFinite(halfForward) || !Number.isFinite(halfUp)) return [];
+      return [{
+        id: block.id,
+        anchorPeerId: block.anchorPeerId,
+        rightOffset: block.rightOffset,
+        forwardOffset: block.forwardOffset,
+        upOffset: block.upOffset,
+        halfRight: halfRight as number,
+        halfForward: halfForward as number,
+        halfUp: halfUp as number,
+      }];
+    });
+  return [...fromRegistry, ...fromBlocks];
+}
+
 export function WallCollisionTicker({ selfId }: { selfId: string }) {
   const physics = useMemo(() => getBrainPhysics(), []);
   const previousPos = useRef<Vec3 | null>(null);
@@ -124,7 +149,7 @@ export function WallCollisionTicker({ selfId }: { selfId: string }) {
     return physics.subscribe(() => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const colliders = listWallColliders();
+      const colliders = listActiveWallColliders();
       if (colliders.length === 0) {
         previousPos.current = [body.pos[0], body.pos[1], body.pos[2]];
         return;
