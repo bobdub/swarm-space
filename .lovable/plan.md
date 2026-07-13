@@ -1,130 +1,72 @@
-# Move the Bar Lights switch onto the bar wall by the door
+
+# High-end Starfield + Bloom/Anamorphic Streaks (scoped to /brain)
+
+Note on stack: this project is React Three Fiber (not A-Frame), so `<a-sky>` and `aframe-effects` don't apply. Equivalent capability is delivered with `@react-three/postprocessing` + custom shader stars.
 
 ## Goal
-Relocate the working "Bar Lights: ON/OFF" toggle from its fixed
-bottom-left screen corner onto the south wall of the bar, next to the
-doorway. Nothing else changes — same store, same toggle behaviour, same
-label, same on/off styling. Just a new position.
+Make the existing background starfield in the `/brain` scene look cinematic — high density, per-star magnitude variation, subtle flicker on some / steady on others, and a bloom pass that produces horizontal anamorphic streaks on the brightest stars, layered so the glow bleeds over foreground silhouettes (skyscrapers/bar/trees) while sitting behind the galaxy arms and nebula.
 
-## Why the naive approach ("render a 3D mesh, use R3F onClick") is
-## rejected
+## Scope (what will and will not change)
+Will change:
+- `src/components/brain/StarField.tsx` — upgrade to shader points with per-star magnitude, twinkle flag, and HDR emissive color so bloom can select them.
+- `src/components/brain/BrainUniverseScene.tsx` — add a single `<EffectComposer>` wrapping post passes (Bloom + custom anamorphic streak). Toggleable via a scene-local flag.
+- `src/lib/brain/galaxy.ts` — extend `BgStar` with `magnitude: number` and `twinkle: boolean` (deterministic from the existing PRNG; no seed change → same layout, just richer metadata).
+- `package.json` — add `@react-three/postprocessing` at the version compatible with R3F v8 / three 0.160 (`^2.16.x`) and its peer `postprocessing` (`^6.35.x`). No other dep changes.
 
-The existing button's own header comment (`src/components/brain/BarLightSwitchButton.tsx:1-10`) explains
-that the switch is **deliberately a plain DOM element** because in-canvas
-raycast clicks in this scene are unreliable — orbit controls, pointer
-lock, invisible colliders and the avatar's own click handlers all
-compete for the pointer. Turning it into a `<mesh onClick>` inside the
-WebGL canvas would break the "100% guaranteed to work" requirement on
-day one. Any plan that puts the switch inside the R3F scene graph fails
-the user's brief.
+Will NOT change: galaxy layout, seed, star count target for the named 120 stars, `GalaxyVisual`, `AtmosphereSky`, Earth, physics field, routes, or anything outside the files above.
 
-## The plan — keep it DOM, pin it to a world-space anchor
+## Design
 
-Use `@react-three/drei`'s `<Html>` helper (already a project
-dependency, `package.json:50`). `<Html>` renders arbitrary DOM as a
-child of a Three.js group and reprojects it to screen coordinates each
-frame using the live camera. The DOM node itself is a normal HTML
-button — clicks go through the standard DOM path, not raycasts — so
-reliability is identical to today.
+### 1. Data (galaxy.ts)
+- `BgStar` gains `magnitude: 0..1` (skewed so ~5% are bright ≥0.85, ~20% mid, rest dim) and `twinkle: boolean` (~30%). Deterministic via the existing `mulberry32` stream so nothing else shifts.
+- Optionally bump `GALAXY_BG_STAR_COUNT` from 3000 to 6000 behind a `HIGH_DENSITY_STARS` constant so density is a one-line change and easy to revert.
 
-Anchor the `<Html>` group to a point on the south wall (the wall
-containing the doorway), just to the right of the opening, at
-switch-plate height. In `SurfaceBar`'s local frame (see
-`src/components/brain/SurfaceBar.tsx:20-31`, `98-107`):
+### 2. StarField shader
+Replace the current `PointsMaterial` with a small `ShaderMaterial` on `THREE.Points`:
+- Attributes: `position`, `size`, `magnitude`, `twinklePhase` (0 for steady stars).
+- Uniforms: `uTime`, `uPixelRatio`, `uBrightBoost`.
+- Vertex: size = `size * pixelRatio * (1 + magnitude*2)`; brightness = `magnitude`, modulated by `sin(uTime*rate + phase)` only when `twinklePhase > 0` (so "some flickering, some steady").
+- Fragment: soft round disc with a small radial core; output `vec4(color * intensity, alpha)`. Bright stars emit color >1.0 (HDR) so the Bloom threshold picks them cleanly; dim stars stay under threshold and don't bloom.
+- Blending: `AdditiveBlending`, `depthWrite=false`. Parallax behavior (points follow camera x/z) preserved from current implementation.
 
-- The south wall is at `z = -HALF_D` (= -10 m).
-- The doorway is centred at `x = 0` with half-width `DOOR_HALF = 1.4`.
-- The wall runs from `x = +DOOR_HALF` to `x = +HALF_W` on the right of
-  the door.
-
-The anchor point is:
+### 3. Post pipeline (BrainUniverseScene.tsx)
+Add once, near the end of the Canvas children (post passes must be siblings of the scene, inside Canvas):
 
 ```
-localX = DOOR_HALF + 0.4       // 40 cm right of the door frame
-localY = 1.3                   // ~switch-plate height above floor
-localZ = -HALF_D + WALL_T/2 + 0.01  // flush with the interior face
+<EffectComposer multisampling={0} disableNormalPass>
+  <Bloom
+    intensity={0.9}
+    luminanceThreshold={0.85}
+    luminanceSmoothing={0.2}
+    mipmapBlur
+    radius={0.6}
+  />
+  <AnamorphicStreak strength={0.7} length={0.35} threshold={0.9} />
+</EffectComposer>
 ```
 
-This is then transformed into world space through the same tangent-
-frame helper already used by `BuilderBlockView` — we do **not** compute
-it ourselves; we reuse the existing block placement pattern so the
-switch tracks the bar exactly like the wall segments and sign already
-do.
+- `Bloom` gives the omnidirectional glow that bleeds over skyscraper/bar/tree edges (that's just how a screen-space bloom composites — no extra layering work).
+- `AnamorphicStreak` is a tiny custom `Effect` (postprocessing's `Effect` class) implementing a horizontal-only blur of the bright-pass texture, added on top. This is the "anamorphic horizontal lens flare" look. Kept as one file: `src/components/brain/postfx/AnamorphicStreak.ts` (new file, isolated).
 
-## Concrete changes (only these files)
+### 4. Layering ("composite" behind nebula, in front of skyscrapers)
+Because Bloom is a screen-space post pass, glow naturally bleeds over foreground silhouettes — no compositing hack needed. The stars themselves are drawn first (`renderOrder = -2`) so they read as behind the galaxy visual and any nebula sprites (`renderOrder = -1`).
 
-### 1. `src/components/brain/BarLightSwitchButton.tsx`
-Add an **optional** `variant` prop:
-
-- `variant="overlay"` (default) — unchanged behaviour, keeps existing
-  fixed-position styles. Existing tests
-  (`src/components/brain/__tests__/BarLightSwitchButton.test.tsx`) keep
-  passing untouched.
-- `variant="wall"` — same button, but with `position: 'static'` and
-  slightly smaller padding so it sits nicely as a wall plate. Same
-  click handler, same store call, same label, same on/off colours.
-
-No existing call site is modified; only a new prop is added with a
-backwards-compatible default.
-
-### 2. `src/components/brain/SurfaceBar.tsx`
-Inside the existing return, add one new `<BuilderBlockView>` (or reuse
-the roof block's local frame — same pattern as `Doorway lintel` at
-`src/components/brain/SurfaceBar.tsx:349-356`) that wraps a drei
-`<Html>` positioned at the local coordinates above, with
-`transform occlude={false} distanceFactor={8}` so the DOM plate scales
-with distance but is always clickable (drei `<Html>` uses a real DOM
-overlay, not raycasting). Inside the `<Html>`:
-
-```tsx
-<BarLightSwitchButton variant="wall" />
-```
-
-That's it. The button component is reused verbatim; only its container
-changes.
-
-### 3. `src/pages/BrainUniverse.tsx`
-Remove the single line at `src/pages/BrainUniverse.tsx:22`
-(`<BarLightSwitchButton />`) and its import at line 10. The switch now
-lives inside `SurfaceBar` and is anchored to the wall.
-
-Nothing else in this file is touched.
-
-## Why this is 100% guaranteed to work
-
-1. The button component itself is not rewritten — its click handler,
-   its `toggleBarLights()` call, its store subscription, and its
-   existing unit tests all remain byte-for-byte identical on the
-   default `variant="overlay"` path. The `variant="wall"` path only
-   changes CSS positioning, not behaviour.
-2. drei `<Html>` renders the button as **real DOM outside the canvas**.
-   Clicks are handled by the browser's normal event system, so the
-   "raycast/orbit-control swallows the click" failure mode called out
-   in the button's own comment cannot occur.
-3. The anchor uses the same `BuilderBlockView` local frame the doorway
-   lintel already uses, so its world position is derived from the bar's
-   existing pose — no new math, no new transforms, no drift risk.
-4. If `SurfaceBar` is not mounted (e.g. the bar has despawned), the
-   switch is simply absent — the same behaviour as today when the DOM
-   overlay is removed from `BrainUniverse.tsx`. No orphan state.
+### 5. Perf guardrails
+- Composer is created once; passes memoized. Threshold at 0.85 means only the brightest ~5% pixels contribute → cheap on mobile.
+- `multisampling={0}` (post already anti-aliases via mipmapBlur).
+- Feature-gate: `const ENABLE_POST_FX = !isMobile` (uses existing `useIsMobile`) so mobile keeps current fps.
+- Star count bump lives behind `HIGH_DENSITY_STARS` — easy to dial back if fps regresses.
 
 ## Verification
+1. `bun run build` and `tsgo` on the 3 touched files pass.
+2. Visit `/brain`: bright stars show soft halos and horizontal streaks; dim stars remain crisp pinpricks; ~30% of stars gently flicker.
+3. Move camera near a skyscraper against a bright star — halo bleeds over its silhouette.
+4. Galaxy arms and nebula still render in front of the background starfield.
+5. Toggle `ENABLE_POST_FX` off → scene matches current look exactly (safety fallback).
 
-After the change:
-
-1. `bun run build` and run `BarLightSwitchButton.test.tsx` — must pass
-   unchanged (they exercise `variant="overlay"`).
-2. Launch `/brain`, walk up to the bar's south wall, click the plate to
-   the right of the door — bar lights toggle, and the label flips
-   between "ON" and "OFF" exactly as before.
-3. Confirm the fixed bottom-left overlay is gone (no duplicate switch).
-4. Move the camera around; confirm the plate stays visually attached
-   to that wall spot (drei `<Html>` projection).
+## Technical notes
+- Package versions pinned for R3F v8 compatibility: `@react-three/postprocessing@^2.16.0`, `postprocessing@^6.35.0`. Any newer major requires R3F v9 / React 19 and must not be installed.
+- No changes to physics, field pins, WORLD_SCALE, or `GalaxyVisual`. The bright named stars in `GalaxyVisual` will also bloom naturally because they use `MeshStandardMaterial` with `emissiveIntensity=1.4` — this is the intended "glow bleeds over skyscraper edges" behavior and requires no code there.
 
 ## Out of scope
-
-- No changes to `barLightsStore`, lighting logic, `SurfaceBar` walls,
-  furniture, sign, doorway, physics, or any other file.
-- No visual redesign of the button beyond the minimal `variant="wall"`
-  layout tweak needed to sit on a wall.
-- No new dependencies (`@react-three/drei` is already installed).
+Nebula assets, HDR skybox, lens dirt textures, screen-space god rays, and A-Frame-specific tooling. Can be follow-ups if you want them.
