@@ -6,6 +6,7 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
+import { addWallCollider, removeWallCollider } from '@/lib/brain/wallColliders';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -280,6 +281,19 @@ export function SurfaceBar({
         basin: SEG_BASIN,
         meta: { axis: seg.axis, length: seg.length },
       });
+      // Avatar-scale AABB collider so the local avatar cannot phase
+      // through this wall segment. Doorway is already absent from
+      // buildSegments(), so it stays open automatically.
+      addWallCollider({
+        id: blockId,
+        anchorPeerId,
+        rightOffset: rightOffset + seg.rightOffset,
+        forwardOffset: forwardOffset + seg.forwardOffset,
+        upOffset: WALL_H / 2,
+        halfRight: seg.axis === 'x' ? seg.length / 2 : WALL_T / 2,
+        halfForward: seg.axis === 'z' ? seg.length / 2 : WALL_T / 2,
+        halfUp: WALL_H / 2,
+      });
     }
     engine.placeBlock({
       id: roofBlockId,
@@ -317,7 +331,10 @@ export function SurfaceBar({
       meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
     });
     return () => {
-      for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
+      for (const { blockId } of blocks) {
+        engine.removeBlock(blockId, 'bar-wall');
+        removeWallCollider(blockId);
+      }
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
       engine.removeBlock(signBlockId, 'bar-sign');
