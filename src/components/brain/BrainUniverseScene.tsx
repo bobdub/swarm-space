@@ -2057,6 +2057,19 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
+
+        {!isMobile && (
+          <EffectComposer multisampling={0} disableNormalPass>
+            <Bloom
+              intensity={0.9}
+              luminanceThreshold={0.85}
+              luminanceSmoothing={0.2}
+              mipmapBlur
+              radius={0.6}
+            />
+            <AnamorphicStreak strength={0.7} length={0.35} threshold={0.9} />
+          </EffectComposer>
+        )}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
