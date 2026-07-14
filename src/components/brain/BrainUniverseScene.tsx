@@ -44,13 +44,10 @@ import { InfinityBody } from '@/components/brain/InfinityBody';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
-import { AnamorphicStreak } from '@/components/brain/postfx/AnamorphicStreakPass';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
-import { WallCollisionTicker } from '@/components/brain/WallCollisionTicker';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
@@ -2056,22 +2053,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         ))}
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
-        {selfId && <WallCollisionTicker selfId={selfId} />}
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
-
-        {!isMobile && (
-          <EffectComposer multisampling={0}>
-            <Bloom
-              intensity={0.9}
-              luminanceThreshold={0.85}
-              luminanceSmoothing={0.2}
-              mipmapBlur
-              radius={0.6}
-            />
-            <AnamorphicStreak strength={0.7} length={0.35} threshold={0.9} />
-          </EffectComposer>
-        )}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
