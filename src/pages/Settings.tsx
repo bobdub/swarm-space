@@ -85,58 +85,14 @@ const Settings = () => {
       navigate("/auth?redirect=/settings");
     }
   }, [user, navigate]);
-  const {
-    state: walkthroughState,
-    start: startWalkthrough,
-    resume: resumeWalkthrough,
-    reset: resetWalkthrough,
-  } = useWalkthrough();
-  const walkthroughCompletedSteps = walkthroughState.completedSteps.filter(
-    (step) => step !== "done",
+  const [loadingPriority, setLoadingPriorityState] = useState<LoadingPriority>(
+    () => getLoadingPriority(),
   );
-  const totalWalkthroughSteps = WALKTHROUGH_STEPS.filter((step) => step !== "done").length;
-  const isWalkthroughDone = walkthroughState.currentStep === "done";
-  const walkthroughButtonLabel = walkthroughState.isActive
-    ? "Walkthrough active"
-    : isWalkthroughDone
-      ? "Restart walkthrough"
-      : walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed
-        ? "Resume walkthrough"
-        : "Start walkthrough";
-  const walkthroughStatusMessage = walkthroughState.isActive
-    ? "The walkthrough is currently open."
-    : isWalkthroughDone
-      ? "You’ve completed the walkthrough. Restart it to see the tour again."
-      : walkthroughCompletedSteps.length > 0
-        ? `You’ve finished ${walkthroughCompletedSteps.length} of ${totalWalkthroughSteps} steps. Resume to continue where you left off.`
-        : "Start the guided tour to explore Swarm Space's key features.";
-
-  const handleLaunchWalkthrough = useCallback(() => {
-    if (walkthroughState.isActive) {
-      return;
-    }
-
-    if (isWalkthroughDone) {
-      resetWalkthrough();
-      startWalkthrough();
-      return;
-    }
-
-    if (walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed) {
-      resumeWalkthrough();
-      return;
-    }
-
-    startWalkthrough();
-  }, [
-    isWalkthroughDone,
-    resetWalkthrough,
-    startWalkthrough,
-    resumeWalkthrough,
-    walkthroughCompletedSteps.length,
-    walkthroughState.isActive,
-    walkthroughState.isDismissed,
-  ]);
+  const handleSelectLoadingPriority = useCallback((next: LoadingPriority) => {
+    setLoadingPriorityState(next);
+    setLoadingPriority(next);
+    toast.success(`Loading priority set to ${next === 'p2p' ? 'P2P / Swarm' : next.charAt(0).toUpperCase() + next.slice(1)}. Applies on next page load.`);
+  }, []);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
