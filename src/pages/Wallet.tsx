@@ -24,7 +24,13 @@ import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
 import { deployProfileToken, getUserProfileToken } from "@/lib/blockchain/profileToken";
 import type { NFTMetadata, MiningSession, CreatorToken } from "@/lib/blockchain/types";
-import { CREATOR_TOKEN_DEPLOY_COST, CREATOR_TOKEN_MAX_SUPPLY } from "@/lib/blockchain/types";
+import {
+  CREATOR_TOKEN_DEPLOY_COST,
+  CREATOR_TOKEN_MAX_SUPPLY,
+  CREATOR_TOKEN_SWARM_DEPLOY_COST,
+  CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION,
+  CREATOR_TOKEN_INITIAL_CREATOR_SEED,
+} from "@/lib/blockchain/types";
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
