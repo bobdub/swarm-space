@@ -1248,6 +1248,7 @@ const Profile = () => {
 
               {user?.id === ENTITY_USER_ID && (
                 <TabsContent value="brain" className="mt-8">
+                  {null}
                   <div className="rounded-3xl border border-[hsla(180,80%,60%,0.25)] bg-gradient-to-br from-[hsla(265,70%,12%,0.7)] to-[hsla(180,70%,15%,0.5)] p-8 backdrop-blur-xl">
                     <h3 className="text-2xl font-display uppercase tracking-[0.18em] text-foreground">
                       🧠 Brain Universe
