@@ -547,7 +547,7 @@ export default function Wallet() {
                     <h3 className="text-lg font-semibold mb-2">Deploy Your Creator Token</h3>
                     <p className="text-muted-foreground mb-6">
                       Create your own token with a max supply of {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens.
-                      Costs {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits.
+                      Costs {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM.
                     </p>
                     <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
                       <DialogTrigger asChild>
@@ -575,10 +575,34 @@ export default function Wallet() {
                           </div>
                           <div className="p-3 border rounded-lg bg-muted/50">
                             <p className="text-sm text-muted-foreground">
-                              Deployment cost: <span className="font-bold text-foreground">{CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits</span>
+                              Deployment cost:{" "}
+                              <span className="font-bold text-foreground">
+                                {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
+                              </span>
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
-                              Max supply: <span className="font-bold text-foreground">{CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens</span>
+                              Max supply:{" "}
+                              <span className="font-bold text-foreground">
+                                {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens
+                              </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Unlock schedule:{" "}
+                              <span className="font-medium text-foreground">
+                                {Math.round(CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION * 100)}%
+                              </span>{" "}
+                              ({Math.floor(CREATOR_TOKEN_MAX_SUPPLY * CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION).toLocaleString()}{" "}
+                              tokens) unlocked at deployment · remaining{" "}
+                              {Math.round((1 - CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION) * 100)}%
+                              unlocks as you earn credits.
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              First sale: the {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM fee seeds your vault
+                              (40 / 40 / 15 / 5 split) and mints{" "}
+                              <span className="font-medium text-foreground">
+                                {CREATOR_TOKEN_INITIAL_CREATOR_SEED} tokens
+                              </span>{" "}
+                              into your wallet.
                             </p>
                           </div>
                           <Button
@@ -586,7 +610,7 @@ export default function Wallet() {
                             className="w-full"
                             disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
                           >
-                            Deploy Token ({CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits)
+                            Deploy Token ({CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM)
                           </Button>
                         </div>
                       </DialogContent>
