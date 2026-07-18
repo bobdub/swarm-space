@@ -160,19 +160,11 @@ export async function buyCreatorTokens(params: {
   if (tokens <= 0 || !Number.isFinite(tokens)) {
     throw new Error("Token amount must be positive");
   }
-  const token = await get<{ tokenId: string; userId: string; ticker: string; name: string }>(
-    "profileTokens",
-    // profileTokens is keyed by userId under `id`, but stored with the token record too.
-    // Fall back through storage helper if lookup fails.
-    tokenId,
-  );
-  // The profileTokens store is keyed by userId (see storage.ts), so scan for the tokenId.
+  // profileTokens store is keyed by userId, so scan by tokenId.
   const allTokens = await getAll<{ tokenId: string; userId: string; ticker: string; name: string }>(
     "profileTokens",
   );
-  const record = token && (token as { tokenId?: string }).tokenId === tokenId
-    ? token
-    : allTokens.find((t) => t.tokenId === tokenId);
+  const record = allTokens.find((t) => t.tokenId === tokenId);
   if (!record) throw new Error("Creator Token not found");
 
   const creatorId = record.userId;
