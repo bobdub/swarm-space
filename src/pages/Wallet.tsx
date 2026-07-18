@@ -23,6 +23,7 @@ import { getUserNFTs } from "@/lib/blockchain/nft";
 import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
 import { deployProfileToken, getUserProfileToken } from "@/lib/blockchain/profileToken";
+import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
 import type { NFTMetadata, MiningSession, CreatorToken } from "@/lib/blockchain/types";
 import {
   CREATOR_TOKEN_DEPLOY_COST,
