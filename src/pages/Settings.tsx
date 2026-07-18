@@ -614,7 +614,19 @@ const Settings = () => {
                     );
                   })}
                 </div>
-                <p className="text-xs text-foreground/50">Applies on next page load.</p>
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <p className="text-xs text-foreground/50">
+                    Save to start the next load with your new priority.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={handleSaveLoadingPriority}
+                    className="gap-2"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {loadingPriority === savedLoadingPriority ? "Reload" : "Save & reload"}
+                  </Button>
+                </div>
               </Card>
             </TabsContent>
 
