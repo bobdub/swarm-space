@@ -326,14 +326,15 @@ export default function Wallet() {
 
         {/* Tabs */}
         <Tabs defaultValue="transactions" className="space-y-6">
-          <TabsList className="flex w-full overflow-x-auto">
-            <TabsTrigger value="transactions" className="flex-1 min-w-0">Ledger</TabsTrigger>
-            <TabsTrigger value="credits" className="flex-1 min-w-0">Credits</TabsTrigger>
-            <TabsTrigger value="swap" className="flex-1 min-w-0">Swap</TabsTrigger>
-            <TabsTrigger value="nfts" className="flex-1 min-w-0">NFTs</TabsTrigger>
-            <TabsTrigger value="mining" className="flex-1 min-w-0">Mining</TabsTrigger>
-            <TabsTrigger value="creator-token" className="flex-1 min-w-0">Creator</TabsTrigger>
-            <TabsTrigger value="coins" className="flex-1 min-w-0">Coins</TabsTrigger>
+          <TabsList className="grid grid-cols-4 sm:grid-cols-8 gap-1 h-auto w-full">
+            <TabsTrigger value="transactions" className="min-w-0">Ledger</TabsTrigger>
+            <TabsTrigger value="credits" className="min-w-0">Credits</TabsTrigger>
+            <TabsTrigger value="nfts" className="min-w-0">NFTs</TabsTrigger>
+            <TabsTrigger value="mining" className="min-w-0">Mining</TabsTrigger>
+            <TabsTrigger value="swap" className="min-w-0">Swap</TabsTrigger>
+            <TabsTrigger value="creator-token" className="min-w-0">Creator</TabsTrigger>
+            <TabsTrigger value="coins" className="min-w-0">Coins</TabsTrigger>
+            <TabsTrigger value="market" className="min-w-0">Market</TabsTrigger>
           </TabsList>
 
           {/* ── Transactions / Ledger ─────────────────────────────── */}
