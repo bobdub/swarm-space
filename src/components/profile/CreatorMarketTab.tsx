@@ -77,6 +77,10 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const sellQuote = useMemo(() => quoteSell(vault, sellN), [vault, sellN]);
   const ladder = useMemo(() => ladderState(vault), [vault]);
   const currentPrice = priceAtSupply(vault?.circulatingSupply ?? 0);
+  const unlockedSupply = token?.supply ?? 0;
+  const circulating = vault?.circulatingSupply ?? 0;
+  const availableForSale = Math.max(0, unlockedSupply - circulating);
+  const buyExceedsAvailable = buyN > availableForSale;
 
   const handleBuy = async () => {
     if (!viewerId || !token || buyN <= 0) return;
@@ -179,6 +183,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard icon={<TrendingUp className="h-4 w-4" />} label="Circulating" value={fmt(v?.circulatingSupply ?? 0, 2)} />
+        <StatCard
+          icon={<Coins className="h-4 w-4" />}
+          label="Available for Sale"
+          value={`${fmt(availableForSale, 2)} / ${fmt(unlockedSupply, 0)}`}
+        />
         <StatCard icon={<Coins className="h-4 w-4" />} label="Vault Total" value={`${fmt(v?.totalDeposited ?? 0, 2)} SWARM`} />
         <StatCard icon={<Shield className="h-4 w-4" />} label="Stability Floor" value={`${fmt(v?.stabilityFloor ?? 0, 2)} SWARM`} />
         <StatCard icon={<Users className="h-4 w-4" />} label="Community" value={`${fmt(v?.communityContributed ?? 0, 2)} SWARM`} />
@@ -226,10 +235,15 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
           <div role="form" className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
             <div className="font-display uppercase tracking-[0.2em] text-foreground">Buy {token.ticker}</div>
             <div className="text-xs text-foreground/60">Your SWARM: {fmt(swarm, 4)}</div>
+            <div className="text-[10px] uppercase tracking-widest text-foreground/50">
+              Market has {fmt(availableForSale, 2)} {token.ticker} unlocked · {fmt(unlockedSupply, 0)}/
+              {token.maxSupply.toLocaleString()} total supply unlocked
+            </div>
             <Input
               type="number"
               inputMode="decimal"
               min={0}
+              max={availableForSale}
               value={buyAmount}
               onChange={(e) => setBuyAmount(e.target.value)}
               placeholder="Tokens to buy"
@@ -241,10 +255,14 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             <Button
               type="button"
               onClick={handleBuy}
-              disabled={busy || buyN <= 0 || buyQuote.cost > swarm}
+              disabled={busy || buyN <= 0 || buyQuote.cost > swarm || buyExceedsAvailable}
               className="w-full"
             >
-              {buyQuote.cost > swarm ? "Insufficient SWARM" : `Buy ${buyN || 0} ${token.ticker}`}
+              {buyExceedsAvailable
+                ? `Only ${fmt(availableForSale, 2)} available`
+                : buyQuote.cost > swarm
+                  ? "Insufficient SWARM"
+                  : `Buy ${buyN || 0} ${token.ticker}`}
             </Button>
           </div>
 
