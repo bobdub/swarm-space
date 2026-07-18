@@ -44,13 +44,17 @@ import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
 import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
-import { useWalkthrough } from "@/contexts/WalkthroughContext";
-import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
+import {
+  getLoadingPriority,
+  setLoadingPriority,
+  LOADING_PRIORITY_OPTIONS,
+  type LoadingPriority,
+} from "@/lib/settings/loadingPriority";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
