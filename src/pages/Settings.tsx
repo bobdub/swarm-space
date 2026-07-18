@@ -88,11 +88,21 @@ const Settings = () => {
   const [loadingPriority, setLoadingPriorityState] = useState<LoadingPriority>(
     () => getLoadingPriority(),
   );
+  const [savedLoadingPriority, setSavedLoadingPriority] = useState<LoadingPriority>(
+    () => getLoadingPriority(),
+  );
   const handleSelectLoadingPriority = useCallback((next: LoadingPriority) => {
     setLoadingPriorityState(next);
     setLoadingPriority(next);
-    toast.success(`Loading priority set to ${next === 'p2p' ? 'P2P / Swarm' : next.charAt(0).toUpperCase() + next.slice(1)}. Applies on next page load.`);
   }, []);
+  const handleSaveLoadingPriority = useCallback(() => {
+    setLoadingPriority(loadingPriority);
+    setSavedLoadingPriority(loadingPriority);
+    toast.success("Saved — reloading with new priority…");
+    setTimeout(() => {
+      if (typeof window !== 'undefined') window.location.reload();
+    }, 400);
+  }, [loadingPriority]);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
@@ -604,7 +614,19 @@ const Settings = () => {
                     );
                   })}
                 </div>
-                <p className="text-xs text-foreground/50">Applies on next page load.</p>
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <p className="text-xs text-foreground/50">
+                    Save to start the next load with your new priority.
+                  </p>
+                  <Button
+                    type="button"
+                    onClick={handleSaveLoadingPriority}
+                    className="gap-2"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {loadingPriority === savedLoadingPriority ? "Reload" : "Save & reload"}
+                  </Button>
+                </div>
               </Card>
             </TabsContent>
 
