@@ -162,7 +162,7 @@ export async function buyCreatorTokens(params: {
     throw new Error("Token amount must be positive");
   }
   // profileTokens store is keyed by userId, so scan by tokenId.
-  const allTokens = await getAll<{ tokenId: string; userId: string; ticker: string; name: string }>(
+  const allTokens = await getAll<{ tokenId: string; userId: string; ticker: string; name: string; supply: number; maxSupply: number }>(
     "profileTokens",
   );
   const record = allTokens.find((t) => t.tokenId === tokenId);
@@ -170,6 +170,17 @@ export async function buyCreatorTokens(params: {
 
   const creatorId = record.userId;
   const vault = await ensureCreatorVault(tokenId, creatorId);
+
+  // Align market availability with the token's unlocked supply. Sales cannot
+  // exceed what the creator has unlocked (40% at deploy + credit-earned unlocks).
+  const unlocked = Math.max(0, (record.supply ?? 0) - vault.circulatingSupply);
+  if (tokens > unlocked) {
+    throw new Error(
+      `Only ${unlocked.toLocaleString(undefined, { maximumFractionDigits: 2 })} ` +
+        `${record.ticker} available on the market right now. ` +
+        `More unlock as the creator earns credits.`,
+    );
+  }
 
   const cost = integratedBuyCost(vault.circulatingSupply, tokens);
 
