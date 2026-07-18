@@ -65,6 +65,7 @@ import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archi
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 import { getTestMode } from '@/lib/p2p/testMode.standalone';
 import { useAuthReady } from '@/hooks/useAuthReady';
+import { getLoadingPriority } from '@/lib/settings/loadingPriority';
 
 async function notifyAchievements(event: AchievementEvent): Promise<void> {
   try {
