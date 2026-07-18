@@ -627,6 +627,11 @@ export default function Wallet() {
           <TabsContent value="coins">
             <CoinDeploymentPanel />
           </TabsContent>
+
+          {/* ── Market ────────────────────────────────────────────── */}
+          <TabsContent value="market">
+            <CoinMarketTab />
+          </TabsContent>
         </Tabs>
       </div>
     </>
