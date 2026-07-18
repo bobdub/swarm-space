@@ -1,6 +1,12 @@
 // Creator Token Deployment on SWARM blockchain
 // One per account, max 10,000 supply, costs 1,000 credits
-import { CreatorToken, SwarmTransaction, CREATOR_TOKEN_MAX_SUPPLY, CREATOR_TOKEN_DEPLOY_COST } from "./types";
+import {
+  CreatorToken,
+  SwarmTransaction,
+  CREATOR_TOKEN_MAX_SUPPLY,
+  CREATOR_TOKEN_DEPLOY_COST,
+  CREATOR_TOKEN_SWARM_DEPLOY_COST,
+} from "./types";
 // Keep ProfileToken alias for backward compat
 import type { ProfileToken } from "./types";
 import { getSwarmChain } from "./chain";
@@ -22,6 +28,15 @@ export async function deployProfileToken(params: {
     throw new Error(`Insufficient credits. Need ${CREATOR_TOKEN_DEPLOY_COST} credits to deploy a Creator Token.`);
   }
 
+  // Check SWARM balance for the market-launch fee
+  const { getSwarmBalance, burnSwarm } = await import("./token");
+  const swarmBalance = await getSwarmBalance(params.userId);
+  if (swarmBalance < CREATOR_TOKEN_SWARM_DEPLOY_COST) {
+    throw new Error(
+      `Insufficient SWARM. Need ${CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM to launch the token market.`,
+    );
+  }
+
   // Check if user already has a profile token
   const existing = await getProfileToken(params.userId);
 
@@ -36,6 +51,34 @@ export async function deployProfileToken(params: {
 
   // Deduct deployment cost
   await deductCredits(params.userId, CREATOR_TOKEN_DEPLOY_COST, "Creator Token Deployment");
+  // Burn 50 SWARM to launch the market — routed to the community pool below.
+  await burnSwarm({
+    from: params.userId,
+    amount: CREATOR_TOKEN_SWARM_DEPLOY_COST,
+    reason: "Creator Token market launch fee",
+  });
+  try {
+    const { getRewardPool, saveRewardPool } = await import("./storage");
+    let pool = await getRewardPool();
+    if (!pool) {
+      pool = {
+        id: "global",
+        balance: 0,
+        totalContributed: 0,
+        lastUpdated: new Date().toISOString(),
+        contributors: {},
+      };
+    }
+    if (!pool.contributors) pool.contributors = {};
+    pool.balance += CREATOR_TOKEN_SWARM_DEPLOY_COST;
+    pool.totalContributed += CREATOR_TOKEN_SWARM_DEPLOY_COST;
+    pool.contributors[params.userId] =
+      (pool.contributors[params.userId] || 0) + CREATOR_TOKEN_SWARM_DEPLOY_COST;
+    pool.lastUpdated = new Date().toISOString();
+    await saveRewardPool(pool);
+  } catch (err) {
+    console.warn("[CreatorToken] Pool contribution failed:", err);
+  }
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
@@ -96,6 +139,10 @@ export async function deployProfileToken(params: {
   // Record deployment state for gradual unlock
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
+
+  // Initialize the Creator Vault so the market page has a backing store
+  const { ensureCreatorVault } = await import("./creatorVault");
+  await ensureCreatorVault(tokenId, params.userId);
 
   console.log(`[CreatorToken] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
 
