@@ -53,8 +53,8 @@ import { BlogPostCard } from "@/components/BlogPostCard";
 import { ENTITY_USER_ID, ENTITY_DISPLAY_NAME } from "@/lib/p2p/entityVoice";
 import { Brain } from "lucide-react";
 
-type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "brain";
-const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files", "brain"];
+type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "market" | "brain";
+const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files", "market", "brain"];
 
 type CreditNotificationEventDetail = {
   direction: "sent" | "received";
