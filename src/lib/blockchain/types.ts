@@ -38,7 +38,13 @@ export type TransactionType =
   | "creator_token_buy"
   | "creator_token_sell"
   | "creator_token_earnings_withdraw"
-  | "creator_vault_split";
+  | "creator_vault_split"
+  | "coin_market_list"
+  | "coin_market_reserve"
+  | "coin_market_confirm_payment"
+  | "coin_market_settle"
+  | "coin_market_cancel"
+  | "coin_market_dispute";
 
 export interface SwarmTransaction {
   id: string;
@@ -278,6 +284,51 @@ export const POOL_SURPLUS_REQUIREMENT = 1;
 
 /** Network pool mining tax (5%) — also seeds empty coins into pool */
 export const POOL_MINING_TAX = 0.05;
+
+// ── Coin Market — real-currency P2P sales of mined SWARM coins ─────────
+
+export type CoinMarketCurrency = "ETH" | "BTC" | "MINTME";
+
+export type CoinListingStatus =
+  | "open"
+  | "reserved"
+  | "paid"
+  | "settled"
+  | "cancelled"
+  | "disputed";
+
+export interface CoinListing {
+  listingId: string;
+  sellerId: string;
+  coinId: string;
+  askAmount: number;
+  askCurrency: CoinMarketCurrency;
+  receivingAddress: string;
+  memo?: string;
+  status: CoinListingStatus;
+  buyerId?: string;
+  paymentTxHash?: string;
+  reservedAt?: string;
+  paidAt?: string;
+  settledAt?: string;
+  tier: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Coin Market tier gates keyed on synced community-pool balance. */
+export const COIN_MARKET_TIERS: Array<{
+  tier: number;
+  label: string;
+  poolMinimum: number;
+  maxOpenListings: number;
+}> = [
+  { tier: 1, label: "Seed",     poolMinimum: 0,      maxOpenListings: 1 },
+  { tier: 2, label: "Growing",  poolMinimum: 100,    maxOpenListings: 5 },
+  { tier: 3, label: "Active",   poolMinimum: 500,    maxOpenListings: 25 },
+  { tier: 4, label: "Vibrant",  poolMinimum: 2_500,  maxOpenListings: 100 },
+  { tier: 5, label: "Open",     poolMinimum: 10_000, maxOpenListings: Infinity },
+];
 
 // ── Literal Wrap Constants ─────────────────────────────────────────────
 
