@@ -88,11 +88,21 @@ const Settings = () => {
   const [loadingPriority, setLoadingPriorityState] = useState<LoadingPriority>(
     () => getLoadingPriority(),
   );
+  const [savedLoadingPriority, setSavedLoadingPriority] = useState<LoadingPriority>(
+    () => getLoadingPriority(),
+  );
   const handleSelectLoadingPriority = useCallback((next: LoadingPriority) => {
     setLoadingPriorityState(next);
     setLoadingPriority(next);
-    toast.success(`Loading priority set to ${next === 'p2p' ? 'P2P / Swarm' : next.charAt(0).toUpperCase() + next.slice(1)}. Applies on next page load.`);
   }, []);
+  const handleSaveLoadingPriority = useCallback(() => {
+    setLoadingPriority(loadingPriority);
+    setSavedLoadingPriority(loadingPriority);
+    toast.success("Saved — reloading with new priority…");
+    setTimeout(() => {
+      if (typeof window !== 'undefined') window.location.reload();
+    }, 400);
+  }, [loadingPriority]);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
