@@ -1,130 +1,114 @@
-# Move the Bar Lights switch onto the bar wall by the door
+# Profile User Markets — Creator Token Marketplace
 
-## Goal
-Relocate the working "Bar Lights: ON/OFF" toggle from its fixed
-bottom-left screen corner onto the south wall of the bar, next to the
-doorway. Nothing else changes — same store, same toggle behaviour, same
-label, same on/off styling. Just a new position.
+Adds a **Market** tab to every profile that opens the creator's personal token storefront, backed by a Creator Vault with a 40/40/15/5 allocation and a Buyback Ladder.
 
-## Why the naive approach ("render a 3D mesh, use R3F onClick") is
-## rejected
+## 1. Deployment change (Token Launcher)
 
-The existing button's own header comment (`src/components/brain/BarLightSwitchButton.tsx:1-10`) explains
-that the switch is **deliberately a plain DOM element** because in-canvas
-raycast clicks in this scene are unreliable — orbit controls, pointer
-lock, invisible colliders and the avatar's own click handlers all
-compete for the pointer. Turning it into a `<mesh onClick>` inside the
-WebGL canvas would break the "100% guaranteed to work" requirement on
-day one. Any plan that puts the switch inside the R3F scene graph fails
-the user's brief.
+Update the existing Creator Token deployment flow (single token per profile, already deployed via `deployProfileToken`) with a new dual cost:
 
-## The plan — keep it DOM, pin it to a world-space anchor
+- **Fee:** 50 SWARM (new) + existing credit deployment cost (currently 1,000 credits — configurable).
+- Both are checked and deducted atomically before token creation.
+- On failure of either, roll back and surface the shortfall clearly.
+- Constant: `CREATOR_TOKEN_SWARM_DEPLOY_COST = 50` in `src/lib/blockchain/types.ts`.
 
-Use `@react-three/drei`'s `<Html>` helper (already a project
-dependency, `package.json:50`). `<Html>` renders arbitrary DOM as a
-child of a Three.js group and reprojects it to screen coordinates each
-frame using the live camera. The DOM node itself is a normal HTML
-button — clicks go through the standard DOM path, not raycasts — so
-reliability is identical to today.
+No changes to token identity, ticker rules, or single-token-per-profile constraint.
 
-Anchor the `<Html>` group to a point on the south wall (the wall
-containing the doorway), just to the right of the opening, at
-switch-plate height. In `SurfaceBar`'s local frame (see
-`src/components/brain/SurfaceBar.tsx:20-31`, `98-107`):
+## 2. Creator Vault
 
-- The south wall is at `z = -HALF_D` (= -10 m).
-- The doorway is centred at `x = 0` with half-width `DOOR_HALF = 1.4`.
-- The wall runs from `x = +DOOR_HALF` to `x = +HALF_W` on the right of
-  the door.
-
-The anchor point is:
+Each Creator Token gets one vault, created at deployment. New IndexedDB store `creatorVaults` keyed by `tokenId`:
 
 ```
-localX = DOOR_HALF + 0.4       // 40 cm right of the door frame
-localY = 1.3                   // ~switch-plate height above floor
-localZ = -HALF_D + WALL_T/2 + 0.01  // flush with the interior face
+{ tokenId, creatorUserId,
+  buybackReserve, stabilityFloor, creatorEarnings, communityContributed,
+  totalDeposited, lifetimeBuybacks, currentTier, updatedAt }
 ```
 
-This is then transformed into world space through the same tangent-
-frame helper already used by `BuilderBlockView` — we do **not** compute
-it ourselves; we reuse the existing block placement pattern so the
-switch tracks the bar exactly like the wall segments and sign already
-do.
+Every purchase deposits into the vault and is **split automatically**:
 
-## Concrete changes (only these files)
+| Bucket | Share |
+|---|---|
+| Buyback Reserve (liquid circulation) | 40% |
+| Stability Floor (protected liquidity) | 40% |
+| Creator Earnings (withdrawable) | 15% |
+| Community Pool (routes to existing SWARM Community Pool) | 5% |
 
-### 1. `src/components/brain/BarLightSwitchButton.tsx`
-Add an **optional** `variant` prop:
+Guardrails: totals reconcile to 100% ± 1 base unit; splits done in integer base units to avoid drift; every split is a `SwarmTransaction` for auditability.
 
-- `variant="overlay"` (default) — unchanged behaviour, keeps existing
-  fixed-position styles. Existing tests
-  (`src/components/brain/__tests__/BarLightSwitchButton.test.tsx`) keep
-  passing untouched.
-- `variant="wall"` — same button, but with `position: 'static'` and
-  slightly smaller padding so it sits nicely as a wall plate. Same
-  click handler, same store call, same label, same on/off colours.
+## 3. Pricing & purchases
 
-No existing call site is modified; only a new prop is added with a
-backwards-compatible default.
+- Purchase currencies accepted: SWARM and any SWARM-deployed coin (uses existing `coinSpend`).
+- Creator Tokens are **not** spendable as currency — buy-only, plus optional sell-back via the Buyback Ladder.
+- **Price formula (bonding curve, deterministic):**
+  `price = basePrice + k * circulatingSupply`, with `basePrice = 0.1 SWARM`, `k = 0.001` (both configurable). Circulating supply = tokens ever purchased − tokens sold back.
+- Purchase pipeline:
+  1. Compute integrated cost across `n` tokens (closed-form sum).
+  2. Debit buyer wallet in chosen currency (converted to SWARM base units for accounting via existing conversion helpers).
+  3. Credit tokens to buyer via `addProfileTokens`.
+  4. Split deposit 40/40/15/5 into vault buckets.
+  5. Recompute `currentTier` (see Buyback Ladder).
+  6. Emit `creator_token_buy` transaction.
 
-### 2. `src/components/brain/SurfaceBar.tsx`
-Inside the existing return, add one new `<BuilderBlockView>` (or reuse
-the roof block's local frame — same pattern as `Doorway lintel` at
-`src/components/brain/SurfaceBar.tsx:349-356`) that wraps a drei
-`<Html>` positioned at the local coordinates above, with
-`transform occlude={false} distanceFactor={8}` so the DOM plate scales
-with distance but is always clickable (drei `<Html>` uses a real DOM
-overlay, not raycasting). Inside the `<Html>`:
+## 4. Buyback Ladder
 
-```tsx
-<BarLightSwitchButton variant="wall" />
-```
+Only the **Buyback Reserve** bucket funds buybacks. Ladder has 5 tiers, each unlocking a share of the reserve:
 
-That's it. The button component is reused verbatim; only its container
-changes.
+| Tier | Unlocked share of reserve | Meaning |
+|---|---|---|
+| T1 | 10% | Baseline support |
+| T2 | 25% | Rising confidence |
+| T3 | 45% | Strong support |
+| T4 | 70% | High confidence |
+| T5 | 90% | Maximum support (never 100%) |
 
-### 3. `src/pages/BrainUniverse.tsx`
-Remove the single line at `src/pages/BrainUniverse.tsx:22`
-(`<BarLightSwitchButton />`) and its import at line 10. The switch now
-lives inside `SurfaceBar` and is anchored to the wall.
+- Active tier is derived from vault size vs. lifetime deposits: `currentTier = highest tier whose threshold ≤ buybackReserve / max(totalDeposited, ε)`.
+- Sell-back price = `min(currentBondingPrice, buybackReserve * tierShare / offeredTokens)`.
+- A single sell can never draw more than the current tier's unlocked share, and reserve can never be fully drained (hard floor: `buybackReserve >= 5% of totalDeposited`).
 
-Nothing else in this file is touched.
+## 5. Stability Floor
 
-## Why this is 100% guaranteed to work
+The second 40% bucket is **protected** — never spent by buyback logic, only displayed. It backs long-term confidence and shows on the market page as "Stability Floor".
 
-1. The button component itself is not rewritten — its click handler,
-   its `toggleBarLights()` call, its store subscription, and its
-   existing unit tests all remain byte-for-byte identical on the
-   default `variant="overlay"` path. The `variant="wall"` path only
-   changes CSS positioning, not behaviour.
-2. drei `<Html>` renders the button as **real DOM outside the canvas**.
-   Clicks are handled by the browser's normal event system, so the
-   "raycast/orbit-control swallows the click" failure mode called out
-   in the button's own comment cannot occur.
-3. The anchor uses the same `BuilderBlockView` local frame the doorway
-   lintel already uses, so its world position is derived from the bar's
-   existing pose — no new math, no new transforms, no drift risk.
-4. If `SurfaceBar` is not mounted (e.g. the bar has despawned), the
-   switch is simply absent — the same behaviour as today when the DOM
-   overlay is removed from `BrainUniverse.tsx`. No orphan state.
+## 6. Creator Earnings
 
-## Verification
+15% flows to `creatorEarnings`. Creator can withdraw to their SWARM wallet from the Market page; withdrawal emits `creator_token_earnings_withdraw` and decrements the bucket. No lock-up beyond existing platform rules.
 
-After the change:
+## 7. Community Pool
 
-1. `bun run build` and run `BarLightSwitchButton.test.tsx` — must pass
-   unchanged (they exercise `variant="overlay"`).
-2. Launch `/brain`, walk up to the bar's south wall, click the plate to
-   the right of the door — bar lights toggle, and the label flips
-   between "ON" and "OFF" exactly as before.
-3. Confirm the fixed bottom-left overlay is gone (no duplicate switch).
-4. Move the camera around; confirm the plate stays visually attached
-   to that wall spot (drei `<Html>` projection).
+5% routes into the existing SWARM Community Pool via the current pool deposit helper. Vault records `communityContributed` for display only.
 
-## Out of scope
+## 8. Profile Market tab
 
-- No changes to `barLightsStore`, lighting logic, `SurfaceBar` walls,
-  furniture, sign, doorway, physics, or any other file.
-- No visual redesign of the button beyond the minimal `variant="wall"`
-  layout tweak needed to sit on a wall.
-- No new dependencies (`@react-three/drei` is already installed).
+Add sixth tab `market` to `src/pages/Profile.tsx` tab list, after Files. New component `src/components/profile/CreatorMarketTab.tsx` renders:
+
+- Header: token name, ticker, image, creator description (from token metadata).
+- Stats grid: current price, total supply, circulating supply, vault balance, current buyback tier, stability floor, creator earnings, community contributed.
+- **Buy** panel (currency selector: SWARM / user's coins; amount input; live cost preview).
+- **Sell** panel (visible when tier ≥ T1 and user holds tokens; shows current buyback quote).
+- Buyback ladder visualization (5-step progress bar with active tier highlighted, share % labeled).
+- Recent transactions list (last 20 vault txs).
+- Holder statistics (top 10 holders by amount, total holder count).
+- Empty state when creator has not deployed a token — CTA to Token Launcher for own profile; friendly notice for visitors.
+
+## 9. Files touched
+
+- `src/lib/blockchain/types.ts` — add SWARM deploy cost, vault types, tx types.
+- `src/lib/blockchain/profileToken.ts` — dual-cost deployment, vault init.
+- `src/lib/blockchain/creatorVault.ts` (new) — vault storage, split, buy/sell, tier, withdraw.
+- `src/lib/blockchain/storage.ts` + `src/lib/store.ts` — new `creatorVaults` store (DB version bump, non-destructive per project rules).
+- `src/components/profile/CreatorMarketTab.tsx` (new) — market UI.
+- `src/components/profile/CreatorBuybackLadder.tsx` (new) — ladder viz.
+- `src/pages/Profile.tsx` — new tab + content.
+- `src/components/wallet/CoinDeploymentPanel.tsx` (or profile token deployment UI) — surface new 50 SWARM cost.
+
+## 10. Verification
+
+- Unit tests for split math (40/40/15/5 reconciliation to integer base units) and tier thresholds.
+- Buy → sell round-trip test: reserve never drains below 5% floor; stability floor untouched.
+- Playwright: visit another user's profile, open Market tab, confirm stats render and Buy panel validates balance.
+- `bun run build` clean.
+
+## Technical notes
+
+- All state is offline-first in IndexedDB; vault mutations broadcast through existing blockchain recorder so P2P peers converge.
+- Uses existing `coinSpend`, `addProfileTokens`, `getSwarmChain`, and community pool helpers — no new external dependencies.
+- Follows project rules: `<div role="form">`/`<button type="button">`, no destructive DB upgrades, no new AudioContexts, no CAPTCHA.

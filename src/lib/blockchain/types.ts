@@ -34,7 +34,11 @@ export type TransactionType =
   | "token_extract"
   | "post_lock"
   | "post_unlock"
-  | "post_extract_payments";
+  | "post_extract_payments"
+  | "creator_token_buy"
+  | "creator_token_sell"
+  | "creator_token_earnings_withdraw"
+  | "creator_vault_split";
 
 export interface SwarmTransaction {
   id: string;
@@ -184,6 +188,61 @@ export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 /** Creator token deployment cost in credits */
 export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
 
+/** Additional SWARM cost to deploy a Creator Token (goes to community pool) */
+export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 50;
+
+// ── Creator Vault Constants ────────────────────────────────────────────
+/** Fraction of each purchase routed to the buyback reserve (liquid) */
+export const CREATOR_VAULT_BUYBACK_SHARE = 0.40;
+/** Fraction routed to the protected stability floor */
+export const CREATOR_VAULT_STABILITY_SHARE = 0.40;
+/** Fraction routed to withdrawable creator earnings */
+export const CREATOR_VAULT_CREATOR_SHARE = 0.15;
+/** Fraction routed to the SWARM community pool */
+export const CREATOR_VAULT_COMMUNITY_SHARE = 0.05;
+
+/** Bonding-curve base price (SWARM per token) */
+export const CREATOR_TOKEN_BASE_PRICE = 0.1;
+/** Bonding-curve slope */
+export const CREATOR_TOKEN_PRICE_SLOPE = 0.001;
+
+/** Fraction of totalDeposited that must remain in buyback reserve at all times */
+export const CREATOR_VAULT_HARD_FLOOR = 0.05;
+
+/**
+ * Buyback ladder tiers. Each unlocks a share of the buyback reserve.
+ * A tier is "active" when buybackReserve / max(totalDeposited, ε) crosses its threshold.
+ */
+export const CREATOR_BUYBACK_LADDER: Array<{
+  tier: number;
+  label: string;
+  threshold: number; // reserve/totalDeposited ratio required
+  unlockShare: number; // portion of reserve spendable per sell
+}> = [
+  { tier: 1, label: "Baseline", threshold: 0.05, unlockShare: 0.10 },
+  { tier: 2, label: "Rising", threshold: 0.15, unlockShare: 0.25 },
+  { tier: 3, label: "Strong", threshold: 0.25, unlockShare: 0.45 },
+  { tier: 4, label: "High", threshold: 0.35, unlockShare: 0.70 },
+  { tier: 5, label: "Maximum", threshold: 0.45, unlockShare: 0.90 },
+];
+
+/**
+ * Creator Vault — backs a Creator Token's marketplace.
+ * Every purchase splits 40/40/15/5 into these buckets.
+ */
+export interface CreatorVault {
+  tokenId: string;
+  creatorUserId: string;
+  buybackReserve: number;      // 40% — liquid, funds buybacks
+  stabilityFloor: number;      // 40% — protected, never spent
+  creatorEarnings: number;     // 15% — withdrawable by creator
+  communityContributed: number;// 5% — forwarded to community pool (display only)
+  totalDeposited: number;      // lifetime SWARM in
+  lifetimeBuybacks: number;    // lifetime SWARM paid out via sell-back
+  circulatingSupply: number;   // tokens purchased − tokens sold back
+  currentTier: number;         // 0 (none) … 5
+  updatedAt: string;
+}
 /** Coin deployment cost in SWARM */
 export const COIN_DEPLOY_COST = 10_000;
 
