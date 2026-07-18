@@ -553,13 +553,9 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
   const [, force] = useState(0);
   // Tick the layer at ~10 Hz so React reconciles new position props
   // periodically. Individual RemoteAvatarBody children already lerp
-  // toward their target every frame, so we do NOT need to re-render
-  // the whole layer at 60 fps — that was burning ~1 full render pass
-  // per frame and was a large idle-CPU regression on mobile.
-  useFrame((_state, _dt, _xr) => {
-    // no-op keeper: presence sync effect above owns updates; the
-    // 10 Hz interval below drives visual lerp target refresh.
-  });
+  // toward their target every frame, so re-rendering the whole layer
+  // at 60 fps (previous useFrame) was burning a full render pass per
+  // frame and was a large idle-CPU regression on mobile.
   useEffect(() => {
     const id = window.setInterval(() => force((n) => (n + 1) & 0xfff), 100);
     return () => window.clearInterval(id);
