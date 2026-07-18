@@ -191,6 +191,19 @@ export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
 /** Additional SWARM cost to deploy a Creator Token (goes to community pool) */
 export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 50;
 
+/**
+ * Fraction of a Creator Token's max supply that is unlocked and marketable at
+ * deployment. The remaining share unlocks gradually as the creator earns credits
+ * (see `profileTokenUnlock.ts`). Used to align market availability with supply.
+ */
+export const CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION = 0.4;
+
+/**
+ * Number of tokens the vault seeds to the creator on deployment as the first
+ * "sale", backed by the 50 SWARM deployment fee.
+ */
+export const CREATOR_TOKEN_INITIAL_CREATOR_SEED = 100;
+
 // ── Creator Vault Constants ────────────────────────────────────────────
 /** Fraction of each purchase routed to the buyback reserve (liquid) */
 export const CREATOR_VAULT_BUYBACK_SHARE = 0.40;
