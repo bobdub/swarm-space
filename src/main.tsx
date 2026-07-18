@@ -1,8 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { getLoadingPriority } from "./lib/settings/loadingPriority";
 // Render immediately — defer all background services to idle time
 createRoot(document.getElementById("root")!).render(<App />);
+
+const __loadingPriority = getLoadingPriority();
+console.log(`[main] Loading priority: ${__loadingPriority}`);
 
 // ── Deferred boot tasks (run after first paint) ──
 const scheduleIdle = (fn: () => void) => {
@@ -109,8 +113,15 @@ scheduleIdle(() => {
 
 });
 
-// Global presence registry remains eager, but mesh/network start is now owned
-// solely by useP2P behind the unified auth-ready gate.
-setTimeout(() => {
-  import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
-}, 0);
+// Global presence registry — timing follows the user's loading priority.
+// mesh/network start itself is still owned by useP2P behind the unified
+// auth-ready gate.
+{
+  const globalCellDelay =
+    __loadingPriority === 'p2p' ? 0
+    : __loadingPriority === 'social' ? 2000
+    : 0;
+  setTimeout(() => {
+    import('./lib/p2p/globalCell').then(m => m.getGlobalCell().start()).catch(() => {});
+  }, globalCellDelay);
+}

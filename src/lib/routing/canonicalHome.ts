@@ -7,12 +7,13 @@
  * "/profile" again.
  */
 import type { UserMeta } from "@/lib/auth";
+import { preferredMemberHome } from "@/lib/settings/loadingPriority";
 
 export const GUEST_HOME = "/";
 export const MEMBER_HOME = "/brain";
 
 export function getCanonicalHome(user: UserMeta | null | undefined): string {
-  return user ? MEMBER_HOME : GUEST_HOME;
+  return user ? preferredMemberHome() : GUEST_HOME;
 }
 
 /**

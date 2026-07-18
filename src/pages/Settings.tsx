@@ -44,13 +44,17 @@ import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
 import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
-import { useWalkthrough } from "@/contexts/WalkthroughContext";
-import { WALKTHROUGH_STEPS } from "@/lib/onboarding/constants";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
+import {
+  getLoadingPriority,
+  setLoadingPriority,
+  LOADING_PRIORITY_OPTIONS,
+  type LoadingPriority,
+} from "@/lib/settings/loadingPriority";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -81,58 +85,14 @@ const Settings = () => {
       navigate("/auth?redirect=/settings");
     }
   }, [user, navigate]);
-  const {
-    state: walkthroughState,
-    start: startWalkthrough,
-    resume: resumeWalkthrough,
-    reset: resetWalkthrough,
-  } = useWalkthrough();
-  const walkthroughCompletedSteps = walkthroughState.completedSteps.filter(
-    (step) => step !== "done",
+  const [loadingPriority, setLoadingPriorityState] = useState<LoadingPriority>(
+    () => getLoadingPriority(),
   );
-  const totalWalkthroughSteps = WALKTHROUGH_STEPS.filter((step) => step !== "done").length;
-  const isWalkthroughDone = walkthroughState.currentStep === "done";
-  const walkthroughButtonLabel = walkthroughState.isActive
-    ? "Walkthrough active"
-    : isWalkthroughDone
-      ? "Restart walkthrough"
-      : walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed
-        ? "Resume walkthrough"
-        : "Start walkthrough";
-  const walkthroughStatusMessage = walkthroughState.isActive
-    ? "The walkthrough is currently open."
-    : isWalkthroughDone
-      ? "You’ve completed the walkthrough. Restart it to see the tour again."
-      : walkthroughCompletedSteps.length > 0
-        ? `You’ve finished ${walkthroughCompletedSteps.length} of ${totalWalkthroughSteps} steps. Resume to continue where you left off.`
-        : "Start the guided tour to explore Swarm Space's key features.";
-
-  const handleLaunchWalkthrough = useCallback(() => {
-    if (walkthroughState.isActive) {
-      return;
-    }
-
-    if (isWalkthroughDone) {
-      resetWalkthrough();
-      startWalkthrough();
-      return;
-    }
-
-    if (walkthroughCompletedSteps.length > 0 || walkthroughState.isDismissed) {
-      resumeWalkthrough();
-      return;
-    }
-
-    startWalkthrough();
-  }, [
-    isWalkthroughDone,
-    resetWalkthrough,
-    startWalkthrough,
-    resumeWalkthrough,
-    walkthroughCompletedSteps.length,
-    walkthroughState.isActive,
-    walkthroughState.isDismissed,
-  ]);
+  const handleSelectLoadingPriority = useCallback((next: LoadingPriority) => {
+    setLoadingPriorityState(next);
+    setLoadingPriority(next);
+    toast.success(`Loading priority set to ${next === 'p2p' ? 'P2P / Swarm' : next.charAt(0).toUpperCase() + next.slice(1)}. Applies on next page load.`);
+  }, []);
 
   const loadBlockedUsers = useCallback(async () => {
     if (!user) {
@@ -605,23 +565,46 @@ const Settings = () => {
               </Card>
 
               <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold">Imagination walkthrough</h2>
+                <div className="flex items-start gap-3">
+                  <Sparkles className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-bold">Prioritize loading</h2>
                     <p className="text-sm text-foreground/60">
-                      Reopen the guided tour whenever you want a refresher.
+                      Choose what Swarm Space loads first when you open the app.
                     </p>
                   </div>
-                  <Button
-                    className="w-full gap-2 sm:w-auto"
-                    onClick={handleLaunchWalkthrough}
-                    disabled={walkthroughState.isActive}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {walkthroughButtonLabel}
-                  </Button>
                 </div>
-                <p className="text-xs text-foreground/50">{walkthroughStatusMessage}</p>
+                <div role="radiogroup" aria-label="Loading priority" className="space-y-2">
+                  {LOADING_PRIORITY_OPTIONS.map((opt) => {
+                    const selected = loadingPriority === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => handleSelectLoadingPriority(opt.value)}
+                        className={`w-full text-left rounded-2xl border p-4 transition ${
+                          selected
+                            ? "border-accent bg-accent/10"
+                            : "border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.35)] hover:border-accent/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold">{opt.label}</span>
+                          <span
+                            aria-hidden
+                            className={`h-4 w-4 rounded-full border-2 ${
+                              selected ? "border-accent bg-accent" : "border-foreground/40"
+                            }`}
+                          />
+                        </div>
+                        <p className="mt-1 text-xs text-foreground/60">{opt.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-foreground/50">Applies on next page load.</p>
               </Card>
             </TabsContent>
 
