@@ -23,6 +23,7 @@ import {
   getProfileTokenHolding,
   saveProfileTokenHolding,
 } from "./profileTokenBalance";
+import { emitCoinFill } from "./coin.bus";
 
 const VAULT_STORE = "creatorVaults";
 
@@ -250,6 +251,13 @@ export async function buyCreatorTokens(params: {
     split: { buyback, stability, creator, community },
   });
 
+  // Publish onto the scaffold bus so the coin sub-Q and labour ledger
+  // reflect vault activity (the vault used to be silent on the bus,
+  // which made its health invisible to AppHealth spikes).
+  try {
+    emitCoinFill({ coinId: `creator:${tokenId}`, ownerId: creatorId, delta: Math.min(1, cost * 0.01) });
+  } catch { /* bus is best-effort */ }
+
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
   }
@@ -306,6 +314,12 @@ export async function sellCreatorTokens(params: {
     tokens,
     tier,
   });
+
+  // Sell drains the buyback reserve — surface it on the bus as a
+  // negative-ish fill so coin health tracks reserve depletion.
+  try {
+    emitCoinFill({ coinId: `creator:${tokenId}`, ownerId: vault.creatorUserId, delta: -Math.min(1, proceeds * 0.01) });
+  } catch { /* bus is best-effort */ }
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));

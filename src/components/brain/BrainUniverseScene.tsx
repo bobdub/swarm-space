@@ -551,8 +551,15 @@ function BodyLayer({
 function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string; pv?: number }[] }) {
   const physics = getBrainPhysics();
   const [, force] = useState(0);
-  // Tick the layer each animation frame so positions stay live.
-  useFrame(() => force((n) => (n + 1) & 0xfff));
+  // Tick the layer at ~10 Hz so React reconciles new position props
+  // periodically. Individual RemoteAvatarBody children already lerp
+  // toward their target every frame, so re-rendering the whole layer
+  // at 60 fps (previous useFrame) was burning a full render pass per
+  // frame and was a large idle-CPU regression on mobile.
+  useEffect(() => {
+    const id = window.setInterval(() => force((n) => (n + 1) & 0xfff), 100);
+    return () => window.clearInterval(id);
+  }, []);
   return (
     <>
       {peers.map((p) => {
