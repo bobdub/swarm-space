@@ -1246,6 +1246,16 @@ const Profile = () => {
                 )}
               </TabsContent>
 
+              <TabsContent value="market" className="mt-8">
+                {user && (
+                  <CreatorMarketTab
+                    profileUserId={user.id}
+                    isOwnProfile={isOwnProfile}
+                    viewerId={currentUser?.id ?? null}
+                  />
+                )}
+              </TabsContent>
+
               {user?.id === ENTITY_USER_ID && (
                 <TabsContent value="brain" className="mt-8">
                   <div className="rounded-3xl border border-[hsla(180,80%,60%,0.25)] bg-gradient-to-br from-[hsla(265,70%,12%,0.7)] to-[hsla(180,70%,15%,0.5)] p-8 backdrop-blur-xl">
