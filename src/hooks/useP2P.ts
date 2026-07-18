@@ -1095,6 +1095,20 @@ export function useP2P() {
       setFeatureFlag('swarmMeshMode', expectedSwarm);
     }
 
+    // Loading priority controls how eagerly we auto-enable P2P.
+    // - p2p:    immediate (recommended for linked servers)
+    // - gaming: immediate (existing behaviour)
+    // - social: defer to idle so local content paints first
+    const priority = getLoadingPriority();
+    if (priority === 'social') {
+      const run = () => { void enableP2P(); };
+      if (typeof requestIdleCallback === 'function') {
+        const id = requestIdleCallback(run, { timeout: 3000 });
+        return () => { try { cancelIdleCallback(id); } catch { /* ignore */ } };
+      }
+      const timer = setTimeout(run, 1500);
+      return () => clearTimeout(timer);
+    }
     void enableP2P();
   }, [authIsReady, readyUser?.id, connectionState.enabled, connectionState.mode, enableP2P]);
 
