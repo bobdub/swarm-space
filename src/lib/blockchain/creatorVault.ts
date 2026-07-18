@@ -2,6 +2,7 @@
 // Splits every purchase 40/40/15/5, enforces the Buyback Ladder,
 // and lets the creator withdraw earnings.
 import { get, put, getAll } from "../store";
+// `get` is used by getCreatorVault below.
 import {
   CreatorVault,
   SwarmTransaction,
