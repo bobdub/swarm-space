@@ -198,6 +198,10 @@ export interface RewardPoolData {
   totalContributed: number;
   lastUpdated: string;
   contributors: Record<string, number>; // userId -> total donated
+  /** ISO timestamp of the last chain-derived recompute or peer sync. */
+  lastSyncedAt?: string;
+  /** Height of the last block folded into this snapshot. */
+  lastTxHeight?: number;
 }
 
 export async function getRewardPool(): Promise<RewardPoolData | null> {
@@ -218,4 +222,82 @@ export async function saveRewardPool(pool: RewardPoolData): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+}
+
+/**
+ * Derive the community pool from the SWARM ledger. This is the authoritative
+ * computation — all peers with the same ledger produce the same pool.
+ *
+ * Included flows (all increment):
+ *   • coin_deploy — 5 000 SWARM to the pool (meta.poolContribution)
+ *   • pool_donate — full amount
+ *   • credit_lock — full amount (credits wrapped into SWARM)
+ *   • post_lock — walled-post fee minus content coin (meta.poolContribution)
+ *   • creator_vault_split — 5% community share (meta.communityShare)
+ *   • mining_reward — 5% tax (meta.poolTax) if present
+ */
+export async function derivePoolFromChain(): Promise<RewardPoolData> {
+  // Local import to avoid a cycle at module init.
+  const { getSwarmChain } = await import("./chain");
+  const chain = getSwarmChain();
+  const blocks = chain.getChain();
+
+  const contributors: Record<string, number> = {};
+  let balance = 0;
+  let totalContributed = 0;
+  let lastTxHeight = 0;
+
+  for (const block of blocks) {
+    lastTxHeight = Math.max(lastTxHeight, block.index);
+    for (const tx of block.transactions ?? []) {
+      const meta = (tx.meta ?? {}) as Record<string, unknown>;
+      let delta = 0;
+      switch (tx.type) {
+        case "coin_deploy":
+          delta = Number(meta.poolContribution ?? 0);
+          break;
+        case "pool_donate":
+          delta = Number(tx.amount ?? 0);
+          break;
+        case "credit_lock":
+          delta = Number(tx.amount ?? 0);
+          break;
+        case "post_lock":
+          delta = Number(meta.poolContribution ?? 0);
+          break;
+        case "creator_vault_split":
+          delta = Number(meta.communityShare ?? 0);
+          break;
+        case "mining_reward":
+          delta = Number(meta.poolTax ?? 0);
+          break;
+        default:
+          delta = 0;
+      }
+      if (!isFinite(delta) || delta <= 0) continue;
+      balance += delta;
+      totalContributed += delta;
+      if (tx.from && tx.from !== "system") {
+        contributors[tx.from] = (contributors[tx.from] ?? 0) + delta;
+      }
+    }
+  }
+
+  const now = new Date().toISOString();
+  const pool: RewardPoolData = {
+    id: "global",
+    balance: Math.round(balance * 1e6) / 1e6,
+    totalContributed: Math.round(totalContributed * 1e6) / 1e6,
+    contributors,
+    lastUpdated: now,
+    lastSyncedAt: now,
+    lastTxHeight,
+  };
+  await saveRewardPool(pool);
+  try {
+    window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
+  } catch {
+    /* non-browser */
+  }
+  return pool;
 }
