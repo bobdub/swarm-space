@@ -367,6 +367,14 @@ export async function openDB(): Promise<IDBDatabase> {
         const vaultStore = db.createObjectStore("creatorVaults", { keyPath: "tokenId" });
         vaultStore.createIndex("creatorUserId", "creatorUserId", { unique: false });
       }
+
+      // Coin Market — peer-to-peer sale listings for mined SWARM coins
+      if (!db.objectStoreNames.contains("coinListings")) {
+        const listingStore = db.createObjectStore("coinListings", { keyPath: "listingId" });
+        listingStore.createIndex("sellerId", "sellerId", { unique: false });
+        listingStore.createIndex("status", "status", { unique: false });
+        listingStore.createIndex("askCurrency", "askCurrency", { unique: false });
+      }
     };
     
     req.onsuccess = () => {
