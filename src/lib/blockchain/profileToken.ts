@@ -234,7 +234,61 @@ export async function mintProfileToken(params: {
 }
 
 export async function getUserProfileToken(userId: string): Promise<CreatorToken | null> {
-  return getProfileToken(userId);
+  const token = await getProfileToken(userId);
+  if (!token) return null;
+  // Legacy migration: tokens deployed before Creator Vaults existed have no
+  // vault and often have supply=0 (old semantics tracked mint count). Waive
+  // the 50 SWARM fee for these users and back-fill:
+  //   • ensure a vault exists (empty — no deposits since fee was never paid)
+  //   • lift `supply` to the 40% initial unlock so the market has stock
+  //   • seed the creator's balance with the 100-token creator seed if empty
+  try {
+    const { getCreatorVault, ensureCreatorVault, saveCreatorVault, computeTier } =
+      await import("./creatorVault");
+    const existingVault = await getCreatorVault(token.tokenId);
+    if (!existingVault) {
+      const vault = await ensureCreatorVault(token.tokenId, token.userId);
+      const initialUnlock = Math.floor(
+        CREATOR_TOKEN_MAX_SUPPLY * CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION,
+      );
+      let changed = false;
+      if (!token.supply || token.supply < initialUnlock) {
+        token.supply = Math.max(token.supply || 0, initialUnlock);
+        changed = true;
+      }
+      if (changed) {
+        await saveProfileToken(token);
+      }
+      // Seed creator with 100 tokens if they don't hold any of their own token
+      try {
+        const { getProfileTokenHolding, addProfileTokens } = await import(
+          "./profileTokenBalance"
+        );
+        const held = await getProfileTokenHolding(token.userId, token.tokenId);
+        if (!held || held.amount <= 0) {
+          await addProfileTokens({
+            userId: token.userId,
+            tokenId: token.tokenId,
+            ticker: token.ticker,
+            creatorUserId: token.userId,
+            amount: CREATOR_TOKEN_INITIAL_CREATOR_SEED,
+          });
+          vault.circulatingSupply += CREATOR_TOKEN_INITIAL_CREATOR_SEED;
+          vault.currentTier = computeTier(vault);
+          await saveCreatorVault(vault);
+        }
+      } catch (err) {
+        console.warn("[CreatorToken] Legacy seed backfill skipped:", err);
+      }
+      console.log(
+        `[CreatorToken] Legacy token ${token.ticker} migrated — vault created, ` +
+          `deploy fee waived, supply=${token.supply}/${token.maxSupply}`,
+      );
+    }
+  } catch (err) {
+    console.warn("[CreatorToken] Legacy migration skipped:", err);
+  }
+  return token;
 }
 
 /** Alias for getUserProfileToken */
