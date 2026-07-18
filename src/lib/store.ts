@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 23;
+const DB_VERSION = 24;
 
 
 export interface Chunk {
@@ -366,6 +366,14 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("creatorVaults")) {
         const vaultStore = db.createObjectStore("creatorVaults", { keyPath: "tokenId" });
         vaultStore.createIndex("creatorUserId", "creatorUserId", { unique: false });
+      }
+
+      // Coin Market — peer-to-peer sale listings for mined SWARM coins
+      if (!db.objectStoreNames.contains("coinListings")) {
+        const listingStore = db.createObjectStore("coinListings", { keyPath: "listingId" });
+        listingStore.createIndex("sellerId", "sellerId", { unique: false });
+        listingStore.createIndex("status", "status", { unique: false });
+        listingStore.createIndex("askCurrency", "askCurrency", { unique: false });
       }
     };
     

@@ -230,45 +230,36 @@ export class BlockchainP2PSync {
       case "reward_pool_update": {
         if (!message.data?.rewardPool) break;
         const receivedPool = message.data.rewardPool;
-        console.log(`[Blockchain P2P] 📥 Received reward pool update from ${fromPeer} (balance: ${receivedPool.balance})`);
-        
-        // Merge reward pool data
-        const { getRewardPool, saveRewardPool } = await import("./storage");
-        let localPool = await getRewardPool();
-        
-        if (!localPool) {
-          // No local pool, accept received pool
-          // Ensure contributors exists
-          if (!receivedPool.contributors) {
-            receivedPool.contributors = {};
-          }
+        console.log(`[Blockchain P2P] 📥 Received reward pool snapshot from ${fromPeer} (balance: ${receivedPool.balance}, height: ${receivedPool.lastTxHeight ?? '?'})`);
+
+        // Consensus rule: the ledger is authoritative. Peer snapshots are only
+        // useful when the peer has folded MORE blocks than we have — otherwise
+        // ignore. Even when accepted, we immediately re-derive to guarantee
+        // convergence.
+        const { getRewardPool, saveRewardPool, derivePoolFromChain } = await import("./storage");
+        const local = await getRewardPool();
+        const localHeight = local?.lastTxHeight ?? -1;
+        const receivedHeight = receivedPool.lastTxHeight ?? -1;
+
+        if (!local) {
+          if (!receivedPool.contributors) receivedPool.contributors = {};
+          receivedPool.lastSyncedAt = new Date().toISOString();
           await saveRewardPool(receivedPool);
-          console.log(`[Blockchain P2P] ✅ Adopted reward pool from peer (balance: ${receivedPool.balance})`);
+          console.log(`[Blockchain P2P] ✅ Adopted peer pool snapshot as cache (balance: ${receivedPool.balance})`);
+        } else if (receivedHeight > localHeight) {
+          if (!receivedPool.contributors) receivedPool.contributors = {};
+          receivedPool.lastSyncedAt = new Date().toISOString();
+          await saveRewardPool(receivedPool);
+          console.log(`[Blockchain P2P] ✅ Warmed pool cache from peer (height ${localHeight} → ${receivedHeight})`);
         } else {
-          // Ensure contributors exists on both pools
-          if (!localPool.contributors) {
-            localPool.contributors = {};
-          }
-          if (!receivedPool.contributors) {
-            receivedPool.contributors = {};
-          }
-          
-          // Merge pools - take higher balance and merge contributors
-          const merged: RewardPoolData = {
-            id: "global",
-            balance: Math.max(localPool.balance, receivedPool.balance),
-            totalContributed: Math.max(localPool.totalContributed, receivedPool.totalContributed),
-            lastUpdated: receivedPool.lastUpdated > localPool.lastUpdated ? receivedPool.lastUpdated : localPool.lastUpdated,
-            contributors: { ...localPool.contributors },
-          };
+          console.log(`[Blockchain P2P] ⇢ Peer snapshot older than ours (${receivedHeight} ≤ ${localHeight}) — ignoring`);
+        }
 
-          // Merge contributor records
-          for (const [userId, amount] of Object.entries(receivedPool.contributors)) {
-            merged.contributors[userId] = Math.max(merged.contributors[userId] || 0, amount);
-          }
-
-          await saveRewardPool(merged);
-          console.log(`[Blockchain P2P] ✅ Merged reward pool (balance: ${merged.balance})`);
+        // Re-derive from ledger so the visible pool always matches the chain.
+        try {
+          await derivePoolFromChain();
+        } catch (err) {
+          console.warn("[Blockchain P2P] derivePoolFromChain failed:", err);
         }
         break;
       }
