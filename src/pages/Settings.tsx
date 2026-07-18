@@ -565,23 +565,46 @@ const Settings = () => {
               </Card>
 
               <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-xl font-bold">Imagination walkthrough</h2>
+                <div className="flex items-start gap-3">
+                  <Sparkles className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-bold">Prioritize loading</h2>
                     <p className="text-sm text-foreground/60">
-                      Reopen the guided tour whenever you want a refresher.
+                      Choose what Swarm Space loads first when you open the app.
                     </p>
                   </div>
-                  <Button
-                    className="w-full gap-2 sm:w-auto"
-                    onClick={handleLaunchWalkthrough}
-                    disabled={walkthroughState.isActive}
-                  >
-                    <Sparkles className="h-4 w-4" />
-                    {walkthroughButtonLabel}
-                  </Button>
                 </div>
-                <p className="text-xs text-foreground/50">{walkthroughStatusMessage}</p>
+                <div role="radiogroup" aria-label="Loading priority" className="space-y-2">
+                  {LOADING_PRIORITY_OPTIONS.map((opt) => {
+                    const selected = loadingPriority === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => handleSelectLoadingPriority(opt.value)}
+                        className={`w-full text-left rounded-2xl border p-4 transition ${
+                          selected
+                            ? "border-accent bg-accent/10"
+                            : "border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.35)] hover:border-accent/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="font-semibold">{opt.label}</span>
+                          <span
+                            aria-hidden
+                            className={`h-4 w-4 rounded-full border-2 ${
+                              selected ? "border-accent bg-accent" : "border-foreground/40"
+                            }`}
+                          />
+                        </div>
+                        <p className="mt-1 text-xs text-foreground/60">{opt.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-foreground/50">Applies on next page load.</p>
               </Card>
             </TabsContent>
 
