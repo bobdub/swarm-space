@@ -37,6 +37,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { PostComposer } from "@/components/PostComposer";
 import { FilePreview } from "@/components/FilePreview";
 import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
+import { CreatorMarketTab } from "@/components/profile/CreatorMarketTab";
 import { toast } from "sonner";
 import { getBlockedUserIds } from "@/lib/connections";
 import {
