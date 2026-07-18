@@ -6,6 +6,11 @@ import {
   CREATOR_TOKEN_MAX_SUPPLY,
   CREATOR_TOKEN_DEPLOY_COST,
   CREATOR_TOKEN_SWARM_DEPLOY_COST,
+  CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION,
+  CREATOR_TOKEN_INITIAL_CREATOR_SEED,
+  CREATOR_VAULT_BUYBACK_SHARE,
+  CREATOR_VAULT_STABILITY_SHARE,
+  CREATOR_VAULT_CREATOR_SHARE,
 } from "./types";
 // Keep ProfileToken alias for backward compat
 import type { ProfileToken } from "./types";
@@ -57,35 +62,17 @@ export async function deployProfileToken(params: {
     amount: CREATOR_TOKEN_SWARM_DEPLOY_COST,
     reason: "Creator Token market launch fee",
   });
-  try {
-    const { getRewardPool, saveRewardPool } = await import("./storage");
-    let pool = await getRewardPool();
-    if (!pool) {
-      pool = {
-        id: "global",
-        balance: 0,
-        totalContributed: 0,
-        lastUpdated: new Date().toISOString(),
-        contributors: {},
-      };
-    }
-    if (!pool.contributors) pool.contributors = {};
-    pool.balance += CREATOR_TOKEN_SWARM_DEPLOY_COST;
-    pool.totalContributed += CREATOR_TOKEN_SWARM_DEPLOY_COST;
-    pool.contributors[params.userId] =
-      (pool.contributors[params.userId] || 0) + CREATOR_TOKEN_SWARM_DEPLOY_COST;
-    pool.lastUpdated = new Date().toISOString();
-    await saveRewardPool(pool);
-  } catch (err) {
-    console.warn("[CreatorToken] Pool contribution failed:", err);
-  }
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
     throw new Error("Ticker must be 3-5 uppercase letters");
   }
 
-  const initialSupply = 1000; // Creator gets 1000 tokens initially
+  // Supply unlock model:
+  //   • 40% of max supply is unlocked and marketable at deployment.
+  //   • Remaining 60% unlocks gradually as the creator earns credits.
+  const initialSupply = Math.floor(CREATOR_TOKEN_MAX_SUPPLY * CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION);
+  const creatorSeed = CREATOR_TOKEN_INITIAL_CREATOR_SEED;
   const tokenId = existing ? existing.tokenId : generateTokenId();
 
   const profileToken: CreatorToken = {
@@ -107,7 +94,7 @@ export async function deployProfileToken(params: {
     from: params.userId,
     to: params.userId,
     tokenId,
-    amount: initialSupply,
+    amount: creatorSeed,
     timestamp: new Date().toISOString(),
     signature: "",
     publicKey: params.userId,
@@ -118,6 +105,8 @@ export async function deployProfileToken(params: {
       ticker: params.ticker,
       maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
       initialSupply,
+      creatorSeed,
+      seedSwarm: CREATOR_TOKEN_SWARM_DEPLOY_COST,
     },
   };
 
@@ -126,25 +115,67 @@ export async function deployProfileToken(params: {
 
   await saveProfileToken(profileToken);
 
-  // Give creator initial tokens in their holdings
+  // Seed the creator with `creatorSeed` tokens as the first "sale", backed by
+  // the 50 SWARM deployment fee routed 40/40/15/5 through the vault.
   const { addProfileTokens } = await import("./profileTokenBalance");
   await addProfileTokens({
     userId: params.userId,
     tokenId,
     ticker: params.ticker,
     creatorUserId: params.userId,
-    amount: initialSupply,
+    amount: creatorSeed,
   });
 
   // Record deployment state for gradual unlock
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
 
-  // Initialize the Creator Vault so the market page has a backing store
-  const { ensureCreatorVault } = await import("./creatorVault");
-  await ensureCreatorVault(tokenId, params.userId);
+  // Initialize the Creator Vault and seed it with the 50 SWARM deployment fee
+  // as the first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
+  const { ensureCreatorVault, saveCreatorVault, computeTier } = await import("./creatorVault");
+  const vault = await ensureCreatorVault(tokenId, params.userId);
+  const swarmSeed = CREATOR_TOKEN_SWARM_DEPLOY_COST;
+  const buyback = Math.round(swarmSeed * CREATOR_VAULT_BUYBACK_SHARE * 1e6) / 1e6;
+  const stability = Math.round(swarmSeed * CREATOR_VAULT_STABILITY_SHARE * 1e6) / 1e6;
+  const creatorEarn = Math.round(swarmSeed * CREATOR_VAULT_CREATOR_SHARE * 1e6) / 1e6;
+  const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
+  vault.buybackReserve += buyback;
+  vault.stabilityFloor += stability;
+  vault.creatorEarnings += creatorEarn;
+  vault.communityContributed += community;
+  vault.totalDeposited += swarmSeed;
+  vault.circulatingSupply += creatorSeed;
+  vault.currentTier = computeTier(vault);
+  await saveCreatorVault(vault);
 
-  console.log(`[CreatorToken] Deployed ${params.ticker} with ${initialSupply} initial tokens to creator`);
+  // Route community share of the seed to the SWARM community pool for parity
+  // with regular buys.
+  try {
+    const { getRewardPool, saveRewardPool } = await import("./storage");
+    let pool = await getRewardPool();
+    if (!pool) {
+      pool = {
+        id: "global",
+        balance: 0,
+        totalContributed: 0,
+        lastUpdated: new Date().toISOString(),
+        contributors: {},
+      };
+    }
+    if (!pool.contributors) pool.contributors = {};
+    pool.balance += community;
+    pool.totalContributed += community;
+    pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + community;
+    pool.lastUpdated = new Date().toISOString();
+    await saveRewardPool(pool);
+  } catch (err) {
+    console.warn("[CreatorToken] Community pool seed contribution failed:", err);
+  }
+
+  console.log(
+    `[CreatorToken] Deployed ${params.ticker} — supply ${initialSupply}/${CREATOR_TOKEN_MAX_SUPPLY} unlocked, ` +
+      `seeded ${creatorSeed} tokens to creator via ${swarmSeed} SWARM vault split`,
+  );
 
   return { token: profileToken, transaction };
 }
