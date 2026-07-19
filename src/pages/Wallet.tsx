@@ -582,7 +582,6 @@ export default function Wallet() {
                             <p className="text-sm text-muted-foreground">
                               Deployment cost:{" "}
                               <span className="font-bold text-foreground">
-                                {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
                                 {(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
                               </span>
                             </p>

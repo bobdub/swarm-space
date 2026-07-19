@@ -57,7 +57,7 @@ export function CoinDeploymentPanel() {
 
   const loadData = async () => {
     if (!user) return;
-    const [bal, mine, all] = await Promise.all([
+    const [bal, mine, all, price] = await Promise.all([
       getSwarmBalance(user.id),
       getUserCoins(user.id),
       getActiveCoins(),
