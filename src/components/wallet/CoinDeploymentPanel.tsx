@@ -22,6 +22,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { deployCoin, getUserCoins, getActiveCoins } from "@/lib/blockchain/coinDeployment";
 import { COIN_DEPLOY_COST } from "@/lib/blockchain/types";
+import { getDeployPricing, type DeployPricing } from "@/lib/blockchain/deployPricing";
 import type { DeployedCoin } from "@/lib/blockchain/types";
 
 export function CoinDeploymentPanel() {
@@ -31,6 +32,7 @@ export function CoinDeploymentPanel() {
   const [swarmBalance, setSwarmBalance] = useState(0);
   const [userCoins, setUserCoins] = useState<DeployedCoin[]>([]);
   const [networkCoins, setNetworkCoins] = useState<DeployedCoin[]>([]);
+  const [pricing, setPricing] = useState<DeployPricing | null>(null);
 
   // Form state
   const [chainName, setChainName] = useState("");
@@ -41,7 +43,8 @@ export function CoinDeploymentPanel() {
   const tickerValid = /^[A-Z]{3,6}$/.test(ticker) && ticker !== "SWARM";
   const chainNameValid = chainName.trim().length >= 1 && chainName.length <= 32;
   const goalValid = projectGoal.trim().length >= 10;
-  const canAfford = swarmBalance >= COIN_DEPLOY_COST;
+  const coinCost = pricing?.coinDeploySwarm ?? COIN_DEPLOY_COST;
+  const canAfford = swarmBalance >= coinCost;
   const formValid = tickerValid && chainNameValid && goalValid && canAfford;
 
   useEffect(() => {
@@ -54,14 +57,16 @@ export function CoinDeploymentPanel() {
 
   const loadData = async () => {
     if (!user) return;
-    const [bal, mine, all] = await Promise.all([
+    const [bal, mine, all, price] = await Promise.all([
       getSwarmBalance(user.id),
       getUserCoins(user.id),
       getActiveCoins(),
+      getDeployPricing(),
     ]);
     setSwarmBalance(bal);
     setUserCoins(mine);
     setNetworkCoins(all);
+    setPricing(price);
   };
 
   const handleDeploy = async () => {
@@ -89,7 +94,7 @@ export function CoinDeploymentPanel() {
 
   if (!user) return null;
 
-  const affordPercent = Math.min(100, (swarmBalance / COIN_DEPLOY_COST) * 100);
+  const affordPercent = Math.min(100, (swarmBalance / coinCost) * 100);
 
   return (
     <div className="space-y-6">
@@ -121,7 +126,7 @@ export function CoinDeploymentPanel() {
                   </DialogTitle>
                   <DialogDescription>
                     Launch your own blockchain cross-chained to the SWARM network.
-                    Costs {COIN_DEPLOY_COST.toLocaleString()} SWARM — funds go to the community pool.
+                    Costs {coinCost.toLocaleString()} SWARM dynamically — half locks as liquidity, half supports the community pool.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -136,14 +141,14 @@ export function CoinDeploymentPanel() {
                     </div>
                     <Progress value={affordPercent} className="h-1.5" />
                     <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Required: {COIN_DEPLOY_COST.toLocaleString()}</span>
+                      <span>Required: {coinCost.toLocaleString()}</span>
                       {canAfford ? (
                         <span className="flex items-center gap-1 text-primary">
                           <CheckCircle2 className="h-3 w-3" /> Sufficient
                         </span>
                       ) : (
                         <span className="flex items-center gap-1 text-destructive">
-                          <AlertTriangle className="h-3 w-3" /> Need {(COIN_DEPLOY_COST - swarmBalance).toLocaleString()} more
+                          <AlertTriangle className="h-3 w-3" /> Need {(coinCost - swarmBalance).toLocaleString()} more
                         </span>
                       )}
                     </div>
@@ -202,7 +207,7 @@ export function CoinDeploymentPanel() {
                   <div className="rounded-lg bg-muted/40 border border-border/40 p-3 space-y-1 text-xs text-muted-foreground">
                     <p className="font-medium text-foreground/80">What happens on deploy:</p>
                     <ul className="list-disc list-inside space-y-0.5 ml-1">
-                      <li>{COIN_DEPLOY_COST.toLocaleString()} SWARM is sent to the community pool</li>
+                      <li>{coinCost.toLocaleString()} SWARM total: {(pricing?.coinLiquidityLock ?? coinCost / 2).toLocaleString()} liquidity + {(pricing?.coinPoolContribution ?? coinCost / 2).toLocaleString()} pool</li>
                       <li>A new sub-chain is created and cross-linked to SWARM</li>
                       <li>You manage the chain — it syncs to the SWARM mesh automatically</li>
                       <li>Other users can discover and interact with your coin</li>
@@ -216,7 +221,7 @@ export function CoinDeploymentPanel() {
                   >
                     {deploying
                       ? "Deploying..."
-                      : `Deploy ${ticker || "Coin"} — ${COIN_DEPLOY_COST.toLocaleString()} SWARM`}
+                      : `Deploy ${ticker || "Coin"} — ${coinCost.toLocaleString()} SWARM`}
                   </Button>
                 </div>
               </DialogContent>
@@ -232,7 +237,7 @@ export function CoinDeploymentPanel() {
               </p>
               <p className="text-xs text-muted-foreground/70 max-w-xs mx-auto">
                 Deploy your own blockchain on the SWARM network for{" "}
-                {COIN_DEPLOY_COST.toLocaleString()} SWARM. Funds support the community pool.
+                 {coinCost.toLocaleString()} SWARM. Funds support the community pool.
               </p>
             </div>
           ) : (

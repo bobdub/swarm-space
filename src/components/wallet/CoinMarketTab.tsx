@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, ShieldAlert, Store, Wallet as WalletIcon } from "lucide-react";
+import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp, Wallet as WalletIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getAll } from "@/lib/store";
@@ -21,9 +21,11 @@ import {
   confirmPayment,
   disputeListing,
   getAllListings,
+  getCoinMarketStats,
   isValidAddress,
   listCoinForSale,
   listingStatusLabel,
+  quoteBaseAsk,
   reserveListing,
   settleListing,
 } from "@/lib/blockchain/coinMarket";
@@ -41,14 +43,17 @@ export function CoinMarketTab() {
   const { pool, lastSyncedAt, isLive, isConnected, isFresh } = usePoolConnectivity();
   const [listings, setListings] = useState<CoinListing[]>([]);
   const [walletCoins, setWalletCoins] = useState<SwarmCoin[]>([]);
+  const [marketStats, setMarketStats] = useState<Awaited<ReturnType<typeof getCoinMarketStats>> | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [all, coins] = await Promise.all([
+    const [all, coins, stats] = await Promise.all([
       getAllListings(),
       getAll<SwarmCoin>("swarmCoins"),
+      getCoinMarketStats(),
     ]);
     setListings(all);
+    setMarketStats(stats);
     setWalletCoins(
       coins.filter((c) => c.ownerId === user?.id && c.status === "wallet"),
     );
@@ -106,16 +111,46 @@ export function CoinMarketTab() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {!isLive && (
+          {!isLive && !isConnected && (
             <Alert>
               <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Read-only until mesh sync completes</AlertTitle>
+              <AlertTitle>Read-only until mesh connects</AlertTitle>
               <AlertDescription>
-                {isConnected
-                  ? "Waiting for a fresh community-pool snapshot from peers."
-                  : "Connect to the SWARM mesh to list, reserve, pay, or release. Cached listings are visible below."}
+                Connect to the SWARM mesh to list, reserve, pay, or release. Cached listings are visible below.
               </AlertDescription>
             </Alert>
+          )}
+          {isConnected && !isFresh && (
+            <Alert>
+              <ShieldAlert className="h-4 w-4" />
+              <AlertTitle>Mesh connected · refreshing pool</AlertTitle>
+              <AlertDescription>
+                Market actions stay available while the local ledger derives the newest community-pool balance.
+              </AlertDescription>
+            </Alert>
+          )}
+          {marketStats && (
+            <div className="grid gap-2 sm:grid-cols-4 text-xs">
+              <div className="rounded-md border p-2">
+                <div className="text-muted-foreground">Base listing guide</div>
+                <div className="font-semibold">{marketStats.basePriceSwarm.toFixed(4)} SWARM</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="text-muted-foreground">Pool liquid</div>
+                <div className="font-semibold">{(marketStats.poolLiquidRatio * 100).toFixed(2)}%</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="text-muted-foreground">Known mined</div>
+                <div className="font-semibold">{marketStats.minedCoinsKnown.toLocaleString()} coins</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="text-muted-foreground">48h trend</div>
+                <div className="font-semibold inline-flex items-center gap-1">
+                  {marketStats.trendDirection === "down" ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
+                  {marketStats.trend48hPct === 0 ? "Flat" : `${marketStats.trend48hPct > 0 ? "+" : ""}${marketStats.trend48hPct.toFixed(2)}%`}
+                </div>
+              </div>
+            </div>
           )}
           <Alert>
             <ShieldAlert className="h-4 w-4" />
@@ -132,6 +167,7 @@ export function CoinMarketTab() {
               disabled={!isLive || walletCoins.length === 0}
               userId={user?.id ?? ""}
               walletCoins={walletCoins}
+              marketStats={marketStats}
               onListed={refresh}
             />
             <Button variant="outline" disabled title="Automated escrow lands next release">
@@ -168,11 +204,13 @@ function ListCoinDialog({
   disabled,
   userId,
   walletCoins,
+  marketStats,
   onListed,
 }: {
   disabled: boolean;
   userId: string;
   walletCoins: SwarmCoin[];
+  marketStats: Awaited<ReturnType<typeof getCoinMarketStats>> | null;
   onListed: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -184,6 +222,7 @@ function ListCoinDialog({
   const [busy, setBusy] = useState(false);
 
   const addressValid = address.trim().length === 0 || isValidAddress(currency, address);
+  const suggestedAsk = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
 
   const submit = async () => {
     if (!userId) return;
@@ -250,6 +289,9 @@ function ListCoinDialog({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Dynamic guide: {suggestedAsk || "—"} {currency} from pool liquidity and known mined supply.
+              </p>
             </div>
             <div>
               <Label>Currency</Label>
@@ -416,10 +458,10 @@ function ListingCard({
         <div className="flex flex-wrap gap-2 pt-1">
           {/* Buyer actions */}
           {!isSeller && listing.status === "open" && (
-            <Button size="sm" disabled={!isLive || busy} onClick={() => run(() =>
-              reserveListing({ listingId: listing.listingId, buyerId: currentUserId }),
-              "Listing reserved",
-            )}>Reserve</Button>
+            <Button size="sm" disabled={!isLive || busy} onClick={() => {
+              toast.info(`Load ${listing.askCurrency} payment — coming soon`);
+              void run(() => reserveListing({ listingId: listing.listingId, buyerId: currentUserId }), "Listing reserved");
+            }}>Buy</Button>
           )}
           {isBuyer && listing.status === "reserved" && (
             <div className="w-full space-y-2">

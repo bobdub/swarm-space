@@ -36,6 +36,9 @@ const MARKET_ESCROW_PREFIX = "market_escrow:";
 
 const RESERVATION_TTL_MS = 10 * 60 * 1000; // 10 min
 const LISTING_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const SWARM_TO_ETH_HINT = 0.0001;
+const SWARM_TO_BTC_HINT = 0.000002;
+const SWARM_TO_MINTME_HINT = 0.1;
 
 // ── Currency validation ────────────────────────────────────────────────
 
@@ -70,6 +73,73 @@ export function computeMarketTier(poolBalance: number): (typeof COIN_MARKET_TIER
     if (poolBalance >= t.poolMinimum) best = t;
   }
   return best;
+}
+
+export interface CoinMarketStats {
+  poolBalance: number;
+  circulatingSwarm: number;
+  minedCoinsKnown: number;
+  poolLiquidRatio: number;
+  basePriceSwarm: number;
+  trend48hPct: number;
+  trendDirection: "up" | "down" | "flat";
+}
+
+function round6(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
+
+function currencyHint(currency: CoinMarketCurrency): number {
+  switch (currency) {
+    case "ETH": return SWARM_TO_ETH_HINT;
+    case "BTC": return SWARM_TO_BTC_HINT;
+    case "MINTME": return SWARM_TO_MINTME_HINT;
+  }
+}
+
+export function quoteBaseAsk(currency: CoinMarketCurrency, stats: CoinMarketStats | null): number {
+  return round6((stats?.basePriceSwarm ?? 1) * currencyHint(currency));
+}
+
+export async function getCoinMarketStats(): Promise<CoinMarketStats> {
+  const [pool, coins, listings] = await Promise.all([
+    getRewardPool(),
+    getAll<SwarmCoin>(COINS_STORE),
+    getAllListings(),
+  ]);
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  const circulatingSwarm = Math.max(1, chain.getTotalSupply());
+  const poolBalance = pool?.balance ?? 0;
+  const minedCoinsKnown = coins.length;
+  const poolLiquidRatio = Math.max(0, poolBalance / circulatingSwarm);
+  const knownMinedRatio = Math.max(0, minedCoinsKnown / circulatingSwarm);
+  const liquidityPremium = 1 + Math.min(2, poolLiquidRatio * 10);
+  const scarcityPremium = 1 + Math.min(3, knownMinedRatio * 20);
+  const basePriceSwarm = round6(liquidityPremium * scarcityPremium);
+
+  const now = Date.now();
+  const recent = listings.filter((l) => now - Date.parse(l.createdAt) <= 48 * 60 * 60 * 1000);
+  const prior = listings.filter((l) => {
+    const age = now - Date.parse(l.createdAt);
+    return age > 48 * 60 * 60 * 1000 && age <= 96 * 60 * 60 * 1000;
+  });
+  const avg = (rows: CoinListing[]) =>
+    rows.length ? rows.reduce((sum, l) => sum + l.askAmount / currencyHint(l.askCurrency), 0) / rows.length : 0;
+  const recentAvg = avg(recent);
+  const priorAvg = avg(prior);
+  const trend48hPct = priorAvg > 0 ? round6(((recentAvg - priorAvg) / priorAvg) * 100) : 0;
+  const trendDirection = Math.abs(trend48hPct) < 0.01 ? "flat" : trend48hPct > 0 ? "up" : "down";
+
+  return {
+    poolBalance,
+    circulatingSwarm,
+    minedCoinsKnown,
+    poolLiquidRatio,
+    basePriceSwarm,
+    trend48hPct,
+    trendDirection,
+  };
 }
 
 // ── Rate limit ─────────────────────────────────────────────────────────
