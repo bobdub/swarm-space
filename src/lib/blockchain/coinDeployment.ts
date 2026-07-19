@@ -10,7 +10,6 @@
  */
 
 import type { DeployedCoin, SwarmTransaction } from "./types";
-import { COIN_DEPLOY_COST, COIN_LIQUIDITY_LOCK, COIN_POOL_CONTRIBUTION } from "./types";
 import { getSwarmChain } from "./chain";
 import { getSwarmBalance, burnSwarm } from "./token";
 import { generateTransactionId, generateTokenId } from "./crypto";
@@ -52,10 +51,12 @@ export async function deployCoin(params: {
   }
 
   // Check SWARM balance
+  const { getDeployPricing } = await import("./deployPricing");
+  const pricing = await getDeployPricing();
   const balance = await getSwarmBalance(params.userId);
-  if (balance < COIN_DEPLOY_COST) {
+  if (balance < pricing.coinDeploySwarm) {
     throw new Error(
-      `Insufficient SWARM. Need ${COIN_DEPLOY_COST.toLocaleString()} SWARM to deploy a coin. You have ${balance.toFixed(2)}.`
+      `Insufficient SWARM. Need ${pricing.coinDeploySwarm.toLocaleString()} SWARM to deploy a coin. You have ${balance.toFixed(2)}.`
     );
   }
 
@@ -65,11 +66,11 @@ export async function deployCoin(params: {
     throw new Error(`Ticker ${params.ticker} is already in use`);
   }
 
-  // ── Split: 5,000 liquidity lock + 5,000 to pool ─────────────────────
+  // ── Split: 50% liquidity lock + 50% to pool ─────────────────────────
   // Burn full amount from deployer
   await burnSwarm({
     from: params.userId,
-    amount: COIN_DEPLOY_COST,
+    amount: pricing.coinDeploySwarm,
     reason: `Coin deployment: ${params.chainName} (${params.ticker})`,
   });
 
@@ -87,9 +88,9 @@ export async function deployCoin(params: {
   }
   if (!pool.contributors) pool.contributors = {};
 
-  pool.balance += COIN_POOL_CONTRIBUTION;
-  pool.totalContributed += COIN_POOL_CONTRIBUTION;
-  pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + COIN_POOL_CONTRIBUTION;
+  pool.balance += pricing.coinPoolContribution;
+  pool.totalContributed += pricing.coinPoolContribution;
+  pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + pricing.coinPoolContribution;
   pool.lastUpdated = new Date().toISOString();
   await saveRewardPool(pool);
 
@@ -109,7 +110,7 @@ export async function deployCoin(params: {
     deploymentTxId: txId,
     status: "active",
     bridgeAddress: `swarm-bridge://${coinId}`,
-    lockedLiquidity: COIN_LIQUIDITY_LOCK,
+    lockedLiquidity: pricing.coinLiquidityLock,
   };
 
   await put(COIN_STORE, { ...coin, id: coinId });
@@ -120,7 +121,7 @@ export async function deployCoin(params: {
     type: "coin_deploy",
     from: params.userId,
     to: "swarm-network",
-    amount: COIN_DEPLOY_COST,
+    amount: pricing.coinDeploySwarm,
     tokenId: coinId,
     timestamp: new Date().toISOString(),
     signature: `sig-${Date.now()}`,
@@ -133,8 +134,9 @@ export async function deployCoin(params: {
       projectGoal: params.projectGoal,
       maxSupply: coin.maxSupply,
       bridgeAddress: coin.bridgeAddress,
-      liquidityLocked: COIN_LIQUIDITY_LOCK,
-      poolContribution: COIN_POOL_CONTRIBUTION,
+      liquidityLocked: pricing.coinLiquidityLock,
+      poolContribution: pricing.coinPoolContribution,
+      pricing,
     },
   };
 
@@ -150,7 +152,7 @@ export async function deployCoin(params: {
 
   console.log(
     `[CoinDeploy] 🪙 ${params.chainName} (${params.ticker}) deployed by ${params.userId} — ` +
-    `${COIN_LIQUIDITY_LOCK} SWARM locked as liquidity, ${COIN_POOL_CONTRIBUTION} SWARM to pool`
+    `${pricing.coinLiquidityLock} SWARM locked as liquidity, ${pricing.coinPoolContribution} SWARM to pool`
   );
 
   return { coin, transaction };

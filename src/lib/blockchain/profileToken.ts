@@ -4,8 +4,6 @@ import {
   CreatorToken,
   SwarmTransaction,
   CREATOR_TOKEN_MAX_SUPPLY,
-  CREATOR_TOKEN_DEPLOY_COST,
-  CREATOR_TOKEN_SWARM_DEPLOY_COST,
   CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION,
   CREATOR_TOKEN_INITIAL_CREATOR_SEED,
   CREATOR_VAULT_BUYBACK_SHARE,
@@ -27,18 +25,20 @@ export async function deployProfileToken(params: {
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
   // Check credit balance
   const { getCreditBalance, deductCredits } = await import("../credits");
+  const { getDeployPricing } = await import("./deployPricing");
+  const pricing = await getDeployPricing();
   const balance = await getCreditBalance(params.userId);
   
-  if (balance < CREATOR_TOKEN_DEPLOY_COST) {
-    throw new Error(`Insufficient credits. Need ${CREATOR_TOKEN_DEPLOY_COST} credits to deploy a Creator Token.`);
+  if (balance < pricing.creatorTokenCredits) {
+    throw new Error(`Insufficient credits. Need ${pricing.creatorTokenCredits} credits to deploy a Creator Token.`);
   }
 
   // Check SWARM balance for the market-launch fee
   const { getSwarmBalance, burnSwarm } = await import("./token");
   const swarmBalance = await getSwarmBalance(params.userId);
-  if (swarmBalance < CREATOR_TOKEN_SWARM_DEPLOY_COST) {
+  if (swarmBalance < pricing.creatorTokenSwarm) {
     throw new Error(
-      `Insufficient SWARM. Need ${CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM to launch the token market.`,
+      `Insufficient SWARM. Need ${pricing.creatorTokenSwarm} SWARM to launch the token market.`,
     );
   }
 
@@ -55,11 +55,11 @@ export async function deployProfileToken(params: {
   }
 
   // Deduct deployment cost
-  await deductCredits(params.userId, CREATOR_TOKEN_DEPLOY_COST, "Creator Token Deployment");
-  // Burn 50 SWARM to launch the market — routed to the community pool below.
+  await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
+  // Burn SWARM to launch the market — routed through the creator vault below.
   await burnSwarm({
     from: params.userId,
-    amount: CREATOR_TOKEN_SWARM_DEPLOY_COST,
+    amount: pricing.creatorTokenSwarm,
     reason: "Creator Token market launch fee",
   });
 
@@ -106,7 +106,9 @@ export async function deployProfileToken(params: {
       maxSupply: CREATOR_TOKEN_MAX_SUPPLY,
       initialSupply,
       creatorSeed,
-      seedSwarm: CREATOR_TOKEN_SWARM_DEPLOY_COST,
+      seedSwarm: pricing.creatorTokenSwarm,
+      communityShare: Math.round(pricing.creatorTokenSwarm * (1 - CREATOR_VAULT_BUYBACK_SHARE - CREATOR_VAULT_STABILITY_SHARE - CREATOR_VAULT_CREATOR_SHARE) * 1e6) / 1e6,
+      pricing,
     },
   };
 
@@ -134,7 +136,7 @@ export async function deployProfileToken(params: {
   // as the first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
   const { ensureCreatorVault, saveCreatorVault, computeTier } = await import("./creatorVault");
   const vault = await ensureCreatorVault(tokenId, params.userId);
-  const swarmSeed = CREATOR_TOKEN_SWARM_DEPLOY_COST;
+  const swarmSeed = pricing.creatorTokenSwarm;
   const buyback = Math.round(swarmSeed * CREATOR_VAULT_BUYBACK_SHARE * 1e6) / 1e6;
   const stability = Math.round(swarmSeed * CREATOR_VAULT_STABILITY_SHARE * 1e6) / 1e6;
   const creatorEarn = Math.round(swarmSeed * CREATOR_VAULT_CREATOR_SHARE * 1e6) / 1e6;
@@ -148,28 +150,11 @@ export async function deployProfileToken(params: {
   vault.currentTier = computeTier(vault);
   await saveCreatorVault(vault);
 
-  // Route community share of the seed to the SWARM community pool for parity
-  // with regular buys.
   try {
-    const { getRewardPool, saveRewardPool } = await import("./storage");
-    let pool = await getRewardPool();
-    if (!pool) {
-      pool = {
-        id: "global",
-        balance: 0,
-        totalContributed: 0,
-        lastUpdated: new Date().toISOString(),
-        contributors: {},
-      };
-    }
-    if (!pool.contributors) pool.contributors = {};
-    pool.balance += community;
-    pool.totalContributed += community;
-    pool.contributors[params.userId] = (pool.contributors[params.userId] || 0) + community;
-    pool.lastUpdated = new Date().toISOString();
-    await saveRewardPool(pool);
+    const { derivePoolFromChain } = await import("./storage");
+    await derivePoolFromChain();
   } catch (err) {
-    console.warn("[CreatorToken] Community pool seed contribution failed:", err);
+    console.warn("[CreatorToken] Community pool derivation failed:", err);
   }
 
   console.log(
