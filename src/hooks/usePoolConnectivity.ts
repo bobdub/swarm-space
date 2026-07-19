@@ -35,10 +35,16 @@ export function usePoolConnectivity(): PoolConnectivity {
     let cancelled = false;
     const refresh = async () => {
       try {
-        const p = await getRewardPool();
+        const { derivePoolFromChain } = await import("@/lib/blockchain/storage");
+        const p = await derivePoolFromChain();
         if (!cancelled) setPool(p);
       } catch {
-        /* ignore */
+        try {
+          const p = await getRewardPool();
+          if (!cancelled) setPool(p);
+        } catch {
+          /* ignore */
+        }
       }
     };
     refresh();
@@ -49,14 +55,18 @@ export function usePoolConnectivity(): PoolConnectivity {
       else refresh();
     };
     window.addEventListener("reward-pool-update", handler);
+    window.addEventListener("blockchain-transaction", refresh);
 
     // Age tick — every 5 s just to keep `isLive` accurate.
     const interval = window.setInterval(() => setTick((n) => n + 1), 5_000);
+    const deriveInterval = window.setInterval(refresh, 30_000);
 
     return () => {
       cancelled = true;
       window.removeEventListener("reward-pool-update", handler);
+      window.removeEventListener("blockchain-transaction", refresh);
       clearInterval(interval);
+      clearInterval(deriveInterval);
     };
   }, []);
 

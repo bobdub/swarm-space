@@ -204,6 +204,8 @@ export class BlockchainP2PSync {
         // Add to pending transactions if valid
         try {
           chain.addTransaction(tx);
+          const { derivePoolFromChain } = await import("./storage");
+          await derivePoolFromChain();
         } catch (error) {
           console.warn("[Blockchain P2P] Invalid transaction received:", error);
         }
@@ -212,8 +214,8 @@ export class BlockchainP2PSync {
 
       case "request_reward_pool": {
         // Send our reward pool state
-        const { getRewardPool } = await import("./storage");
-        const pool = await getRewardPool();
+        const { derivePoolFromChain } = await import("./storage");
+        const pool = await derivePoolFromChain();
         if (pool) {
           const response: BlockchainSyncMessage = {
             type: "blockchain_sync",

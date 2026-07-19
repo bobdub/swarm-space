@@ -3,6 +3,7 @@ import { openDB } from "../store";
 import type {
   ChainState,
   SwarmBlock,
+  SwarmTransaction,
   SwarmTokenBalance,
   NFTMetadata,
   CrossChainBridge,
@@ -224,6 +225,43 @@ export async function saveRewardPool(pool: RewardPoolData): Promise<void> {
   });
 }
 
+function round6(n: number): number {
+  return Math.round(n * 1_000_000) / 1_000_000;
+}
+
+function numberFrom(value: unknown, fallback = 0): number {
+  const n = Number(value ?? fallback);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function poolDeltaFromTx(tx: SwarmTransaction): number {
+  const meta = (tx.meta ?? {}) as Record<string, unknown>;
+  switch (tx.type) {
+    case "coin_deploy":
+      return numberFrom(meta.poolContribution);
+    case "pool_donate":
+      return numberFrom(tx.amount);
+    case "credit_lock":
+      // Credit wrapping spends SWARM liquidity from the pool to the user.
+      return -numberFrom(meta.swarmMinted, numberFrom(tx.amount));
+    case "post_lock":
+      return numberFrom(meta.poolContribution, numberFrom(meta.coinsToPool));
+    case "creator_vault_split":
+      return numberFrom(meta.communityShare);
+    case "creator_token_buy": {
+      const split = (meta.split ?? {}) as Record<string, unknown>;
+      return numberFrom(split.community, numberFrom(meta.communityShare));
+    }
+    case "profile_token_deploy":
+    case "creator_token_deploy":
+      return numberFrom(meta.communityShare);
+    case "mining_reward":
+      return numberFrom(meta.poolTax);
+    default:
+      return 0;
+  }
+}
+
 /**
  * Derive the community pool from the SWARM ledger. This is the authoritative
  * computation — all peers with the same ledger produce the same pool.
@@ -231,7 +269,7 @@ export async function saveRewardPool(pool: RewardPoolData): Promise<void> {
  * Included flows (all increment):
  *   • coin_deploy — 5 000 SWARM to the pool (meta.poolContribution)
  *   • pool_donate — full amount
- *   • credit_lock — full amount (credits wrapped into SWARM)
+ *   • credit_lock — subtracts the SWARM paid out to wrappers
  *   • post_lock — walled-post fee minus content coin (meta.poolContribution)
  *   • creator_vault_split — 5% community share (meta.communityShare)
  *   • mining_reward — 5% tax (meta.poolTax) if present
@@ -240,7 +278,9 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
   // Local import to avoid a cycle at module init.
   const { getSwarmChain } = await import("./chain");
   const chain = getSwarmChain();
+  await chain.whenReady();
   const blocks = chain.getChain();
+  const pendingTransactions = chain.getPendingTransactions();
 
   const contributors: Record<string, number> = {};
   let balance = 0;
@@ -250,32 +290,10 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
   for (const block of blocks) {
     lastTxHeight = Math.max(lastTxHeight, block.index);
     for (const tx of block.transactions ?? []) {
-      const meta = (tx.meta ?? {}) as Record<string, unknown>;
-      let delta = 0;
-      switch (tx.type) {
-        case "coin_deploy":
-          delta = Number(meta.poolContribution ?? 0);
-          break;
-        case "pool_donate":
-          delta = Number(tx.amount ?? 0);
-          break;
-        case "credit_lock":
-          delta = Number(tx.amount ?? 0);
-          break;
-        case "post_lock":
-          delta = Number(meta.poolContribution ?? 0);
-          break;
-        case "creator_vault_split":
-          delta = Number(meta.communityShare ?? 0);
-          break;
-        case "mining_reward":
-          delta = Number(meta.poolTax ?? 0);
-          break;
-        default:
-          delta = 0;
-      }
-      if (!isFinite(delta) || delta <= 0) continue;
-      balance += delta;
+      const delta = poolDeltaFromTx(tx);
+      if (!Number.isFinite(delta) || delta === 0) continue;
+      balance = Math.max(0, balance + delta);
+      if (delta <= 0) continue;
       totalContributed += delta;
       if (tx.from && tx.from !== "system") {
         contributors[tx.from] = (contributors[tx.from] ?? 0) + delta;
@@ -283,11 +301,24 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
     }
   }
 
+  // Pending mesh transactions are part of the live user-visible state. Folding
+  // them prevents each peer from showing stale pool holdings until the next mine.
+  for (const tx of pendingTransactions) {
+    const delta = poolDeltaFromTx(tx);
+    if (!Number.isFinite(delta) || delta === 0) continue;
+    balance = Math.max(0, balance + delta);
+    if (delta <= 0) continue;
+    totalContributed += delta;
+    if (tx.from && tx.from !== "system") {
+      contributors[tx.from] = (contributors[tx.from] ?? 0) + delta;
+    }
+  }
+
   const now = new Date().toISOString();
   const pool: RewardPoolData = {
     id: "global",
-    balance: Math.round(balance * 1e6) / 1e6,
-    totalContributed: Math.round(totalContributed * 1e6) / 1e6,
+    balance: round6(balance),
+    totalContributed: round6(totalContributed),
     contributors,
     lastUpdated: now,
     lastSyncedAt: now,

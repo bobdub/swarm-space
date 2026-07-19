@@ -90,6 +90,8 @@ export function getMiningRewards() {
 async function addToRewardPool(amount: number): Promise<void> {
   if (amount <= 0) return;
   const { getRewardPool, saveRewardPool } = await import("./storage");
+  const { getSwarmChain } = await import("./chain");
+  const { generateTransactionId } = await import("./crypto");
   
   let pool = await getRewardPool();
   if (!pool) {
@@ -112,6 +114,24 @@ async function addToRewardPool(amount: number): Promise<void> {
   pool.lastUpdated = new Date().toISOString();
   
   await saveRewardPool(pool);
+
+  try {
+    getSwarmChain().addTransaction({
+      id: generateTransactionId(),
+      type: "pool_donate",
+      from: "system",
+      to: "community-pool",
+      amount,
+      timestamp: new Date().toISOString(),
+      signature: "",
+      publicKey: "system",
+      nonce: Date.now(),
+      fee: 0,
+      meta: { reason: "mining_pool_tax" },
+    });
+  } catch (err) {
+    console.warn("[RewardPool] Failed to record mining pool contribution:", err);
+  }
   console.log(`[RewardPool] Added ${amount} SWARM. New balance: ${pool.balance}`);
 
   // ── Graveyard Throttle: seed an empty coin into the pool ─────────
