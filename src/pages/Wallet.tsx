@@ -53,6 +53,7 @@ import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
 import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { getDeployPricing, type DeployPricing } from "@/lib/blockchain/deployPricing";
 
 export default function Wallet() {
   const navigate = useNavigate();
@@ -63,6 +64,7 @@ export default function Wallet() {
   const [transactions, setTransactions] = useState<EnrichedTransaction[]>([]);
   const [miningSession, setMiningSession] = useState<MiningSession | null>(null);
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
+  const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
   const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
@@ -164,6 +166,7 @@ export default function Wallet() {
       // Load profile token
       const token = await getUserProfileToken(currentUser.id);
       setProfileToken(token);
+      setDeployPricing(await getDeployPricing());
     } catch (error) {
       console.error("Failed to load wallet data:", error);
       toast.error("Failed to load wallet");
@@ -549,7 +552,7 @@ export default function Wallet() {
                     <h3 className="text-lg font-semibold mb-2">Deploy Your Creator Token</h3>
                     <p className="text-muted-foreground mb-6">
                       Create your own token with a max supply of {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens.
-                      Costs {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM.
+                      Costs {(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM.
                     </p>
                     <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
                       <DialogTrigger asChild>
@@ -580,7 +583,11 @@ export default function Wallet() {
                               Deployment cost:{" "}
                               <span className="font-bold text-foreground">
                                 {CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
+                                {(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
                               </span>
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Dynamic price uses the current community pool ({(deployPricing?.poolBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM); baseline is 95 credits + 5 SWARM at 100 SWARM pool.
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
                               Max supply:{" "}
@@ -599,7 +606,7 @@ export default function Wallet() {
                               unlocks as you earn credits.
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              First sale: the {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM fee seeds your vault
+                              First sale: the {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM fee seeds your vault
                               (40 / 40 / 15 / 5 split) and mints{" "}
                               <span className="font-medium text-foreground">
                                 {CREATOR_TOKEN_INITIAL_CREATOR_SEED} tokens
@@ -612,7 +619,7 @@ export default function Wallet() {
                             className="w-full"
                             disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
                           >
-                            Deploy Token ({CREATOR_TOKEN_DEPLOY_COST.toLocaleString()} credits + {CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM)
+                            Deploy Token ({(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM)
                           </Button>
                         </div>
                       </DialogContent>
