@@ -203,6 +203,10 @@ export interface RewardPoolData {
   lastSyncedAt?: string;
   /** Height of the last block folded into this snapshot. */
   lastTxHeight?: number;
+  /** Number of pending pool-affecting transactions included in the live view. */
+  pendingPoolTxCount?: number;
+  /** Stable fingerprint for pending pool-affecting txs so peers can compare same-height snapshots. */
+  pendingPoolFingerprint?: string;
 }
 
 export async function getRewardPool(): Promise<RewardPoolData | null> {
@@ -234,7 +238,7 @@ function numberFrom(value: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function poolDeltaFromTx(tx: SwarmTransaction): number {
+export function poolDeltaFromTx(tx: SwarmTransaction): number {
   const meta = (tx.meta ?? {}) as Record<string, unknown>;
   switch (tx.type) {
     case "coin_deploy":
@@ -262,6 +266,10 @@ function poolDeltaFromTx(tx: SwarmTransaction): number {
   }
 }
 
+export function isPoolAffectingTransaction(tx: SwarmTransaction): boolean {
+  return poolDeltaFromTx(tx) !== 0;
+}
+
 /**
  * Derive the community pool from the SWARM ledger. This is the authoritative
  * computation — all peers with the same ledger produce the same pool.
@@ -286,6 +294,7 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
   let balance = 0;
   let totalContributed = 0;
   let lastTxHeight = 0;
+  const pendingPoolIds: string[] = [];
 
   for (const block of blocks) {
     lastTxHeight = Math.max(lastTxHeight, block.index);
@@ -306,6 +315,7 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
   for (const tx of pendingTransactions) {
     const delta = poolDeltaFromTx(tx);
     if (!Number.isFinite(delta) || delta === 0) continue;
+    pendingPoolIds.push(tx.id);
     balance = Math.max(0, balance + delta);
     if (delta <= 0) continue;
     totalContributed += delta;
@@ -323,6 +333,8 @@ export async function derivePoolFromChain(): Promise<RewardPoolData> {
     lastUpdated: now,
     lastSyncedAt: now,
     lastTxHeight,
+    pendingPoolTxCount: pendingPoolIds.length,
+    pendingPoolFingerprint: pendingPoolIds.sort().join("|"),
   };
   await saveRewardPool(pool);
   try {

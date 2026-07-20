@@ -191,11 +191,11 @@ export const CREDIT_TO_SWARM_RATIO = 100;
 /** Creator token max supply per account */
 export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 
-/** Creator token deployment cost in credits */
-export const CREATOR_TOKEN_DEPLOY_COST = 1_000;
+/** Creator token deployment baseline in credits at 100 SWARM community liquidity */
+export const CREATOR_TOKEN_DEPLOY_COST = 95;
 
-/** Additional SWARM cost to deploy a Creator Token (goes to community pool) */
-export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 50;
+/** Creator token deployment baseline SWARM at 100 SWARM community liquidity */
+export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 5;
 
 /**
  * Fraction of a Creator Token's max supply that is unlocked and marketable at
@@ -301,6 +301,10 @@ export interface CoinListing {
   listingId: string;
   sellerId: string;
   coinId: string;
+  /** Market asset being sold. Undefined means legacy mined-coin listing. */
+  assetType?: "swarm" | "coin";
+  /** Amount of wallet SWARM held in market escrow for amount-based listings. */
+  swarmAmount?: number;
   askAmount: number;
   askCurrency: CoinMarketCurrency;
   receivingAddress: string;
