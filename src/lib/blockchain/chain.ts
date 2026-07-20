@@ -276,6 +276,9 @@ export class SwarmChain {
     "pool_donate",
     "creator_token_deploy",
     "profile_token_deploy",
+    "coin_market_list",
+    "coin_market_settle",
+    "coin_market_cancel",
     "cross_chain_swap",
   ]);
 
