@@ -183,13 +183,13 @@ export function CoinMarketTab() {
           <TabsTrigger value="buys">My purchases ({myPurchases.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="open">
-          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="No open listings yet. Be the first to list SWARM." />
+          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="No open listings yet. Be the first to list SWARM." />
         </TabsContent>
         <TabsContent value="mine">
-          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="You haven’t listed any coins yet." />
+          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t listed any SWARM yet." />
         </TabsContent>
         <TabsContent value="buys">
-          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="You haven’t reserved any listings yet." />
+          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t reserved any listings yet." />
         </TabsContent>
       </Tabs>
     </div>
@@ -346,13 +346,11 @@ function ListSwarmDialog({
 function ListingGrid({
   listings,
   currentUserId,
-  isLive,
   onChange,
   empty,
 }: {
   listings: CoinListing[];
   currentUserId: string;
-  isLive: boolean;
   onChange: () => void;
   empty: string;
 }) {
@@ -372,7 +370,6 @@ function ListingGrid({
           key={l.listingId}
           listing={l}
           currentUserId={currentUserId}
-          isLive={isLive}
           onChange={onChange}
         />
       ))}
@@ -383,12 +380,10 @@ function ListingGrid({
 function ListingCard({
   listing,
   currentUserId,
-  isLive,
   onChange,
 }: {
   listing: CoinListing;
   currentUserId: string;
-  isLive: boolean;
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -462,7 +457,7 @@ function ListingCard({
         <div className="flex flex-wrap gap-2 pt-1">
           {/* Buyer actions */}
           {!isSeller && listing.status === "open" && (
-            <Button size="sm" disabled={!isLive || busy} onClick={() => {
+            <Button size="sm" disabled={!currentUserId || busy} onClick={() => {
               toast.info(`Load ${listing.askCurrency} payment — coming soon`);
               void run(() => reserveListing({ listingId: listing.listingId, buyerId: currentUserId }), "Listing reserved");
             }}>Buy</Button>
@@ -476,11 +471,11 @@ function ListingCard({
                 placeholder="0xabc… or txid"
               />
               <div className="flex gap-2">
-                <Button size="sm" disabled={!isLive || busy || payHash.trim().length < 6} onClick={() => run(() =>
+                <Button size="sm" disabled={busy || payHash.trim().length < 6} onClick={() => run(() =>
                   confirmPayment({ listingId: listing.listingId, buyerId: currentUserId, paymentTxHash: payHash }),
                   "Payment recorded — waiting for seller to release",
                 )}>I paid</Button>
-                <Button size="sm" variant="outline" disabled={!isLive || busy} onClick={() => run(() =>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
                   cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
                   "Reservation cancelled",
                 )}>Cancel</Button>
@@ -488,7 +483,7 @@ function ListingCard({
             </div>
           )}
           {isBuyer && listing.status === "paid" && (
-            <Button size="sm" variant="destructive" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" variant="destructive" disabled={busy} onClick={() => run(() =>
               disputeListing({ listingId: listing.listingId, buyerId: currentUserId, reason: "Seller has not released" }),
               "Dispute filed",
             )}>Dispute</Button>
@@ -496,13 +491,13 @@ function ListingCard({
 
           {/* Seller actions */}
           {isSeller && listing.status === "paid" && (
-            <Button size="sm" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" disabled={busy} onClick={() => run(() =>
               settleListing({ listingId: listing.listingId, sellerId: currentUserId }),
               isSwarmListing ? "SWARM released to buyer" : "Coin released to buyer",
             )}>{isSwarmListing ? "Release SWARM" : "Release coin"}</Button>
           )}
           {isSeller && (listing.status === "open" || listing.status === "reserved") && (
-            <Button size="sm" variant="outline" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
               cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
               "Listing cancelled",
             )}>Cancel</Button>
