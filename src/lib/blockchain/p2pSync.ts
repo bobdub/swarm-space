@@ -10,6 +10,7 @@ export interface BlockchainSyncMessage {
   action: "request_chain" | "send_chain" | "new_block" | "new_transaction" | "reward_pool_update" | "request_reward_pool";
   data?: {
     chain?: SwarmBlock[];
+    pendingTransactions?: SwarmTransaction[];
     block?: SwarmBlock;
     transaction?: SwarmTransaction;
     chainState?: ChainState;
@@ -151,13 +152,14 @@ export class BlockchainP2PSync {
       case "request_chain": {
         // Send our chain to requesting peer
         const localChain = chain.getChain();
+        const pendingTransactions = chain.getPendingTransactions();
         const response: BlockchainSyncMessage = {
           type: "blockchain_sync",
           action: "send_chain",
-          data: { chain: localChain },
+          data: { chain: localChain, pendingTransactions },
           timestamp: Date.now(),
         };
-        console.log(`[Blockchain P2P] 📤 Sending chain (${localChain.length} blocks) to ${fromPeer}`);
+        console.log(`[Blockchain P2P] 📤 Sending chain (${localChain.length} blocks, ${pendingTransactions.length} pending) to ${fromPeer}`);
         this.broadcast("blockchain", response);
         break;
       }
@@ -182,6 +184,26 @@ export class BlockchainP2PSync {
         } else {
           console.log(`[Blockchain P2P] 🛡 Rejected peer fork (curvature geodesic) — keeping local tip`);
         }
+
+        if (message.data.pendingTransactions?.length) {
+          const { applyMarketTransaction } = await import("./coinMarket");
+          let acceptedPending = 0;
+          for (const tx of message.data.pendingTransactions) {
+            if (chain.hasTransaction(tx.id)) continue;
+            try {
+              chain.addTransaction(tx);
+              await applyMarketTransaction(tx);
+              acceptedPending++;
+            } catch (error) {
+              console.warn("[Blockchain P2P] Invalid pending transaction received:", error);
+            }
+          }
+          if (acceptedPending > 0) {
+            const { derivePoolFromChain } = await import("./storage");
+            await derivePoolFromChain();
+            console.log(`[Blockchain P2P] ✅ Accepted ${acceptedPending} peer pending transaction(s)`);
+          }
+        }
         break;
       }
 
@@ -203,7 +225,9 @@ export class BlockchainP2PSync {
         
         // Add to pending transactions if valid
         try {
-          chain.addTransaction(tx);
+          if (!chain.hasTransaction(tx.id)) chain.addTransaction(tx);
+          const { applyMarketTransaction } = await import("./coinMarket");
+          await applyMarketTransaction(tx);
           const { derivePoolFromChain } = await import("./storage");
           await derivePoolFromChain();
         } catch (error) {
@@ -242,17 +266,21 @@ export class BlockchainP2PSync {
         const local = await getRewardPool();
         const localHeight = local?.lastTxHeight ?? -1;
         const receivedHeight = receivedPool.lastTxHeight ?? -1;
+        const localPending = local?.pendingPoolTxCount ?? 0;
+        const receivedPending = receivedPool.pendingPoolTxCount ?? 0;
+        const sameHeightNewPending = receivedHeight === localHeight && receivedPending > localPending;
 
         if (!local) {
           if (!receivedPool.contributors) receivedPool.contributors = {};
           receivedPool.lastSyncedAt = new Date().toISOString();
           await saveRewardPool(receivedPool);
           console.log(`[Blockchain P2P] ✅ Adopted peer pool snapshot as cache (balance: ${receivedPool.balance})`);
-        } else if (receivedHeight > localHeight) {
+        } else if (receivedHeight > localHeight || sameHeightNewPending) {
           if (!receivedPool.contributors) receivedPool.contributors = {};
           receivedPool.lastSyncedAt = new Date().toISOString();
           await saveRewardPool(receivedPool);
-          console.log(`[Blockchain P2P] ✅ Warmed pool cache from peer (height ${localHeight} → ${receivedHeight})`);
+          console.log(`[Blockchain P2P] ✅ Warmed pool cache from peer (height ${localHeight} → ${receivedHeight}, pending ${localPending} → ${receivedPending})`);
+          if (sameHeightNewPending) this.requestChainSync();
         } else {
           console.log(`[Blockchain P2P] ⇢ Peer snapshot older than ours (${receivedHeight} ≤ ${localHeight}) — ignoring`);
         }

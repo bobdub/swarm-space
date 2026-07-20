@@ -266,6 +266,11 @@ export class HybridOrchestrator {
           this.blockchainSync.broadcastRewardPoolUpdate(event.detail);
         }
       }) as EventListener);
+      window.addEventListener('blockchain-transaction', ((event: CustomEvent) => {
+        if (this.blockchainSync && event.detail) {
+          this.blockchainSync.broadcastNewTransaction(event.detail);
+        }
+      }) as EventListener);
     }
 
     console.log('[HybridOrchestrator] Blockchain sync initialized across all transports');

@@ -406,6 +406,83 @@ export async function listSwarmForSale(params: {
   return listing;
 }
 
+type ListingMeta = Record<string, unknown>;
+
+function listingFromMeta(meta: ListingMeta): CoinListing | null {
+  const listingId = String(meta.listingId ?? "");
+  const sellerId = String(meta.sellerId ?? "");
+  const coinId = String(meta.coinId ?? "");
+  const askCurrency = meta.askCurrency as CoinMarketCurrency | undefined;
+  if (!listingId || !sellerId || !coinId || !askCurrency) return null;
+  const now = new Date().toISOString();
+  return {
+    listingId,
+    sellerId,
+    coinId,
+    assetType: meta.assetType === "swarm" ? "swarm" : "coin",
+    swarmAmount: meta.swarmAmount === undefined ? undefined : round6(Number(meta.swarmAmount)),
+    askAmount: Number(meta.askAmount ?? 0),
+    askCurrency,
+    receivingAddress: String(meta.receivingAddress ?? ""),
+    memo: typeof meta.memo === "string" && meta.memo ? meta.memo : undefined,
+    status: (meta.status as CoinListingStatus | undefined) ?? "open",
+    buyerId: typeof meta.buyerId === "string" ? meta.buyerId : undefined,
+    paymentTxHash: typeof meta.paymentTxHash === "string" ? meta.paymentTxHash : undefined,
+    reservedAt: typeof meta.reservedAt === "string" ? meta.reservedAt : undefined,
+    paidAt: typeof meta.paidAt === "string" ? meta.paidAt : undefined,
+    settledAt: typeof meta.settledAt === "string" ? meta.settledAt : undefined,
+    tier: Number(meta.tier ?? 1),
+    createdAt: typeof meta.createdAt === "string" ? meta.createdAt : now,
+    updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : now,
+  };
+}
+
+export async function applyMarketTransaction(tx: SwarmTransaction): Promise<void> {
+  if (!tx.type.startsWith("coin_market_")) return;
+  const meta = (tx.meta ?? {}) as ListingMeta;
+  const incoming = listingFromMeta(meta);
+  if (!incoming) return;
+  const existing = await getListing(incoming.listingId);
+  const merged: CoinListing = {
+    ...(existing ?? incoming),
+    ...incoming,
+    updatedAt: incoming.updatedAt || tx.timestamp,
+  };
+
+  switch (tx.type) {
+    case "coin_market_list":
+      merged.status = "open";
+      break;
+    case "coin_market_reserve":
+      merged.status = "reserved";
+      merged.buyerId = incoming.buyerId ?? tx.from;
+      merged.reservedAt = incoming.reservedAt ?? tx.timestamp;
+      break;
+    case "coin_market_confirm_payment":
+      merged.status = "paid";
+      merged.buyerId = incoming.buyerId ?? existing?.buyerId;
+      merged.paymentTxHash = incoming.paymentTxHash ?? String(meta.paymentTxHash ?? "");
+      merged.paidAt = incoming.paidAt ?? tx.timestamp;
+      break;
+    case "coin_market_settle":
+      merged.status = "settled";
+      merged.buyerId = incoming.buyerId ?? existing?.buyerId ?? tx.to;
+      merged.settledAt = incoming.settledAt ?? tx.timestamp;
+      break;
+    case "coin_market_cancel":
+      merged.status = "cancelled";
+      break;
+    case "coin_market_dispute":
+      merged.status = "disputed";
+      break;
+    default:
+      return;
+  }
+
+  await put(LISTINGS_STORE, merged);
+  emitListingEvent(merged);
+}
+
 // ── RESERVE ────────────────────────────────────────────────────────────
 
 export async function reserveListing(params: {
