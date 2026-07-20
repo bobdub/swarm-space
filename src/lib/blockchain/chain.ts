@@ -124,10 +124,19 @@ export class SwarmChain {
     return this.chain[this.chain.length - 1];
   }
 
+  hasTransaction(transactionId: string): boolean {
+    if (!transactionId) return false;
+    if (this.pendingTransactions.some((tx) => tx.id === transactionId)) return true;
+    return this.chain.some((block) =>
+      (block.transactions ?? []).some((tx) => tx.id === transactionId),
+    );
+  }
+
   addTransaction(transaction: SwarmTransaction): void {
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
+    if (this.hasTransaction(transaction.id)) return;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
   }
@@ -267,6 +276,9 @@ export class SwarmChain {
     "pool_donate",
     "creator_token_deploy",
     "profile_token_deploy",
+    "coin_market_list",
+    "coin_market_settle",
+    "coin_market_cancel",
     "cross_chain_swap",
   ]);
 

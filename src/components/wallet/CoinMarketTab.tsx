@@ -12,8 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp, Wallet as WalletIcon } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
-import { getAll } from "@/lib/store";
-import type { CoinListing, CoinMarketCurrency, SwarmCoin } from "@/lib/blockchain/types";
+import type { CoinListing, CoinMarketCurrency } from "@/lib/blockchain/types";
 import {
   blockExplorerUrl,
   cancelListing,
@@ -23,7 +22,7 @@ import {
   getAllListings,
   getCoinMarketStats,
   isValidAddress,
-  listCoinForSale,
+  listSwarmForSale,
   listingStatusLabel,
   quoteBaseAsk,
   reserveListing,
@@ -31,6 +30,7 @@ import {
 } from "@/lib/blockchain/coinMarket";
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
+import { getSwarmBalance } from "@/lib/blockchain/token";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
   { value: "ETH",    label: "ETH — Ethereum", hint: "Send to the address shown by the seller." },
@@ -42,21 +42,19 @@ export function CoinMarketTab() {
   const user = getCurrentUser();
   const { pool, lastSyncedAt, isLive, isConnected, isFresh } = usePoolConnectivity();
   const [listings, setListings] = useState<CoinListing[]>([]);
-  const [walletCoins, setWalletCoins] = useState<SwarmCoin[]>([]);
+  const [walletSwarm, setWalletSwarm] = useState(0);
   const [marketStats, setMarketStats] = useState<Awaited<ReturnType<typeof getCoinMarketStats>> | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [all, coins, stats] = await Promise.all([
+    const [all, balance, stats] = await Promise.all([
       getAllListings(),
-      getAll<SwarmCoin>("swarmCoins"),
+      user?.id ? getSwarmBalance(user.id) : Promise.resolve(0),
       getCoinMarketStats(),
     ]);
     setListings(all);
     setMarketStats(stats);
-    setWalletCoins(
-      coins.filter((c) => c.ownerId === user?.id && c.status === "wallet"),
-    );
+    setWalletSwarm(balance);
   }, [user?.id]);
 
   useEffect(() => {
@@ -93,7 +91,7 @@ export function CoinMarketTab() {
                 <Store className="h-5 w-5 text-primary" /> Coin Market
               </CardTitle>
               <CardDescription>
-                Sell mined SWARM coins for ETH, Bitcoin, or MintMe — peer-to-peer,
+                List wallet SWARM for ETH, Bitcoin, or MintMe — peer-to-peer,
                 settled through the SWARM mesh.
               </CardDescription>
             </div>
@@ -116,7 +114,7 @@ export function CoinMarketTab() {
               <ShieldAlert className="h-4 w-4" />
               <AlertTitle>Read-only until mesh connects</AlertTitle>
               <AlertDescription>
-                Connect to the SWARM mesh to list, reserve, pay, or release. Cached listings are visible below.
+                Cached listings are visible. New actions are saved locally and sync through the mesh when peers are available.
               </AlertDescription>
             </Alert>
           )}
@@ -157,16 +155,16 @@ export function CoinMarketTab() {
             <AlertTitle>Off-chain settlement — verify before releasing</AlertTitle>
             <AlertDescription>
               This app never touches your seed phrase or private keys. Real
-              coins move outside SWARM. <strong>Always verify payment on a
-              block explorer</strong> before releasing an escrowed SWARM coin.
+              payments move outside SWARM. <strong>Always verify payment on a
+              block explorer</strong> before releasing escrowed SWARM.
               Automated MetaMask escrow is coming soon.
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
-            <ListCoinDialog
-              disabled={!isLive || walletCoins.length === 0}
+            <ListSwarmDialog
+              disabled={!user?.id || walletSwarm <= 0}
               userId={user?.id ?? ""}
-              walletCoins={walletCoins}
+              walletSwarm={walletSwarm}
               marketStats={marketStats}
               onListed={refresh}
             />
@@ -185,13 +183,13 @@ export function CoinMarketTab() {
           <TabsTrigger value="buys">My purchases ({myPurchases.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="open">
-          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="No open listings yet. Be the first to sell a mined coin." />
+          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="No open listings yet. Be the first to list SWARM." />
         </TabsContent>
         <TabsContent value="mine">
-          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="You haven’t listed any coins yet." />
+          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t listed any SWARM yet." />
         </TabsContent>
         <TabsContent value="buys">
-          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} isLive={isLive} onChange={refresh} empty="You haven’t reserved any listings yet." />
+          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t reserved any listings yet." />
         </TabsContent>
       </Tabs>
     </div>
@@ -200,22 +198,22 @@ export function CoinMarketTab() {
 
 // ── List dialog ────────────────────────────────────────────────────────
 
-function ListCoinDialog({
+function ListSwarmDialog({
   disabled,
   userId,
-  walletCoins,
+  walletSwarm,
   marketStats,
   onListed,
 }: {
   disabled: boolean;
   userId: string;
-  walletCoins: SwarmCoin[];
+  walletSwarm: number;
   marketStats: Awaited<ReturnType<typeof getCoinMarketStats>> | null;
   onListed: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [coinId, setCoinId] = useState("");
-  const [amount, setAmount] = useState("");
+  const [swarmAmount, setSwarmAmount] = useState("");
+  const [askAmount, setAskAmount] = useState("");
   const [currency, setCurrency] = useState<CoinMarketCurrency>("ETH");
   const [address, setAddress] = useState("");
   const [memo, setMemo] = useState("");
@@ -223,28 +221,30 @@ function ListCoinDialog({
 
   const addressValid = address.trim().length === 0 || isValidAddress(currency, address);
   const suggestedAsk = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
+  const parsedSwarm = Number(swarmAmount);
+  const suggestedTotal = Number.isFinite(parsedSwarm) && parsedSwarm > 0 ? suggestedAsk * parsedSwarm : suggestedAsk;
 
   const submit = async () => {
     if (!userId) return;
     setBusy(true);
     try {
-      await listCoinForSale({
+      await listSwarmForSale({
         sellerId: userId,
-        coinId,
-        askAmount: Number(amount),
+        swarmAmount: Number(swarmAmount),
+        askAmount: Number(askAmount),
         askCurrency: currency,
         receivingAddress: address,
         memo,
       });
-      toast.success("Coin listed on the market");
+      toast.success("SWARM listed on the market");
       onListed();
       setOpen(false);
-      setCoinId("");
-      setAmount("");
+      setSwarmAmount("");
+      setAskAmount("");
       setAddress("");
       setMemo("");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to list coin");
+      toast.error(err instanceof Error ? err.message : "Failed to list SWARM");
     } finally {
       setBusy(false);
     }
@@ -255,42 +255,42 @@ function ListCoinDialog({
       <DialogTrigger asChild>
         <Button disabled={disabled}>
           <Store className="mr-2 h-4 w-4" />
-          List a mined coin
+          List SWARM for sale
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>List a SWARM coin for sale</DialogTitle>
+          <DialogTitle>List SWARM for sale</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label>Coin</Label>
-            <Select value={coinId} onValueChange={setCoinId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a mined coin from your wallet" />
-              </SelectTrigger>
-              <SelectContent>
-                {walletCoins.map((c) => (
-                  <SelectItem key={c.coinId} value={c.coinId}>
-                    {c.coinId.slice(0, 10)}… · weight {c.weight}/{c.maxWeight}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>SWARM amount</Label>
+            <Input
+              type="number"
+              step="0.000001"
+              min="0"
+              max={walletSwarm}
+              placeholder="25"
+              value={swarmAmount}
+              onChange={(e) => setSwarmAmount(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Available: {walletSwarm.toFixed(2)} SWARM. Listed SWARM moves into market escrow immediately.
+            </p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label>Ask price</Label>
+              <Label>Total ask price</Label>
               <Input
                 type="number"
                 step="0.0001"
                 min="0"
                 placeholder="0.05"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                value={askAmount}
+                onChange={(e) => setAskAmount(e.target.value)}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Dynamic guide: {suggestedAsk || "—"} {currency} from pool liquidity and known mined supply.
+                Dynamic guide: {suggestedTotal ? suggestedTotal.toFixed(6) : "—"} {currency} from synced pool liquidity.
               </p>
             </div>
             <div>
@@ -324,16 +324,16 @@ function ListCoinDialog({
             <ShieldAlert className="h-4 w-4" />
             <AlertDescription className="text-xs">
               You are responsible for verifying payment on a block explorer
-              before releasing the escrowed coin. Never share your seed phrase.
+              before releasing escrowed SWARM. Never share your seed phrase.
             </AlertDescription>
           </Alert>
         </div>
         <DialogFooter>
           <Button
             onClick={submit}
-            disabled={busy || !coinId || !amount || Number(amount) <= 0 || !isValidAddress(currency, address)}
+            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0 || !isValidAddress(currency, address)}
           >
-            {busy ? "Listing…" : "List coin"}
+            {busy ? "Listing…" : "List SWARM"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -346,13 +346,11 @@ function ListCoinDialog({
 function ListingGrid({
   listings,
   currentUserId,
-  isLive,
   onChange,
   empty,
 }: {
   listings: CoinListing[];
   currentUserId: string;
-  isLive: boolean;
   onChange: () => void;
   empty: string;
 }) {
@@ -372,7 +370,6 @@ function ListingGrid({
           key={l.listingId}
           listing={l}
           currentUserId={currentUserId}
-          isLive={isLive}
           onChange={onChange}
         />
       ))}
@@ -383,18 +380,20 @@ function ListingGrid({
 function ListingCard({
   listing,
   currentUserId,
-  isLive,
   onChange,
 }: {
   listing: CoinListing;
   currentUserId: string;
-  isLive: boolean;
   onChange: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [payHash, setPayHash] = useState("");
   const isSeller = listing.sellerId === currentUserId;
   const isBuyer = listing.buyerId === currentUserId;
+  const isSwarmListing = (listing.assetType ?? "coin") === "swarm";
+  const assetLabel = isSwarmListing
+    ? `${(listing.swarmAmount ?? 0).toLocaleString()} SWARM`
+    : `Coin ${listing.coinId.slice(0, 10)}…`;
 
   const run = async (fn: () => Promise<unknown>, label: string) => {
     setBusy(true);
@@ -427,7 +426,7 @@ function ListingCard({
               {listing.askAmount} {listing.askCurrency}
             </CardTitle>
             <CardDescription className="text-xs">
-              Coin {listing.coinId.slice(0, 10)}… · Tier {listing.tier}
+              {assetLabel} · Tier {listing.tier}
             </CardDescription>
           </div>
           <Badge variant={statusColor[listing.status] ?? "default"}>
@@ -458,7 +457,7 @@ function ListingCard({
         <div className="flex flex-wrap gap-2 pt-1">
           {/* Buyer actions */}
           {!isSeller && listing.status === "open" && (
-            <Button size="sm" disabled={!isLive || busy} onClick={() => {
+            <Button size="sm" disabled={!currentUserId || busy} onClick={() => {
               toast.info(`Load ${listing.askCurrency} payment — coming soon`);
               void run(() => reserveListing({ listingId: listing.listingId, buyerId: currentUserId }), "Listing reserved");
             }}>Buy</Button>
@@ -472,11 +471,11 @@ function ListingCard({
                 placeholder="0xabc… or txid"
               />
               <div className="flex gap-2">
-                <Button size="sm" disabled={!isLive || busy || payHash.trim().length < 6} onClick={() => run(() =>
+                <Button size="sm" disabled={busy || payHash.trim().length < 6} onClick={() => run(() =>
                   confirmPayment({ listingId: listing.listingId, buyerId: currentUserId, paymentTxHash: payHash }),
                   "Payment recorded — waiting for seller to release",
                 )}>I paid</Button>
-                <Button size="sm" variant="outline" disabled={!isLive || busy} onClick={() => run(() =>
+                <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
                   cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
                   "Reservation cancelled",
                 )}>Cancel</Button>
@@ -484,7 +483,7 @@ function ListingCard({
             </div>
           )}
           {isBuyer && listing.status === "paid" && (
-            <Button size="sm" variant="destructive" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" variant="destructive" disabled={busy} onClick={() => run(() =>
               disputeListing({ listingId: listing.listingId, buyerId: currentUserId, reason: "Seller has not released" }),
               "Dispute filed",
             )}>Dispute</Button>
@@ -492,13 +491,13 @@ function ListingCard({
 
           {/* Seller actions */}
           {isSeller && listing.status === "paid" && (
-            <Button size="sm" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" disabled={busy} onClick={() => run(() =>
               settleListing({ listingId: listing.listingId, sellerId: currentUserId }),
-              "Coin released to buyer",
-            )}>Release coin</Button>
+              isSwarmListing ? "SWARM released to buyer" : "Coin released to buyer",
+            )}>{isSwarmListing ? "Release SWARM" : "Release coin"}</Button>
           )}
           {isSeller && (listing.status === "open" || listing.status === "reserved") && (
-            <Button size="sm" variant="outline" disabled={!isLive || busy} onClick={() => run(() =>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
               cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
               "Listing cancelled",
             )}>Cancel</Button>

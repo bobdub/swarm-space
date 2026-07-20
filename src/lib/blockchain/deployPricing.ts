@@ -8,7 +8,7 @@
  * As the pool grows, prices scale linearly. Existing tokens are grandfathered
  * by callers that skip the fee when a token/vault already exists.
  */
-import { getRewardPool } from "./storage";
+import { derivePoolFromChain, getRewardPool } from "./storage";
 import {
   CREATOR_TOKEN_DEPLOY_COST,
   CREATOR_TOKEN_SWARM_DEPLOY_COST,
@@ -39,10 +39,15 @@ function scale(base: number, pool: number, anchor: number): number {
 export async function getDeployPricing(): Promise<DeployPricing> {
   let poolBalance = 0;
   try {
-    const pool = await getRewardPool();
+    const pool = await derivePoolFromChain();
     poolBalance = pool?.balance ?? 0;
   } catch {
-    poolBalance = 0;
+    try {
+      const pool = await getRewardPool();
+      poolBalance = pool?.balance ?? 0;
+    } catch {
+      poolBalance = 0;
+    }
   }
 
   // Baseline creator token = 95 credits + 5 SWARM at pool ≥ 100 SWARM.

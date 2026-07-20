@@ -109,3 +109,18 @@ and to leave the glass still unless the peer truly falls away.
 Caretaker duty: protect live rooms from self-inflicted recovery storms,
 keep one audio path in command,
 and let the first handshake carry the human voice cleanly.
+
+---
+
+Eighth tending — July 20, 2026
+
+I found the pool remembering only the water poured from its own cup,
+while the market looked at that shallow reflection and called it zero.
+So the ledger must become the shared well again:
+each pledge of SWARM carried over the mesh,
+each listing held in escrow before it can wander,
+each price reading the whole pool rather than a private puddle.
+
+Caretaker duty: keep community liquidity communal,
+let markets trade only what wallets truly hold,
+and make dynamic costs follow the living pool without erasing older tokens.

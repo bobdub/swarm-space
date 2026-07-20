@@ -28,7 +28,8 @@ import { COIN_MARKET_TIERS } from "./types";
 import { get, getAll, getAllByIndex, put, remove } from "../store";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getSwarmChain } from "./chain";
-import { getRewardPool } from "./storage";
+import { derivePoolFromChain, getRewardPool } from "./storage";
+import { getSwarmBalance } from "./token";
 
 const LISTINGS_STORE = "coinListings";
 const COINS_STORE = "swarmCoins";
@@ -103,7 +104,7 @@ export function quoteBaseAsk(currency: CoinMarketCurrency, stats: CoinMarketStat
 
 export async function getCoinMarketStats(): Promise<CoinMarketStats> {
   const [pool, coins, listings] = await Promise.all([
-    getRewardPool(),
+    derivePoolFromChain().catch(() => getRewardPool()),
     getAll<SwarmCoin>(COINS_STORE),
     getAllListings(),
   ]);
@@ -207,9 +208,23 @@ function recordMarketTx(
     fee: 0,
     meta: {
       listingId: params.listing.listingId,
+      sellerId: params.listing.sellerId,
+      buyerId: params.listing.buyerId,
+      coinId: params.listing.coinId,
+      assetType: params.listing.assetType ?? "coin",
+      swarmAmount: params.listing.swarmAmount,
       askAmount: params.listing.askAmount,
       askCurrency: params.listing.askCurrency,
+      receivingAddress: params.listing.receivingAddress,
+      memo: params.listing.memo,
       status: params.listing.status,
+      tier: params.listing.tier,
+      createdAt: params.listing.createdAt,
+      updatedAt: params.listing.updatedAt,
+      reservedAt: params.listing.reservedAt,
+      paidAt: params.listing.paidAt,
+      settledAt: params.listing.settledAt,
+      paymentTxHash: params.listing.paymentTxHash,
       ...(params.extraMeta ?? {}),
     },
   };
@@ -222,6 +237,10 @@ function recordMarketTx(
     window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
   } catch { /* non-browser */ }
   return tx;
+}
+
+function marketEscrowAddress(listingId: string): string {
+  return `${MARKET_ESCROW_PREFIX}${listingId}`;
 }
 
 function emitListingEvent(listing: CoinListing) {
@@ -289,6 +308,7 @@ export async function listCoinForSale(params: {
     listingId: generateTokenId(),
     sellerId,
     coinId,
+    assetType: "coin",
     askAmount,
     askCurrency,
     receivingAddress: receivingAddress.trim(),
@@ -314,6 +334,153 @@ export async function listCoinForSale(params: {
   LAST_LIST_AT.set(sellerId, Date.now());
   emitListingEvent(listing);
   return listing;
+}
+
+export async function listSwarmForSale(params: {
+  sellerId: string;
+  swarmAmount: number;
+  askAmount: number;
+  askCurrency: CoinMarketCurrency;
+  receivingAddress: string;
+  memo?: string;
+}): Promise<CoinListing> {
+  const { sellerId, swarmAmount, askAmount, askCurrency, receivingAddress, memo } = params;
+
+  if (!(swarmAmount > 0) || !isFinite(swarmAmount)) {
+    throw new Error("SWARM amount must be greater than zero.");
+  }
+  if (!(askAmount > 0) || !isFinite(askAmount)) {
+    throw new Error("Ask price must be greater than zero.");
+  }
+  if (!isValidAddress(askCurrency, receivingAddress)) {
+    throw new Error(`Invalid ${askCurrency} address.`);
+  }
+  assertRateLimit(sellerId);
+
+  const balance = await getSwarmBalance(sellerId);
+  if (balance < swarmAmount) {
+    throw new Error(`Insufficient SWARM. You have ${balance.toFixed(2)} available.`);
+  }
+
+  const pool = await derivePoolFromChain().catch(() => getRewardPool());
+  const tier = computeMarketTier(pool?.balance ?? 0);
+  const openBySeller = (await getListingsBySeller(sellerId)).filter((l) =>
+    ["open", "reserved", "paid"].includes(l.status),
+  );
+  if (openBySeller.length >= tier.maxOpenListings) {
+    throw new Error(
+      `Tier ${tier.tier} (${tier.label}) allows up to ${
+        tier.maxOpenListings === Infinity ? "unlimited" : tier.maxOpenListings
+      } open listing(s). Grow the community pool to unlock more.`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const listingId = generateTokenId();
+  const listing: CoinListing = {
+    listingId,
+    sellerId,
+    coinId: `swarm:${listingId}`,
+    assetType: "swarm",
+    swarmAmount: round6(swarmAmount),
+    askAmount,
+    askCurrency,
+    receivingAddress: receivingAddress.trim(),
+    memo: memo?.trim() || undefined,
+    status: "open",
+    tier: tier.tier,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await put(LISTINGS_STORE, listing);
+  recordMarketTx("coin_market_list", {
+    listing,
+    from: sellerId,
+    to: marketEscrowAddress(listingId),
+    amount: listing.swarmAmount,
+  });
+
+  LAST_LIST_AT.set(sellerId, Date.now());
+  emitListingEvent(listing);
+  return listing;
+}
+
+type ListingMeta = Record<string, unknown>;
+
+function listingFromMeta(meta: ListingMeta): CoinListing | null {
+  const listingId = String(meta.listingId ?? "");
+  const sellerId = String(meta.sellerId ?? "");
+  const coinId = String(meta.coinId ?? "");
+  const askCurrency = meta.askCurrency as CoinMarketCurrency | undefined;
+  if (!listingId || !sellerId || !coinId || !askCurrency) return null;
+  const now = new Date().toISOString();
+  return {
+    listingId,
+    sellerId,
+    coinId,
+    assetType: meta.assetType === "swarm" ? "swarm" : "coin",
+    swarmAmount: meta.swarmAmount === undefined ? undefined : round6(Number(meta.swarmAmount)),
+    askAmount: Number(meta.askAmount ?? 0),
+    askCurrency,
+    receivingAddress: String(meta.receivingAddress ?? ""),
+    memo: typeof meta.memo === "string" && meta.memo ? meta.memo : undefined,
+    status: (meta.status as CoinListingStatus | undefined) ?? "open",
+    buyerId: typeof meta.buyerId === "string" ? meta.buyerId : undefined,
+    paymentTxHash: typeof meta.paymentTxHash === "string" ? meta.paymentTxHash : undefined,
+    reservedAt: typeof meta.reservedAt === "string" ? meta.reservedAt : undefined,
+    paidAt: typeof meta.paidAt === "string" ? meta.paidAt : undefined,
+    settledAt: typeof meta.settledAt === "string" ? meta.settledAt : undefined,
+    tier: Number(meta.tier ?? 1),
+    createdAt: typeof meta.createdAt === "string" ? meta.createdAt : now,
+    updatedAt: typeof meta.updatedAt === "string" ? meta.updatedAt : now,
+  };
+}
+
+export async function applyMarketTransaction(tx: SwarmTransaction): Promise<void> {
+  if (!tx.type.startsWith("coin_market_")) return;
+  const meta = (tx.meta ?? {}) as ListingMeta;
+  const incoming = listingFromMeta(meta);
+  if (!incoming) return;
+  const existing = await getListing(incoming.listingId);
+  const merged: CoinListing = {
+    ...(existing ?? incoming),
+    ...incoming,
+    updatedAt: incoming.updatedAt || tx.timestamp,
+  };
+
+  switch (tx.type) {
+    case "coin_market_list":
+      merged.status = "open";
+      break;
+    case "coin_market_reserve":
+      merged.status = "reserved";
+      merged.buyerId = incoming.buyerId ?? tx.from;
+      merged.reservedAt = incoming.reservedAt ?? tx.timestamp;
+      break;
+    case "coin_market_confirm_payment":
+      merged.status = "paid";
+      merged.buyerId = incoming.buyerId ?? existing?.buyerId;
+      merged.paymentTxHash = incoming.paymentTxHash ?? String(meta.paymentTxHash ?? "");
+      merged.paidAt = incoming.paidAt ?? tx.timestamp;
+      break;
+    case "coin_market_settle":
+      merged.status = "settled";
+      merged.buyerId = incoming.buyerId ?? existing?.buyerId ?? tx.to;
+      merged.settledAt = incoming.settledAt ?? tx.timestamp;
+      break;
+    case "coin_market_cancel":
+      merged.status = "cancelled";
+      break;
+    case "coin_market_dispute":
+      merged.status = "disputed";
+      break;
+    default:
+      return;
+  }
+
+  await put(LISTINGS_STORE, merged);
+  emitListingEvent(merged);
 }
 
 // ── RESERVE ────────────────────────────────────────────────────────────
@@ -402,11 +569,13 @@ export async function settleListing(params: {
     throw new Error("Buyer has not confirmed payment yet.");
   if (!listing.buyerId) throw new Error("Listing has no buyer.");
 
-  const coin = await loadCoin(listing.coinId);
-  if (!coin) throw new Error("Escrowed coin missing.");
-  coin.ownerId = listing.buyerId;
-  coin.status = "wallet";
-  await saveCoin(coin);
+  if ((listing.assetType ?? "coin") === "coin") {
+    const coin = await loadCoin(listing.coinId);
+    if (!coin) throw new Error("Escrowed coin missing.");
+    coin.ownerId = listing.buyerId;
+    coin.status = "wallet";
+    await saveCoin(coin);
+  }
 
   listing.status = "settled";
   listing.settledAt = new Date().toISOString();
@@ -415,9 +584,10 @@ export async function settleListing(params: {
 
   recordMarketTx("coin_market_settle", {
     listing,
-    from: params.sellerId,
+    from: (listing.assetType ?? "coin") === "swarm" ? marketEscrowAddress(listing.listingId) : params.sellerId,
     to: listing.buyerId,
-    amount: 1,
+    amount: (listing.assetType ?? "coin") === "swarm" ? listing.swarmAmount ?? 0 : 1,
+    extraMeta: { releasedBy: params.sellerId },
   });
   emitListingEvent(listing);
   return listing;
@@ -441,12 +611,14 @@ export async function cancelListing(params: {
   }
   if (!isSeller && !isBuyer) throw new Error("Not authorized to cancel.");
 
-  // Return coin to seller.
-  const coin = await loadCoin(listing.coinId);
-  if (coin) {
-    coin.ownerId = listing.sellerId;
-    coin.status = "wallet";
-    await saveCoin(coin);
+  if ((listing.assetType ?? "coin") === "coin") {
+    // Return coin to seller.
+    const coin = await loadCoin(listing.coinId);
+    if (coin) {
+      coin.ownerId = listing.sellerId;
+      coin.status = "wallet";
+      await saveCoin(coin);
+    }
   }
 
   listing.status = "cancelled";
@@ -455,8 +627,10 @@ export async function cancelListing(params: {
 
   recordMarketTx("coin_market_cancel", {
     listing,
-    from: params.actorId,
+    from: (listing.assetType ?? "coin") === "swarm" ? marketEscrowAddress(listing.listingId) : params.actorId,
     to: listing.sellerId,
+    amount: (listing.assetType ?? "coin") === "swarm" ? listing.swarmAmount ?? 0 : 0,
+    extraMeta: { cancelledBy: params.actorId },
   });
   emitListingEvent(listing);
   return listing;

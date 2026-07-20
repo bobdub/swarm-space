@@ -106,6 +106,7 @@ export default function Wallet() {
     window.addEventListener("credit-transaction", handleCreditTransaction);
     window.addEventListener("active-chain-changed", handleChainChanged);
     window.addEventListener("cross-chain-swap", handleCreditTransaction);
+    window.addEventListener("reward-pool-update", handleCreditTransaction);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     const interval = setInterval(() => void loadWalletData(), 10000);
@@ -117,6 +118,7 @@ export default function Wallet() {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
       window.removeEventListener("active-chain-changed", handleChainChanged);
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
+      window.removeEventListener("reward-pool-update", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
       unsubMining?.();
