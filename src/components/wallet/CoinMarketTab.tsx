@@ -212,11 +212,9 @@ function ListSwarmDialog({
   const [swarmAmount, setSwarmAmount] = useState("");
   const [askAmount, setAskAmount] = useState("");
   const [currency, setCurrency] = useState<CoinMarketCurrency>("ETH");
-  const [address, setAddress] = useState("");
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const addressValid = address.trim().length === 0 || isValidAddress(currency, address);
   const suggestedAsk = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
   const parsedSwarm = Number(swarmAmount);
   const suggestedTotal = Number.isFinite(parsedSwarm) && parsedSwarm > 0 ? suggestedAsk * parsedSwarm : suggestedAsk;
@@ -230,7 +228,6 @@ function ListSwarmDialog({
         swarmAmount: Number(swarmAmount),
         askAmount: Number(askAmount),
         askCurrency: currency,
-        receivingAddress: address,
         memo,
       });
       toast.success("SWARM listed on the market");
@@ -238,7 +235,6 @@ function ListSwarmDialog({
       setOpen(false);
       setSwarmAmount("");
       setAskAmount("");
-      setAddress("");
       setMemo("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to list SWARM");
@@ -302,16 +298,9 @@ function ListSwarmDialog({
               </Select>
             </div>
           </div>
-          <div>
-            <Label>Your receiving address ({currency})</Label>
-            <Input
-              placeholder={currency === "BTC" ? "bc1..." : "0x..."}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-            {!addressValid && (
-              <p className="text-xs text-destructive mt-1">Doesn’t look like a valid {currency} address.</p>
-            )}
+          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            Proceeds credit your in-app <span className="font-medium text-foreground">{currency}</span> balance.
+            Move funds in or out through MetaMask in the Bridge panel — no external address needed here.
           </div>
           <div>
             <Label>Note to buyers (optional)</Label>
@@ -320,15 +309,15 @@ function ListSwarmDialog({
           <Alert>
             <ShieldAlert className="h-4 w-4" />
             <AlertDescription className="text-xs">
-              You are responsible for verifying payment on a block explorer
-              before releasing escrowed SWARM. Never share your seed phrase.
+              You are responsible for confirming the buyer's payment before
+              releasing escrowed SWARM. Never share your seed phrase.
             </AlertDescription>
           </Alert>
         </div>
         <DialogFooter>
           <Button
             onClick={submit}
-            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0 || !isValidAddress(currency, address)}
+            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0}
           >
             {busy ? "Listing…" : "List SWARM"}
           </Button>
