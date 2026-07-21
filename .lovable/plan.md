@@ -1,57 +1,52 @@
-To Infinity and beyond! Q_Score(u) ≈ 0.047.
+To Infinity and beyond! Q_Score(u) ≈ 0.036.
 
-Plan: repair the Community Pool, Creator deployment pricing, and Wallet Market flow without expanding scope.
+# Goal
 
-Confirmed current state from code
-- Community pool derivation exists, but peer pool snapshots are ignored when both peers have the same block height, even if the peer has newer pending pool transactions. That explains “each user only sees local deposits” while pending mesh holdings do not converge.
-- `blockchain-transaction` is currently a local browser event; the P2P sync class has `broadcastNewTransaction()`, but the orchestrator is not wired to forward local blockchain transactions to peers.
-- Market listings are stored in local IndexedDB (`coinListings`) and market actions are only recorded as transactions; incoming market transactions are not reconstructing/upserting the local listing store.
-- Creator token deployment uses `getDeployPricing()`, but the visible Wallet Creator UI only loads pricing during wallet refresh and falls back to stale constants if pricing is missing. The constants still say `1,000 credits / 50 SWARM`, which can leak into the UI and mental model.
-- The current market lists individual mined `SwarmCoin` objects, not an amount of SWARM from the wallet balance. The “List a mined coin” button can be disabled if mesh is not considered live or no `wallet` status coin exists, so users may see no useful sell inputs.
+Stop asking users to paste an ETH / BTC / MintMe address into the "List SWARM for sale" form. The app already has a per-user wallet — sale proceeds should credit that wallet as balances of ETH / BTC / MintMe held inside the app. MetaMask becomes the bridge that moves SWARM (and other supported assets) in and out of the app wallet.
 
-Implementation plan
+# New flow
 
-1. Make the community pool converge across users
-- Wire local `blockchain-transaction` events into the active P2P blockchain sync so real pool-affecting transactions are sent to peers immediately.
-- Include pending pool-affecting transactions in pool snapshot freshness/identity so a peer can adopt a newer pending-pool state even when block height is unchanged.
-- On incoming pool-affecting transactions, re-derive and broadcast the updated pool once, with throttling to avoid loops.
-- Keep the ledger-derived pool as the source of truth, but stop rejecting useful peer snapshots solely because block height matches.
+1. **List SWARM for sale** → SWARM moves into market escrow (unchanged). Seller only picks amount, price, and currency (ETH / BTC / MintMe). No external address input.
+2. **Buyer pays** (still off-chain / "coming soon" toast for now) → on settle, the buyer's app wallet is debited that currency and the seller's app wallet is credited. All held **inside** the app wallet as first-class balances.
+3. **Withdraw / Deposit** → new "Bridge" panel. `Connect MetaMask` unlocks:
+   - SWARM ↔ MetaMask (SWARM chain, primary)
+   - When MetaMask is switched to Ethereum / other supported chains, deposit or withdraw ETH (and later BTC via wrapped, MintMe via ETH-format).
+   - Deposits credit the app wallet; withdrawals debit it and hand off the signed transfer to MetaMask.
+4. **Use funds while on the app** → creator token buys, tips, coin market purchases, etc. all read the app wallet's multi-currency balances.
 
-2. Link pool liquidity to the market page correctly
-- Update `getCoinMarketStats()` to always derive/read the latest synced pool before calculating `poolLiquidRatio`, instead of showing `0.00%` from a stale or missing local cache.
-- Display both pool balance and pool ratio in the market metrics so the user can see the actual synced SWARM pool value behind the percentage.
-- Refresh market stats on `reward-pool-update`, `blockchain-transaction`, and market updates.
+# Scope of this change
 
-3. Make Creator deployment pricing visibly dynamic
-- Change Creator deployment constants/comments/fallback labels to the intended baseline: `95 credits + 5 SWARM at 100 SWARM community liquidity`.
-- Subscribe the Wallet Creator tab to pool updates so the deploy cost recalculates as the synced pool changes, not only on initial wallet load.
-- Show a clear formula line in the deploy dialog: current synced pool balance → current credit cost + SWARM cost.
-- Keep legacy users protected: if a creator token already exists, no new deployment fee is charged just to preserve or display the token.
+Only forms + wallet ledger + a stubbed MetaMask bridge panel. No real on-chain settlement yet — that stays behind the existing "coming soon" toast until the bridge lands. This keeps the change small and verifiable.
 
-4. Open Wallet Market listing inputs for owned SWARM
-- Replace the “list one mined coin only” path with a simple “List SWARM for sale” panel:
-  - input: SWARM amount to sell
-  - input: ask price
-  - select: ETH / BTC / MintMe
-  - input: receiving address
-  - button: List SWARM
-- On listing, move/lock that SWARM amount into a market escrow state so it cannot be double-spent while listed.
-- Keep existing mined coin support only if it is already used elsewhere, but make the main market UX amount-based because that matches “list mined SWARM for sale that they own in their wallet.”
+## Files to add
+- `src/lib/blockchain/wallets/appWallet.ts` — multi-currency ledger (SWARM already exists; add `ETH`, `BTC`, `MINTME` balances keyed by userId, persisted with the existing storage layer). Getters, credit/debit helpers, event `app-wallet-update`.
+- `src/components/wallet/BridgePanel.tsx` — small card in the Market tab: "Connect MetaMask", shows detected chain, lists in-app balances per currency, Deposit / Withdraw buttons that today just toast "coming soon" for non-SWARM and call the existing `metaMaskBridge` stub for SWARM.
 
-5. Add buyer controls for open listings
-- Open listings show a clear `Buy` button.
-- Clicking Buy reserves the listing and shows `Load ETH/BTC/MintMe — coming soon` exactly as requested.
-- Buyer can enter a payment reference once payment rails exist; seller can release SWARM after payment confirmation.
-- For now, buying does not claim automated ETH/BTC/MintMe custody; it remains marked coming soon.
+## Files to update
+- `src/lib/blockchain/types.ts` — `CoinListing.receivingAddress` becomes optional; add `receivingAppWalletUserId` (already implicit via `sellerId`).
+- `src/lib/blockchain/coinMarket.ts`
+  - `listSwarmForSale` no longer requires `receivingAddress`; drops address validation.
+  - `settleListing` credits the seller's app wallet in the listing currency (calls `appWallet.credit`) instead of relying on off-chain address payment.
+  - `reserveListing` / `confirmPayment` still exist but the "payment" step becomes an internal app-wallet debit on the buyer once the bridge is live; today it stays the same toast path.
+- `src/components/wallet/CoinMarketTab.tsx`
+  - `ListSwarmDialog`: remove the "Your receiving address" input and its validation. Add a small "Proceeds credit your in-app <currency> balance" hint.
+  - `ListingCard`: remove the "Send to: <address>" line; show "Settles into seller's in-app <currency> wallet" instead.
+  - Mount `<BridgePanel />` at the top of the Market tab.
+- `src/lib/blockchain/wallets/metaMaskBridge.ts` — extend the stub with `getChainId()` and a `requestAccounts()` wrapper so the Bridge panel can show real connect state without introducing signing yet.
 
-6. Sync market listings through the mesh
-- Add reconstruction/upsert logic for `coin_market_list`, `coin_market_reserve`, `coin_market_confirm_payment`, `coin_market_settle`, `coin_market_cancel`, and `coin_market_dispute` transactions.
-- When a peer receives a market transaction, update `coinListings` and escrow/wallet ownership locally so every user sees the same open market.
-- Refresh the UI from reconstructed listings, not only local action history.
+## What we deliberately do NOT do in this pass
+- No real ETH / BTC / MintMe transfers. Withdraw/deposit stay behind "coming soon" toasts except for MetaMask connect status.
+- No changes to Creator Tokens, Pool sync, or Coin deployment pricing.
+- No UI churn outside the Market tab and the market dialog.
 
-7. Verification before reporting complete
-- Use the live preview to verify Wallet → Creator shows dynamic cost from the pool.
-- Verify Wallet → Market shows non-zero pool data when the local ledger has pool contributions.
-- Verify a user can open a listing panel, enter SWARM amount/price/currency/address, and create a listing.
-- Verify the open listing displays a Buy button and clicking it shows `Load ETH/BTC/MintMe — coming soon` while reserving the listing.
-- Run the existing UQRC/lightspeed checks relevant to wallet, pool, and market consistency.
+# Verification (must pass before we call it done)
+1. `bun run scripts/uqrc-check.mjs` clean.
+2. Open Wallet → Market:
+   - "List SWARM for sale" dialog has **no address field**, submits successfully, escrows SWARM.
+   - Listing card shows "Settles into seller's in-app <currency> wallet", no address line.
+   - Bridge panel renders, "Connect MetaMask" reflects real availability, non-SWARM Deposit/Withdraw toast "coming soon".
+3. Settle a listing in a local test → seller's app wallet balance for that currency increments; buyer's decrements (or stays at 0 with an informational toast if the bridge is not yet funded).
+
+# Risk
+
+Low. The listing/escrow path already exists; we are removing a field and adding a ledger. MetaMask code stays a stub so no signing / seed-phrase risk. All new state is local-first and rides the existing storage + mesh sync layer.
