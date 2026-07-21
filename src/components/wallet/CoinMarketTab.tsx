@@ -421,9 +421,15 @@ function ListingCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <div className="text-xs text-muted-foreground break-all">
-          <span className="font-medium text-foreground">Send to:</span> {listing.receivingAddress}
-        </div>
+        {listing.receivingAddress ? (
+          <div className="text-xs text-muted-foreground break-all">
+            <span className="font-medium text-foreground">Legacy payout:</span> {listing.receivingAddress}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            Settles into seller's in-app {listing.askCurrency} wallet.
+          </div>
+        )}
         {listing.memo && (
           <div className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Note:</span> {listing.memo}
