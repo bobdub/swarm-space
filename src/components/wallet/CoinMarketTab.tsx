@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp, Wallet as WalletIcon } from "lucide-react";
+import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import type { CoinListing, CoinMarketCurrency } from "@/lib/blockchain/types";
@@ -21,7 +21,6 @@ import {
   disputeListing,
   getAllListings,
   getCoinMarketStats,
-  isValidAddress,
   listSwarmForSale,
   listingStatusLabel,
   quoteBaseAsk,
@@ -29,13 +28,13 @@ import {
   settleListing,
 } from "@/lib/blockchain/coinMarket";
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
-import { isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
 import { getSwarmBalance } from "@/lib/blockchain/token";
+import { BridgePanel } from "./BridgePanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
-  { value: "ETH",    label: "ETH — Ethereum", hint: "Send to the address shown by the seller." },
-  { value: "BTC",    label: "BTC — Bitcoin",  hint: "Send to the seller's BTC address." },
-  { value: "MINTME", label: "MintMe",         hint: "MintMe uses an ETH-format address." },
+  { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
+  { value: "BTC",    label: "BTC — Bitcoin",  hint: "Proceeds credit your in-app BTC balance." },
+  { value: "MINTME", label: "MintMe",         hint: "Proceeds credit your in-app MintMe balance." },
 ];
 
 export function CoinMarketTab() {
@@ -91,8 +90,8 @@ export function CoinMarketTab() {
                 <Store className="h-5 w-5 text-primary" /> Coin Market
               </CardTitle>
               <CardDescription>
-                List wallet SWARM for ETH, Bitcoin, or MintMe — peer-to-peer,
-                settled through the SWARM mesh.
+                List wallet SWARM for ETH, Bitcoin, or MintMe — proceeds land in
+                your in-app wallet and only leave through the MetaMask bridge.
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -152,12 +151,12 @@ export function CoinMarketTab() {
           )}
           <Alert>
             <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>Off-chain settlement — verify before releasing</AlertTitle>
+            <AlertTitle>Settles into your in-app wallet</AlertTitle>
             <AlertDescription>
-              This app never touches your seed phrase or private keys. Real
-              payments move outside SWARM. <strong>Always verify payment on a
-              block explorer</strong> before releasing escrowed SWARM.
-              Automated MetaMask escrow is coming soon.
+              Sale proceeds credit your in-app ETH / BTC / MintMe balance —
+              no external address needed. Move funds in and out through
+              MetaMask in the bridge panel below. The app never touches your
+              seed phrase or private keys.
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
@@ -168,13 +167,11 @@ export function CoinMarketTab() {
               marketStats={marketStats}
               onListed={refresh}
             />
-            <Button variant="outline" disabled title="Automated escrow lands next release">
-              <WalletIcon className="mr-2 h-4 w-4" />
-              {isMetaMaskAvailable() ? "Connect wallet (soon)" : "MetaMask (soon)"}
-            </Button>
           </div>
         </CardContent>
       </Card>
+
+      <BridgePanel />
 
       <Tabs defaultValue="open" className="space-y-4">
         <TabsList className="grid grid-cols-3 gap-1 h-auto">
