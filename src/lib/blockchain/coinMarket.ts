@@ -579,6 +579,15 @@ export async function settleListing(params: {
   listing.updatedAt = listing.settledAt;
   await put(LISTINGS_STORE, listing);
 
+  // Credit the seller's in-app wallet with the ask amount in the listing currency.
+  // Real inflows will arrive via the MetaMask bridge; today this is the
+  // settlement primitive the seller-side release button drives.
+  try {
+    creditAppWallet(listing.sellerId, listing.askCurrency, listing.askAmount);
+  } catch (err) {
+    console.warn("[CoinMarket] app-wallet credit failed:", err);
+  }
+
   recordMarketTx("coin_market_settle", {
     listing,
     from: (listing.assetType ?? "coin") === "swarm" ? marketEscrowAddress(listing.listingId) : params.sellerId,
