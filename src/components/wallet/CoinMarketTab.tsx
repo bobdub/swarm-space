@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp, Wallet as WalletIcon } from "lucide-react";
+import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import type { CoinListing, CoinMarketCurrency } from "@/lib/blockchain/types";
@@ -21,7 +21,6 @@ import {
   disputeListing,
   getAllListings,
   getCoinMarketStats,
-  isValidAddress,
   listSwarmForSale,
   listingStatusLabel,
   quoteBaseAsk,
@@ -29,13 +28,13 @@ import {
   settleListing,
 } from "@/lib/blockchain/coinMarket";
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
-import { isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
 import { getSwarmBalance } from "@/lib/blockchain/token";
+import { BridgePanel } from "./BridgePanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
-  { value: "ETH",    label: "ETH — Ethereum", hint: "Send to the address shown by the seller." },
-  { value: "BTC",    label: "BTC — Bitcoin",  hint: "Send to the seller's BTC address." },
-  { value: "MINTME", label: "MintMe",         hint: "MintMe uses an ETH-format address." },
+  { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
+  { value: "BTC",    label: "BTC — Bitcoin",  hint: "Proceeds credit your in-app BTC balance." },
+  { value: "MINTME", label: "MintMe",         hint: "Proceeds credit your in-app MintMe balance." },
 ];
 
 export function CoinMarketTab() {
@@ -91,8 +90,8 @@ export function CoinMarketTab() {
                 <Store className="h-5 w-5 text-primary" /> Coin Market
               </CardTitle>
               <CardDescription>
-                List wallet SWARM for ETH, Bitcoin, or MintMe — peer-to-peer,
-                settled through the SWARM mesh.
+                List wallet SWARM for ETH, Bitcoin, or MintMe — proceeds land in
+                your in-app wallet and only leave through the MetaMask bridge.
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -152,12 +151,12 @@ export function CoinMarketTab() {
           )}
           <Alert>
             <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>Off-chain settlement — verify before releasing</AlertTitle>
+            <AlertTitle>Settles into your in-app wallet</AlertTitle>
             <AlertDescription>
-              This app never touches your seed phrase or private keys. Real
-              payments move outside SWARM. <strong>Always verify payment on a
-              block explorer</strong> before releasing escrowed SWARM.
-              Automated MetaMask escrow is coming soon.
+              Sale proceeds credit your in-app ETH / BTC / MintMe balance —
+              no external address needed. Move funds in and out through
+              MetaMask in the bridge panel below. The app never touches your
+              seed phrase or private keys.
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
@@ -168,13 +167,11 @@ export function CoinMarketTab() {
               marketStats={marketStats}
               onListed={refresh}
             />
-            <Button variant="outline" disabled title="Automated escrow lands next release">
-              <WalletIcon className="mr-2 h-4 w-4" />
-              {isMetaMaskAvailable() ? "Connect wallet (soon)" : "MetaMask (soon)"}
-            </Button>
           </div>
         </CardContent>
       </Card>
+
+      <BridgePanel />
 
       <Tabs defaultValue="open" className="space-y-4">
         <TabsList className="grid grid-cols-3 gap-1 h-auto">
@@ -215,11 +212,9 @@ function ListSwarmDialog({
   const [swarmAmount, setSwarmAmount] = useState("");
   const [askAmount, setAskAmount] = useState("");
   const [currency, setCurrency] = useState<CoinMarketCurrency>("ETH");
-  const [address, setAddress] = useState("");
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const addressValid = address.trim().length === 0 || isValidAddress(currency, address);
   const suggestedAsk = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
   const parsedSwarm = Number(swarmAmount);
   const suggestedTotal = Number.isFinite(parsedSwarm) && parsedSwarm > 0 ? suggestedAsk * parsedSwarm : suggestedAsk;
@@ -233,7 +228,6 @@ function ListSwarmDialog({
         swarmAmount: Number(swarmAmount),
         askAmount: Number(askAmount),
         askCurrency: currency,
-        receivingAddress: address,
         memo,
       });
       toast.success("SWARM listed on the market");
@@ -241,7 +235,6 @@ function ListSwarmDialog({
       setOpen(false);
       setSwarmAmount("");
       setAskAmount("");
-      setAddress("");
       setMemo("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to list SWARM");
@@ -305,16 +298,9 @@ function ListSwarmDialog({
               </Select>
             </div>
           </div>
-          <div>
-            <Label>Your receiving address ({currency})</Label>
-            <Input
-              placeholder={currency === "BTC" ? "bc1..." : "0x..."}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
-            {!addressValid && (
-              <p className="text-xs text-destructive mt-1">Doesn’t look like a valid {currency} address.</p>
-            )}
+          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            Proceeds credit your in-app <span className="font-medium text-foreground">{currency}</span> balance.
+            Move funds in or out through MetaMask in the Bridge panel — no external address needed here.
           </div>
           <div>
             <Label>Note to buyers (optional)</Label>
@@ -323,15 +309,15 @@ function ListSwarmDialog({
           <Alert>
             <ShieldAlert className="h-4 w-4" />
             <AlertDescription className="text-xs">
-              You are responsible for verifying payment on a block explorer
-              before releasing escrowed SWARM. Never share your seed phrase.
+              You are responsible for confirming the buyer's payment before
+              releasing escrowed SWARM. Never share your seed phrase.
             </AlertDescription>
           </Alert>
         </div>
         <DialogFooter>
           <Button
             onClick={submit}
-            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0 || !isValidAddress(currency, address)}
+            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0}
           >
             {busy ? "Listing…" : "List SWARM"}
           </Button>
@@ -435,9 +421,15 @@ function ListingCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <div className="text-xs text-muted-foreground break-all">
-          <span className="font-medium text-foreground">Send to:</span> {listing.receivingAddress}
-        </div>
+        {listing.receivingAddress ? (
+          <div className="text-xs text-muted-foreground break-all">
+            <span className="font-medium text-foreground">Legacy payout:</span> {listing.receivingAddress}
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground">
+            Settles into seller's in-app {listing.askCurrency} wallet.
+          </div>
+        )}
         {listing.memo && (
           <div className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">Note:</span> {listing.memo}

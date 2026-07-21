@@ -30,6 +30,7 @@ import { generateTransactionId, generateTokenId } from "./crypto";
 import { getSwarmChain } from "./chain";
 import { derivePoolFromChain, getRewardPool } from "./storage";
 import { getSwarmBalance } from "./token";
+import { creditAppWallet } from "./wallets/appWallet";
 
 const LISTINGS_STORE = "coinListings";
 const COINS_STORE = "swarmCoins";
@@ -341,19 +342,16 @@ export async function listSwarmForSale(params: {
   swarmAmount: number;
   askAmount: number;
   askCurrency: CoinMarketCurrency;
-  receivingAddress: string;
+  receivingAddress?: string;
   memo?: string;
 }): Promise<CoinListing> {
-  const { sellerId, swarmAmount, askAmount, askCurrency, receivingAddress, memo } = params;
+  const { sellerId, swarmAmount, askAmount, askCurrency, memo } = params;
 
   if (!(swarmAmount > 0) || !isFinite(swarmAmount)) {
     throw new Error("SWARM amount must be greater than zero.");
   }
   if (!(askAmount > 0) || !isFinite(askAmount)) {
     throw new Error("Ask price must be greater than zero.");
-  }
-  if (!isValidAddress(askCurrency, receivingAddress)) {
-    throw new Error(`Invalid ${askCurrency} address.`);
   }
   assertRateLimit(sellerId);
 
@@ -385,7 +383,6 @@ export async function listSwarmForSale(params: {
     swarmAmount: round6(swarmAmount),
     askAmount,
     askCurrency,
-    receivingAddress: receivingAddress.trim(),
     memo: memo?.trim() || undefined,
     status: "open",
     tier: tier.tier,
@@ -581,6 +578,15 @@ export async function settleListing(params: {
   listing.settledAt = new Date().toISOString();
   listing.updatedAt = listing.settledAt;
   await put(LISTINGS_STORE, listing);
+
+  // Credit the seller's in-app wallet with the ask amount in the listing currency.
+  // Real inflows will arrive via the MetaMask bridge; today this is the
+  // settlement primitive the seller-side release button drives.
+  try {
+    creditAppWallet(listing.sellerId, listing.askCurrency, listing.askAmount);
+  } catch (err) {
+    console.warn("[CoinMarket] app-wallet credit failed:", err);
+  }
 
   recordMarketTx("coin_market_settle", {
     listing,

@@ -307,7 +307,11 @@ export interface CoinListing {
   swarmAmount?: number;
   askAmount: number;
   askCurrency: CoinMarketCurrency;
-  receivingAddress: string;
+  /**
+   * Legacy external payout address. Optional in the app-wallet flow — proceeds
+   * now credit the seller's in-app wallet and only leave via the MetaMask bridge.
+   */
+  receivingAddress?: string;
   memo?: string;
   status: CoinListingStatus;
   buyerId?: string;
