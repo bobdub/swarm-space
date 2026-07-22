@@ -122,7 +122,8 @@ export async function getTokenUnlockProgress(userId: string): Promise<{
   if (!unlockState) return null;
 
   const currentCredits = await getCreditBalance(userId);
-  const creditsEarned = Math.max(0, currentCredits - unlockState.creditsAtDeployment);
+  const baseline = unlockState.unlockBaseline ?? unlockState.creditsAtDeployment;
+  const creditsEarned = Math.max(0, currentCredits - baseline);
   const creditsNeededForMax = Math.ceil((token.maxSupply - token.supply) / TOKENS_PER_CREDIT);
   const percentUnlocked = (token.supply / token.maxSupply) * 100;
 
