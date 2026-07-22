@@ -20,7 +20,9 @@ import {
   isUsingSwarmGateway,
   useSwarmGatewayProvider,
 } from "@/lib/blockchain/wallets/metaMaskSdk";
-import { startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
+import { startGatewayCell, linkExternalEvmAddress } from "@/lib/blockchain/gateway/swarmGatewayCell";
+import { getCurrentUser } from "@/lib/auth";
+import { useEffect } from "react";
 
 interface Props {
   compact?: boolean;
@@ -29,6 +31,12 @@ interface Props {
 
 export function MetaMaskConnectButton({ compact = false, className }: Props) {
   const { available, address, chainId, busy, connect, disconnect } = useMetaMask();
+
+  useEffect(() => {
+    if (!address) return;
+    const me = getCurrentUser();
+    if (me?.id) linkExternalEvmAddress(me.id, address);
+  }, [address]);
 
   if (!available) {
     return (
@@ -83,6 +91,8 @@ export function MetaMaskConnectButton({ compact = false, className }: Props) {
             startGatewayCell();
             useSwarmGatewayProvider(true);
             await connect();
+            const me = getCurrentUser();
+            if (me?.id && address) linkExternalEvmAddress(me.id, address);
             toast.success("Using in-browser Swarm gateway", {
               description: "MetaMask now visits Swarm-Space through your local gateway cell.",
             });
