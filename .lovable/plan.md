@@ -1,43 +1,66 @@
-# Wallet & Market — MetaMask always on, trades peer-gated
+# Mobile MetaMask + SWARM Bridge
 
-The user corrected the split: MetaMask can connect at any time (deposit/withdraw), but markets and token/coin actions require peers to propagate. This plan wires that split cleanly.
+## Goals
+1. Make the wallet/market experience work on mobile — MetaMask connects from the phone, and market forms can be filled and submitted without getting stuck off-screen.
+2. Build a real bridge so MetaMask can connect to a SWARM EVM network and move funds on-chain.
 
-1. Global MetaMask connect, always available
-- New `MetaMaskConnectButton.tsx` (or `WalletConnectButton`) using the existing `metaMaskBridge.ts` helpers.
-- Mount it in `Wallet.tsx` header row so it is visible on every tab.
-- Also mount it in the top navigation bar (`TopNavigationBar.tsx`) on desktop and inside the mobile menu, so users can connect MetaMask without navigating to Wallet.
-- Persist last known account in `localStorage` so the badge renders immediately on reload, then reconciles with the extension.
-- States: not detected → install link; disconnected → Connect; connected → show truncated address + chain label + Disconnect / Reconnect dropdown.
+## What we know from the latest check
+- `window.ethereum` is not injected on mobile browsers, so the current MetaMask button always shows “Install MetaMask” and sends the user to a download page.
+- Market forms on mobile are not reachable at the bottom of the dialog, so users cannot submit listings or payments.
+- SWARM is a custom chain and is not yet EVM-compatible, so MetaMask cannot add it as a custom network today.
 
-2. Add Assets tab as first Wallet tab
-- New `AssetsTab.tsx` showing unified balance list: SWARM, Credits, ETH, BTC, MintMe.
-- SWARM/Credits use existing balances.
-- ETH/BTC/MintMe use `getAppWalletBalances` from `appWallet.ts`.
-- Each row has a Deposit button (opens modal showing deposit address / QR) and a Withdraw button (amount input + destination = connected MetaMask address).
-- Deposit: SWARM shows the user's peer/address; ETH/BTC/MintMe show the connected MetaMask address as the deposit target (the bridge direction from MetaMask → app).
-- Withdraw: ETH/BTC/MintME withdraw debits the in-app balance and records a `pending_withdraw` transaction (real signing stays "bridge signing next release" as today). The UI clearly states the funds are still on the in-app ledger until the bridge is signed.
-- Keep the existing `BridgePanel` but remove it from CoinMarketTab and mount it inside the Assets tab as the "Bridge" section, or merge it into the Assets tab so the MetaMask connect is the same everywhere. Mark `BridgePanel` deprecated if superseded.
+## Technical approach
 
-3. Market actions require peer connection
-- New `useMarketGate()` helper in `marketGate.ts` (or inline) that returns `canTrade` = true only when there is at least one active peer connection (`useP2PContext` + `getActivePeerConnections().length > 0`).
-- In `CoinMarketTab.tsx`:
-  - Disable `List SWARM for sale` when `!canTrade` with tooltip/text: "Connect to a peer to list."
-  - Disable the `Buy` button on `ListingCard` when `!canTrade`.
-  - Disable seller release/cancel and buyer confirm/dispute when `!canTrade` (these are state mutations that must propagate).
-  - Replace the current generic mesh alert with a clearer message: "Markets only operate while connected to another peer." when `!canTrade`.
-- Local pending transactions remain visible (cached listings, queued actions), but mutations are blocked until a peer is present.
+### Phase 1 — Mobile wallet connection (MetaMask SDK)
+- Add `@metamask/sdk` to the project.
+- Create a small wrapper `src/lib/blockchain/wallets/metaMaskSdk.ts` that initializes the SDK on mobile / touch devices and falls back to the existing extension provider on desktop.
+- Update `src/hooks/useMetaMask.ts` to use the SDK provider when available, keeping the local cache behavior unchanged.
+- The MetaMask button will offer:
+  - Desktop: connect browser extension.
+  - Mobile: deep-link / QR pairing into the MetaMask app.
+  - Not installed: still show the install link, but with a fallback “Open MetaMask app” option if the SDK can detect it.
 
-4. Wallet tab reorder
-- Move "Assets" to the first/default tab.
-- Reorder tabs as requested: Ledger, Credits, NFTs, Mining, Swap, Creator, Coins, Market.
-  - The existing order already matches this except Assets is new and should be first. Keep default to Assets.
+### Phase 2 — Mobile market forms
+- Make all market dialogs scrollable and keyboard-safe on small screens:
+  - Add `max-h-[90dvh] overflow-y-auto` to the dialog content wrapper.
+  - Use the existing `vaul` drawer for the listing / buy / withdraw forms on mobile (`max-w-full`, bottom-sheet style, scrollable body).
+- Test the “List SWARM” and “I paid” flows at 360px viewport to confirm the submit button is reachable.
+- Keep the same form state and validation; only the container changes.
 
-5. No changes to settlement/escrow logic
-- `coinMarket.ts`, `appWallet.ts`, and mesh propagation stay unchanged. Only UI gating and visibility are updated.
-- No new IndexedDB schema or localStorage keys beyond the MetaMask cache.
+### Phase 3 — SWARM EVM network definition
+- Define a canonical SWARM EVM network config in `src/lib/blockchain/wallets/swarmEvmNetwork.ts`:
+  - `chainId` (hex)
+  - `chainName` (e.g. “Swarm-Space Testnet”)
+  - `rpcUrls` (placeholder for the SWARM RPC endpoint)
+  - `nativeCurrency` (symbol: SWARM, decimals: 18)
+  - `blockExplorerUrls` (optional)
+- Add helpers to request `wallet_addEthereumChain` and `wallet_switchEthereumChain` in MetaMask.
+- The network config will be a single source of truth used by the connect button and the bridge panel.
 
-6. Verification
-- Type-check.
-- Load `/wallet` without peers → Assets tab shows balances and MetaMask connect works; Market tab lists disabled actions with "connect to a peer" message.
-- Connect MetaMask → address/chain appears in wallet header and top nav; withdraw modal prefills MetaMask address.
-- Connect to a peer → Market list/buy/release buttons become enabled.
+### Phase 4 — Real bridge contract interface
+- Install `ethers` (or `viem`) for contract calls.
+- Create an ERC-20 wrapped SWARM token ABI and a placeholder contract address in `src/lib/blockchain/wallets/swarmBridge.ts`.
+- Implement:
+  - `depositSwarmToEvm(amount)` — lock local SWARM and call the bridge contract mint function.
+  - `withdrawSwarmFromEvm(amount)` — call the bridge contract burn/redeem function and credit local SWARM.
+- Until the bridge contract is deployed, the UI will show the on-chain preview with a clear “contract not deployed” state and a button to copy the deployment parameters.
+
+### Phase 5 — Deposit / withdraw flows
+- Replace the current “bridge signing coming soon” messages in `AssetsTab` with actual on-chain calls.
+- Deposit: show the MetaMask address and the amount; confirm the EVM transaction.
+- Withdraw: show the destination address and amount; confirm the EVM transaction.
+- Keep the in-app ledger as a fallback/cache and record every bridge transaction in the local SWARM chain for auditability.
+
+## Verification steps
+- Type-check and build pass.
+- Mobile preview: open Wallet → Market, tap “List SWARM,” scroll to the bottom, and submit.
+- Mobile preview: tap MetaMask connect, choose MetaMask app, and return with the address visible.
+- Desktop: MetaMask extension still connects as before.
+- Bridge: add SWARM network to MetaMask and confirm the chain ID is accepted.
+
+## Out of scope
+- WalletConnect, Rainbow, etc. MetaMask only for now.
+- Deploying the actual bridge contract. The code will be ready and a placeholder address will be used; the user can deploy the contract and update the address.
+
+## Next action
+Approve the plan, then I will implement Phase 1 and Phase 2 first (mobile wallet + mobile forms) and continue with the bridge configuration.
