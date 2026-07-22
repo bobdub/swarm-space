@@ -446,6 +446,110 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
           </div>
         </div>
       )}
+
+      {/* Participant Listings */}
+      {viewerId && !isClosed && (
+        <div className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.45)] p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="font-display uppercase tracking-[0.2em] text-foreground">Participant Listings</div>
+            <div className="text-[10px] uppercase tracking-widest text-foreground/50">95% → Open Market · 5% → Community</div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Sell */}
+            <div role="form" className="rounded-2xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-4 space-y-2">
+              <div className="text-xs uppercase tracking-widest text-foreground/60">Your Sell Listing</div>
+              {mySell ? (
+                <div className="text-sm text-foreground/80">
+                  {fmt(mySell.tokens, 2)} {token.ticker} @ {fmt(mySell.pricePerToken, 6)} SWARM
+                  <Button size="sm" variant="ghost" className="ml-2" onClick={() => handleCancelListing(mySell.listingId)} disabled={busy}>
+                    <XCircle className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input type="number" inputMode="decimal" min={0} placeholder="Tokens" value={listSellTokens} onChange={(e) => setListSellTokens(e.target.value)} />
+                  <Input type="number" inputMode="decimal" min={0} placeholder="SWARM per token" value={listSellPrice} onChange={(e) => setListSellPrice(e.target.value)} />
+                  <Button type="button" onClick={handleListSell} disabled={busy || !listSellTokens || !listSellPrice} className="w-full">
+                    List for Sale
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Buy */}
+            <div role="form" className="rounded-2xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-4 space-y-2">
+              <div className="text-xs uppercase tracking-widest text-foreground/60">Your Buy Listing</div>
+              {myBuy ? (
+                <div className="text-sm text-foreground/80">
+                  {fmt(myBuy.tokens, 2)} {token.ticker} @ {fmt(myBuy.pricePerToken, 6)} SWARM
+                  <Button size="sm" variant="ghost" className="ml-2" onClick={() => handleCancelListing(myBuy.listingId)} disabled={busy}>
+                    <XCircle className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input type="number" inputMode="decimal" min={0} placeholder="Tokens" value={listBuyTokens} onChange={(e) => setListBuyTokens(e.target.value)} />
+                  <Input type="number" inputMode="decimal" min={0} placeholder="SWARM per token" value={listBuyPrice} onChange={(e) => setListBuyPrice(e.target.value)} />
+                  <Button type="button" onClick={handleListBuy} disabled={busy || !listBuyTokens || !listBuyPrice} className="w-full">
+                    List to Buy
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 text-xs">
+            <div>
+              <div className="mb-1 uppercase tracking-widest text-foreground/50">Open Sells ({openSells.length})</div>
+              {openSells.slice(0, 5).map((l) => (
+                <div key={l.listingId} className="font-mono text-foreground/70">{fmt(l.tokens, 2)} @ {fmt(l.pricePerToken, 6)}</div>
+              ))}
+              {openSells.length === 0 && <div className="text-foreground/40">None</div>}
+            </div>
+            <div>
+              <div className="mb-1 uppercase tracking-widest text-foreground/50">Open Buys ({openBuys.length})</div>
+              {openBuys.slice(0, 5).map((l) => (
+                <div key={l.listingId} className="font-mono text-foreground/70">{fmt(l.tokens, 2)} @ {fmt(l.pricePerToken, 6)}</div>
+              ))}
+              {openBuys.length === 0 && <div className="text-foreground/40">None</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buy Back Floor */}
+      {viewerId && !isClosed && heldTokens > 0 && (v?.stabilityFloor ?? 0) > 0 && (
+        <div role="form" className="rounded-3xl border border-[hsla(45,90%,66%,0.25)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
+          <div className="flex items-center gap-2 font-display uppercase tracking-[0.2em] text-foreground">
+            <LifeBuoy className="h-4 w-4" /> Redeem at Floor
+          </div>
+          <div className="text-xs text-foreground/60">
+            Floor price ≈ <span className="font-mono">{fmt((v?.stabilityFloor ?? 0) / Math.max(1, circulating), 6)}</span> SWARM/token · Stability Floor <span className="font-mono">{fmt(v?.stabilityFloor ?? 0, 2)}</span> SWARM
+          </div>
+          <div className="flex gap-2">
+            <Input type="number" inputMode="decimal" min={0} max={heldTokens} placeholder="Tokens to redeem" value={floorAmount} onChange={(e) => setFloorAmount(e.target.value)} />
+            <Button type="button" variant="secondary" onClick={handleRedeemFloor} disabled={busy || Number(floorAmount) <= 0 || Number(floorAmount) > heldTokens}>
+              Redeem
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Close Market — creator only */}
+      {isOwnProfile && viewerId && !isClosed && (
+        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.25)] bg-[hsla(245,70%,10%,0.45)] p-6 space-y-2">
+          <div className="flex items-center gap-2 font-display uppercase tracking-[0.2em] text-foreground">
+            <Lock className="h-4 w-4" /> Market Closure Protocol
+          </div>
+          <div className="text-xs text-foreground/60">
+            Dissolves the Open Market bucket to the community pool, refunds all open participant listings, and freezes this token forever (cannot be redeployed).
+          </div>
+          <Button type="button" variant="destructive" onClick={handleCloseMarket} disabled={busy}>
+            Close Market Permanently
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
