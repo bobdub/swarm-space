@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Link2, LogOut } from "lucide-react";
+import { Link2, LogOut, Plus } from "lucide-react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -11,6 +11,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
+import {
+  addSwarmNetworkToMetaMask,
+  isSwarmChain,
+  switchToSwarmNetwork,
+} from "@/lib/blockchain/wallets/swarmEvmNetwork";
 
 interface Props {
   compact?: boolean;
@@ -68,6 +73,34 @@ export function MetaMaskConnectButton({ compact = false, className }: Props) {
           <div className="mt-1 text-[10px] text-muted-foreground">{chainLabel(chainId)}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        {!isSwarmChain(chainId) && (
+          <DropdownMenuItem
+            onClick={async () => {
+              try {
+                await switchToSwarmNetwork();
+                toast.success("Switched to Swarm-Space network");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Could not switch network");
+              }
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" /> Add / switch to Swarm-Space
+          </DropdownMenuItem>
+        )}
+        {!isSwarmChain(chainId) && (
+          <DropdownMenuItem
+            onClick={async () => {
+              try {
+                await addSwarmNetworkToMetaMask();
+                toast.success("Swarm-Space network added to MetaMask");
+              } catch (err) {
+                toast.error(err instanceof Error ? err.message : "Could not add network");
+              }
+            }}
+          >
+            <Plus className="mr-2 h-4 w-4" /> Add Swarm-Space (no switch)
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={async () => {
             await connect();
