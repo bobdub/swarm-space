@@ -27,6 +27,7 @@ import {
   Server,
   Heart,
   Wrench,
+  Coins,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -879,6 +880,7 @@ const Settings = () => {
                 { icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" },
                 { icon: Box, label: "Virtual Hub & Builder", desc: "How to walk and build inside 3D project rooms", path: "/about-network#virtual-hub" },
                 { icon: Server, label: "Personal Servers", desc: "Bring your own encrypted storage to the network", path: "/personal-server-guide" },
+                { icon: Coins, label: "SWARM, Creator Tokens & MetaMask", desc: "How the economy works and how to connect MetaMask on desktop or mobile", path: "/swarm-metamask-guide" },
                 { icon: Wrench, label: "Storage Diagnostics & Backup", desc: "Inspect local storage, restore lost tokens, export/import backups", path: "/storage-diagnostics" },
                 { icon: Heart, label: "Donate", desc: "Fund the open, decentralized, P2P mesh", path: "/donate" },
               ].map((item) => (
