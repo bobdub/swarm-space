@@ -161,6 +161,7 @@ function AppContent() {
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
             <Route path="/personal-server-guide" element={<PersonalServerGuidePage />} />
+            <Route path="/storage-diagnostics" element={<StorageDiagnostics />} />
             <Route path="/donate" element={<Donate />} />
             <Route path="/fundraiser" element={<Donate />} />
             {/* Brain dev preview — public, no auth gate. Used to QA scaffoldings. */}
