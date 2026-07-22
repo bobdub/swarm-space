@@ -63,6 +63,7 @@ const WhitepaperPage = lazy(() => import("./pages/Whitepaper"));
 const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const PersonalServerGuidePage = lazy(() => import("./pages/PersonalServerGuide"));
+const StorageDiagnostics = lazy(() => import("./pages/StorageDiagnostics"));
 const Donate = lazy(() => import("./pages/Donate"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
