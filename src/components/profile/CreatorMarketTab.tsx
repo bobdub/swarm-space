@@ -158,6 +158,90 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
     }
   };
 
+  const handleRedeemFloor = async () => {
+    if (!viewerId || !token) return;
+    const amt = Number(floorAmount) || 0;
+    if (amt <= 0) return;
+    setBusy(true);
+    try {
+      const { proceeds } = await redeemAtFloor({ holderId: viewerId, tokenId: token.tokenId, tokens: amt });
+      toast({ title: "Redeemed at floor", description: `${proceeds.toFixed(4)} SWARM` });
+      setFloorAmount("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Redeem failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleListSell = async () => {
+    if (!viewerId || !token) return;
+    const tokens = Number(listSellTokens) || 0;
+    const price = Number(listSellPrice) || 0;
+    if (tokens <= 0 || price <= 0) return;
+    setBusy(true);
+    try {
+      await createSellListing({ userId: viewerId, tokenId: token.tokenId, ticker: token.ticker, tokens, pricePerToken: price });
+      toast({ title: "Sell listing posted" });
+      setListSellTokens("");
+      setListSellPrice("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Listing failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleListBuy = async () => {
+    if (!viewerId || !token) return;
+    const tokens = Number(listBuyTokens) || 0;
+    const price = Number(listBuyPrice) || 0;
+    if (tokens <= 0 || price <= 0) return;
+    setBusy(true);
+    try {
+      await createBuyListing({ userId: viewerId, tokenId: token.tokenId, ticker: token.ticker, tokens, pricePerToken: price });
+      toast({ title: "Buy listing posted" });
+      setListBuyTokens("");
+      setListBuyPrice("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Listing failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancelListing = async (listingId: string) => {
+    if (!viewerId) return;
+    setBusy(true);
+    try {
+      await cancelListing(listingId, viewerId);
+      toast({ title: "Listing cancelled" });
+      await refresh();
+    } catch (err) {
+      toast({ title: "Cancel failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCloseMarket = async () => {
+    if (!viewerId || !token) return;
+    if (!window.confirm("Close this market permanently? This cannot be undone. The Open Market bucket will be sent to the community pool and all escrows refunded.")) return;
+    setBusy(true);
+    try {
+      await closeCreatorMarket({ creatorId: viewerId, tokenId: token.tokenId });
+      toast({ title: "Market closed" });
+      await refresh();
+    } catch (err) {
+      toast({ title: "Close failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!token) {
     return (
       <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/70 backdrop-blur-xl">
