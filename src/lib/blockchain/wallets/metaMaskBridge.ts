@@ -1,29 +1,33 @@
 /**
- * MetaMask bridge (stub).
+ * MetaMask bridge.
  *
- * Phase 2 will use this to automate ETH escrow for the Coin Market. For now,
- * we only expose availability detection so the UI can show a "Connect wallet
- * (soon)" button without churn when the real implementation lands.
+ * Works with both the desktop extension (injected window.ethereum) and
+ * mobile MetaMask via the SDK (deep-link / QR pairing).
  *
  * The app never touches private keys or seed phrases — MetaMask signs
- * everything in the user's own extension.
+ * everything in the user's own wallet.
  */
 
-type EthereumProvider = {
-  isMetaMask?: boolean;
-  request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-  on?: (event: string, handler: (...args: unknown[]) => void) => void;
-  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
-};
+import {
+  getMetaMaskProvider,
+  getMetaMaskProviderSync,
+  hasInjectedMetaMask,
+  isMobileDevice,
+  type Eip1193Provider,
+} from "./metaMaskSdk";
 
-function getProvider(): EthereumProvider | null {
-  if (typeof window === "undefined") return null;
-  const eth = (window as unknown as { ethereum?: EthereumProvider }).ethereum;
-  return eth ?? null;
+async function getProvider(): Promise<Eip1193Provider | null> {
+  return getMetaMaskProvider();
 }
 
+/**
+ * True when a MetaMask provider is *reachable* — either the extension is
+ * injected or we're on a device where the SDK can deep-link into the app.
+ */
 export function isMetaMaskAvailable(): boolean {
-  return !!getProvider()?.isMetaMask;
+  if (hasInjectedMetaMask()) return true;
+  // Mobile can always reach MetaMask via the SDK deep link.
+  return isMobileDevice();
 }
 
 export interface MetaMaskConnection {
@@ -33,7 +37,7 @@ export interface MetaMaskConnection {
 
 /** Prompts MetaMask for an account. Returns null if unavailable / declined. */
 export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
-  const eth = getProvider();
+  const eth = await getProvider();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
@@ -48,7 +52,7 @@ export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
 
 /** Reads the current chain id without prompting. */
 export async function getMetaMaskChainId(): Promise<string | null> {
-  const eth = getProvider();
+  const eth = getMetaMaskProviderSync();
   if (!eth?.request) return null;
   try {
     return (await eth.request({ method: "eth_chainId" })) as string;
@@ -59,7 +63,7 @@ export async function getMetaMaskChainId(): Promise<string | null> {
 
 /** Returns the currently-authorized address, if any, without prompting. */
 export async function getMetaMaskAccount(): Promise<string | null> {
-  const eth = getProvider();
+  const eth = getMetaMaskProviderSync();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
@@ -70,7 +74,7 @@ export async function getMetaMaskAccount(): Promise<string | null> {
 }
 
 export function onMetaMaskChange(handler: () => void): () => void {
-  const eth = getProvider();
+  const eth = getMetaMaskProviderSync();
   if (!eth?.on || !eth.removeListener) return () => {};
   eth.on("accountsChanged", handler);
   eth.on("chainChanged", handler);
@@ -78,4 +82,14 @@ export function onMetaMaskChange(handler: () => void): () => void {
     eth.removeListener?.("accountsChanged", handler);
     eth.removeListener?.("chainChanged", handler);
   };
+}
+
+/** Low-level EIP-1193 request against the current MetaMask provider. */
+export async function requestMetaMask<T = unknown>(
+  method: string,
+  params?: unknown[] | Record<string, unknown>,
+): Promise<T> {
+  const eth = await getProvider();
+  if (!eth?.request) throw new Error("MetaMask provider not available");
+  return (await eth.request({ method, params })) as T;
 }
