@@ -213,6 +213,8 @@ export const CREATOR_TOKEN_INITIAL_CREATOR_SEED = 100;
 // ── Creator Vault Constants ────────────────────────────────────────────
 /** Fraction of each purchase routed to the buyback reserve (liquid) */
 export const CREATOR_VAULT_BUYBACK_SHARE = 0.40;
+/** Preferred alias for the 40% bucket (Open Market / liquid liquidity). */
+export const CREATOR_VAULT_OPEN_MARKET_SHARE = CREATOR_VAULT_BUYBACK_SHARE;
 /** Fraction routed to the protected stability floor */
 export const CREATOR_VAULT_STABILITY_SHARE = 0.40;
 /** Fraction routed to withdrawable creator earnings */
