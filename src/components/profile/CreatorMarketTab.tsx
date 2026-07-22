@@ -268,6 +268,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
   return (
     <div className="space-y-6">
+      {isClosed && (
+        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.35)] bg-[hsla(0,50%,15%,0.55)] p-4 text-sm text-foreground/80 flex items-center gap-2">
+          <Lock className="h-4 w-4 text-[hsl(0,80%,70%)]" /> This market is <strong className="mx-1">closed</strong> — trading and listings are disabled.
+        </div>
+      )}
       {/* Header */}
       <div className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.6)] p-6 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-4">
@@ -305,7 +310,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
         <StatCard icon={<Coins className="h-4 w-4" />} label="Vault Total" value={`${fmt(v?.totalDeposited ?? 0, 2)} SWARM`} />
         <StatCard icon={<Shield className="h-4 w-4" />} label="Stability Floor" value={`${fmt(v?.stabilityFloor ?? 0, 2)} SWARM`} />
         <StatCard icon={<Users className="h-4 w-4" />} label="Community" value={`${fmt(v?.communityContributed ?? 0, 2)} SWARM`} />
-        <StatCard icon={<WalletIcon className="h-4 w-4" />} label="Buyback Reserve" value={`${fmt(v?.buybackReserve ?? 0, 2)} SWARM`} />
+        <StatCard icon={<WalletIcon className="h-4 w-4" />} label="Open Market" value={`${fmt(v?.buybackReserve ?? 0, 2)} SWARM`} />
         <StatCard icon={<TrendingDown className="h-4 w-4" />} label="Lifetime Buybacks" value={`${fmt(v?.lifetimeBuybacks ?? 0, 2)} SWARM`} />
         <StatCard icon={<Coins className="h-4 w-4" />} label="Creator Earnings" value={`${fmt(v?.creatorEarnings ?? 0, 2)} SWARM`} />
         <StatCard icon={<TrendingUp className="h-4 w-4" />} label="You Hold" value={`${fmt(heldTokens, 2)} ${token.ticker}`} />
