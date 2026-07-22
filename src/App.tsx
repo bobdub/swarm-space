@@ -14,6 +14,8 @@ import { PreviewProvider } from "@/contexts/PreviewContext";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
 import { DBUpgradeOverlay } from "@/components/DBUpgradeOverlay";
+import { StorageFullBanner } from "@/components/StorageFullBanner";
+import { TokenRecoveryBoot } from "@/components/TokenRecoveryBoot";
 
 import { AutoMiningService } from "@/components/AutoMiningService";
 import { StreamingBackgroundService } from "@/components/streaming/StreamingBackgroundService";
@@ -142,6 +144,8 @@ function AppContent() {
   return (
     <>
       <PreviewBanner />
+      <StorageFullBanner />
+      <TokenRecoveryBoot />
       <NodeDashboardEventBridge />
       <BrainChunkPreloader />
 
