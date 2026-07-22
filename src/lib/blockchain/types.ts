@@ -121,6 +121,10 @@ export interface CreatorToken {
   contractAddress?: string;
   description?: string;
   image?: string;
+  /** When the creator market was permanently closed. Redeployment is blocked. */
+  closedAt?: string;
+  /** Reason for closure (creator-provided or "market_dissolved"). */
+  closureReason?: string;
 }
 
 /** @deprecated Use CreatorToken — kept for backward compatibility */
