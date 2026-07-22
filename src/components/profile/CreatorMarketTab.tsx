@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Coins, TrendingUp, TrendingDown, Shield, Users, Wallet as WalletIcon } from "lucide-react";
+import { Coins, TrendingUp, TrendingDown, Shield, Users, Wallet as WalletIcon, LifeBuoy, Lock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
-import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
+import type { CreatorToken, CreatorVault, ParticipantListing } from "@/lib/blockchain/types";
 import {
   buyCreatorTokens,
+  closeCreatorMarket,
   ensureCreatorVault,
   getCreatorVault,
   ladderState,
   priceAtSupply,
   quoteBuy,
   quoteSell,
+  redeemAtFloor,
   sellCreatorTokens,
   withdrawCreatorEarnings,
 } from "@/lib/blockchain/creatorVault";
+import {
+  cancelListing,
+  createBuyListing,
+  createSellListing,
+  getListingsForToken,
+  getUserListing,
+} from "@/lib/blockchain/participantListings";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { getProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
 import { useToast } from "@/hooks/use-toast";
@@ -38,7 +47,15 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const [heldTokens, setHeldTokens] = useState(0);
   const [buyAmount, setBuyAmount] = useState("10");
   const [sellAmount, setSellAmount] = useState("");
+  const [floorAmount, setFloorAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [listings, setListings] = useState<ParticipantListing[]>([]);
+  const [mySell, setMySell] = useState<ParticipantListing | null>(null);
+  const [myBuy, setMyBuy] = useState<ParticipantListing | null>(null);
+  const [listSellTokens, setListSellTokens] = useState("");
+  const [listSellPrice, setListSellPrice] = useState("");
+  const [listBuyTokens, setListBuyTokens] = useState("");
+  const [listBuyPrice, setListBuyPrice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -50,10 +67,14 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       if (viewerId) {
         const holding = await getProfileTokenHolding(viewerId, t.tokenId);
         setHeldTokens(holding?.amount ?? 0);
+        setMySell(await getUserListing(viewerId, t.tokenId, "sell"));
+        setMyBuy(await getUserListing(viewerId, t.tokenId, "buy"));
       }
+      setListings(await getListingsForToken(t.tokenId));
     } else {
       setVault(null);
       setHeldTokens(0);
+      setListings([]);
     }
     if (viewerId) setSwarm(await getSwarmBalance(viewerId));
   }, [profileUserId, viewerId]);
@@ -64,9 +85,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
     if (typeof window !== "undefined") {
       window.addEventListener("creator-vault-update", onUpdate);
       window.addEventListener("blockchain-transaction", onUpdate);
+      window.addEventListener("participant-listing-update", onUpdate);
       return () => {
         window.removeEventListener("creator-vault-update", onUpdate);
         window.removeEventListener("blockchain-transaction", onUpdate);
+        window.removeEventListener("participant-listing-update", onUpdate);
       };
     }
   }, [refresh]);
@@ -81,6 +104,13 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const circulating = vault?.circulatingSupply ?? 0;
   const availableForSale = Math.max(0, unlockedSupply - circulating);
   const buyExceedsAvailable = buyN > availableForSale;
+  const isClosed = !!(vault?.closed || token?.closedAt);
+  const openListings = useMemo(
+    () => listings.filter((l) => l.status === "open"),
+    [listings],
+  );
+  const openBuys = openListings.filter((l) => l.side === "buy");
+  const openSells = openListings.filter((l) => l.side === "sell");
 
   const handleBuy = async () => {
     if (!viewerId || !token || buyN <= 0) return;
