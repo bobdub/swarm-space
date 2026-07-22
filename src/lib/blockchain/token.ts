@@ -4,6 +4,7 @@ import { getSwarmChain } from "./chain";
 import { generateTransactionId } from "./crypto";
 import { getTokenBalance, saveTokenBalance } from "./storage";
 import { getCurrentUser } from "../auth";
+import { assertStorageWritable } from "../storage/quotaGuard";
 
 export async function getSwarmBalance(address: string): Promise<number> {
   const chain = getSwarmChain();
@@ -37,6 +38,7 @@ export async function transferSwarm(params: {
   fee?: number;
   meta?: Record<string, unknown>;
 }): Promise<SwarmTransaction> {
+  await assertStorageWritable();
   const chain = getSwarmChain();
   const currentBalance = await getSwarmBalance(params.from);
 
@@ -67,6 +69,7 @@ export async function mintSwarm(params: {
   amount: number;
   reason: string;
 }): Promise<SwarmTransaction> {
+  await assertStorageWritable();
   const chain = getSwarmChain();
 
   const transaction: SwarmTransaction = {
@@ -92,6 +95,7 @@ export async function burnSwarm(params: {
   amount: number;
   reason: string;
 }): Promise<SwarmTransaction> {
+  await assertStorageWritable();
   const chain = getSwarmChain();
   const currentBalance = await getSwarmBalance(params.from);
 
