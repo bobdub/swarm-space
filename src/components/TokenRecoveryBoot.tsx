@@ -3,26 +3,25 @@ import { toast } from "sonner";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { recoverCreatorTokenFromChain } from "@/lib/blockchain/tokenRecovery";
 
-/**
- * On login, attempt to reconstruct the user's creator token from the local
- * chain if the `profileTokens` row is missing (e.g. after a partial data loss).
- * Idempotent — no toast when nothing was missing.
- */
 export function TokenRecoveryBoot() {
   const { user, isReady } = useAuthReady();
   useEffect(() => {
     if (!isReady || !user?.id) return;
-    const id = window.setTimeout(async () => {
+    let cancelled = false;
+    // Run immediately — no delay — so UI queries see the restored token.
+    (async () => {
       try {
         const result = await recoverCreatorTokenFromChain(user.id);
+        if (cancelled) return;
         if (result.status === "recovered" && result.token) {
           toast.success(`Creator token ${result.token.ticker} restored from local chain snapshot`);
+          window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { source: "recovery" } }));
         }
       } catch (err) {
         console.warn("[TokenRecoveryBoot] failed:", err);
       }
-    }, 2500);
-    return () => window.clearTimeout(id);
+    })();
+    return () => { cancelled = true; };
   }, [isReady, user?.id]);
   return null;
 }

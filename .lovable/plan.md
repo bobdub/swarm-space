@@ -1,109 +1,53 @@
-Plan: Local Storage Hardening, Token Recovery, and Security Audit
+The user is signed in and their username is still displayed, but after a reload their Creator Token is prompting for redeploy and their avatar is missing. This means the localStorage `me` record is intact (identity survived) but the IndexedDB records for the creator token and avatar chunks are not readable or were not restored. The plan is to diagnose the exact storage state, harden the chain/token recovery path, make avatar loading resilient, and give the user a reliable backup/restore path so this cannot happen again.
 
-Goal: recover the lost test creator token if any local or P2P copy remains; make local storage resilient so users never lose tokens or coins; block asset transfers when storage is too full; and run a security + UQRC audit alongside the Infinity logic chain.
+## 1. Diagnose the current storage state
 
-Resolved context from questions:
-- The lost token is a creator token, no peers are online right now, and it may have synced with another user previously.
-- Storage threshold: 85% warning / 90% hard block.
+Add a non-destructive **Storage Diagnostics** panel reachable from Settings → Legal & Docs / Storage (or a temporary `/storage-diag` route) that reports:
 
-Current state confirmed from reads:
-- Account backup (`src/lib/auth.ts`) exports only identity keys + user meta, not blockchain/token state.
-- Archive fallback (`src/lib/storage/providers/archiveFallback.ts`) exports only manifests/chunks.
-- Profile tokens, vaults, and holdings live in separate IndexedDB stores (`profileTokens`, `creatorVaults`, `profileTokenHoldings`) and are not currently replicated by the blockchain P2P sync, which only syncs blocks and the reward pool.
-- The chain does store `profile_token_deploy` transactions with token metadata, so a lost token record can be reconstructed if the chain survives.
-- `StorageHealthIndicator.tsx` already reads quota but does not block operations.
+- localStorage keys present, including `me`, `__swarm_chain_snapshot`, and `p2p-connection-state`.
+- IndexedDB `imagination-db` store counts for: `meta`, `blockchain`, `profileTokens`, `creatorVaults`, `profileTokenHoldings`, `manifests`, `chunks`, `tokenBalances`, `users`.
+- Whether the current signed-in user has a row in `users`, `profileTokens`, and `creatorVaults`.
+- Whether the chain contains a `profile_token_deploy` or `creator_token_deploy` transaction for the current user.
+- Whether the avatar manifest referenced by `me.profile.avatarRef` exists and has chunks.
+- Any IndexedDB open/version errors encountered while reading.
 
----
+This panel will tell us whether the data is truly gone or whether the app is reading from the wrong place after the DB_VERSION 25 upgrade.
 
-Phase 1 — Token Recovery (read-only / reconstructive)
+## 2. Harden chain persistence and snapshot recovery
 
-1. Inspect local storage for surviving copies:
-   - Search `localStorage` for the chain dirty snapshot key `__swarm_chain_snapshot`.
-   - Open `imagination-db` and inspect stores `blockchain`, `profileTokens`, `creatorVaults`, `profileTokenHoldings`, `tokenUnlockStates` for the creator token record.
-   - Record the user's `userId` and any token ticker/name from the UI or backup.
+- Make `SwarmChain._syncFlush()` write the snapshot only after confirming the chain is non-empty, and keep the previous snapshot as `__swarm_chain_snapshot_prev` for one extra reload of safety.
+- In `loadChain`, if the snapshot is corrupt/empty, fall back to the previous snapshot before falling back to IndexedDB.
+- Ensure `addTransaction` is followed by a synchronous-best-effort snapshot write on `beforeunload`/`visibilitychange` so a reload immediately after deploy does not lose the pending deploy tx.
+- Add a `validateChainState` guard before replacing IndexedDB chain state with a snapshot so an empty snapshot can never overwrite a non-empty chain.
 
-2. Reconstruct from the chain if the store record is missing:
-   - Scan `blockchain` transactions for `type: "profile_token_deploy"` matching the user's `userId` or known ticker.
-   - If found, re-create the `profileTokens` entry with `id = userId` and the deployment metadata.
-   - Re-create `creatorVaults` for that token and seed `profileTokenHoldings` with the creator's 100-token seed, mirroring the legacy migration already in `profileToken.ts`.
-   - Re-create `tokenUnlockStates` with the current credit baseline under the new 0.1 tokens/credit rate.
+## 3. Improve creator token recovery
 
-3. If no local copy exists, check last-known P2P peers:
-   - On next app launch with an active peer, trigger a manual blockchain sync and a new store-level sync request for `profileTokens`/`creatorVaults`.
-   - This is the Phase-1 fallback; it is not guaranteed if no peers are ever online again.
+- Change `TokenRecoveryBoot` to run immediately when auth resolves (remove the 2.5 s delay) so recovery happens before any UI queries the token store.
+- Extend `recoverCreatorTokenFromChain` to scan both mined blocks and pending transactions for `profile_token_deploy`/`creator_token_deploy`.
+- If the deploy tx is found but the vault/holdings rebuild fails, still restore the token record so the UI does not show "Deploy".
+- Add a manual **Restore Creator Token** button in Wallet → Creator that re-runs the recovery scan and shows the result (found / not found / no chain data).
+- If the chain is empty and no snapshot exists, show a clear message: "No local chain or backup found — the token cannot be restored automatically." with an import-backup call to action.
 
-4. Deliver recovery result in the UI:
-   - If reconstructed: show a toast "Creator token restored from local chain snapshot".
-   - If not reconstructable: show a clear message and point to the new full-data backup feature implemented in Phase 2.
+## 4. Fix avatar loading and chunk recovery
 
----
+- In `Avatar.tsx`, cap the number of P2P retry attempts to 2 and suppress the repeated warning log storm when chunks are unavailable.
+- If the avatar manifest exists but chunks are missing, render the fallback initials and show a small "avatar missing" indicator on the profile so the user knows they need to re-upload, not that the app is broken.
+- Add a **Re-upload avatar** flow in Profile/Settings that overwrites the old `avatarRef` with a new upload and updates `me.profile.avatarRef` in localStorage and the `users` IndexedDB row atomically.
 
-Phase 2 — Local Storage Stability & Security
+## 5. Add full-state export and restore
 
-1. Build a full-data backup/export module:
-   - Add `src/lib/backup/exportFullState.ts` that exports the chain, profile tokens, vaults, holdings, token balances, coin listings, reward pool, and user identity into a single encrypted/downloadable bundle.
-   - Add `src/lib/backup/importFullState.ts` to restore it with conflict resolution (newer wins, never overwrite `_origin: local` content).
-   - Add a "Backup Wallet & Tokens" button in Settings → Security/Recovery, and an auto-prompt after creator token deployment.
+- Create `src/lib/backup/exportFullState.ts` that bundles into a single JSON file: identity (`me`, wrapped key), chain state, all blockchain stores (`tokenBalances`, `profileTokens`, `creatorVaults`, `profileTokenHoldings`, `coinListings`, `participantListings`, `miningSessions`, `rewardPool`, `tokenUnlockStates`), plus all `manifests` and `chunks` referenced by the user or avatar.
+- Add `src/lib/backup/importFullState.ts` that restores the bundle into a fresh IndexedDB/localStorage, with validation and a confirmation toast.
+- Wire the export/import into Settings → Storage as **Export full backup** and **Restore from backup**.
+- Add a one-time prompt after a successful deploy/token creation encouraging the user to export a backup.
 
-2. Harden the chain dirty snapshot:
-   - In `src/lib/blockchain/chain.ts`, extend `__swarm_chain_snapshot` to include `profileTokens`, `creatorVaults`, `profileTokenHoldings`, and `tokenBalances` so a browser crash can recover the full token state, not just blocks.
-   - Keep the snapshot under a size limit; if it exceeds ~4 MB, warn the user to export instead.
+## 6. Verify with UQRC and security checks
 
-3. Extend P2P replication to include token state:
-   - In `src/lib/blockchain/p2pSync.ts`, add new sync actions: `request_profile_tokens`, `send_profile_tokens`, `request_creator_vaults`, `send_creator_vaults`.
-   - When a peer receives a chain with a `profile_token_deploy` transaction that it does not have locally, it will request the matching token/vault records from the broadcasting peer.
-   - This prevents the "chain has the transaction but the app has no token" failure mode.
+After implementation:
+- Run `scripts/uqrc-check.mjs` to confirm no new contradictions or hidden dependencies are introduced.
+- Run a basic security scan and address only new findings introduced by this plan.
+- Use the live preview to confirm the diagnostic panel renders, the recovery button runs without errors, and avatar fallback/re-upload works.
 
-4. Add storage health gating:
-   - Create `src/lib/storage/quotaGuard.ts` exporting:
-     - `getStorageHealth()`: returns percent, quota, and available bytes.
-     - `assertStorageWritable(threshold = 90)` throws `StorageFullError` if quota is above threshold.
-   - Wire the guard into all state-mutating asset paths:
-     - `transferSwarm`, `mintSwarm`, `burnSwarm` in `src/lib/blockchain/token.ts`.
-     - `buyCreatorTokens`, `sellCreatorTokens`, `redeemAtFloor`, `withdrawCreatorEarnings`, `closeCreatorMarket` in `src/lib/blockchain/creatorVault.ts`.
-     - `createParticipantListing`, `buyParticipantListing`, `cancelParticipantListing` in `src/lib/blockchain/participantListings.ts`.
-     - `createCoinListing`, `acceptCoinListing`, `cancelCoinListing` in `src/lib/blockchain/coinMarket.ts`.
-   - On `StorageFullError`, return a user-facing message: "Local storage is too full to safely record this transaction. Export or withdraw assets to MetaMask before continuing."
+## Outcome
 
-5. UI warning surfaces:
-   - Update `StorageHealthIndicator.tsx` to show the 85% warning persistently and the 90% critical state with a CTA to Settings → Backup.
-   - Add a global `StorageFullBanner` rendered at the top level when storage >= 90%, blocking all wallet/token action buttons until the user frees space or exports.
-
----
-
-Phase 3 — Security & UQRC Audit
-
-1. Basic security scan:
-   - Run `security--get_scan_results` with `force=true` and `security--run_security_scan` to refresh findings.
-   - Review any new findings in `supply_chain`, `supabase_lov`, `app_mcp`, and `connector_security_scan`.
-   - Apply fixes only for findings that are actionable; document any that are not applicable.
-
-2. UQRC / Infinity logic chain audit:
-   - Run `node scripts/uqrc-check.mjs --strict` to identify contradictions against Core memory rules.
-   - Apply the Infinity Protocol 7-step reasoning chain to each finding:
-     - Trace the flow of asset mutations.
-     - Identify stress points (storage writes, chain persistence, P2P replication).
-     - Map hidden dependencies (e.g., `profileToken.ts` depends on `creatorVault.ts` but neither replicates token state).
-     - Enumerate failure modes (browser crash, quota exceeded, peer offline).
-     - Score curvature and fix the highest-stress paths first.
-   - Update `src/lib/uqrc/baseline.json` with the new top-stress snapshot if the scan is clean.
-
-3. Memory update:
-   - If new security guidance is discovered, update the security memory via `security--update_memory` and inform the user.
-   - If a new Core constraint is warranted (e.g., "All asset transfers must pass storage-quota guard"), add it to `.lovable/memory/index.md`.
-
----
-
-Success criteria
-
-- The lost creator token is either restored from local chain data or a clear reason is given why it cannot be restored.
-- All asset-transfer functions reject writes when storage usage >= 90% with a helpful message.
-- The app offers a full-state backup/export that includes tokens, vaults, and chain.
-- P2P blockchain sync requests and replicates token/vault records, not just blocks.
-- `security--run_security_scan` and `node scripts/uqrc-check.mjs --strict` both pass with no new unhandled findings.
-
----
-
-Technical note
-
-This plan does not change the creator-token economy rules or pricing. It only improves the durability, discoverability, and quota safety of the data already produced by those rules.
+The user will be able to see exactly what local data exists, trigger a manual token restore if the chain still holds the deploy transaction, re-upload a missing avatar, and export/restore a complete backup so tokens and avatars survive reloads and browser changes.

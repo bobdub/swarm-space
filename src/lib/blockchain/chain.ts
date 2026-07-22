@@ -51,7 +51,14 @@ export class SwarmChain {
    */
   private _syncFlush(): void {
     try {
+      // Never overwrite a good snapshot with an empty one.
+      if (this.chain.length === 0) return;
       const state: ChainState = this._buildState();
+      // Rotate the previous snapshot so we have one extra reload of safety.
+      try {
+        const prev = localStorage.getItem("__swarm_chain_snapshot");
+        if (prev) localStorage.setItem("__swarm_chain_snapshot_prev", prev);
+      } catch { /* best-effort */ }
       localStorage.setItem(
         "__swarm_chain_snapshot",
         JSON.stringify(state)
@@ -63,17 +70,23 @@ export class SwarmChain {
   }
 
   private async loadChain(): Promise<void> {
-    // First, try to recover from sync snapshot (written on unload)
+    // Try latest snapshot, then previous rotated snapshot as a safety net.
     let snapshot: ChainState | null = null;
+    const tryParse = (raw: string | null): ChainState | null => {
+      if (!raw) return null;
+      try {
+        const parsed = JSON.parse(raw) as ChainState;
+        if (parsed && Array.isArray(parsed.chain) && parsed.chain.length > 0) {
+          return parsed;
+        }
+      } catch { /* ignore */ }
+      return null;
+    };
     try {
-      const raw = localStorage.getItem("__swarm_chain_snapshot");
-      if (raw) {
-        snapshot = JSON.parse(raw) as ChainState;
-        localStorage.removeItem("__swarm_chain_snapshot");
-      }
-    } catch {
-      // ignore parse errors
-    }
+      snapshot = tryParse(localStorage.getItem("__swarm_chain_snapshot"))
+        ?? tryParse(localStorage.getItem("__swarm_chain_snapshot_prev"));
+      // Do NOT delete the snapshot yet — keep it as durable backup.
+    } catch { /* ignore */ }
 
     const state = await getChainState();
 

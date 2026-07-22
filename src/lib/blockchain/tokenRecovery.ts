@@ -29,20 +29,20 @@ export async function recoverCreatorTokenFromChain(userId: string): Promise<Reco
   const chain = getSwarmChain();
   await chain.whenReady();
 
-  // Scan chain for this user's deploy tx (newest first).
+  // Scan chain (newest first) AND pending transactions for this user's deploy tx.
   const blocks = chain.getChain();
+  const pending = chain.getPendingTransactions();
+  const isDeploy = (tx: SwarmTransaction) =>
+    (tx.type === "profile_token_deploy" || tx.type === "creator_token_deploy") &&
+    tx.from === userId;
   let deployTx: SwarmTransaction | undefined;
+  for (let i = pending.length - 1; i >= 0 && !deployTx; i--) {
+    if (isDeploy(pending[i])) deployTx = pending[i];
+  }
   for (let i = blocks.length - 1; i >= 0 && !deployTx; i--) {
     const txs = blocks[i].transactions ?? [];
     for (let j = txs.length - 1; j >= 0; j--) {
-      const tx = txs[j];
-      if (
-        (tx.type === "profile_token_deploy" || tx.type === "creator_token_deploy") &&
-        tx.from === userId
-      ) {
-        deployTx = tx;
-        break;
-      }
+      if (isDeploy(txs[j])) { deployTx = txs[j]; break; }
     }
   }
   if (!deployTx) return { status: "not-found" };

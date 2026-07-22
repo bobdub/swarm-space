@@ -46,21 +46,12 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
     const loadAvatar = async () => {
       try {
-        console.log(`[Avatar] Loading avatar ${avatarRef} for ${displayName || username}`);
         let manifest = await get<StoredManifest>("manifests", avatarRef);
 
         const manifestIncomplete = !manifest?.fileKey || !manifest?.chunks?.length;
         if (!manifest || manifestIncomplete) {
-          console.log(`[Avatar] Manifest ${avatarRef} incomplete or missing, requesting from P2P...`);
           const ensured = await ensureManifest(avatarRef);
-          if (ensured) {
-            console.log(`[Avatar] ✅ Successfully fetched manifest ${avatarRef} from P2P`);
-            manifest = ensured;
-          } else {
-            console.warn(`[Avatar] ⚠️ Failed to fetch manifest ${avatarRef} from P2P network`);
-          }
-        } else {
-          console.log(`[Avatar] Found complete manifest ${avatarRef} locally`);
+          if (ensured) manifest = ensured;
         }
 
         if (!manifest) {
@@ -68,14 +59,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
           return;
         }
 
-        if (!manifest.fileKey) {
-          console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} is missing encryption key.`);
-          if (!cancelled) setAvatarUrl(null);
-          return;
-        }
-
-        if (!manifest.chunks || manifest.chunks.length === 0) {
-          console.warn(`[Avatar] ❌ Avatar manifest ${avatarRef} does not contain any chunks.`);
+        if (!manifest.fileKey || !manifest.chunks?.length) {
           if (!cancelled) setAvatarUrl(null);
           return;
         }
@@ -101,11 +85,9 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
         let blob = await tryDecrypt();
 
-        // If decryption failed due to missing chunks, pull from mesh and retry once
+        // If decryption failed due to missing chunks, pull once from mesh and retry.
         if (!blob && !cancelled) {
-          console.log(`[Avatar] Chunks missing for ${avatarRef}, pulling from mesh...`);
           await ensureManifest(avatarRef);
-          // Re-read manifest in case it was updated
           manifest = await get<StoredManifest>("manifests", avatarRef);
           if (manifest?.fileKey && manifest?.chunks?.length) {
             blob = await tryDecrypt();
@@ -114,13 +96,12 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
 
         if (blob && !cancelled) {
           objectUrl = URL.createObjectURL(blob);
-          console.log(`[Avatar] ✅ Successfully loaded avatar ${avatarRef}`);
           setAvatarUrl(objectUrl);
         } else if (!cancelled) {
           setAvatarUrl(null);
         }
       } catch (error) {
-        console.error(`[Avatar] ❌ Failed to load avatar ${avatarRef}:`, error);
+        // Quiet by default — avatar failures are expected when chunks are absent.
         if (!cancelled) {
           setAvatarUrl(null);
         }
