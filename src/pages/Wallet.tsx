@@ -601,7 +601,7 @@ export default function Wallet() {
                               </span>
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Dynamic price uses the current community pool ({(deployPricing?.poolBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM); baseline is 95 credits + 5 SWARM at 100 SWARM pool.
+                              Dynamic price uses the current community pool ({(deployPricing?.poolBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM); baseline is 25 credits + 5 SWARM at 100 SWARM pool.
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
                               Max supply:{" "}
