@@ -12,6 +12,8 @@ import { getSwarmChain } from "../chain";
 import { getCurrentUser } from "@/lib/auth";
 import { SWARM_EVM_CHAIN_ID_HEX, SWARM_EVM_CHAIN_ID_DEC } from "../wallets/swarmEvmNetwork";
 import { swarmIdToEvmAddress, peekEvmAddress, swarmToWeiHex } from "./addressMap";
+import { transferSwarm } from "../token";
+import { Transaction } from "ethers";
 
 export interface RpcRequest {
   method: string;
@@ -83,6 +85,37 @@ async function ensureMapped(swarmId: string): Promise<string> {
 function resolveSwarmId(evmAddress: string): string | null {
   const key = evmAddress.toLowerCase();
   return evmToSwarm.get(key) ?? null;
+}
+
+/**
+ * Link an externally-signed EVM address (e.g. the MetaMask account) to the
+ * given swarm user id. This lets `eth_getBalance` and `eth_sendRawTransaction`
+ * resolve MetaMask's own address back to a swarm identity.
+ */
+export function linkExternalEvmAddress(swarmId: string, evmAddress: string): void {
+  if (!swarmId || !evmAddress) return;
+  evmToSwarm.set(evmAddress.toLowerCase(), swarmId);
+}
+
+// Map evm tx hash -> swarm tx id, so eth_getTransactionByHash / receipt work
+// for txs we forwarded through this gateway.
+const evmHashToSwarmTx = new Map<string, {
+  swarmTxId: string;
+  from: string;
+  to: string;
+  valueWei: bigint;
+  submittedAt: number;
+}>();
+
+function findBlockForTx(swarmTxId: string): { blockIndex: number; blockHash: string; txIndex: number } | null {
+  const chain = getSwarmChain();
+  const blocks = chain.getChain();
+  for (const b of blocks) {
+    const txs = b.transactions ?? [];
+    const idx = txs.findIndex((t) => t.id === swarmTxId);
+    if (idx >= 0) return { blockIndex: b.index, blockHash: b.hash, txIndex: idx };
+  }
+  return null;
 }
 
 // --- block adapters --------------------------------------------------------
@@ -183,9 +216,126 @@ export async function handleRpc(req: RpcRequest): Promise<unknown> {
       case "eth_getTransactionCount":
         return "0x0"; // Nonces aren't tracked in Phase A
       case "eth_sendRawTransaction": {
-        const err = new Error("Sending is coming in Phase B — signed tx forwarding not enabled");
-        (err as { code?: number }).code = -32601;
-        throw err;
+        const raw = String(params[0] ?? "");
+        if (!raw.startsWith("0x")) {
+          throw Object.assign(new Error("Missing raw transaction"), { code: -32602 });
+        }
+        let parsed: Transaction;
+        try {
+          parsed = Transaction.from(raw);
+        } catch (e) {
+          throw Object.assign(
+            new Error("Could not parse raw transaction: " + (e instanceof Error ? e.message : String(e))),
+            { code: -32602 },
+          );
+        }
+        if (parsed.chainId != null && Number(parsed.chainId) !== SWARM_EVM_CHAIN_ID_DEC) {
+          throw Object.assign(
+            new Error(`Transaction chainId ${parsed.chainId} does not match Swarm-Space (${SWARM_EVM_CHAIN_ID_DEC})`),
+            { code: -32000 },
+          );
+        }
+        const fromAddr = (parsed.from ?? "").toLowerCase();
+        const toAddr = (parsed.to ?? "").toLowerCase();
+        if (!fromAddr) throw Object.assign(new Error("Transaction is not signed"), { code: -32000 });
+        if (!toAddr) throw Object.assign(new Error("Contract creation not supported"), { code: -32601 });
+
+        // Ensure current user is mapped so a same-device MetaMask ↔ swarm link
+        // exists even before an explicit linkExternalEvmAddress() call.
+        const me = getCurrentUser();
+        if (me?.id) {
+          await ensureMapped(me.id);
+          // If we've never seen this MetaMask address before, assume it
+          // belongs to the currently-logged-in swarm user. Only the local
+          // user could have signed with it in this browser.
+          if (!evmToSwarm.has(fromAddr)) evmToSwarm.set(fromAddr, me.id);
+        }
+
+        const fromSwarmId = resolveSwarmId(fromAddr);
+        if (!fromSwarmId) {
+          throw Object.assign(
+            new Error("Sender address is not linked to a Swarm identity"),
+            { code: -32000 },
+          );
+        }
+        // Recipient: prefer a known swarm identity; otherwise deliver to the
+        // raw EVM address as-is so the ledger keeps a durable record.
+        const toSwarmId = resolveSwarmId(toAddr) ?? toAddr;
+
+        // Convert wei -> whole SWARM (floor). Below-1-SWARM sends are rejected
+        // rather than silently rounded to zero.
+        const valueWei = parsed.value ?? 0n;
+        const whole = valueWei / 10n ** 18n;
+        if (whole <= 0n) {
+          throw Object.assign(
+            new Error("Amount below 1 SWARM — sub-unit transfers are not yet supported"),
+            { code: -32000 },
+          );
+        }
+        const amount = Number(whole);
+
+        const tx = await transferSwarm({
+          from: fromSwarmId,
+          to: toSwarmId,
+          amount,
+          meta: { via: "swarm-gateway", evmFrom: fromAddr, evmTo: toAddr, evmHash: parsed.hash },
+        });
+
+        const evmHash = (parsed.hash ?? "0x" + tx.id).toLowerCase();
+        evmHashToSwarmTx.set(evmHash, {
+          swarmTxId: tx.id,
+          from: fromAddr,
+          to: toAddr,
+          valueWei,
+          submittedAt: Date.now(),
+        });
+        try {
+          window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } }));
+        } catch { /* ignore */ }
+        return evmHash;
+      }
+      case "eth_getTransactionByHash": {
+        const hash = String(params[0] ?? "").toLowerCase();
+        const rec = evmHashToSwarmTx.get(hash);
+        if (!rec) return null;
+        const loc = findBlockForTx(rec.swarmTxId);
+        return {
+          hash,
+          from: rec.from,
+          to: rec.to,
+          value: "0x" + rec.valueWei.toString(16),
+          nonce: "0x0",
+          gas: "0x5208",
+          gasPrice: "0x0",
+          input: "0x",
+          blockHash: loc ? "0x" + loc.blockHash : null,
+          blockNumber: loc ? toHexQuantity(loc.blockIndex) : null,
+          transactionIndex: loc ? toHexQuantity(loc.txIndex) : null,
+          chainId: SWARM_EVM_CHAIN_ID_HEX,
+        };
+      }
+      case "eth_getTransactionReceipt": {
+        const hash = String(params[0] ?? "").toLowerCase();
+        const rec = evmHashToSwarmTx.get(hash);
+        if (!rec) return null;
+        const loc = findBlockForTx(rec.swarmTxId);
+        if (!loc) return null; // still pending
+        return {
+          transactionHash: hash,
+          transactionIndex: toHexQuantity(loc.txIndex),
+          blockHash: "0x" + loc.blockHash,
+          blockNumber: toHexQuantity(loc.blockIndex),
+          from: rec.from,
+          to: rec.to,
+          cumulativeGasUsed: "0x5208",
+          gasUsed: "0x5208",
+          contractAddress: null,
+          logs: [],
+          logsBloom: "0x" + "0".repeat(512),
+          status: "0x1",
+          effectiveGasPrice: "0x0",
+          type: "0x0",
+        };
       }
       case "eth_subscribe":
       case "eth_unsubscribe": {
