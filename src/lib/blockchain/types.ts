@@ -267,6 +267,10 @@ export interface CreatorVault {
   circulatingSupply: number;   // tokens purchased − tokens sold back
   currentTier: number;         // 0 (none) … 5
   updatedAt: string;
+  /** Marked true when the market is closed; blocks buy/sell/list. */
+  closed?: boolean;
+  /** ISO closure timestamp. */
+  closedAt?: string;
 }
 /** Coin deployment cost in SWARM */
 export const COIN_DEPLOY_COST = 10_000;
