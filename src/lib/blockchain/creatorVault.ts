@@ -278,6 +278,7 @@ export async function sellCreatorTokens(params: {
 
   const vault = await getCreatorVault(tokenId);
   if (!vault) throw new Error("Vault not initialized");
+  if (vault.closed) throw new Error("This creator market has been closed.");
 
   const holding = await getProfileTokenHolding(sellerId, tokenId);
   if (!holding || holding.amount < tokens) {
