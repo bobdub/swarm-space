@@ -196,7 +196,7 @@ export const CREDIT_TO_SWARM_RATIO = 100;
 export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 
 /** Creator token deployment baseline in credits at 100 SWARM community liquidity */
-export const CREATOR_TOKEN_DEPLOY_COST = 95;
+export const CREATOR_TOKEN_DEPLOY_COST = 25;
 
 /** Creator token deployment baseline SWARM at 100 SWARM community liquidity */
 export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 5;
