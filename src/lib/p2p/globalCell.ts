@@ -87,6 +87,7 @@ interface PresenceBeacon {
   peerId: string;
   trustScore: number;
   ts: number;
+  roles?: string[];
 }
 
 interface BusWaitingNode {
@@ -100,6 +101,14 @@ interface GlobalCellPeerEvent {
   type: 'discovered';
   peers: Array<{ peerId: string; trustScore: number; lastSeenAt: number }>;
 }
+
+export interface GatewayPeerInfo {
+  peerId: string;
+  trustScore: number;
+  lastSeenAt: number;
+}
+
+type GatewayPeersListener = (peers: GatewayPeerInfo[]) => void;
 
 // ── Singleton ──────────────────────────────────────────────────────────
 
@@ -129,6 +138,8 @@ class GlobalCell {
   private waitingNodes = new Map<string, BusWaitingNode>();
   /** Timestamp of last successful Bus-cycle resolution (Option A or B). */
   private lastBusCycleResolvedAt = 0;
+  private localRoles = new Set<string>();
+  private gatewayListeners = new Set<GatewayPeersListener>();
 
   start(): void {
     if (this.running) return;
@@ -233,6 +244,49 @@ class GlobalCell {
     if (!this.running) return;
     console.log(`${LOG} 📣 Presence pulse requested (${reason})`);
     this.announcePresence();
+  }
+
+  /**
+   * Register a role for this peer (e.g. 'gateway'). Roles are piggybacked
+   * on the existing presence beacon so remote peers can discover us.
+   */
+  setLocalRole(role: string, on: boolean): void {
+    const had = this.localRoles.has(role);
+    if (on) this.localRoles.add(role); else this.localRoles.delete(role);
+    if (this.running && had !== on) {
+      console.log(`${LOG} 🎭 Local role '${role}' -> ${on ? 'ON' : 'OFF'}`);
+      this.announcePresence();
+    }
+  }
+
+  /** Return peers whose latest beacon includes the given role. */
+  getPeersByRole(role: string): GatewayPeerInfo[] {
+    const cutoff = Date.now() - GLOBAL_CELL_STALE_THRESHOLD;
+    const out: GatewayPeerInfo[] = [];
+    for (const beacon of this.knownPresence.values()) {
+      if (beacon.ts < cutoff) continue;
+      if (!beacon.roles?.includes(role)) continue;
+      out.push({ peerId: beacon.peerId, trustScore: beacon.trustScore, lastSeenAt: beacon.ts });
+    }
+    return out;
+  }
+
+  getGatewayPeers(): GatewayPeerInfo[] {
+    return this.getPeersByRole('gateway');
+  }
+
+  subscribeGatewayPeers(fn: GatewayPeersListener): () => void {
+    this.gatewayListeners.add(fn);
+    try { fn(this.getGatewayPeers()); } catch { /* ignore */ }
+    return () => { this.gatewayListeners.delete(fn); };
+  }
+
+  private emitGatewayPeers(): void {
+    if (this.gatewayListeners.size === 0) return;
+    const snap = this.getGatewayPeers();
+    for (const fn of this.gatewayListeners) {
+      try { fn(snap); } catch { /* ignore */ }
+    }
   }
 
   private maintainReachabilityPulse(): void {
@@ -392,6 +446,7 @@ class GlobalCell {
       peerId: this.localPeerId,
       trustScore,
       ts: Date.now(),
+      ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
     this.lastBeaconAt = Date.now();
@@ -457,6 +512,9 @@ class GlobalCell {
     this.knownPresence.set(beacon.peerId, beacon);
     this.recordWaitingNode(beacon);
 
+    const rolesChanged = (existing?.roles?.join(',') ?? '') !== (beacon.roles?.join(',') ?? '');
+    if (isNew || rolesChanged) this.emitGatewayPeers();
+
     recordP2PDiagnostic({
       level: 'info',
       source: 'bootstrap',
@@ -488,6 +546,7 @@ class GlobalCell {
     for (const [peerId, beacon] of this.knownPresence) {
       if (beacon.ts < cutoff) {
         this.knownPresence.delete(peerId);
+        if (beacon.roles?.includes('gateway')) this.emitGatewayPeers();
         continue;
       }
       livePeers.push({

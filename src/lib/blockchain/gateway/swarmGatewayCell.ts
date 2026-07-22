@@ -14,6 +14,8 @@ import { SWARM_EVM_CHAIN_ID_HEX, SWARM_EVM_CHAIN_ID_DEC } from "../wallets/swarm
 import { swarmIdToEvmAddress, peekEvmAddress, swarmToWeiHex } from "./addressMap";
 import { transferSwarm } from "../token";
 import { Transaction } from "ethers";
+import { getGlobalCell } from "@/lib/p2p/globalCell";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 
 export interface RpcRequest {
   method: string;
@@ -37,6 +39,33 @@ const status: GatewayStatus = {
 };
 
 const listeners = new Set<(s: GatewayStatus) => void>();
+
+let meshRpcUnsub: (() => void) | null = null;
+
+function startMeshRpcListener(): void {
+  if (meshRpcUnsub) return;
+  try {
+    const mesh = getSwarmMeshStandalone();
+    meshRpcUnsub = mesh.onMessage("gateway-rpc", async (peerId: string, payload: unknown) => {
+      const msg = payload as { reqId?: string; method?: string; params?: unknown };
+      if (!msg?.reqId || !msg?.method) return;
+      try {
+        const result = await handleRpc({ method: msg.method, params: msg.params as RpcRequest["params"] });
+        void mesh.send("gateway-rpc-reply", peerId, { reqId: msg.reqId, result });
+      } catch (e) {
+        const err = e as { message?: string; code?: number };
+        void mesh.send("gateway-rpc-reply", peerId, {
+          reqId: msg.reqId,
+          error: { message: err?.message ?? "Gateway error", code: err?.code },
+        });
+      }
+    });
+  } catch { /* mesh unavailable */ }
+}
+
+function stopMeshRpcListener(): void {
+  if (meshRpcUnsub) { try { meshRpcUnsub(); } catch { /* ignore */ } meshRpcUnsub = null; }
+}
 
 function emit(): void {
   const snap: GatewayStatus = { ...status };
@@ -62,12 +91,18 @@ export function startGatewayCell(): void {
   // Warm the address map for the current user so peekEvmAddress works.
   const me = getCurrentUser();
   if (me?.id) { void swarmIdToEvmAddress(me.id); }
+  // Announce as a discoverable gateway on the presence beacon and listen
+  // for RPC over the mesh channel.
+  try { getGlobalCell().setLocalRole("gateway", true); } catch { /* ignore */ }
+  startMeshRpcListener();
 }
 
 export function stopGatewayCell(): void {
   if (!status.running) return;
   status.running = false;
   emit();
+  try { getGlobalCell().setLocalRole("gateway", false); } catch { /* ignore */ }
+  stopMeshRpcListener();
 }
 
 // --- reverse lookup: EVM address (lower-cased) → swarm user id -------------
