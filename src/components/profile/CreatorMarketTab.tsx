@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Coins, TrendingUp, TrendingDown, Shield, Users, Wallet as WalletIcon } from "lucide-react";
+import { Coins, TrendingUp, TrendingDown, Shield, Users, Wallet as WalletIcon, LifeBuoy, Lock, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
-import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
+import type { CreatorToken, CreatorVault, ParticipantListing } from "@/lib/blockchain/types";
 import {
   buyCreatorTokens,
+  closeCreatorMarket,
   ensureCreatorVault,
   getCreatorVault,
   ladderState,
   priceAtSupply,
   quoteBuy,
   quoteSell,
+  redeemAtFloor,
   sellCreatorTokens,
   withdrawCreatorEarnings,
 } from "@/lib/blockchain/creatorVault";
+import {
+  cancelListing,
+  createBuyListing,
+  createSellListing,
+  getListingsForToken,
+  getUserListing,
+} from "@/lib/blockchain/participantListings";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { getProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
 import { useToast } from "@/hooks/use-toast";
@@ -38,7 +47,15 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const [heldTokens, setHeldTokens] = useState(0);
   const [buyAmount, setBuyAmount] = useState("10");
   const [sellAmount, setSellAmount] = useState("");
+  const [floorAmount, setFloorAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [listings, setListings] = useState<ParticipantListing[]>([]);
+  const [mySell, setMySell] = useState<ParticipantListing | null>(null);
+  const [myBuy, setMyBuy] = useState<ParticipantListing | null>(null);
+  const [listSellTokens, setListSellTokens] = useState("");
+  const [listSellPrice, setListSellPrice] = useState("");
+  const [listBuyTokens, setListBuyTokens] = useState("");
+  const [listBuyPrice, setListBuyPrice] = useState("");
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -50,10 +67,14 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       if (viewerId) {
         const holding = await getProfileTokenHolding(viewerId, t.tokenId);
         setHeldTokens(holding?.amount ?? 0);
+        setMySell(await getUserListing(viewerId, t.tokenId, "sell"));
+        setMyBuy(await getUserListing(viewerId, t.tokenId, "buy"));
       }
+      setListings(await getListingsForToken(t.tokenId));
     } else {
       setVault(null);
       setHeldTokens(0);
+      setListings([]);
     }
     if (viewerId) setSwarm(await getSwarmBalance(viewerId));
   }, [profileUserId, viewerId]);
@@ -64,9 +85,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
     if (typeof window !== "undefined") {
       window.addEventListener("creator-vault-update", onUpdate);
       window.addEventListener("blockchain-transaction", onUpdate);
+      window.addEventListener("participant-listing-update", onUpdate);
       return () => {
         window.removeEventListener("creator-vault-update", onUpdate);
         window.removeEventListener("blockchain-transaction", onUpdate);
+        window.removeEventListener("participant-listing-update", onUpdate);
       };
     }
   }, [refresh]);
@@ -81,6 +104,13 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const circulating = vault?.circulatingSupply ?? 0;
   const availableForSale = Math.max(0, unlockedSupply - circulating);
   const buyExceedsAvailable = buyN > availableForSale;
+  const isClosed = !!(vault?.closed || token?.closedAt);
+  const openListings = useMemo(
+    () => listings.filter((l) => l.status === "open"),
+    [listings],
+  );
+  const openBuys = openListings.filter((l) => l.side === "buy");
+  const openSells = openListings.filter((l) => l.side === "sell");
 
   const handleBuy = async () => {
     if (!viewerId || !token || buyN <= 0) return;
@@ -128,6 +158,90 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
     }
   };
 
+  const handleRedeemFloor = async () => {
+    if (!viewerId || !token) return;
+    const amt = Number(floorAmount) || 0;
+    if (amt <= 0) return;
+    setBusy(true);
+    try {
+      const { proceeds } = await redeemAtFloor({ holderId: viewerId, tokenId: token.tokenId, tokens: amt });
+      toast({ title: "Redeemed at floor", description: `${proceeds.toFixed(4)} SWARM` });
+      setFloorAmount("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Redeem failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleListSell = async () => {
+    if (!viewerId || !token) return;
+    const tokens = Number(listSellTokens) || 0;
+    const price = Number(listSellPrice) || 0;
+    if (tokens <= 0 || price <= 0) return;
+    setBusy(true);
+    try {
+      await createSellListing({ userId: viewerId, tokenId: token.tokenId, ticker: token.ticker, tokens, pricePerToken: price });
+      toast({ title: "Sell listing posted" });
+      setListSellTokens("");
+      setListSellPrice("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Listing failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleListBuy = async () => {
+    if (!viewerId || !token) return;
+    const tokens = Number(listBuyTokens) || 0;
+    const price = Number(listBuyPrice) || 0;
+    if (tokens <= 0 || price <= 0) return;
+    setBusy(true);
+    try {
+      await createBuyListing({ userId: viewerId, tokenId: token.tokenId, ticker: token.ticker, tokens, pricePerToken: price });
+      toast({ title: "Buy listing posted" });
+      setListBuyTokens("");
+      setListBuyPrice("");
+      await refresh();
+    } catch (err) {
+      toast({ title: "Listing failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancelListing = async (listingId: string) => {
+    if (!viewerId) return;
+    setBusy(true);
+    try {
+      await cancelListing(listingId, viewerId);
+      toast({ title: "Listing cancelled" });
+      await refresh();
+    } catch (err) {
+      toast({ title: "Cancel failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCloseMarket = async () => {
+    if (!viewerId || !token) return;
+    if (!window.confirm("Close this market permanently? This cannot be undone. The Open Market bucket will be sent to the community pool and all escrows refunded.")) return;
+    setBusy(true);
+    try {
+      await closeCreatorMarket({ creatorId: viewerId, tokenId: token.tokenId });
+      toast({ title: "Market closed" });
+      await refresh();
+    } catch (err) {
+      toast({ title: "Close failed", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!token) {
     return (
       <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/70 backdrop-blur-xl">
@@ -154,6 +268,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
   return (
     <div className="space-y-6">
+      {isClosed && (
+        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.35)] bg-[hsla(0,50%,15%,0.55)] p-4 text-sm text-foreground/80 flex items-center gap-2">
+          <Lock className="h-4 w-4 text-[hsl(0,80%,70%)]" /> This market is <strong className="mx-1">closed</strong> — trading and listings are disabled.
+        </div>
+      )}
       {/* Header */}
       <div className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.6)] p-6 backdrop-blur-xl">
         <div className="flex flex-wrap items-center gap-4">
@@ -191,7 +310,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
         <StatCard icon={<Coins className="h-4 w-4" />} label="Vault Total" value={`${fmt(v?.totalDeposited ?? 0, 2)} SWARM`} />
         <StatCard icon={<Shield className="h-4 w-4" />} label="Stability Floor" value={`${fmt(v?.stabilityFloor ?? 0, 2)} SWARM`} />
         <StatCard icon={<Users className="h-4 w-4" />} label="Community" value={`${fmt(v?.communityContributed ?? 0, 2)} SWARM`} />
-        <StatCard icon={<WalletIcon className="h-4 w-4" />} label="Buyback Reserve" value={`${fmt(v?.buybackReserve ?? 0, 2)} SWARM`} />
+        <StatCard icon={<WalletIcon className="h-4 w-4" />} label="Open Market" value={`${fmt(v?.buybackReserve ?? 0, 2)} SWARM`} />
         <StatCard icon={<TrendingDown className="h-4 w-4" />} label="Lifetime Buybacks" value={`${fmt(v?.lifetimeBuybacks ?? 0, 2)} SWARM`} />
         <StatCard icon={<Coins className="h-4 w-4" />} label="Creator Earnings" value={`${fmt(v?.creatorEarnings ?? 0, 2)} SWARM`} />
         <StatCard icon={<TrendingUp className="h-4 w-4" />} label="You Hold" value={`${fmt(heldTokens, 2)} ${token.ticker}`} />
@@ -230,7 +349,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       </div>
 
       {/* Buy / Sell — open to everyone, including the creator */}
-      {viewerId && (
+      {viewerId && !isClosed && (
         <div className="grid gap-6 md:grid-cols-2">
           <div role="form" className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
             <div className="font-display uppercase tracking-[0.2em] text-foreground">Buy {token.ticker}</div>
@@ -325,6 +444,110 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
               Withdraw
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Participant Listings */}
+      {viewerId && !isClosed && (
+        <div className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.45)] p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="font-display uppercase tracking-[0.2em] text-foreground">Participant Listings</div>
+            <div className="text-[10px] uppercase tracking-widest text-foreground/50">95% → Open Market · 5% → Community</div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Sell */}
+            <div role="form" className="rounded-2xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-4 space-y-2">
+              <div className="text-xs uppercase tracking-widest text-foreground/60">Your Sell Listing</div>
+              {mySell ? (
+                <div className="text-sm text-foreground/80">
+                  {fmt(mySell.tokens, 2)} {token.ticker} @ {fmt(mySell.pricePerToken, 6)} SWARM
+                  <Button size="sm" variant="ghost" className="ml-2" onClick={() => handleCancelListing(mySell.listingId)} disabled={busy}>
+                    <XCircle className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input type="number" inputMode="decimal" min={0} placeholder="Tokens" value={listSellTokens} onChange={(e) => setListSellTokens(e.target.value)} />
+                  <Input type="number" inputMode="decimal" min={0} placeholder="SWARM per token" value={listSellPrice} onChange={(e) => setListSellPrice(e.target.value)} />
+                  <Button type="button" onClick={handleListSell} disabled={busy || !listSellTokens || !listSellPrice} className="w-full">
+                    List for Sale
+                  </Button>
+                </>
+              )}
+            </div>
+
+            {/* Buy */}
+            <div role="form" className="rounded-2xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-4 space-y-2">
+              <div className="text-xs uppercase tracking-widest text-foreground/60">Your Buy Listing</div>
+              {myBuy ? (
+                <div className="text-sm text-foreground/80">
+                  {fmt(myBuy.tokens, 2)} {token.ticker} @ {fmt(myBuy.pricePerToken, 6)} SWARM
+                  <Button size="sm" variant="ghost" className="ml-2" onClick={() => handleCancelListing(myBuy.listingId)} disabled={busy}>
+                    <XCircle className="h-3 w-3 mr-1" /> Cancel
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input type="number" inputMode="decimal" min={0} placeholder="Tokens" value={listBuyTokens} onChange={(e) => setListBuyTokens(e.target.value)} />
+                  <Input type="number" inputMode="decimal" min={0} placeholder="SWARM per token" value={listBuyPrice} onChange={(e) => setListBuyPrice(e.target.value)} />
+                  <Button type="button" onClick={handleListBuy} disabled={busy || !listBuyTokens || !listBuyPrice} className="w-full">
+                    List to Buy
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 text-xs">
+            <div>
+              <div className="mb-1 uppercase tracking-widest text-foreground/50">Open Sells ({openSells.length})</div>
+              {openSells.slice(0, 5).map((l) => (
+                <div key={l.listingId} className="font-mono text-foreground/70">{fmt(l.tokens, 2)} @ {fmt(l.pricePerToken, 6)}</div>
+              ))}
+              {openSells.length === 0 && <div className="text-foreground/40">None</div>}
+            </div>
+            <div>
+              <div className="mb-1 uppercase tracking-widest text-foreground/50">Open Buys ({openBuys.length})</div>
+              {openBuys.slice(0, 5).map((l) => (
+                <div key={l.listingId} className="font-mono text-foreground/70">{fmt(l.tokens, 2)} @ {fmt(l.pricePerToken, 6)}</div>
+              ))}
+              {openBuys.length === 0 && <div className="text-foreground/40">None</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buy Back Floor */}
+      {viewerId && !isClosed && heldTokens > 0 && (v?.stabilityFloor ?? 0) > 0 && (
+        <div role="form" className="rounded-3xl border border-[hsla(45,90%,66%,0.25)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
+          <div className="flex items-center gap-2 font-display uppercase tracking-[0.2em] text-foreground">
+            <LifeBuoy className="h-4 w-4" /> Redeem at Floor
+          </div>
+          <div className="text-xs text-foreground/60">
+            Floor price ≈ <span className="font-mono">{fmt((v?.stabilityFloor ?? 0) / Math.max(1, circulating), 6)}</span> SWARM/token · Stability Floor <span className="font-mono">{fmt(v?.stabilityFloor ?? 0, 2)}</span> SWARM
+          </div>
+          <div className="flex gap-2">
+            <Input type="number" inputMode="decimal" min={0} max={heldTokens} placeholder="Tokens to redeem" value={floorAmount} onChange={(e) => setFloorAmount(e.target.value)} />
+            <Button type="button" variant="secondary" onClick={handleRedeemFloor} disabled={busy || Number(floorAmount) <= 0 || Number(floorAmount) > heldTokens}>
+              Redeem
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Close Market — creator only */}
+      {isOwnProfile && viewerId && !isClosed && (
+        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.25)] bg-[hsla(245,70%,10%,0.45)] p-6 space-y-2">
+          <div className="flex items-center gap-2 font-display uppercase tracking-[0.2em] text-foreground">
+            <Lock className="h-4 w-4" /> Market Closure Protocol
+          </div>
+          <div className="text-xs text-foreground/60">
+            Dissolves the Open Market bucket to the community pool, refunds all open participant listings, and freezes this token forever (cannot be redeployed).
+          </div>
+          <Button type="button" variant="destructive" onClick={handleCloseMarket} disabled={busy}>
+            Close Market Permanently
+          </Button>
         </div>
       )}
     </div>

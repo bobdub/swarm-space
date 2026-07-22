@@ -121,6 +121,10 @@ export interface CreatorToken {
   contractAddress?: string;
   description?: string;
   image?: string;
+  /** When the creator market was permanently closed. Redeployment is blocked. */
+  closedAt?: string;
+  /** Reason for closure (creator-provided or "market_dissolved"). */
+  closureReason?: string;
 }
 
 /** @deprecated Use CreatorToken — kept for backward compatibility */
@@ -213,6 +217,8 @@ export const CREATOR_TOKEN_INITIAL_CREATOR_SEED = 100;
 // ── Creator Vault Constants ────────────────────────────────────────────
 /** Fraction of each purchase routed to the buyback reserve (liquid) */
 export const CREATOR_VAULT_BUYBACK_SHARE = 0.40;
+/** Preferred alias for the 40% bucket (Open Market / liquid liquidity). */
+export const CREATOR_VAULT_OPEN_MARKET_SHARE = CREATOR_VAULT_BUYBACK_SHARE;
 /** Fraction routed to the protected stability floor */
 export const CREATOR_VAULT_STABILITY_SHARE = 0.40;
 /** Fraction routed to withdrawable creator earnings */
@@ -261,6 +267,10 @@ export interface CreatorVault {
   circulatingSupply: number;   // tokens purchased − tokens sold back
   currentTier: number;         // 0 (none) … 5
   updatedAt: string;
+  /** Marked true when the market is closed; blocks buy/sell/list. */
+  closed?: boolean;
+  /** ISO closure timestamp. */
+  closedAt?: string;
 }
 /** Coin deployment cost in SWARM */
 export const COIN_DEPLOY_COST = 10_000;
@@ -446,3 +456,29 @@ export const SWARM_CONFIG: BlockchainConfig = {
   maxSupply: 21000000,
   genesisTimestamp: '2025-01-01T00:00:00.000Z',
 };
+
+// ── Participant Listings — user↔user Creator Token trades ─────────────
+
+/** Portion of a participant trade routed to the Open Market bucket (95%). */
+export const PARTICIPANT_TRADE_MARKET_SHARE = 0.95;
+/** Portion of a participant trade routed to the community pool (5%). */
+export const PARTICIPANT_TRADE_COMMUNITY_SHARE = 0.05;
+
+export type ParticipantListingSide = "sell" | "buy";
+export type ParticipantListingStatus = "open" | "filled" | "cancelled";
+
+export interface ParticipantListing {
+  listingId: string;
+  tokenId: string;
+  userId: string;
+  side: ParticipantListingSide;
+  /** Amount of Creator Tokens offered (sell) or requested (buy). */
+  tokens: number;
+  /** Price per token in SWARM. */
+  pricePerToken: number;
+  status: ParticipantListingStatus;
+  createdAt: string;
+  updatedAt: string;
+  filledBy?: string;
+  filledAt?: string;
+}

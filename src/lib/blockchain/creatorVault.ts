@@ -162,6 +162,8 @@ export async function buyCreatorTokens(params: {
   if (tokens <= 0 || !Number.isFinite(tokens)) {
     throw new Error("Token amount must be positive");
   }
+  const existingVault = await getCreatorVault(tokenId);
+  if (existingVault?.closed) throw new Error("This creator market has been closed.");
   // profileTokens store is keyed by userId, so scan by tokenId.
   const allTokens = await getAll<{ tokenId: string; userId: string; ticker: string; name: string; supply: number; maxSupply: number }>(
     "profileTokens",
@@ -276,6 +278,7 @@ export async function sellCreatorTokens(params: {
 
   const vault = await getCreatorVault(tokenId);
   if (!vault) throw new Error("Vault not initialized");
+  if (vault.closed) throw new Error("This creator market has been closed.");
 
   const holding = await getProfileTokenHolding(sellerId, tokenId);
   if (!holding || holding.amount < tokens) {
@@ -362,4 +365,129 @@ export function ladderState(vault: CreatorVault | null) {
     : 0;
   const active = vault ? computeTier(vault) : 0;
   return { ratio, active, tiers: CREATOR_BUYBACK_LADDER };
+}
+
+/**
+ * Buy Back Floor — redeem tokens at the Stability Floor price. Any holder may
+ * redeem when the vault's buyback ladder is inactive or as a fallback safety
+ * net. Payment comes out of the Stability Floor bucket (protected liquidity).
+ */
+export async function redeemAtFloor(params: {
+  holderId: string;
+  tokenId: string;
+  tokens: number;
+}): Promise<{ vault: CreatorVault; proceeds: number }> {
+  const { holderId, tokenId, tokens } = params;
+  if (tokens <= 0) throw new Error("Token amount must be positive");
+  const vault = await getCreatorVault(tokenId);
+  if (!vault) throw new Error("Vault not initialized");
+  if (vault.closed) throw new Error("This creator market has been closed.");
+  if (vault.circulatingSupply <= 0) throw new Error("No circulating supply");
+
+  const holding = await getProfileTokenHolding(holderId, tokenId);
+  if (!holding || holding.amount < tokens) throw new Error("Insufficient tokens");
+
+  // Floor price = stabilityFloor / circulatingSupply, capped by available.
+  const floorPricePerToken = vault.stabilityFloor / vault.circulatingSupply;
+  const proceeds = round6(Math.min(floorPricePerToken * tokens, vault.stabilityFloor));
+  if (proceeds <= 0) throw new Error("Floor is empty");
+
+  vault.stabilityFloor = round6(vault.stabilityFloor - proceeds);
+  vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
+  vault.circulatingSupply = round6(Math.max(0, vault.circulatingSupply - tokens));
+  await saveCreatorVault(vault);
+
+  holding.amount = round6(holding.amount - tokens);
+  holding.lastUpdated = nowIso();
+  await saveProfileTokenHolding(holding);
+
+  const { mintSwarm } = await import("./token");
+  await mintSwarm({ to: holderId, amount: proceeds, reason: `Floor redemption ${tokens} ${holding.ticker}` });
+
+  recordVaultTx("creator_token_sell", vault.creatorUserId, holderId, proceeds, {
+    tokenId,
+    ticker: holding.ticker,
+    tokens,
+    floor: true,
+  });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
+  }
+  return { vault, proceeds };
+}
+
+/**
+ * Market Closure Protocol — dissolve the vault's Open Market bucket, refund
+ * escrows for any open participant listings, freeze all trading, and mark the
+ * token as closed so it cannot be redeployed.
+ */
+export async function closeCreatorMarket(params: {
+  creatorId: string;
+  tokenId: string;
+  reason?: string;
+}): Promise<CreatorVault> {
+  const { creatorId, tokenId, reason } = params;
+  const vault = await getCreatorVault(tokenId);
+  if (!vault) throw new Error("Vault not initialized");
+  if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can close the market");
+  if (vault.closed) return vault;
+
+  // Refund any open participant listings first.
+  try {
+    const { refundAllListings } = await import("./participantListings");
+    await refundAllListings(tokenId);
+  } catch (err) {
+    console.warn("[CreatorVault] Listing refund failed on closure:", err);
+  }
+
+  // Dissolve Open Market bucket → send remainder to community pool.
+  const dissolved = round6(vault.buybackReserve);
+  vault.buybackReserve = 0;
+  vault.closed = true;
+  vault.closedAt = nowIso();
+  await saveCreatorVault(vault);
+
+  if (dissolved > 0) {
+    try {
+      const { getRewardPool, saveRewardPool } = await import("./storage");
+      let pool = await getRewardPool();
+      if (!pool) {
+        pool = { id: "global", balance: 0, totalContributed: 0, lastUpdated: nowIso(), contributors: {} };
+      }
+      if (!pool.contributors) pool.contributors = {};
+      pool.balance = round6(pool.balance + dissolved);
+      pool.totalContributed = round6(pool.totalContributed + dissolved);
+      pool.contributors[creatorId] = round6((pool.contributors[creatorId] || 0) + dissolved);
+      pool.lastUpdated = nowIso();
+      await saveRewardPool(pool);
+    } catch (err) {
+      console.warn("[CreatorVault] Pool dissolve deposit failed:", err);
+    }
+  }
+
+  // Mark the token record itself as closed.
+  try {
+    const token = await getProfileToken(creatorId);
+    if (token && token.tokenId === tokenId) {
+      token.closedAt = vault.closedAt;
+      token.closureReason = reason ?? "creator_closed";
+      const { saveProfileToken } = await import("./storage");
+      await saveProfileToken(token);
+    }
+  } catch (err) {
+    console.warn("[CreatorVault] Token close flag failed:", err);
+  }
+
+  recordVaultTx("creator_token_earnings_withdraw", creatorId, creatorId, 0, {
+    tokenId,
+    closed: true,
+    dissolved,
+    reason: reason ?? "creator_closed",
+  });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
+  }
+  return vault;
 }

@@ -9,9 +9,23 @@ interface TokenUnlockState {
   creditsAtDeployment: number;
   lastCheckedCredits: number;
   lastUnlockedAt: string;
+  /**
+   * Baseline credit value from which future unlocks are measured. Reset by
+   * `resetUnlockBaseline` when the unlock rate changes so legacy tokens don't
+   * back-fill unlock at the new rate.
+   */
+  unlockBaseline?: number;
+  /** Set when a baseline reset has already been applied. */
+  baselineResetAt?: string;
 }
 
-const TOKENS_PER_CREDIT = 10;
+/**
+ * New economy rate: 100 tokens per 1,000 credits earned (0.1 tokens/credit).
+ * Existing tokens have their baseline reset on first load after this ships so
+ * they start earning from today under the new rate.
+ */
+const TOKENS_PER_CREDIT = 0.1;
+const UNLOCK_RATE_VERSION = "2026-07-v2";
 
 /**
  * Records the initial credit state when a token is deployed
@@ -45,12 +59,24 @@ export async function checkAndUnlockTokenSupply(userId: string): Promise<void> {
   }
 
   const currentCredits = await getCreditBalance(userId);
-  const creditsEarned = currentCredits - unlockState.creditsAtDeployment;
+  // Reset baseline on first run after the rate change so pre-existing tokens
+  // don't back-fill unlock at the new (lower) rate. Option C from the plan.
+  if (unlockState.baselineResetAt !== UNLOCK_RATE_VERSION) {
+    unlockState.unlockBaseline = currentCredits;
+    unlockState.lastCheckedCredits = currentCredits;
+    unlockState.baselineResetAt = UNLOCK_RATE_VERSION;
+    await put("tokenUnlockStates", unlockState);
+    console.log(`[Token Unlock] Baseline reset for ${token.ticker} at ${currentCredits} credits`);
+    return;
+  }
+  const baseline = unlockState.unlockBaseline ?? unlockState.creditsAtDeployment;
+  const creditsEarned = currentCredits - baseline;
   
   if (creditsEarned <= 0) return;
 
   // Calculate how many tokens should be unlocked
   const tokensToUnlock = Math.floor(creditsEarned * TOKENS_PER_CREDIT);
+  if (tokensToUnlock <= 0) return;
   const newSupply = Math.min(token.supply + tokensToUnlock, token.maxSupply);
   
   if (newSupply > token.supply) {
@@ -96,7 +122,8 @@ export async function getTokenUnlockProgress(userId: string): Promise<{
   if (!unlockState) return null;
 
   const currentCredits = await getCreditBalance(userId);
-  const creditsEarned = Math.max(0, currentCredits - unlockState.creditsAtDeployment);
+  const baseline = unlockState.unlockBaseline ?? unlockState.creditsAtDeployment;
+  const creditsEarned = Math.max(0, currentCredits - baseline);
   const creditsNeededForMax = Math.ceil((token.maxSupply - token.supply) / TOKENS_PER_CREDIT);
   const percentUnlocked = (token.supply / token.maxSupply) * 100;
 
