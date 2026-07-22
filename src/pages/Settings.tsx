@@ -689,6 +689,7 @@ const Settings = () => {
             <TabsContent value="storage" className="space-y-6">
               <StorageTargetsPanel />
               <PersonalServersPanel />
+              <SwarmGatewayPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">
