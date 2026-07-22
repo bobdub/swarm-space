@@ -3,7 +3,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Wallet as WalletIcon, ArrowDownToLine, ArrowUpFromLine, ShieldAlert, Link2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Wallet as WalletIcon, ArrowDownToLine, ArrowUpFromLine, ShieldAlert, Link2, Send } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -17,7 +19,16 @@ import {
   getMetaMaskChainId,
   isMetaMaskAvailable,
   onMetaMaskChange,
+  requestMetaMask,
 } from "@/lib/blockchain/wallets/metaMaskBridge";
+import {
+  SWARM_EVM_CHAIN_ID_HEX,
+  isSwarmChain,
+  switchToSwarmNetwork,
+} from "@/lib/blockchain/wallets/swarmEvmNetwork";
+import { getSwarmBalance, transferSwarm } from "@/lib/blockchain/token";
+import { linkExternalEvmAddress, startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
+import { swarmIdToEvmAddress } from "@/lib/blockchain/gateway/addressMap";
 
 const CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC", "MINTME"];
 
@@ -28,19 +39,29 @@ function shortAddr(addr: string): string {
 function chainLabel(chainId: string | null): string {
   if (!chainId) return "Unknown chain";
   switch (chainId) {
-    case "0x1":    return "Ethereum Mainnet";
+    case "0x1": return "Ethereum Mainnet";
     case "0xaa36a7": return "Sepolia";
-    case "0x89":   return "Polygon";
-    default:       return `Chain ${chainId}`;
+    case "0x89": return "Polygon";
+    case SWARM_EVM_CHAIN_ID_HEX: return "Swarm-Space";
+    default: return `Chain ${chainId}`;
   }
+}
+
+function isEvmAddr(v: string): boolean {
+  return /^0x[a-fA-F0-9]{40}$/.test(v.trim());
 }
 
 export function BridgePanel() {
   const user = getCurrentUser();
   const [balances, setBalances] = useState(() => (user?.id ? getAppWalletBalances(user.id) : { ETH: 0, BTC: 0, MINTME: 0 }));
+  const [swarmBal, setSwarmBal] = useState(0);
+  const [swarmDepositAddr, setSwarmDepositAddr] = useState<string | null>(null);
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wdTo, setWdTo] = useState("");
+  const [wdAmount, setWdAmount] = useState("");
+  const [depAmount, setDepAmount] = useState("");
 
   const available = useMemo(() => isMetaMaskAvailable(), []);
 
@@ -50,17 +71,38 @@ export function BridgePanel() {
     setChainId(chain);
   }, []);
 
-  useEffect(() => {
+  const refreshSwarm = useCallback(async () => {
     if (!user?.id) return;
-    setBalances(getAppWalletBalances(user.id));
-    return onAppWalletUpdate(() => setBalances(getAppWalletBalances(user.id)));
+    try {
+      const [bal, addr] = await Promise.all([
+        getSwarmBalance(user.id),
+        swarmIdToEvmAddress(user.id),
+      ]);
+      setSwarmBal(bal);
+      setSwarmDepositAddr(addr);
+    } catch { /* ignore */ }
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id) return;
+    setBalances(getAppWalletBalances(user.id));
+    void refreshSwarm();
+    const off = onAppWalletUpdate(() => setBalances(getAppWalletBalances(user.id)));
+    const onTx = () => { void refreshSwarm(); };
+    window.addEventListener("blockchain-transaction", onTx);
+    const t = window.setInterval(refreshSwarm, 8000);
+    return () => { off(); window.removeEventListener("blockchain-transaction", onTx); window.clearInterval(t); };
+  }, [user?.id, refreshSwarm]);
+
+  useEffect(() => {
     if (!available) return;
-    refreshMm();
+    void refreshMm();
     return onMetaMaskChange(refreshMm);
   }, [available, refreshMm]);
+
+  useEffect(() => {
+    if (account && user?.id) linkExternalEvmAddress(user.id, account);
+  }, [account, user?.id]);
 
   const connect = async () => {
     setBusy(true);
@@ -78,15 +120,68 @@ export function BridgePanel() {
     }
   };
 
-  const deposit = (currency: AppWalletCurrency) => {
-    toast.info(`Deposit ${currency} from MetaMask — coming soon`, {
-      description: "Bridge signing lands in the next release. Sale proceeds already credit this wallet.",
+  const externalNotice = (currency: AppWalletCurrency, dir: "deposit" | "withdraw") => {
+    toast.info(`${currency} ${dir}s need a bridge signer`, {
+      description:
+        dir === "deposit"
+          ? "P2P mode has no external custodian yet — sale proceeds credit here automatically."
+          : "External-chain payouts require a custodian we don't run yet. SWARM withdrawals are live above.",
     });
   };
-  const withdraw = (currency: AppWalletCurrency) => {
-    toast.info(`Withdraw ${currency} to MetaMask — coming soon`, {
-      description: "Bridge signing lands in the next release.",
-    });
+
+  const withdrawSwarm = async () => {
+    if (!user?.id) return;
+    const amt = Math.floor(Number(wdAmount));
+    if (!Number.isFinite(amt) || amt <= 0) { toast.error("Enter a whole SWARM amount"); return; }
+    if (amt > swarmBal) { toast.error("Amount exceeds SWARM balance"); return; }
+    const to = wdTo.trim();
+    if (!isEvmAddr(to)) { toast.error("Enter a valid 0x… address"); return; }
+    setBusy(true);
+    try {
+      if (account && to.toLowerCase() === account.toLowerCase()) {
+        linkExternalEvmAddress(user.id, to);
+      }
+      await transferSwarm({
+        from: user.id,
+        to,
+        amount: amt,
+        meta: { via: "bridge-withdraw", evmTo: to.toLowerCase() },
+      });
+      toast.success(`Sent ${amt} SWARM`, { description: `to ${shortAddr(to)}` });
+      setWdAmount(""); setWdTo("");
+      await refreshSwarm();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Transfer failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const depositSwarm = async () => {
+    if (!user?.id || !account) { toast.error("Connect MetaMask first"); return; }
+    const amt = Math.floor(Number(depAmount));
+    if (!Number.isFinite(amt) || amt <= 0) { toast.error("Enter a whole SWARM amount"); return; }
+    setBusy(true);
+    try {
+      startGatewayCell();
+      if (!isSwarmChain(chainId)) {
+        await switchToSwarmNetwork();
+      }
+      const to = swarmDepositAddr ?? (await swarmIdToEvmAddress(user.id));
+      const valueWei = (BigInt(amt) * (10n ** 18n)).toString(16);
+      const txHash = await requestMetaMask<string>("eth_sendTransaction", [{
+        from: account,
+        to,
+        value: "0x" + valueWei,
+      }]);
+      toast.success("Deposit submitted", { description: `tx ${shortAddr(String(txHash))}` });
+      setDepAmount("");
+      setTimeout(() => { void refreshSwarm(); }, 500);
+    } catch (e) {
+      toast.error("Deposit failed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -98,8 +193,8 @@ export function BridgePanel() {
               <WalletIcon className="h-5 w-5 text-primary" /> In-app wallet · Bridge
             </CardTitle>
             <CardDescription>
-              Sale proceeds settle here. Move funds in and out through MetaMask —
-              the app never touches your seed phrase.
+              SWARM bridging is live via MetaMask on Swarm-Space. ETH / BTC /
+              MintMe balances settle from peer sales only.
             </CardDescription>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -114,17 +209,68 @@ export function BridgePanel() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
+        <div className="rounded-md border p-3 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-xs text-muted-foreground">SWARM balance</div>
+              <div className="font-semibold">{swarmBal.toLocaleString()} SWARM</div>
+            </div>
+            <Badge variant={isSwarmChain(chainId) ? "default" : "secondary"} className="text-[10px]">
+              {isSwarmChain(chainId) ? "On Swarm-Space" : "Bridge ready"}
+            </Badge>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs">Withdraw SWARM to any EVM address</Label>
+            <Input placeholder="0x… recipient address" value={wdTo} onChange={(e) => setWdTo(e.target.value)} />
+            <div className="flex gap-2">
+              <Input
+                placeholder="Amount (whole SWARM)"
+                inputMode="numeric"
+                value={wdAmount}
+                onChange={(e) => setWdAmount(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+              <Button type="button" onClick={withdrawSwarm} disabled={busy || !user?.id}>
+                <Send className="mr-1 h-3 w-3" /> Send
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-3">
+            <Label className="text-xs">Deposit SWARM from MetaMask</Label>
+            <div className="text-[10px] text-muted-foreground break-all">
+              Destination: {swarmDepositAddr ?? "…"}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="Amount (whole SWARM)"
+                inputMode="numeric"
+                value={depAmount}
+                onChange={(e) => setDepAmount(e.target.value.replace(/[^0-9]/g, ""))}
+              />
+              <Button type="button" variant="outline" onClick={depositSwarm} disabled={busy || !account}>
+                <ArrowDownToLine className="mr-1 h-3 w-3" /> Deposit
+              </Button>
+            </div>
+            {!isSwarmChain(chainId) && account && (
+              <div className="text-[10px] text-muted-foreground">
+                MetaMask will prompt to switch to Swarm-Space first.
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="grid gap-2 sm:grid-cols-3">
           {CURRENCIES.map((c) => (
             <div key={c} className="rounded-md border p-3">
               <div className="text-xs text-muted-foreground">{c} balance</div>
               <div className="font-semibold">{balances[c].toFixed(6)} {c}</div>
               <div className="mt-2 flex gap-1">
-                <Button size="sm" variant="outline" className="flex-1" onClick={() => deposit(c)}>
+                <Button size="sm" variant="outline" className="flex-1" onClick={() => externalNotice(c, "deposit")}>
                   <ArrowDownToLine className="mr-1 h-3 w-3" /> Deposit
                 </Button>
-                <Button size="sm" variant="outline" className="flex-1" disabled={balances[c] <= 0} onClick={() => withdraw(c)}>
+                <Button size="sm" variant="outline" className="flex-1" disabled={balances[c] <= 0} onClick={() => externalNotice(c, "withdraw")}>
                   <ArrowUpFromLine className="mr-1 h-3 w-3" /> Withdraw
                 </Button>
               </div>
@@ -137,23 +283,18 @@ export function BridgePanel() {
             {account ? "Reconnect MetaMask" : available ? "Connect MetaMask" : "MetaMask not detected"}
           </Button>
           {!available && (
-            <a
-              href="https://metamask.io/download/"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-primary hover:underline"
-            >
+            <a href="https://metamask.io/download/" target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline">
               Install MetaMask →
             </a>
           )}
         </div>
         <Alert>
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>Bridge signing arrives next release</AlertTitle>
+          <AlertTitle>SWARM live · external currencies pending custodian</AlertTitle>
           <AlertDescription className="text-xs">
-            Today, sale settlements credit your in-app balance and the MetaMask
-            connection is read-only. Real deposit/withdraw transfers land as soon
-            as bridge signing ships — your balances persist through the update.
+            SWARM deposit / withdraw runs through the in-browser Swarm gateway
+            cell and MetaMask signs every move. ETH / BTC / MintMe still need
+            an external bridge signer — those balances reflect peer sales only.
           </AlertDescription>
         </Alert>
       </CardContent>
