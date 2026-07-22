@@ -29,7 +29,7 @@ import {
 } from "@/lib/blockchain/coinMarket";
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
-import { BridgePanel } from "./BridgePanel";
+import { useMarketGate } from "@/hooks/useMarketGate";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
   { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
@@ -40,6 +40,7 @@ const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] =
 export function CoinMarketTab() {
   const user = getCurrentUser();
   const { pool, lastSyncedAt, isLive, isConnected, isFresh } = usePoolConnectivity();
+  const { canTrade, reason: gateReason, activePeers } = useMarketGate();
   const [listings, setListings] = useState<CoinListing[]>([]);
   const [walletSwarm, setWalletSwarm] = useState(0);
   const [marketStats, setMarketStats] = useState<Awaited<ReturnType<typeof getCoinMarketStats>> | null>(null);
@@ -108,6 +109,16 @@ export function CoinMarketTab() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          {!canTrade && (
+            <Alert variant="destructive">
+              <ShieldAlert className="h-4 w-4" />
+              <AlertTitle>Peer connection required</AlertTitle>
+              <AlertDescription>
+                {gateReason ?? "Markets only operate while connected to another peer."}{" "}
+                Cached listings stay visible; buying, listing, and settlement resume when a peer joins.
+              </AlertDescription>
+            </Alert>
+          )}
           {!isLive && !isConnected && (
             <Alert>
               <ShieldAlert className="h-4 w-4" />
@@ -161,17 +172,20 @@ export function CoinMarketTab() {
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
             <ListSwarmDialog
-              disabled={!user?.id || walletSwarm <= 0}
+              disabled={!user?.id || walletSwarm <= 0 || !canTrade}
               userId={user?.id ?? ""}
               walletSwarm={walletSwarm}
               marketStats={marketStats}
               onListed={refresh}
             />
+            {canTrade && (
+              <span className="text-[10px] text-muted-foreground">
+                Peer mesh live · {activePeers} peer{activePeers === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
-
-      <BridgePanel />
 
       <Tabs defaultValue="open" className="space-y-4">
         <TabsList className="grid grid-cols-3 gap-1 h-auto">
@@ -180,13 +194,13 @@ export function CoinMarketTab() {
           <TabsTrigger value="buys">My purchases ({myPurchases.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="open">
-          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="No open listings yet. Be the first to list SWARM." />
+          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="No open listings yet. Be the first to list SWARM." />
         </TabsContent>
         <TabsContent value="mine">
-          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t listed any SWARM yet." />
+          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t listed any SWARM yet." />
         </TabsContent>
         <TabsContent value="buys">
-          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} empty="You haven’t reserved any listings yet." />
+          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t reserved any listings yet." />
         </TabsContent>
       </Tabs>
     </div>
@@ -333,11 +347,13 @@ function ListingGrid({
   listings,
   currentUserId,
   onChange,
+  canTrade,
   empty,
 }: {
   listings: CoinListing[];
   currentUserId: string;
   onChange: () => void;
+  canTrade: boolean;
   empty: string;
 }) {
   if (listings.length === 0) {
@@ -357,6 +373,7 @@ function ListingGrid({
           listing={l}
           currentUserId={currentUserId}
           onChange={onChange}
+          canTrade={canTrade}
         />
       ))}
     </div>
@@ -367,10 +384,12 @@ function ListingCard({
   listing,
   currentUserId,
   onChange,
+  canTrade,
 }: {
   listing: CoinListing;
   currentUserId: string;
   onChange: () => void;
+  canTrade: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [payHash, setPayHash] = useState("");
@@ -449,7 +468,7 @@ function ListingCard({
         <div className="flex flex-wrap gap-2 pt-1">
           {/* Buyer actions */}
           {!isSeller && listing.status === "open" && (
-            <Button size="sm" disabled={!currentUserId || busy} onClick={() => {
+            <Button size="sm" disabled={!currentUserId || busy || !canTrade} onClick={() => {
               toast.info(`Load ${listing.askCurrency} payment — coming soon`);
               void run(() => reserveListing({ listingId: listing.listingId, buyerId: currentUserId }), "Listing reserved");
             }}>Buy</Button>
@@ -463,11 +482,11 @@ function ListingCard({
                 placeholder="0xabc… or txid"
               />
               <div className="flex gap-2">
-                <Button size="sm" disabled={busy || payHash.trim().length < 6} onClick={() => run(() =>
+                <Button size="sm" disabled={busy || payHash.trim().length < 6 || !canTrade} onClick={() => run(() =>
                   confirmPayment({ listingId: listing.listingId, buyerId: currentUserId, paymentTxHash: payHash }),
                   "Payment recorded — waiting for seller to release",
                 )}>I paid</Button>
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
+                <Button size="sm" variant="outline" disabled={busy || !canTrade} onClick={() => run(() =>
                   cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
                   "Reservation cancelled",
                 )}>Cancel</Button>
@@ -475,7 +494,7 @@ function ListingCard({
             </div>
           )}
           {isBuyer && listing.status === "paid" && (
-            <Button size="sm" variant="destructive" disabled={busy} onClick={() => run(() =>
+            <Button size="sm" variant="destructive" disabled={busy || !canTrade} onClick={() => run(() =>
               disputeListing({ listingId: listing.listingId, buyerId: currentUserId, reason: "Seller has not released" }),
               "Dispute filed",
             )}>Dispute</Button>
@@ -483,16 +502,19 @@ function ListingCard({
 
           {/* Seller actions */}
           {isSeller && listing.status === "paid" && (
-            <Button size="sm" disabled={busy} onClick={() => run(() =>
+            <Button size="sm" disabled={busy || !canTrade} onClick={() => run(() =>
               settleListing({ listingId: listing.listingId, sellerId: currentUserId }),
               isSwarmListing ? "SWARM released to buyer" : "Coin released to buyer",
             )}>{isSwarmListing ? "Release SWARM" : "Release coin"}</Button>
           )}
           {isSeller && (listing.status === "open" || listing.status === "reserved") && (
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => run(() =>
+            <Button size="sm" variant="outline" disabled={busy || !canTrade} onClick={() => run(() =>
               cancelListing({ listingId: listing.listingId, actorId: currentUserId }),
               "Listing cancelled",
             )}>Cancel</Button>
+          )}
+          {!canTrade && (
+            <span className="text-[10px] text-muted-foreground">Connect to a peer to act on this listing.</span>
           )}
         </div>
       </CardContent>

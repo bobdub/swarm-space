@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { primaryNavigationItems } from "./navigationItems";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
+import { MetaMaskConnectButton } from "./wallet/MetaMaskConnectButton";
 
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -65,6 +66,10 @@ export function MobileNav() {
               <PenSquare className="h-4 w-4" />
               Create Post
             </Button>
+          </div>
+
+          <div className="mt-4">
+            <MetaMaskConnectButton className="w-full" />
           </div>
 
           {/* Footer - P2P Status */}
