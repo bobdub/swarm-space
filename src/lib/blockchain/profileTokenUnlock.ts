@@ -59,12 +59,24 @@ export async function checkAndUnlockTokenSupply(userId: string): Promise<void> {
   }
 
   const currentCredits = await getCreditBalance(userId);
-  const creditsEarned = currentCredits - unlockState.creditsAtDeployment;
+  // Reset baseline on first run after the rate change so pre-existing tokens
+  // don't back-fill unlock at the new (lower) rate. Option C from the plan.
+  if (unlockState.baselineResetAt !== UNLOCK_RATE_VERSION) {
+    unlockState.unlockBaseline = currentCredits;
+    unlockState.lastCheckedCredits = currentCredits;
+    unlockState.baselineResetAt = UNLOCK_RATE_VERSION;
+    await put("tokenUnlockStates", unlockState);
+    console.log(`[Token Unlock] Baseline reset for ${token.ticker} at ${currentCredits} credits`);
+    return;
+  }
+  const baseline = unlockState.unlockBaseline ?? unlockState.creditsAtDeployment;
+  const creditsEarned = currentCredits - baseline;
   
   if (creditsEarned <= 0) return;
 
   // Calculate how many tokens should be unlocked
   const tokensToUnlock = Math.floor(creditsEarned * TOKENS_PER_CREDIT);
+  if (tokensToUnlock <= 0) return;
   const newSupply = Math.min(token.supply + tokensToUnlock, token.maxSupply);
   
   if (newSupply > token.supply) {
