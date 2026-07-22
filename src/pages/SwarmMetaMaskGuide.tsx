@@ -228,22 +228,35 @@ const SwarmMetaMaskGuide = () => {
             </Callout>
           </Section>
 
-          <Section icon={Coins} title="Moving value in and out">
+          <Section icon={Coins} title="Moving assets in and out">
+            <p>
+              Assets always flow through your <strong>in-app wallet</strong> first,
+              then get used inside the app. The Market is only for trading
+              SWARM and Creator Tokens between users — it is not the on/off ramp.
+            </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>List SWARM for sale:</strong>{" "}
-                <em>Wallet → Market → List SWARM</em>. Buyers pay you in
-                ETH/BTC/MintMe; proceeds land in your in-app multi-currency
-                wallet automatically.
+                <strong>Deposit into your wallet:</strong> connect MetaMask, open{" "}
+                <em>Wallet → Assets</em>, and send SWARM (or a supported EVM
+                asset) to the address shown. The gateway cell credits your
+                in-app wallet once the transaction propagates the mesh.
               </li>
               <li>
-                <strong>Withdraw to MetaMask:</strong> once MetaMask is connected
-                and on Swarm-Space, use the Bridge panel to move balances out.
+                <strong>Use assets in the app:</strong> once balances land in
+                your in-app wallet, spend them anywhere in Swarm — deploy a
+                Creator Token, buy from another creator's market, tip, unlock
+                walled posts, or claim land plots. No extra bridging step.
               </li>
               <li>
-                <strong>Deposit:</strong> send SWARM (or a supported EVM asset)
-                to the address shown in Bridge — the gateway cell credits your
-                mesh account once the transaction propagates.
+                <strong>Withdraw to MetaMask:</strong> in <em>Wallet → Assets</em>,
+                pick the asset and hit Withdraw. The bridge signer moves the
+                balance out to your connected MetaMask address on Swarm-Space.
+              </li>
+              <li>
+                <strong>Market (peer-to-peer trades only):</strong>{" "}
+                <em>Wallet → Market</em> lets you list mined SWARM or Creator
+                Tokens for other users to buy. Proceeds settle back into your
+                in-app wallet — from there you can spend them or withdraw.
               </li>
             </ul>
           </Section>
