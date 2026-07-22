@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Link2, LogOut, Plus } from "lucide-react";
+import { Link2, LogOut, Plus, DoorOpen } from "lucide-react";
 import { toast } from "sonner";
 import {
   DropdownMenu,
@@ -16,6 +16,11 @@ import {
   isSwarmChain,
   switchToSwarmNetwork,
 } from "@/lib/blockchain/wallets/swarmEvmNetwork";
+import {
+  isUsingSwarmGateway,
+  useSwarmGatewayProvider,
+} from "@/lib/blockchain/wallets/metaMaskSdk";
+import { startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
 
 interface Props {
   compact?: boolean;
@@ -73,6 +78,19 @@ export function MetaMaskConnectButton({ compact = false, className }: Props) {
           <div className="mt-1 text-[10px] text-muted-foreground">{chainLabel(chainId)}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={async () => {
+            startGatewayCell();
+            useSwarmGatewayProvider(true);
+            await connect();
+            toast.success("Using in-browser Swarm gateway", {
+              description: "MetaMask now visits Swarm-Space through your local gateway cell.",
+            });
+          }}
+        >
+          <DoorOpen className="mr-2 h-4 w-4" />
+          {isUsingSwarmGateway() ? "Reconnect via Swarm gateway" : "Use local in-browser gateway"}
+        </DropdownMenuItem>
         {!isSwarmChain(chainId) && (
           <DropdownMenuItem
             onClick={async () => {

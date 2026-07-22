@@ -49,6 +49,7 @@ import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
+import { SwarmGatewayPanel } from "@/components/settings/SwarmGatewayPanel";
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -688,6 +689,7 @@ const Settings = () => {
             <TabsContent value="storage" className="space-y-6">
               <StorageTargetsPanel />
               <PersonalServersPanel />
+              <SwarmGatewayPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">

@@ -19,6 +19,26 @@ type Eip1193Provider = {
 
 let sdkPromise: Promise<Eip1193Provider | null> | null = null;
 let cachedProvider: Eip1193Provider | null = null;
+let useSwarmOverride = false;
+let swarmProviderRef: Eip1193Provider | null = null;
+
+/** Force MetaMask calls to route through the in-browser Swarm gateway. */
+export function useSwarmGatewayProvider(enable: boolean): void {
+  useSwarmOverride = enable;
+  if (enable) {
+    import("./swarmProvider").then((m) => {
+      swarmProviderRef = m.swarmEip1193Provider;
+      cachedProvider = swarmProviderRef;
+      m.announceSwarmChain();
+    });
+  } else {
+    cachedProvider = null;
+  }
+}
+
+export function isUsingSwarmGateway(): boolean {
+  return useSwarmOverride;
+}
 
 function getInjected(): Eip1193Provider | null {
   if (typeof window === "undefined") return null;
@@ -64,6 +84,13 @@ async function bootSdk(): Promise<Eip1193Provider | null> {
  *   3. Lazily-booted MetaMask SDK provider (mobile / no extension).
  */
 export async function getMetaMaskProvider(): Promise<Eip1193Provider | null> {
+  if (useSwarmOverride) {
+    if (swarmProviderRef) return swarmProviderRef;
+    const m = await import("./swarmProvider");
+    swarmProviderRef = m.swarmEip1193Provider;
+    cachedProvider = swarmProviderRef;
+    return swarmProviderRef;
+  }
   if (cachedProvider) return cachedProvider;
   const injected = getInjected();
   if (injected?.isMetaMask) {
@@ -78,6 +105,7 @@ export async function getMetaMaskProvider(): Promise<Eip1193Provider | null> {
 
 /** Synchronous best-effort read for feature detection. */
 export function getMetaMaskProviderSync(): Eip1193Provider | null {
+  if (useSwarmOverride && swarmProviderRef) return swarmProviderRef;
   return cachedProvider ?? getInjected();
 }
 
