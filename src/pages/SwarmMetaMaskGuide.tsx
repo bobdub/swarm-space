@@ -236,27 +236,32 @@ const SwarmMetaMaskGuide = () => {
             </p>
             <ul className="list-disc pl-5 space-y-1">
               <li>
-                <strong>Deposit into your wallet:</strong> connect MetaMask, open{" "}
-                <em>Wallet → Assets</em>, and send SWARM (or a supported EVM
-                asset) to the address shown. The gateway cell credits your
-                in-app wallet once the transaction propagates the mesh.
-              </li>
-              <li>
                 <strong>Use assets in the app:</strong> once balances land in
                 your in-app wallet, spend them anywhere in Swarm — deploy a
                 Creator Token, buy from another creator's market, tip, unlock
                 walled posts, or claim land plots. No extra bridging step.
               </li>
               <li>
-                <strong>Withdraw to MetaMask:</strong> in <em>Wallet → Assets</em>,
-                pick the asset and hit Withdraw. The bridge signer moves the
-                balance out to your connected MetaMask address on Swarm-Space.
-              </li>
-              <li>
                 <strong>Market (peer-to-peer trades only):</strong>{" "}
                 <em>Wallet → Market</em> lets you list mined SWARM or Creator
                 Tokens for other users to buy. Proceeds settle back into your
-                in-app wallet — from there you can spend them or withdraw.
+                in-app wallet automatically — today this is the primary way
+                bridge currencies (ETH / BTC / MintMe) enter your in-app
+                wallet.
+              </li>
+              <li>
+                <strong>MetaMask deposits — coming soon:</strong> connecting
+                MetaMask works today (Wallet → Assets), but sending SWARM or an
+                EVM asset from MetaMask into your in-app wallet is gated on
+                the bridge signer release. The Deposit dialog surfaces the
+                receiving address for reference only until it ships.
+              </li>
+              <li>
+                <strong>MetaMask withdrawals — queued locally:</strong> the
+                Withdraw button debits your in-app ledger immediately so
+                accounting stays honest, but the on-chain broadcast to
+                MetaMask also waits on the bridge signer. Queued withdrawals
+                will settle out once it goes live.
               </li>
             </ul>
           </Section>
