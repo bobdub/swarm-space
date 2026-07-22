@@ -46,6 +46,9 @@ export async function deployProfileToken(params: {
   const existing = await getProfileToken(params.userId);
 
   if (existing) {
+    if (existing.closedAt) {
+      throw new Error("This creator token was permanently closed and cannot be redeployed.");
+    }
     const { hasProfileTokenBeenUsed } = await import("./profileTokenUsage");
     const used = await hasProfileTokenBeenUsed(existing.userId, existing.tokenId);
 
