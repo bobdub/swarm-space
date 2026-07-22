@@ -162,6 +162,8 @@ export async function buyCreatorTokens(params: {
   if (tokens <= 0 || !Number.isFinite(tokens)) {
     throw new Error("Token amount must be positive");
   }
+  const existingVault = await getCreatorVault(tokenId);
+  if (existingVault?.closed) throw new Error("This creator market has been closed.");
   // profileTokens store is keyed by userId, so scan by tokenId.
   const allTokens = await getAll<{ tokenId: string; userId: string; ticker: string; name: string; supply: number; maxSupply: number }>(
     "profileTokens",
