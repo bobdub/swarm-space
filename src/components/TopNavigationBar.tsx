@@ -8,6 +8,7 @@ import { MobileNav } from "./MobileNav";
 import { AppHealthBadge } from "./AppHealthBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
+import { MetaMaskConnectButton } from "./wallet/MetaMaskConnectButton";
 
 export function TopNavigationBar() {
   const location = useLocation();
@@ -81,6 +82,11 @@ export function TopNavigationBar() {
         {/* P2P Status */}
         <div className="flex-shrink-0">
           <P2PStatusIndicator />
+        </div>
+
+        {/* MetaMask (always connectable) */}
+        <div className="hidden md:block flex-shrink-0">
+          <MetaMaskConnectButton compact />
         </div>
 
         {/* App Health (UQRC-derived) */}
