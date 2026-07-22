@@ -9,9 +9,23 @@ interface TokenUnlockState {
   creditsAtDeployment: number;
   lastCheckedCredits: number;
   lastUnlockedAt: string;
+  /**
+   * Baseline credit value from which future unlocks are measured. Reset by
+   * `resetUnlockBaseline` when the unlock rate changes so legacy tokens don't
+   * back-fill unlock at the new rate.
+   */
+  unlockBaseline?: number;
+  /** Set when a baseline reset has already been applied. */
+  baselineResetAt?: string;
 }
 
-const TOKENS_PER_CREDIT = 10;
+/**
+ * New economy rate: 100 tokens per 1,000 credits earned (0.1 tokens/credit).
+ * Existing tokens have their baseline reset on first load after this ships so
+ * they start earning from today under the new rate.
+ */
+const TOKENS_PER_CREDIT = 0.1;
+const UNLOCK_RATE_VERSION = "2026-07-v2";
 
 /**
  * Records the initial credit state when a token is deployed
