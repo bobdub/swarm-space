@@ -456,3 +456,29 @@ export const SWARM_CONFIG: BlockchainConfig = {
   maxSupply: 21000000,
   genesisTimestamp: '2025-01-01T00:00:00.000Z',
 };
+
+// ── Participant Listings — user↔user Creator Token trades ─────────────
+
+/** Portion of a participant trade routed to the Open Market bucket (95%). */
+export const PARTICIPANT_TRADE_MARKET_SHARE = 0.95;
+/** Portion of a participant trade routed to the community pool (5%). */
+export const PARTICIPANT_TRADE_COMMUNITY_SHARE = 0.05;
+
+export type ParticipantListingSide = "sell" | "buy";
+export type ParticipantListingStatus = "open" | "filled" | "cancelled";
+
+export interface ParticipantListing {
+  listingId: string;
+  tokenId: string;
+  userId: string;
+  side: ParticipantListingSide;
+  /** Amount of Creator Tokens offered (sell) or requested (buy). */
+  tokens: number;
+  /** Price per token in SWARM. */
+  pricePerToken: number;
+  status: ParticipantListingStatus;
+  createdAt: string;
+  updatedAt: string;
+  filledBy?: string;
+  filledAt?: string;
+}
