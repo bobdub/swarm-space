@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, RefreshCw } from "lucide-react";
 import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
 import { reportDeliveryEvent } from "@/lib/pipeline/deliveryTelemetry";
+import { ensureManifestChunks } from "@/lib/p2p/chunkFetch";
 import { toast } from "sonner";
 
 interface FilePreviewProps {
@@ -16,6 +17,7 @@ interface FilePreviewProps {
 export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState<string>("Decrypting");
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,18 +26,53 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
     try {
       setLoading(true);
       setError(null);
+      setProgress(0);
 
       if (!manifest.fileKey) {
         throw new Error("Missing encryption key for file");
       }
 
-      // In production, the key should be stored encrypted. For now we keep it
-      // directly on the manifest so we can import it and decrypt locally.
       const fileKey = await importFileKey(manifest);
-      // Use progressive decryptor for large files (>100 chunks)
-      const blob = manifest.chunks.length > 100
-        ? await progressiveDecryptToBlob(manifest, (p) => setProgress(p.percent))
-        : await decryptAndReassembleFile(manifest, fileKey, setProgress);
+
+      // Pull any chunks we don't already have from peers before decrypting.
+      // Without this, a shared file with even one missing piece fails immediately.
+      setStatus("Fetching missing pieces from peers");
+      const pre = await ensureManifestChunks(manifest);
+      if (!pre.ok && pre.missing.length === manifest.chunks.length) {
+        if (pre.offline) {
+          throw new Error(
+            `This file isn't available offline. Connect to the SWARM so peers can send the ${pre.missing.length} missing pieces.`,
+          );
+        }
+        throw new Error(
+          `This file isn't available yet — ${pre.missing.length} pieces still need to sync from other users. Try again once a seeder comes online.`,
+        );
+      }
+
+      setStatus("Decrypting");
+      const runDecrypt = () =>
+        manifest.chunks.length > 100
+          ? progressiveDecryptToBlob(manifest, (p) => setProgress(p.percent))
+          : decryptAndReassembleFile(manifest, fileKey, setProgress);
+
+      let blob: Blob;
+      try {
+        blob = await runDecrypt();
+      } catch (firstErr) {
+        // Likely a still-missing chunk. One more targeted sweep then retry.
+        console.warn("[FilePreview] first decrypt attempt failed, re-fetching chunks", firstErr);
+        setStatus("Fetching missing pieces from peers");
+        setProgress(0);
+        const retryFetch = await ensureManifestChunks(manifest);
+        if (!retryFetch.ok) {
+          throw new Error(
+            `Still waiting on ${retryFetch.missing.length} piece(s) from peers. Try again shortly.`,
+          );
+        }
+        setStatus("Decrypting");
+        blob = await runDecrypt();
+      }
+
       nextUrl = URL.createObjectURL(blob);
       setBlobUrl((prev) => {
         if (prev) {
@@ -46,8 +83,9 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
     } catch (err) {
       console.error("Decryption error:", err);
       reportDeliveryEvent({ kind: 'decrypt-failure', manifestId: manifest.fileId });
-      setError("Failed to decrypt file");
-      toast.error("Failed to decrypt file");
+      const message = err instanceof Error ? err.message : "Failed to decrypt file";
+      setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -94,12 +132,16 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12 space-y-4">
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Decrypting... {progress}%</p>
+              <p className="text-sm text-muted-foreground">{status}... {progress}%</p>
               <Progress value={progress} className="w-64" />
             </div>
           ) : error ? (
-            <div className="text-center py-12">
+            <div className="text-center py-12 space-y-4">
               <p className="text-destructive">{error}</p>
+              <Button variant="outline" onClick={() => void loadAndDecrypt()} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                Retry
+              </Button>
             </div>
           ) : (
             <>

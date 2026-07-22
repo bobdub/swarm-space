@@ -1,52 +1,96 @@
-To Infinity and beyond! Q_Score(u) ≈ 0.036.
+# Fix Shared-File Downloads (root cause first, batch download after)
 
-# Goal
+## What's actually broken
 
-Stop asking users to paste an ETH / BTC / MintMe address into the "List SWARM for sale" form. The app already has a per-user wallet — sale proceeds should credit that wallet as balances of ETH / BTC / MintMe held inside the app. MetaMask becomes the bridge that moves SWARM (and other supported assets) in and out of the app wallet.
+Verified by reading the code paths involved:
 
-# New flow
+- `src/components/FilePreview.tsx` → calls `decryptAndReassembleFile(manifest, fileKey, …)`.
+- `src/lib/fileEncryption.ts` line 307 — `decryptAndReassembleFile` does:
+  ```ts
+  const chunk = await get("chunks", ref);
+  if (!chunk) throw new Error(`Chunk ${ref} not found`);
+  ```
+  It reads chunks **only from local IndexedDB** and throws the moment one is missing.
+- `src/lib/torrent/streamingDecryptor.ts` line 214 does the exact same thing.
+- On-demand chunk fetching over P2P **does** exist in `src/lib/p2p/manager.ts`:
+  - `ensureChunksForManifest(manifest, sourcePeerId?)` (line 3201) walks `manifest.chunks`, and for any chunk not in the local store it calls `chunkProtocol.requestChunk(peerId, chunkRef)` against candidate peers.
+  - But it's only invoked in two places: when a manifest arrives (line 1408) and during manifest-request completion (line 3158). **It is never called at download / preview time.**
 
-1. **List SWARM for sale** → SWARM moves into market escrow (unchanged). Seller only picks amount, price, and currency (ETH / BTC / MintMe). No external address input.
-2. **Buyer pays** (still off-chain / "coming soon" toast for now) → on settle, the buyer's app wallet is debited that currency and the seller's app wallet is credited. All held **inside** the app wallet as first-class balances.
-3. **Withdraw / Deposit** → new "Bridge" panel. `Connect MetaMask` unlocks:
-   - SWARM ↔ MetaMask (SWARM chain, primary)
-   - When MetaMask is switched to Ethereum / other supported chains, deposit or withdraw ETH (and later BTC via wrapped, MintMe via ETH-format).
-   - Deposits credit the app wallet; withdrawals debit it and hand off the signed transfer to MetaMask.
-4. **Use funds while on the app** → creator token buys, tips, coin market purchases, etc. all read the app wallet's multi-currency balances.
+So the failure mode a real user hits with a file *someone else shared*:
 
-# Scope of this change
+1. Manifest replicates to the local node.
+2. One or more chunks fail to arrive (peer offline mid-sync, dropped packet, WebRTC teardown, join-after-broadcast).
+3. User clicks Preview/Download → decrypt throws on the first missing chunk → toast "Failed to decrypt file" → no retry, no fetch attempt, no visibility into which chunk is missing.
 
-Only forms + wallet ledger + a stubbed MetaMask bridge panel. No real on-chain settlement yet — that stays behind the existing "coming soon" toast until the bridge lands. This keeps the change small and verifiable.
+`FilePreview.tsx` also catches the throw and reports a generic error; it never asks the mesh for the missing bytes.
 
-## Files to add
-- `src/lib/blockchain/wallets/appWallet.ts` — multi-currency ledger (SWARM already exists; add `ETH`, `BTC`, `MINTME` balances keyed by userId, persisted with the existing storage layer). Getters, credit/debit helpers, event `app-wallet-update`.
-- `src/components/wallet/BridgePanel.tsx` — small card in the Market tab: "Connect MetaMask", shows detected chain, lists in-app balances per currency, Deposit / Withdraw buttons that today just toast "coming soon" for non-SWARM and call the existing `metaMaskBridge` stub for SWARM.
+## Fix (single-file first — the actual bug)
 
-## Files to update
-- `src/lib/blockchain/types.ts` — `CoinListing.receivingAddress` becomes optional; add `receivingAppWalletUserId` (already implicit via `sellerId`).
-- `src/lib/blockchain/coinMarket.ts`
-  - `listSwarmForSale` no longer requires `receivingAddress`; drops address validation.
-  - `settleListing` credits the seller's app wallet in the listing currency (calls `appWallet.credit`) instead of relying on off-chain address payment.
-  - `reserveListing` / `confirmPayment` still exist but the "payment" step becomes an internal app-wallet debit on the buyer once the bridge is live; today it stays the same toast path.
-- `src/components/wallet/CoinMarketTab.tsx`
-  - `ListSwarmDialog`: remove the "Your receiving address" input and its validation. Add a small "Proceeds credit your in-app <currency> balance" hint.
-  - `ListingCard`: remove the "Send to: <address>" line; show "Settles into seller's in-app <currency> wallet" instead.
-  - Mount `<BridgePanel />` at the top of the Market tab.
-- `src/lib/blockchain/wallets/metaMaskBridge.ts` — extend the stub with `getChainId()` and a `requestAccounts()` wrapper so the Bridge panel can show real connect state without introducing signing yet.
+Small, surgical, no crypto changes.
 
-## What we deliberately do NOT do in this pass
-- No real ETH / BTC / MintMe transfers. Withdraw/deposit stay behind "coming soon" toasts except for MetaMask connect status.
-- No changes to Creator Tokens, Pool sync, or Coin deployment pricing.
-- No UI churn outside the Market tab and the market dialog.
+### 1. Public helper: `ensureManifestChunks(manifest)`
 
-# Verification (must pass before we call it done)
-1. `bun run scripts/uqrc-check.mjs` clean.
-2. Open Wallet → Market:
-   - "List SWARM for sale" dialog has **no address field**, submits successfully, escrows SWARM.
-   - Listing card shows "Settles into seller's in-app <currency> wallet", no address line.
-   - Bridge panel renders, "Connect MetaMask" reflects real availability, non-SWARM Deposit/Withdraw toast "coming soon".
-3. Settle a listing in a local test → seller's app wallet balance for that currency increments; buyer's decrements (or stays at 0 with an informational toast if the bridge is not yet funded).
+Add to `src/lib/p2p/manager.ts` (and re-export from a small entrypoint like `src/lib/p2p/chunkFetch.ts` for UI callers):
 
-# Risk
+```ts
+export async function ensureManifestChunks(manifest: Manifest): Promise<{
+  ok: boolean;
+  missing: string[];
+}>
+```
 
-Low. The listing/escrow path already exists; we are removing a field and adding a ledger. MetaMask code stays a stub so no signing / seed-phrase risk. All new state is local-first and rides the existing storage + mesh sync layer.
+Behavior:
+- If `tryGetP2PManager()` returns null (offline / not connected), return `{ ok: false, missing: <all not-in-IDB chunks> }` — no throw.
+- Otherwise call the existing private `ensureChunksForManifest` (promote it to `public` or wrap it). After the sweep, re-scan `manifest.chunks` against IndexedDB and return whichever chunk refs are still absent.
+- Add a soft timeout per chunk request (e.g. 8 s) so a dead peer can't hang the UI. `chunkProtocol.requestChunk` already races — verify and, if not, wrap with `Promise.race`.
+
+### 2. Wire it into the download path
+
+`src/components/FilePreview.tsx`, in `loadAndDecrypt`, **before** calling `decryptAndReassembleFile` / `progressiveDecryptToBlob`:
+
+```ts
+setStatus('Fetching missing pieces from peers…');
+const { ok, missing } = await ensureManifestChunks(manifest);
+if (!ok && missing.length === manifest.chunks.length) {
+  // Nothing local and no peers responded — surface clearly, don't just say "failed to decrypt".
+  throw new Error(`This file isn't available yet. ${missing.length} pieces still need to sync from other users.`);
+}
+// Even if some are still missing, attempt decrypt — it will only fail on the first hole and we can retry.
+```
+
+On a decrypt failure, run one automatic retry via `ensureManifestChunks` before showing an error toast. Cap retries at 2 to avoid loops.
+
+### 3. Better user-facing errors
+
+Replace the blanket `"Failed to decrypt file"` in `FilePreview.tsx` with the thrown message when it's an availability error. Show a **Retry** button on the failure state that re-runs `loadAndDecrypt`. Show the seeder count for that `fileId` (already available in `Files.tsx` via `sm.getAllFileSeederCounts()`) so the user knows whether anyone is online to serve it.
+
+### 4. Verification (the "foolproof" part)
+
+Empirically prove the fix, not just typecheck:
+
+- **Bench test**: two browser profiles. Profile A uploads a 5 MB image. Profile B opens `/files`, force-clears half the chunks from IndexedDB via devtools, clicks Preview → expect: "Fetching missing pieces…" progress, then successful preview + download.
+- **Offline case**: Profile B with P2P disconnected → expect the new "isn't available yet — N pieces need to sync" message and a Retry button, not a silent "Failed to decrypt".
+- **Log signal**: `[P2P] ✅ Retrieved chunk …` for each fetched piece confirms the round-trip through `chunkProtocol.requestChunk`.
+
+Only when steps 1–4 are green do we proceed to step 5.
+
+## Step 5. Batch download (once single-file is proven)
+
+Same design as before, now safe because every file goes through `ensureManifestChunks` first:
+
+- New `src/lib/utils/batchDownload.ts` calls `createAccountExportStream({ includePosts: false, includeMedia: true, manifestIds }, { dependencies: { loadPosts: async () => [] } })`. In a thin `resolveAttachment` override, call `ensureManifestChunks(manifest)` before `decryptAndReassembleFile` so a missing chunk in one file doesn't silently zero-byte it. Failed files land in the exporter's `warnings[]`.
+- `src/pages/Files.tsx`: add per-row checkboxes, a "Select all filtered" toggle, and a Download-ZIP action bar with a progress bar. Cap batch at 200 files / ~2 GB combined `manifest.size`.
+- Toast summary: `"Downloaded X files (Y skipped — try again once more peers are online)"`.
+
+## Files touched
+
+- **Edit**: `src/lib/p2p/manager.ts` — expose `ensureChunksForManifest` and add the wrapped helper (or add `src/lib/p2p/chunkFetch.ts` that imports the manager).
+- **Edit**: `src/components/FilePreview.tsx` — pre-fetch pass, better error copy, Retry button.
+- **New**: `src/lib/utils/batchDownload.ts` (step 5).
+- **Edit**: `src/pages/Files.tsx` — selection UI + batch action bar (step 5).
+
+## Out of scope
+
+- No changes to encryption, key wrapping, chunk protocol wire format, or manifest schema.
+- No server round-trips; everything stays offline-first / P2P.
+- No changes to upload path.

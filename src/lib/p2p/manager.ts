@@ -3198,7 +3198,7 @@ export class P2PManager {
     return existing ?? null;
   }
 
-  private async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<void> {
+  async ensureChunksForManifest(manifest: Manifest, sourcePeerId?: string): Promise<void> {
     const candidates = this.getManifestCandidatePeers(manifest.fileId, sourcePeerId);
 
     for (const chunkRef of manifest.chunks) {
