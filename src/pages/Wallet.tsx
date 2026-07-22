@@ -26,6 +26,7 @@ import { deployProfileToken, getUserProfileToken } from "@/lib/blockchain/profil
 import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
 import { AssetsTab } from "@/components/wallet/AssetsTab";
 import { MetaMaskConnectButton } from "@/components/wallet/MetaMaskConnectButton";
+import { VaultsPanel } from "@/components/wallet/VaultsPanel";
 import type { NFTMetadata, MiningSession, CreatorToken } from "@/lib/blockchain/types";
 import {
   CREATOR_TOKEN_DEPLOY_COST,
@@ -560,6 +561,7 @@ export default function Wallet() {
                         </Dialog>
                       </div>
                     </div>
+                    <VaultsPanel />
                   </div>
                 ) : (
                   <div className="text-center py-12">

@@ -29,8 +29,14 @@ import {
 import { getSwarmBalance, transferSwarm } from "@/lib/blockchain/token";
 import { linkExternalEvmAddress, startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
 import { swarmIdToEvmAddress } from "@/lib/blockchain/gateway/addressMap";
+import {
+  MINTME_NETWORK,
+  isMintMeChain,
+  switchToMintMeNetwork,
+} from "@/lib/blockchain/wallets/mintmeNetwork";
+import { readMintMeBalance, sendMintMe } from "@/lib/blockchain/wallets/mintmeBridge";
 
-const CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC", "MINTME"];
+const EXTERNAL_ONLY_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC"];
 
 function shortAddr(addr: string): string {
   return addr.length > 12 ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -62,6 +68,9 @@ export function BridgePanel() {
   const [wdTo, setWdTo] = useState("");
   const [wdAmount, setWdAmount] = useState("");
   const [depAmount, setDepAmount] = useState("");
+  const [mmintBal, setMmintBal] = useState<number | null>(null);
+  const [mmintTo, setMmintTo] = useState("");
+  const [mmintAmount, setMmintAmount] = useState("");
 
   const available = useMemo(() => isMetaMaskAvailable(), []);
 
@@ -124,9 +133,34 @@ export function BridgePanel() {
     toast.info(`${currency} ${dir}s need a bridge signer`, {
       description:
         dir === "deposit"
-          ? "P2P mode has no external custodian yet — sale proceeds credit here automatically."
-          : "External-chain payouts require a custodian we don't run yet. SWARM withdrawals are live above.",
+          ? "P2P mode has no ETH/BTC custodian yet — sale proceeds credit here automatically. MintMe is live below."
+          : "ETH/BTC payouts still need a bridge signer. SWARM (above) and MintMe (below) are live via MetaMask.",
     });
+  };
+
+  const loadMintMe = useCallback(async () => {
+    if (!account) { setMmintBal(null); return; }
+    const b = await readMintMeBalance(account);
+    setMmintBal(b);
+  }, [account]);
+
+  useEffect(() => { if (isMintMeChain(chainId)) void loadMintMe(); }, [chainId, loadMintMe]);
+
+  const sendMintMeNow = async () => {
+    if (!account) { toast.error("Connect MetaMask first"); return; }
+    const amt = Number(mmintAmount);
+    if (!(amt > 0) || !Number.isFinite(amt)) { toast.error("Enter a positive MINTME amount"); return; }
+    setBusy(true);
+    try {
+      const hash = await sendMintMe({ to: mmintTo.trim(), amountEth: amt });
+      toast.success("MintMe sent", { description: `tx ${shortAddr(hash)}` });
+      setMmintAmount(""); setMmintTo("");
+      setTimeout(() => { void loadMintMe(); }, 1500);
+    } catch (e) {
+      toast.error("Send failed", { description: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const withdrawSwarm = async () => {
@@ -261,8 +295,50 @@ export function BridgePanel() {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          {CURRENCIES.map((c) => (
+        {/* MintMe peer bridge — MetaMask signs, no custodian */}
+        <div className="rounded-md border p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <div className="text-xs text-muted-foreground">MintMe peer vault</div>
+              <div className="font-semibold">
+                {mmintBal == null ? "—" : `${mmintBal.toFixed(6)} MINTME`}
+                <span className="ml-2 text-[10px] text-muted-foreground">on-chain (MetaMask)</span>
+              </div>
+              <div className="text-[10px] text-muted-foreground">
+                In-app credit: {balances.MINTME.toFixed(6)} MINTME (from peer sales)
+              </div>
+            </div>
+            <div className="flex gap-1">
+              {!isMintMeChain(chainId) && account && (
+                <Button size="sm" variant="outline" onClick={() => switchToMintMeNetwork().catch(() => {})}>
+                  Switch to MintMe
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => void loadMintMe()} disabled={!account}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+          <Label className="text-xs">Send MintMe peer-to-peer (MetaMask signs)</Label>
+          <Input placeholder="0x… recipient" value={mmintTo} onChange={(e) => setMmintTo(e.target.value)} />
+          <div className="flex gap-2">
+            <Input
+              placeholder="Amount MINTME"
+              inputMode="decimal"
+              value={mmintAmount}
+              onChange={(e) => setMmintAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+            />
+            <Button type="button" onClick={sendMintMeNow} disabled={busy || !account}>
+              <Send className="mr-1 h-3 w-3" /> Send
+            </Button>
+          </div>
+          <div className="text-[10px] text-muted-foreground">
+            Network: {MINTME_NETWORK.chainName} (chain {MINTME_NETWORK.chainId}). No custodian — your MetaMask is the vault.
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {EXTERNAL_ONLY_CURRENCIES.map((c) => (
             <div key={c} className="rounded-md border p-3">
               <div className="text-xs text-muted-foreground">{c} balance</div>
               <div className="font-semibold">{balances[c].toFixed(6)} {c}</div>
@@ -290,11 +366,12 @@ export function BridgePanel() {
         </div>
         <Alert>
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>SWARM live · external currencies pending custodian</AlertTitle>
+          <AlertTitle>SWARM + MintMe live · ETH / BTC pending bridge signer</AlertTitle>
           <AlertDescription className="text-xs">
-            SWARM deposit / withdraw runs through the in-browser Swarm gateway
-            cell and MetaMask signs every move. ETH / BTC / MintMe still need
-            an external bridge signer — those balances reflect peer sales only.
+            SWARM moves through the in-browser Swarm gateway cell; MintMe moves
+            directly on the MintMe chain — MetaMask signs everything and the
+            app never holds your keys. ETH and BTC still need a bridge signer,
+            so those balances only reflect peer sales for now.
           </AlertDescription>
         </Alert>
       </CardContent>
