@@ -375,6 +375,14 @@ export async function openDB(): Promise<IDBDatabase> {
         listingStore.createIndex("status", "status", { unique: false });
         listingStore.createIndex("askCurrency", "askCurrency", { unique: false });
       }
+
+      // Participant Listings — user↔user Creator Token trades
+      if (!db.objectStoreNames.contains("participantListings")) {
+        const pStore = db.createObjectStore("participantListings", { keyPath: "listingId" });
+        pStore.createIndex("tokenId", "tokenId", { unique: false });
+        pStore.createIndex("userId", "userId", { unique: false });
+        pStore.createIndex("status", "status", { unique: false });
+      }
     };
     
     req.onsuccess = () => {
