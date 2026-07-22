@@ -49,6 +49,7 @@ import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
+import { SwarmGatewayPanel } from "@/components/settings/SwarmGatewayPanel";
 import {
   getLoadingPriority,
   setLoadingPriority,
