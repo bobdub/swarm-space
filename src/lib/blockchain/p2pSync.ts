@@ -4,10 +4,20 @@ import { getSwarmChain } from "./chain";
 import { resolveFork } from "./chainHealthBridge";
 
 import type { RewardPoolData } from "./storage";
+import type { ProfileToken, CreatorVault } from "./types";
+import type { ProfileTokenHolding } from "./profileTokenBalance";
 
 export interface BlockchainSyncMessage {
   type: "blockchain_sync";
-  action: "request_chain" | "send_chain" | "new_block" | "new_transaction" | "reward_pool_update" | "request_reward_pool";
+  action:
+    | "request_chain"
+    | "send_chain"
+    | "new_block"
+    | "new_transaction"
+    | "reward_pool_update"
+    | "request_reward_pool"
+    | "request_profile_tokens"
+    | "send_profile_tokens";
   data?: {
     chain?: SwarmBlock[];
     pendingTransactions?: SwarmTransaction[];
@@ -15,6 +25,9 @@ export interface BlockchainSyncMessage {
     transaction?: SwarmTransaction;
     chainState?: ChainState;
     rewardPool?: RewardPoolData;
+    profileTokens?: ProfileToken[];
+    creatorVaults?: CreatorVault[];
+    profileTokenHoldings?: ProfileTokenHolding[];
   };
   timestamp: number;
 }
@@ -45,11 +58,13 @@ export class BlockchainP2PSync {
     // Immediate first sync request
     this.requestChainSync();
     this.requestRewardPoolSync();
+    this.requestProfileTokenSync();
 
     // Then periodic sync
     this.syncInterval = window.setInterval(() => {
       this.requestChainSync();
       this.requestRewardPoolSync();
+      this.requestProfileTokenSync();
     }, this.SYNC_INTERVAL);
   }
 
@@ -134,6 +149,17 @@ export class BlockchainP2PSync {
     };
 
     console.log("[Blockchain P2P] 📡 Requesting reward pool sync from peers");
+    this.broadcast("blockchain", message);
+  }
+
+  /** Request profile token / creator vault snapshots from peers. */
+  requestProfileTokenSync(): void {
+    const message: BlockchainSyncMessage = {
+      type: "blockchain_sync",
+      action: "request_profile_tokens",
+      timestamp: Date.now(),
+    };
+    console.log("[Blockchain P2P] 📡 Requesting profile token sync from peers");
     this.broadcast("blockchain", message);
   }
 
@@ -290,6 +316,70 @@ export class BlockchainP2PSync {
           await derivePoolFromChain();
         } catch (err) {
           console.warn("[Blockchain P2P] derivePoolFromChain failed:", err);
+        }
+        break;
+      }
+
+      case "request_profile_tokens": {
+        const { getAllProfileTokens } = await import("./storage");
+        const { getAll } = await import("../store");
+        const [profileTokens, creatorVaults, profileTokenHoldings] = await Promise.all([
+          getAllProfileTokens(),
+          getAll<CreatorVault>("creatorVaults"),
+          getAll<ProfileTokenHolding>("profileTokenHoldings"),
+        ]);
+        const response: BlockchainSyncMessage = {
+          type: "blockchain_sync",
+          action: "send_profile_tokens",
+          data: { profileTokens, creatorVaults, profileTokenHoldings },
+          timestamp: Date.now(),
+        };
+        console.log(
+          `[Blockchain P2P] 📤 Sending ${profileTokens.length} tokens / ${creatorVaults.length} vaults / ${profileTokenHoldings.length} holdings to ${fromPeer}`,
+        );
+        this.broadcast("blockchain", response);
+        break;
+      }
+
+      case "send_profile_tokens": {
+        const data = message.data;
+        if (!data) break;
+        const { saveProfileToken, getProfileToken } = await import("./storage");
+        const { saveCreatorVault, getCreatorVault } = await import("./creatorVault");
+        const { saveProfileTokenHolding, getProfileTokenHolding } = await import(
+          "./profileTokenBalance"
+        );
+        let addedTokens = 0;
+        let addedVaults = 0;
+        let addedHoldings = 0;
+        for (const t of data.profileTokens ?? []) {
+          if (!t?.userId) continue;
+          const existing = await getProfileToken(t.userId);
+          if (existing) continue; // never overwrite local
+          await saveProfileToken(t);
+          addedTokens++;
+        }
+        for (const v of data.creatorVaults ?? []) {
+          if (!v?.tokenId) continue;
+          const existing = await getCreatorVault(v.tokenId);
+          if (existing) continue;
+          await saveCreatorVault(v);
+          addedVaults++;
+        }
+        for (const h of data.profileTokenHoldings ?? []) {
+          if (!h?.userId || !h?.tokenId) continue;
+          const existing = await getProfileTokenHolding(h.userId, h.tokenId);
+          if (existing) continue;
+          await saveProfileTokenHolding(h);
+          addedHoldings++;
+        }
+        if (addedTokens || addedVaults || addedHoldings) {
+          console.log(
+            `[Blockchain P2P] ✅ Replicated ${addedTokens} tokens / ${addedVaults} vaults / ${addedHoldings} holdings from ${fromPeer}`,
+          );
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { source: "p2p" } }));
+          }
         }
         break;
       }
