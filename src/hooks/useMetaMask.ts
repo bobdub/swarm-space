@@ -94,6 +94,7 @@ export function chainLabel(chainId: string | null | undefined): string {
     case "0xaa36a7": return "Sepolia";
     case "0x89": return "Polygon";
     case "0x38": return "BNB";
+    case "0x123fb": return "Swarm-Space";
     default: return `Chain ${chainId}`;
   }
 }
