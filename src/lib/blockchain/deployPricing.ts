@@ -2,7 +2,7 @@
  * Deploy Pricing — dynamic prices tied to the community pool.
  *
  * Baseline (pool = 100 SWARM):
- *   • Creator Token: 95 credits + 5 SWARM
+ *   • Creator Token: 25 credits + 5 SWARM
  *   • Coin (sub-chain): 10 000 SWARM
  *
  * As the pool grows, prices scale linearly. Existing tokens are grandfathered
@@ -50,7 +50,7 @@ export async function getDeployPricing(): Promise<DeployPricing> {
     }
   }
 
-  // Baseline creator token = 95 credits + 5 SWARM at pool ≥ 100 SWARM.
+  // Baseline creator token = 25 credits + 5 SWARM at pool ≥ 100 SWARM.
   const creatorTokenCredits = scale(
     Math.min(CREATOR_TOKEN_DEPLOY_COST, CREATOR_BASE_CREDITS),
     poolBalance,
