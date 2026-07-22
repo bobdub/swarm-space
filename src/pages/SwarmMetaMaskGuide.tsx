@@ -250,18 +250,29 @@ const SwarmMetaMaskGuide = () => {
                 wallet.
               </li>
               <li>
-                <strong>MetaMask deposits — coming soon:</strong> connecting
-                MetaMask works today (Wallet → Assets), but sending SWARM or an
-                EVM asset from MetaMask into your in-app wallet is gated on
-                the bridge signer release. The Deposit dialog surfaces the
-                receiving address for reference only until it ships.
+                <strong>SWARM deposits / withdrawals — live:</strong> Wallet →
+                Assets → Bridge lets MetaMask send SWARM to your in-app wallet
+                and back out to any 0x… address. The in-browser Swarm gateway
+                cell translates every MetaMask call — no cloud, no custodian.
               </li>
               <li>
-                <strong>MetaMask withdrawals — queued locally:</strong> the
-                Withdraw button debits your in-app ledger immediately so
-                accounting stays honest, but the on-chain broadcast to
-                MetaMask also waits on the bridge signer. Queued withdrawals
-                will settle out once it goes live.
+                <strong>MintMe — live (peer bridge):</strong> your MetaMask
+                account IS your MintMe vault. The Bridge panel reads your
+                on-chain balance and lets you send MintMe peer-to-peer through
+                MetaMask. The app never holds MintMe keys.
+              </li>
+              <li>
+                <strong>ETH / BTC — pending bridge signer:</strong> those
+                buttons still show "not wired yet" because there is no
+                self-custodial peer contract for them yet. Balances only
+                reflect P2P market sales for now.
+              </li>
+              <li>
+                <strong>Two vaults, one dashboard:</strong> Wallet → Creator →
+                Vaults shows your Creator Vault (SWARM liquidity backing your
+                token, 40/40/15/5 split) and your Peer Bridge Vault (your
+                MetaMask on MintMe). You can top up the Buyback Reserve from
+                your SWARM balance right there.
               </li>
             </ul>
           </Section>
