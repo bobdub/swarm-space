@@ -349,7 +349,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       </div>
 
       {/* Buy / Sell — open to everyone, including the creator */}
-      {viewerId && (
+      {viewerId && !isClosed && (
         <div className="grid gap-6 md:grid-cols-2">
           <div role="form" className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
             <div className="font-display uppercase tracking-[0.2em] text-foreground">Buy {token.ticker}</div>
