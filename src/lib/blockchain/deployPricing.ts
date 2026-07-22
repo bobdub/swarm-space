@@ -28,7 +28,7 @@ export interface DeployPricing {
 const BASELINE_POOL = 100;
 /** Baseline anchor for coin deploys (single-multiplier growth). */
 const COIN_BASELINE_POOL = 10_000;
-const CREATOR_BASE_CREDITS = 95;
+const CREATOR_BASE_CREDITS = 25;
 const CREATOR_BASE_SWARM = 5;
 
 function scale(base: number, pool: number, anchor: number): number {
