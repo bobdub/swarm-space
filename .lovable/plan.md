@@ -1,66 +1,81 @@
-# Mobile MetaMask + SWARM Bridge
 
-## Goals
-1. Make the wallet/market experience work on mobile — MetaMask connects from the phone, and market forms can be filled and submitted without getting stuck off-screen.
-2. Build a real bridge so MetaMask can connect to a SWARM EVM network and move funds on-chain.
+# Swarm Gateway Cell — MetaMask as a Visitor, not the Wallet
 
-## What we know from the latest check
-- `window.ethereum` is not injected on mobile browsers, so the current MetaMask button always shows “Install MetaMask” and sends the user to a download page.
-- Market forms on mobile are not reachable at the bottom of the dialog, so users cannot submit listings or payments.
-- SWARM is a custom chain and is not yet EVM-compatible, so MetaMask cannot add it as a custom network today.
+## Mental model (locked in)
 
-## Technical approach
+- The **local Swarm wallet** created at first boot stays the user's primary wallet.
+- The **peer mesh** carries every block, tx, and content chunk.
+- **MetaMask** is only a door to the outside — used to bring SWARM in, take it out, or touch other EVM chains.
+- To let MetaMask *see* Swarm, we run a **Swarm Gateway Cell** — a peer that speaks JSON-RPC on one side and Swarm mesh messages on the other.
 
-### Phase 1 — Mobile wallet connection (MetaMask SDK)
-- Add `@metamask/sdk` to the project.
-- Create a small wrapper `src/lib/blockchain/wallets/metaMaskSdk.ts` that initializes the SDK on mobile / touch devices and falls back to the existing extension provider on desktop.
-- Update `src/hooks/useMetaMask.ts` to use the SDK provider when available, keeping the local cache behavior unchanged.
-- The MetaMask button will offer:
-  - Desktop: connect browser extension.
-  - Mobile: deep-link / QR pairing into the MetaMask app.
-  - Not installed: still show the install link, but with a fallback “Open MetaMask app” option if the SDK can detect it.
+```text
+ MetaMask  ──JSON-RPC──▶  Swarm Gateway Cell  ──mesh msg──▶  Swarm Mesh  ──▶  Swarm Blockchain
+                              (translator)            (roads)          (city)
+```
 
-### Phase 2 — Mobile market forms
-- Make all market dialogs scrollable and keyboard-safe on small screens:
-  - Add `max-h-[90dvh] overflow-y-auto` to the dialog content wrapper.
-  - Use the existing `vaul` drawer for the listing / buy / withdraw forms on mobile (`max-w-full`, bottom-sheet style, scrollable body).
-- Test the “List SWARM” and “I paid” flows at 360px viewport to confirm the submit button is reachable.
-- Keep the same form state and validation; only the container changes.
+The gateway is not the chain. It is a translator standing at the door.
 
-### Phase 3 — SWARM EVM network definition
-- Define a canonical SWARM EVM network config in `src/lib/blockchain/wallets/swarmEvmNetwork.ts`:
-  - `chainId` (hex)
-  - `chainName` (e.g. “Swarm-Space Testnet”)
-  - `rpcUrls` (placeholder for the SWARM RPC endpoint)
-  - `nativeCurrency` (symbol: SWARM, decimals: 18)
-  - `blockExplorerUrls` (optional)
-- Add helpers to request `wallet_addEthereumChain` and `wallet_switchEthereumChain` in MetaMask.
-- The network config will be a single source of truth used by the connect button and the bridge panel.
+## What we build
 
-### Phase 4 — Real bridge contract interface
-- Install `ethers` (or `viem`) for contract calls.
-- Create an ERC-20 wrapped SWARM token ABI and a placeholder contract address in `src/lib/blockchain/wallets/swarmBridge.ts`.
-- Implement:
-  - `depositSwarmToEvm(amount)` — lock local SWARM and call the bridge contract mint function.
-  - `withdrawSwarmFromEvm(amount)` — call the bridge contract burn/redeem function and credit local SWARM.
-- Until the bridge contract is deployed, the UI will show the on-chain preview with a clear “contract not deployed” state and a button to copy the deployment parameters.
+### 1. Gateway cell inside the mesh
+`src/lib/blockchain/gateway/swarmGatewayCell.ts`
+- New peer role `gateway` that any node can opt into (Settings → Advanced → "Run gateway cell").
+- Subscribes to the existing Swarm mesh (`swarm-mesh`, `chain-sync-*`, `tx-broadcast`).
+- Exposes a small in-process API: `handleRpc(method, params) → result` implemented for the JSON-RPC methods MetaMask actually calls:
+  - `eth_chainId`, `net_version`
+  - `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`
+  - `eth_getBalance` (maps SWARM ledger address → wei-scaled balance)
+  - `eth_getTransactionByHash`, `eth_getTransactionReceipt`
+  - `eth_sendRawTransaction` (validates signature, injects into mesh as a normal Swarm tx)
+  - `eth_estimateGas`, `eth_gasPrice` (return chain-configured constants)
+- All answers come from local mesh state — no external RPC, no server.
 
-### Phase 5 — Deposit / withdraw flows
-- Replace the current “bridge signing coming soon” messages in `AssetsTab` with actual on-chain calls.
-- Deposit: show the MetaMask address and the amount; confirm the EVM transaction.
-- Withdraw: show the destination address and amount; confirm the EVM transaction.
-- Keep the in-app ledger as a fallback/cache and record every bridge transaction in the local SWARM chain for auditability.
+### 2. Address mapping
+`src/lib/blockchain/gateway/addressMap.ts`
+- Deterministic map `swarmAddress ↔ evmAddress` (keccak of the Swarm pubkey, take last 20 bytes).
+- Stored per-user next to the existing wallet so the same identity is reachable from both sides.
+- Balances are read from the existing SWARM ledger and re-expressed in 18-decimal wei for MetaMask.
 
-## Verification steps
-- Type-check and build pass.
-- Mobile preview: open Wallet → Market, tap “List SWARM,” scroll to the bottom, and submit.
-- Mobile preview: tap MetaMask connect, choose MetaMask app, and return with the address visible.
-- Desktop: MetaMask extension still connects as before.
-- Bridge: add SWARM network to MetaMask and confirm the chain ID is accepted.
+### 3. Local RPC transport
+`src/lib/blockchain/gateway/localRpcTransport.ts`
+- A `postMessage` / `BroadcastChannel` bridge so a MetaMask-facing provider in the same browser can talk to the gateway cell without a real HTTPS server.
+- For remote MetaMask (mobile app on another device) we surface a per-user **gateway URL** that points at any peer running the gateway role. Discovery uses the existing public-cell registry — pick the nearest healthy gateway peer.
 
-## Out of scope
-- WalletConnect, Rainbow, etc. MetaMask only for now.
-- Deploying the actual bridge contract. The code will be ready and a placeholder address will be used; the user can deploy the contract and update the address.
+### 4. EIP-1193 shim
+`src/lib/blockchain/wallets/swarmProvider.ts`
+- A tiny provider object that forwards `request({method, params})` into `localRpcTransport`.
+- Registered as an alternate provider so the existing `useMetaMask` hook can point at "Swarm-Space (local)" without changing call sites.
 
-## Next action
-Approve the plan, then I will implement Phase 1 and Phase 2 first (mobile wallet + mobile forms) and continue with the bridge configuration.
+### 5. Network config already exists
+Keep `swarmEvmNetwork.ts` as the canonical descriptor. Update `rpcUrls` to a **gateway URL template** the user copies from Settings, e.g. `https://<peer-id>.gateway.swarm-space.lovable.app`. Until any user runs a public gateway, the "Add / switch" button also offers **"Use local in-browser gateway"** which registers the EIP-1193 shim directly — no external URL needed.
+
+### 6. UI
+- **Settings → Wallet → Gateway**
+  - Toggle: "Run a Swarm Gateway Cell on this device" (default off).
+  - Status row: peers served, requests/min, last error.
+- **Wallet → Assets → MetaMask card**
+  - "Bring SWARM in" / "Send SWARM out" now route through the gateway when MetaMask is on Swarm-Space.
+  - Clear label: *"MetaMask is a visitor. Your Swarm wallet is still your primary wallet."*
+
+## What we deliberately do NOT do
+
+- No new blockchain, no re-implementation of consensus — the gateway only reads/writes the existing mesh.
+- No hosted RPC service. Every gateway is a peer someone is running.
+- No signing inside the gateway. `eth_sendRawTransaction` requires an already-signed payload.
+- No change to the local Swarm wallet flow. MetaMask remains optional.
+
+## Verification
+
+1. Toggle "Run gateway cell" on → Settings shows it as active.
+2. In MetaMask, add Swarm-Space using the in-browser gateway option → `eth_chainId` returns `0x123fb`.
+3. `eth_getBalance` on the user's EVM-mapped address returns the same SWARM balance shown in the Assets tab (scaled to wei).
+4. Sending SWARM out via MetaMask emits a signed tx → gateway injects it into the mesh → other peers see it in the ledger within one block.
+5. Turn the gateway toggle off → MetaMask calls fail cleanly with "no gateway reachable", the local Swarm wallet keeps working untouched.
+
+## Phasing
+
+- **Phase A (this change):** Cell scaffold, address map, EIP-1193 shim, read-only RPC methods (`chainId`, `blockNumber`, `getBalance`, `getBlockByNumber`), Settings toggle, "Use local in-browser gateway" button.
+- **Phase B:** Write path — `eth_sendRawTransaction` validated and injected into the mesh; receipts surfaced from ledger.
+- **Phase C:** Remote gateway discovery via public-cell registry so a mobile MetaMask can point at a peer-hosted gateway URL.
+
+Approve and I will build Phase A end-to-end and stop for your check before Phase B.
