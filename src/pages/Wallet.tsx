@@ -24,6 +24,8 @@ import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
 import { deployProfileToken, getUserProfileToken } from "@/lib/blockchain/profileToken";
 import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
+import { AssetsTab } from "@/components/wallet/AssetsTab";
+import { MetaMaskConnectButton } from "@/components/wallet/MetaMaskConnectButton";
 import type { NFTMetadata, MiningSession, CreatorToken } from "@/lib/blockchain/types";
 import {
   CREATOR_TOKEN_DEPLOY_COST,
@@ -260,6 +262,11 @@ export default function Wallet() {
           <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
         </div>
 
+        {/* MetaMask (always connectable) */}
+        <div className="mb-4 flex justify-end">
+          <MetaMaskConnectButton compact />
+        </div>
+
         {/* Chain Switcher */}
         <div className="mb-6">
           <ChainSwitcher onChainChanged={() => void loadWalletData()} />
@@ -331,8 +338,9 @@ export default function Wallet() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="transactions" className="space-y-6">
-          <TabsList className="grid grid-cols-4 sm:grid-cols-8 gap-1 h-auto w-full">
+        <Tabs defaultValue="assets" className="space-y-6">
+          <TabsList className="grid grid-cols-3 sm:grid-cols-9 gap-1 h-auto w-full">
+            <TabsTrigger value="assets" className="min-w-0">Assets</TabsTrigger>
             <TabsTrigger value="transactions" className="min-w-0">Ledger</TabsTrigger>
             <TabsTrigger value="credits" className="min-w-0">Credits</TabsTrigger>
             <TabsTrigger value="nfts" className="min-w-0">NFTs</TabsTrigger>
@@ -342,6 +350,11 @@ export default function Wallet() {
             <TabsTrigger value="coins" className="min-w-0">Coins</TabsTrigger>
             <TabsTrigger value="market" className="min-w-0">Market</TabsTrigger>
           </TabsList>
+
+          {/* ── Assets ────────────────────────────────────────────── */}
+          <TabsContent value="assets">
+            <AssetsTab />
+          </TabsContent>
 
           {/* ── Transactions / Ledger ─────────────────────────────── */}
           <TabsContent value="transactions">
