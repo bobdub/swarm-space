@@ -124,35 +124,75 @@ export async function ensureArchiveCoin(peerId: string): Promise<VaultCoinRef> {
 
 /**
  * Active (unsealed) media coin ref for a vault, or null if none.
+ * An "active" coin is any unsealed media coin — the caller decides
+ * whether it still has room for the incoming file.
  */
 function activeMediaCoin(v: SyncVault): VaultCoinRef | null {
   for (let i = v.coins.length - 1; i >= 0; i--) {
     const c = v.coins[i];
     if (c.role !== "media" || c.sealed) continue;
-    if (c.fillBytes / c.capacityBytes < MEDIA_COIN_SEAL_FRACTION) return c;
+    return c;
   }
   return null;
 }
 
-/**
- * Return the current unsealed media coin ref for `peerId`, allocating a
- * fresh one when there is none or the active one is past 80% fill.
- * The container is *virtual* until wrap-time: it carries an
- * `archive:media:<peerId>:<n>` id so it never collides with real coins.
- */
-export async function getOrCreateMediaCoin(peerId: string): Promise<VaultCoinRef> {
-  const vault = await ensureVault(peerId);
-  const active = activeMediaCoin(vault);
-  if (active) return active;
+function allocateMediaCoinRef(vault: SyncVault, capacityBytes: number): VaultCoinRef {
   const idx = vault.coins.filter((c) => c.role === "media").length;
   const ref: VaultCoinRef = {
-    coinId: `archive:media:${peerId}:${idx}:${Date.now().toString(36)}`,
+    coinId: `archive:media:${vault.peerId}:${idx}:${Date.now().toString(36)}`,
     role: "media",
     fillBytes: 0,
-    capacityBytes: MEDIA_COIN_CAPACITY_BYTES,
+    capacityBytes,
     createdAt: new Date().toISOString(),
   };
   vault.coins.push(ref);
+  return ref;
+}
+
+/**
+ * Size-aware media coin allocator. Files are never split across coins:
+ *
+ *  - Oversized file (`size ≥ MEDIA_COIN_CAPACITY_BYTES`) → a fresh
+ *    dedicated coin sized exactly to the file. Caller seals it after
+ *    the entry is recorded.
+ *  - Normal file → reuse the active unsealed coin if it can hold the
+ *    file *without* crossing the seal threshold. If it can't, seal the
+ *    current coin (leaving it below the seal line) and allocate a
+ *    fresh one for this file.
+ */
+export async function getOrCreateMediaCoin(
+  peerId: string,
+  incomingBytes: number = 0,
+): Promise<VaultCoinRef> {
+  const vault = await ensureVault(peerId);
+  const size = Math.max(0, incomingBytes | 0);
+
+  // Oversized single file gets its own dedicated coin.
+  if (size >= MEDIA_COIN_CAPACITY_BYTES) {
+    const ref = allocateMediaCoinRef(vault, size);
+    await saveVault(vault);
+    return ref;
+  }
+
+  const sealBytes = Math.floor(MEDIA_COIN_CAPACITY_BYTES * MEDIA_COIN_SEAL_FRACTION);
+  const active = activeMediaCoin(vault);
+  if (active) {
+    // Fits without crossing seal line → reuse.
+    if (active.fillBytes + size <= sealBytes) return active;
+    // Would push the coin over the seal threshold: seal current (only
+    // if it already carries content) and allocate a fresh coin for
+    // this file. Sealing happens BEFORE the new engrave starts.
+    if (active.fillBytes > 0) {
+      active.sealed = true;
+      active.sealedAt = new Date().toISOString();
+    } else {
+      // Empty active coin can't hold this file even at zero fill
+      // (size > sealBytes). Drop it so we don't leave orphan refs.
+      vault.coins = vault.coins.filter((c) => c.coinId !== active.coinId);
+    }
+  }
+
+  const ref = allocateMediaCoinRef(vault, MEDIA_COIN_CAPACITY_BYTES);
   await saveVault(vault);
   return ref;
 }

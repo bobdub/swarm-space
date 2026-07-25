@@ -3,14 +3,13 @@
  * the owning peer's Sync Vault. Falls back to an Archive coin when no
  * real wallet coin is free, so nothing is ever silently dropped.
  */
-import { MEDIA_COIN_SEAL_FRACTION } from "./types";
+import { MEDIA_COIN_CAPACITY_BYTES } from "./types";
 import {
   ensureVault,
   findVaultEntry,
   getOrCreateMediaCoin,
   sealMediaCoin,
   recordVaultEntry,
-  getVault,
 } from "./syncVault";
 
 export interface EnrollInput {
@@ -35,8 +34,11 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   const vaultKey = hasOwner ? input.ownerPeerId : "archive:global";
   await ensureVault(vaultKey);
 
-  const ref = await getOrCreateMediaCoin(vaultKey);
   const size = Math.max(0, input.size | 0);
+  // Size-aware allocator: oversized files get a dedicated coin; a
+  // normal file that would push the active coin past the seal line
+  // triggers a pre-engrave seal + fresh coin. Files never split.
+  const ref = await getOrCreateMediaCoin(vaultKey, size);
   const now = new Date().toISOString();
 
   await recordVaultEntry(vaultKey, input.contentHash, {
@@ -51,17 +53,12 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
     completedAt: input.completedAt ?? now,
   });
 
-  // Post-write seal check — re-read the vault so we see the *actual*
-  // fill that recordVaultEntry persisted (the `ref` snapshot in scope
-  // is stale for freshly-allocated coins and would keep the coin stuck
-  // in "Sealing" forever).
-  try {
-    const fresh = await getVault(vaultKey);
-    const coin = fresh?.coins.find((c) => c.coinId === ref.coinId);
-    if (coin && !coin.sealed && coin.capacityBytes > 0
-      && coin.fillBytes / coin.capacityBytes >= MEDIA_COIN_SEAL_FRACTION) {
-      await sealMediaCoin(vaultKey, ref.coinId);
-    }
-  } catch { /* seal is best-effort; the wrap sweep will retry */ }
+  // Oversized single-file coin: engrave is complete, seal now. Normal
+  // coins are sealed pre-engrave by the allocator when the *next*
+  // file would push them past the seal line, so we never seal a coin
+  // mid-engrave.
+  if (size >= MEDIA_COIN_CAPACITY_BYTES) {
+    try { await sealMediaCoin(vaultKey, ref.coinId); } catch { /* best-effort */ }
+  }
   return "archived";
 }
