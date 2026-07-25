@@ -14,6 +14,14 @@ import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSw
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { openDB } from '@/lib/store';
+import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
+import {
+  migrateCompletedIntoVaults,
+  migrationAlreadyRan,
+  markMigrationRan,
+  type MigrationCandidate,
+} from '@/lib/blockchain/vaultMigration';
+import { ChevronRight } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '—';
