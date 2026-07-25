@@ -309,6 +309,7 @@ export default function StorageDiagnostics() {
             )}
 
             <BrowserGuardrailsCard />
+            <SyncVaultsPanel />
           </>
         )}
       </main>
