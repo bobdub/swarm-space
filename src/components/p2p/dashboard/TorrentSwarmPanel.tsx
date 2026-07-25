@@ -503,6 +503,7 @@ function PeerVaultsSection({
 }) {
   const [vaults, setVaults] = useState<SyncVault[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [completedOpen, setCompletedOpen] = useState<Set<string>>(new Set());
   const [needsCoin, setNeedsCoin] = useState(false);
   const [lastCheck, setLastCheck] = useState<{ enrolled: number; skipped: number } | null>(null);
 
@@ -698,8 +699,8 @@ function PeerVaultsSection({
                   <div className="border-t border-foreground/10 p-2 space-y-1">
                     {/* Coin math — one row per coin, showing real fill vs 500 MiB cap */}
                     {v.coins.length > 0 && (
-                      <div className="space-y-1 pb-1">
-                        {v.coins.map((c) => {
+                      (() => {
+                        const rows = v.coins.map((c) => {
                           const cap = Number.isFinite(c.capacityBytes) ? c.capacityBytes : MEDIA_COIN_CAPACITY_BYTES;
                           const pct = cap > 0 ? Math.min(100, (c.fillBytes / cap) * 100) : 0;
                           const frac = cap > 0 ? c.fillBytes / cap : 0;
@@ -718,17 +719,60 @@ function PeerVaultsSection({
                             : state === 'Approaching' ? 'text-sky-300 border-sky-500/30'
                             : 'text-foreground/50 border-foreground/15';
                           const short = c.coinId.length > 20 ? c.coinId.slice(0, 12) + '…' + c.coinId.slice(-5) : c.coinId;
-                          return (
-                            <div key={c.coinId} className="flex items-center gap-2 text-[0.55rem]">
-                              <span className="font-mono text-foreground/50 truncate flex-1" title={c.coinId}>{short}</span>
-                              <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', tone)}>{state}</span>
-                              <span className="text-foreground/50 shrink-0 tabular-nums">
-                                {formatBytes(c.fillBytes)} / {Number.isFinite(cap) ? formatBytes(cap) : '∞'} ({pct.toFixed(0)}%)
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                          const done = c.wrapped || c.sealed;
+                          return { c, cap, pct, state, tone, short, done };
+                        });
+                        const active = rows.filter((r) => !r.done);
+                        const done = rows.filter((r) => r.done);
+                        const cOpen = completedOpen.has(v.peerId);
+                        return (
+                          <div className="space-y-1 pb-1">
+                            {active.map((r) => (
+                              <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
+                                <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
+                                <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                <span className="text-foreground/50 shrink-0 tabular-nums">
+                                  {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
+                                </span>
+                              </div>
+                            ))}
+                            {done.length > 0 && (
+                              <div className="rounded border border-foreground/10">
+                                <button
+                                  type="button"
+                                  onClick={() => setCompletedOpen((prev) => {
+                                    const n = new Set(prev);
+                                    if (n.has(v.peerId)) n.delete(v.peerId); else n.add(v.peerId);
+                                    return n;
+                                  })}
+                                  className="w-full flex items-center gap-2 px-1.5 py-1 text-left hover:bg-foreground/[0.03] transition-colors"
+                                >
+                                  <ChevronRight className={cn('h-3 w-3 text-foreground/40 transition-transform', cOpen && 'rotate-90')} />
+                                  <span className="text-[0.55rem] uppercase tracking-widest text-foreground/50 flex-1">
+                                    Completed coins
+                                  </span>
+                                  <span className="text-[0.55rem] text-foreground/40">
+                                    {done.length}
+                                  </span>
+                                </button>
+                                {cOpen && (
+                                  <div className="border-t border-foreground/10 p-1.5 space-y-1">
+                                    {done.map((r) => (
+                                      <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
+                                        <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
+                                        <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                        <span className="text-foreground/50 shrink-0 tabular-nums">
+                                          {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
                     {entries.length === 0 ? (
                       <p className="text-[0.65rem] text-foreground/30">Vault is empty.</p>
