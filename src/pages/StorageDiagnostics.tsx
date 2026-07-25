@@ -15,6 +15,7 @@ import {
   type FullBackup,
 } from "@/lib/backup/exportFullState";
 import { BrowserGuardrailsCard } from "@/components/diagnostics/BrowserGuardrailsCard";
+import { SyncVaultsPanel } from "@/components/diagnostics/SyncVaultsPanel";
 
 interface StoreReport {
   name: string;
