@@ -405,6 +405,17 @@ export function TorrentSwarmPanel() {
         </div>
       )}
 
+      {/* Parked while offline — no network calls until a peer connects */}
+      {(assetSync.queuedOffline ?? 0) > 0 && (
+        <div className="flex items-center gap-2 text-xs text-foreground/50">
+          <WifiOff className="h-3 w-3" />
+          <span>
+            {assetSync.queuedOffline} asset{(assetSync.queuedOffline ?? 0) !== 1 ? 's' : ''} queued —
+            waiting for a peer
+          </span>
+        </div>
+      )}
+
       {/* TorrentSwarm overlay (recordings / large files) */}
       {/* Incoming torrents (retained under Active Transfers grouping) */}
       {hasTorrents && (
