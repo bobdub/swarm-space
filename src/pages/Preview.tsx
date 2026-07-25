@@ -6,7 +6,7 @@
  * Acts as an invitation page for new users.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePreview } from '@/contexts/PreviewContext';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { useNavigate } from 'react-router-dom';
@@ -15,13 +15,21 @@ import { PostCard } from '@/components/PostCard';
 import { PreviewBanner } from '@/components/PreviewBanner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { UserPlus, ArrowLeft, Loader2, Wifi, WifiOff, Gift, Users, Shield, Sparkles } from 'lucide-react';
+import { UserPlus, ArrowLeft, Loader2, Wifi, Gift, Shield, Sparkles, Radio } from 'lucide-react';
 import { type Post } from '@/types';
 import { get } from '@/lib/store';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/useAuth';
+import { ensureGuestIdentity, isGuestActive, stopGuestMode } from '@/lib/preview/guestMode';
+import { requestContentHost, startContentLookupResponder } from '@/lib/p2p/contentLookup';
+import { cachePreviewPost, getCachedPreviewPost } from '@/lib/preview/previewCache';
+import { NetworkPulse } from '@/components/preview/NetworkPulse';
 
-type ConnectionStatus = 'connecting' | 'connected' | 'waiting' | 'offline' | 'failed' | 'unauthenticated';
+type PreviewPhase =
+  | 'guest-booting'
+  | 'dialing-origin'
+  | 'searching-peers'
+  | 'rendered'
+  | 'no-host';
 
 export default function Preview() {
   const { isPreviewMode, previewSession } = usePreview();
@@ -30,351 +38,279 @@ export default function Preview() {
   const navigate = useNavigate();
   const [post, setPost] = useState<Post | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
-  const [retryCount, setRetryCount] = useState(0);
+  const [phase, setPhase] = useState<PreviewPhase>('guest-booting');
+  const [hostHandle, setHostHandle] = useState<string | null>(null);
+  const startedRef = useRef(false);
+  const isGuest = isGuestActive() || (user as unknown as { _guest?: boolean } | null)?._guest === true;
+  const isRealUser = !!user && !isGuest;
 
+  // ── Boot: provision guest identity (if needed) + start responder ──
   useEffect(() => {
-    if (!isPreviewMode) {
-      navigate('/');
+    if (!isPreviewMode || !previewSession) return;
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    startContentLookupResponder();
+
+    (async () => {
+      if (!isRealUser) {
+        await ensureGuestIdentity();
+      }
+      // Kick the mesh — for guests the freshly-minted `me` will satisfy
+      // the auth gate in useP2P; for authed users this is a no-op if
+      // already enabled.
+      try { await p2p.enable(); } catch { /* ignore */ }
+      setPhase('dialing-origin');
+    })();
+  }, [isPreviewMode, previewSession, user, p2p]);
+
+  // ── Dial origin → fallback to peer search → render ──
+  useEffect(() => {
+    if (!isPreviewMode || !previewSession) return;
+    if (phase !== 'dialing-origin') return;
+
+    let cancelled = false;
+    const postId = previewSession.postId;
+
+    // If we already cached the content in this session, render instantly.
+    if (postId) {
+      const cached = getCachedPreviewPost(postId);
+      if (cached) {
+        setPost(cached.post);
+        setHostHandle(cached.hostHandle ?? null);
+        setPhase('rendered');
+        return;
+      }
+    }
+
+    // Attempt direct dial to the original peer.
+    try {
+      p2p.connectToPeer(previewSession.creatorPeerId, {
+        manual: true,
+        source: 'preview-mode-dial',
+      });
+    } catch { /* ignore */ }
+
+    const tryLocalStore = async (): Promise<boolean> => {
+      if (!postId) return false;
+      const local = await get<Post>('posts', postId);
+      if (local && !cancelled) {
+        setPost(local);
+        cachePreviewPost(local);
+        setPhase('rendered');
+        return true;
+      }
+      return false;
+    };
+
+    // Poll local store — post-sync writes here once a peer delivers it.
+    const pollHandle = window.setInterval(() => { void tryLocalStore(); }, 1000);
+
+    // After 8s, fall back to broader peer search.
+    const fallbackHandle = window.setTimeout(async () => {
+      if (cancelled) return;
+      if (await tryLocalStore()) return;
+      setPhase('searching-peers');
+    }, 8000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollHandle);
+      clearTimeout(fallbackHandle);
+    };
+  }, [phase, isPreviewMode, previewSession, p2p]);
+
+  // ── Searching phase: ask same-origin tabs/peers who has the content ──
+  useEffect(() => {
+    if (phase !== 'searching-peers') return;
+    const postId = previewSession?.postId;
+    if (!postId) {
+      setPhase('no-host');
       return;
     }
 
-    if (!previewSession) {
-      setLoading(false);
-      setConnectionStatus('failed');
-      return;
-    }
+    let cancelled = false;
+    let attempts = 0;
 
-    // If user is not authenticated, show invitation UI instead
-    if (!user) {
-      setConnectionStatus('unauthenticated');
-      setLoading(false);
-      return;
-    }
-
-    // Monitor P2P connection status for authenticated users
-    const checkConnection = () => {
-      const activePeers = p2p.getActivePeerConnections();
-      const isConnected = activePeers.some(peer => peer.peerId === previewSession.creatorPeerId);
-      
-      if (isConnected) {
-        setConnectionStatus('connected');
-      } else if (p2p.isConnecting) {
-        setConnectionStatus('connecting');
-      } else if (p2p.isEnabled && !isConnected) {
-        setConnectionStatus('waiting');
-      } else if (!p2p.isEnabled) {
-        setConnectionStatus('offline');
+    const search = async () => {
+      attempts += 1;
+      const acks = await requestContentHost(postId, { timeoutMs: 4000 });
+      if (cancelled) return;
+      const winner = acks[0];
+      if (winner) {
+        setPost(winner.post);
+        setHostHandle(winner.handle);
+        cachePreviewPost(winner.post, { peerId: winner.peerId ?? undefined, handle: winner.handle ?? undefined });
+        setPhase('rendered');
+        return;
+      }
+      // Also check local store — a background peer sync may have landed
+      // it while we were waiting.
+      const local = await get<Post>('posts', postId);
+      if (local && !cancelled) {
+        setPost(local);
+        cachePreviewPost(local);
+        setPhase('rendered');
+        return;
+      }
+      if (attempts >= 5) {
+        setPhase('no-host');
       }
     };
 
-    checkConnection();
-    const interval = setInterval(checkConnection, 1000);
+    void search();
+    const interval = window.setInterval(() => { void search(); }, 6000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [phase, previewSession]);
 
-    return () => clearInterval(interval);
-  }, [isPreviewMode, previewSession, navigate, p2p, user, previewSession?.creatorPeerId]);
-
-  // Load content once connected (only for authenticated users)
+  // ── Profile-feed rendering (post-less share links) ──
   useEffect(() => {
-    if (!isPreviewMode || !previewSession || connectionStatus !== 'connected' || !user) {
-      return;
-    }
+    if (phase !== 'rendered' || post || !previewSession?.isProfileFeed) return;
+    (async () => {
+      const { getAll } = await import('@/lib/store');
+      const allPosts = await getAll<Post>('posts');
+      setPosts(allPosts.slice(0, 10));
+    })();
+  }, [phase, post, previewSession]);
 
-    const loadPreviewContent = async () => {
-      setLoading(true);
-
-      // Wait a moment for P2P sync to complete
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      if (previewSession.postId) {
-        // Try to load post from local store (synced via P2P)
-        const postData = await get<Post>('posts', previewSession.postId);
-        if (postData) {
-          setPost(postData);
-        } else {
-          console.warn('[Preview] Post not found after P2P sync:', previewSession.postId);
-        }
-      } else {
-        // Load profile feed
-        const { getAll } = await import('@/lib/store');
-        const allPosts = await getAll<Post>('posts');
-        // Filter by creator's user ID if available
-        setPosts(allPosts.slice(0, 10));
-      }
-
-      setLoading(false);
-    };
-
-    loadPreviewContent();
-  }, [isPreviewMode, previewSession, connectionStatus, user]);
-
-  // Retry connection
-  const handleRetry = () => {
-    if (!previewSession) return;
-    
-    setRetryCount(prev => prev + 1);
-    setConnectionStatus('connecting');
-    setLoading(true);
-    
-    p2p.connectToPeer(previewSession.creatorPeerId, {
-      manual: true,
-      source: 'preview-mode',
-    });
-  };
+  // Redirect if not in preview mode (must run regardless of phase).
+  useEffect(() => {
+    if (!isPreviewMode) navigate('/');
+  }, [isPreviewMode, navigate]);
 
   const handleJoinNetwork = () => {
-    // Navigate to auth with current URL preserved for redirect after signup
+    // Drop the guest identity before real signup so keys/username collide.
+    stopGuestMode();
     navigate('/auth?mode=signup');
   };
 
-  if (!isPreviewMode) return null;
-
-  // Invitation UI for unauthenticated users
-  if (connectionStatus === 'unauthenticated') {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-background via-primary/5 to-background">
-        <PreviewBanner />
-        <TopNavigationBar />
-
-        <div className="max-w-2xl mx-auto px-6 py-16 mt-16">
-          {/* Invitation Header */}
-          <div className="text-center mb-12">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-6">
-              <Gift className="h-10 w-10 text-primary" />
-            </div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold mb-4">
-              You've Been Invited!
-            </h1>
-            <p className="text-lg text-muted-foreground max-w-md mx-auto">
-              {previewSession?.isProfileFeed 
-                ? "Someone wants to share their creative space with you."
-                : "Someone shared a post with you from the decentralized network."
-              }
-            </p>
-          </div>
-
-          {/* Benefits Card */}
-          <Card className="mb-8 border-primary/20 bg-card/50 backdrop-blur">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-primary" />
-                Join the Network
-              </CardTitle>
-              <CardDescription>
-                Create a free account to view this content and explore a decentralized creative community.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
-                    <Shield className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Privacy First</h4>
-                    <p className="text-sm text-muted-foreground">
-                      No servers store your data. Your content lives on your devices.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
-                    <Users className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Connect Directly</h4>
-                    <p className="text-sm text-muted-foreground">
-                      P2P connections mean you connect directly with creators.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 p-2 rounded-lg bg-primary/10">
-                    <Gift className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <h4 className="font-medium">Earn Rewards</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Create content, engage with the community, and earn SWARM tokens.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* CTA */}
-          <div className="text-center space-y-4">
-            <Button
-              size="lg"
-              onClick={handleJoinNetwork}
-              className="gap-2 bg-gradient-to-r from-primary to-secondary hover:shadow-[0_0_30px_hsla(326,71%,62%,0.5)]"
-            >
-              <UserPlus className="h-5 w-5" />
-              Create Free Account
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Button
-                variant="link"
-                className="p-0 h-auto text-primary"
-                onClick={() => navigate('/auth?tab=recover')}
-              >
-                Recover it here
-              </Button>
-            </p>
-          </div>
-
-          {/* Preview Info */}
-          <div className="mt-12 text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-muted/50 text-sm text-muted-foreground">
-              <Wifi className="h-4 w-4" />
-              Content will load after you join
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Connection status UI for authenticated users
-  const renderConnectionStatus = () => {
-    if (connectionStatus === 'connecting') {
-      return (
-        <Alert>
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <AlertDescription>
-            Connecting to creator's node...
-          </AlertDescription>
-        </Alert>
-      );
-    }
-
-    if (connectionStatus === 'waiting') {
-      return (
-        <Alert>
-          <Wifi className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>Waiting for creator's node to come online...</span>
-            <Button size="sm" variant="outline" onClick={handleRetry}>
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      );
-    }
-
-    if (connectionStatus === 'offline') {
-      return (
-        <Alert variant="destructive">
-          <WifiOff className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>P2P network is offline. Cannot load preview.</span>
-            <Button size="sm" variant="outline" onClick={handleRetry}>
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      );
-    }
-
-    if (connectionStatus === 'failed') {
-      return (
-        <Alert variant="destructive">
-          <WifiOff className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>Failed to connect to creator's node.</span>
-            <Button size="sm" variant="outline" onClick={handleRetry}>
-              Retry
-            </Button>
-          </AlertDescription>
-        </Alert>
-      );
-    }
-
-    return null;
+  const handleRetry = () => {
+    if (!previewSession) return;
+    setPhase('dialing-origin');
+    try {
+      p2p.connectToPeer(previewSession.creatorPeerId, { manual: true, source: 'preview-mode-retry' });
+    } catch { /* ignore */ }
   };
 
+  const statusLabel = useMemo(() => {
+    switch (phase) {
+      case 'guest-booting': return 'Starting mesh…';
+      case 'dialing-origin': return "Connecting to sharer's node…";
+      case 'searching-peers': return 'Searching the swarm for a host…';
+      case 'rendered': return hostHandle ? `Hosted by @${hostHandle}` : 'Live from the swarm';
+      case 'no-host': return 'No active host yet — still searching quietly';
+    }
+  }, [phase, hostHandle]);
+
+  if (!isPreviewMode) return null;
+
+  const showInvite = !isRealUser; // guests always see the CTA — content fills in alongside
+
   return (
-    <div className="min-h-screen pb-20">
+    <div className="min-h-screen pb-20 bg-gradient-to-b from-background via-primary/5 to-background">
       <PreviewBanner />
       <TopNavigationBar />
 
-      <div className="max-w-4xl mx-auto px-6 py-8 mt-16">
-        {/* Preview Header */}
-        <div className="mb-8 space-y-4">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate('/')}
-            className="gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back to Home
-          </Button>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 mt-16 space-y-6">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/')}
+          className="gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Home
+        </Button>
 
-          <div className="bg-card rounded-lg border p-6 space-y-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <h1 className="text-2xl font-bold mb-2">
-                  {previewSession?.isProfileFeed ? 'Profile Preview' : 'Post Preview'}
-                </h1>
-                <p className="text-muted-foreground">
-                  You're viewing shared content from a peer on the network.
-                </p>
-              </div>
+        {/* Header */}
+        <div className="bg-card/70 backdrop-blur rounded-xl border p-5 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold">
+                {previewSession?.isProfileFeed ? 'Shared Profile' : 'Shared Post'}
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                {isGuest ? 'Viewing as a guest — no account needed to look around.' : "You're viewing shared content from a peer on the swarm."}
+              </p>
             </div>
-
-            <div className="flex gap-2 text-sm text-muted-foreground">
-              <span className="px-2 py-1 bg-primary/10 rounded-md">
-                🔒 Sandboxed Preview
+            <div className="hidden sm:flex flex-col items-end text-xs text-muted-foreground gap-1">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-primary/10">
+                <Shield className="h-3 w-3" /> Sandboxed
               </span>
-              <span className="px-2 py-1 bg-secondary/10 rounded-md">
-                📡 Temporary Connection
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-secondary/10">
+                <Radio className="h-3 w-3" /> {statusLabel}
               </span>
             </div>
           </div>
-
-          {/* Connection Status */}
-          {renderConnectionStatus()}
+          <NetworkPulse postId={previewSession?.postId} onJoin={showInvite ? handleJoinNetwork : undefined} />
         </div>
 
-        {/* Preview Content */}
-        {connectionStatus !== 'connected' ? (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground mb-4">
-              {connectionStatus === 'connecting' && 'Establishing connection...'}
-              {connectionStatus === 'waiting' && 'Waiting for creator to come online...'}
-              {connectionStatus === 'offline' && 'P2P network is offline'}
-              {connectionStatus === 'failed' && 'Failed to establish connection'}
-            </p>
-            {(connectionStatus === 'waiting' || connectionStatus === 'failed') && (
-              <Button onClick={handleRetry} variant="outline">
-                Try Again
-              </Button>
+        {/* Content */}
+        {phase !== 'rendered' && !post ? (
+          <div className="text-center py-16 space-y-3">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+            <p className="text-muted-foreground">{statusLabel}</p>
+            {phase === 'no-host' && (
+              <Button variant="outline" onClick={handleRetry}>Try again</Button>
             )}
           </div>
-        ) : loading ? (
-          <div className="text-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-            <p className="text-muted-foreground">Loading preview content...</p>
-          </div>
         ) : previewSession?.postId && post ? (
-          <div className="space-y-6">
+          <div className="space-y-3">
+            {hostHandle && (
+              <p className="text-xs text-muted-foreground text-center">
+                Delivered by <span className="font-medium text-foreground">@{hostHandle}</span> — the original sharer wasn't reachable, so the swarm served a copy.
+              </p>
+            )}
             <PostCard post={post} />
           </div>
         ) : previewSession?.isProfileFeed && posts.length > 0 ? (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold">Recent Posts</h2>
-            {posts.map((p) => (
-              <PostCard key={p.id} post={p} />
-            ))}
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold">Recent posts</h2>
+            {posts.map((p) => <PostCard key={p.id} post={p} />)}
           </div>
         ) : (
-          <div className="text-center py-12 text-muted-foreground">
-            Content not available
-          </div>
+          <div className="text-center py-12 text-muted-foreground">Content not available yet.</div>
+        )}
+
+        {/* Invitation card — always visible for guests, sits alongside the preview */}
+        {showInvite && (
+          <Card className="border-primary/20 bg-card/60 backdrop-blur">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <Gift className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <CardTitle>Join the swarm</CardTitle>
+                  <CardDescription>Create a free identity — no server, no email, keys stay on your device.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid sm:grid-cols-3 gap-3 text-sm">
+                <div className="flex items-start gap-2">
+                  <Shield className="h-4 w-4 text-primary mt-0.5" />
+                  <span><span className="font-medium">Privacy first.</span> Content lives on peers, not servers.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Radio className="h-4 w-4 text-primary mt-0.5" />
+                  <span><span className="font-medium">Help share.</span> Your device becomes another host.</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Sparkles className="h-4 w-4 text-primary mt-0.5" />
+                  <span><span className="font-medium">Earn.</span> Post, engage, mine SWARM.</span>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-3 items-center">
+                <Button onClick={handleJoinNetwork} className="gap-2 bg-gradient-to-r from-primary to-secondary">
+                  <UserPlus className="h-4 w-4" /> Create free account
+                </Button>
+                <Button variant="link" className="p-0 h-auto text-primary" onClick={() => { stopGuestMode(); navigate('/auth?tab=recover'); }}>
+                  Recover an existing one
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

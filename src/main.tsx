@@ -49,6 +49,10 @@ scheduleIdle(() => {
   // Start deterministic room discovery overlay
   import("./lib/p2p/roomDiscovery.standalone").then(m => m.getRoomDiscovery().start());
 
+  // Content lookup responder — lets share-link guests discover any
+  // tab/peer on this origin that already has the requested content.
+  import("./lib/p2p/contentLookup").then(m => m.startContentLookupResponder()).catch(() => {});
+
   // Initialize entity voice
   import("./lib/p2p/entityVoiceIntegration").then(m => m.initEntityVoiceListener());
 
