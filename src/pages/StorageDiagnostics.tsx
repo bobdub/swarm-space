@@ -14,6 +14,7 @@ import {
   downloadBackup,
   type FullBackup,
 } from "@/lib/backup/exportFullState";
+import { BrowserGuardrailsCard } from "@/components/diagnostics/BrowserGuardrailsCard";
 
 interface StoreReport {
   name: string;
@@ -306,6 +307,8 @@ export default function StorageDiagnostics() {
                 </ul>
               </Card>
             )}
+
+            <BrowserGuardrailsCard />
           </>
         )}
       </main>

@@ -58,6 +58,7 @@ import {
   LOADING_PRIORITY_OPTIONS,
   type LoadingPriority,
 } from "@/lib/settings/loadingPriority";
+import { LoadingChainEditor } from "@/components/settings/LoadingChainEditor";
 
 const Settings = () => {
   const [user, setUser] = useState(getCurrentUser());
@@ -631,6 +632,8 @@ const Settings = () => {
                   </Button>
                 </div>
               </Card>
+
+              <LoadingChainEditor />
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
