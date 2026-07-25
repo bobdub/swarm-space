@@ -1,98 +1,148 @@
-# Share Links: Guest Auto-Connect + Content Fallback
+# Browser Guardrails & Logical Loading Chains
 
-Goal: When someone opens a `?peerID=…-preview[&postID=…]` link they should immediately experience the network — mesh starts in the background as a **Guest**, content loads if any peer has it, and live network stats prove the mesh is alive — even before they sign up.
+Turn boot from a fixed idle-callback dump into an **adaptive, pausable chain** driven by a live Browser QScore. Sits on top of the existing loading-priority preset (Gaming / Social / P2P), not in place of it.
 
-Today the invite page only shows the "Create Free Account" wall for unauthenticated visitors and does nothing in the background. Authenticated visitors do connect, but only to the original sharer, with no fallback.
+## Scope
 
-## Flow
+- Additive. No existing feature is removed.
+- Reuses the UQRC field engine + `appHealth` bus we already have — Browser QScore is a **new domain** on the same bus, not a parallel system.
+- All work is client-side, presentation + boot orchestration. No schema / backend changes.
 
-```text
-click share link
-   │
-   ▼
-/preview page renders invitation UI immediately
-   │
-   ├─► Guest mesh boot (background, no account required)
-   │       └─ start P2P read-only, no identity persisted
-   │
-   ├─► Parse peerID + postID from URL
-   │
-   ├─► Attempt direct dial to original peer  ── success ──► sync post ──► render inline
-   │        │ timeout ~8s
-   │        ▼
-   ├─► Ask public cells: "who has postID X?"
-   │        └─ any peer answers ─► connect ─► sync ─► render with "Hosted by @handle"
-   │
-   ├─► Live stats poll (every 3s while searching)
-   │       • active peers online
-   │       • peers hosting this content
-   │       • "Join now to help share"
-   │
-   └─► If still no host after 30s ─► keep searching quietly, show invite CTA
+---
+
+## 1. Browser Health monitor  (`src/lib/guardrails/browserHealth.ts`)
+
+Pure observer, no side-effects on subsystems. Samples ~1 Hz, throttled.
+
+Signals collected (all optional — degrade gracefully when unsupported):
+
+| Signal | API |
+|---|---|
+| Frame rate / jank | `requestAnimationFrame` delta EMA |
+| Long tasks | `PerformanceObserver({ type: 'longtask' })` |
+| Main-thread latency | `setTimeout(0)` drift probe |
+| Memory pressure | `performance.memory.usedJSHeapSize` (Chromium) |
+| Render latency | `event` timing entries |
+| Message backlog | queued idle callbacks + rAF debt |
+| Sync workload | count of active `withHealth` domains from `appHealth` |
+
+Combined into a **Browser QScore** in `[0..1]` (1 = healthy). Emits an event on `guardrails.bus` when it crosses configured thresholds (warn 0.55, degrade 0.35, critical 0.20) with hysteresis to prevent flapping.
+
+Feeds a `browser:*` namespace into `recordAppEvent` so it shows up in the existing App Health badge alongside p2p/storage/stream/mining.
+
+## 2. Logical Loading Points  (`src/lib/guardrails/loadingChain.ts`)
+
+Registry of subsystems. Each point declares:
+
+```ts
+type LoadingPoint = {
+  id: 'local' | 'mesh' | 'brain' | 'brain-game' | 'blockchain' | 'torrents' | 'mining' | string;
+  label: string;
+  essential: boolean;           // essential points always run
+  minQScore: number;            // won't start below this
+  pauseBelowQScore: number;     // running-work back-off threshold
+  start: () => Promise<void>;   // idempotent
+  pause?: () => void;
+  resume?: () => void;
+};
 ```
 
-## Changes
+The seven initial points wrap the existing dynamic imports currently in `src/main.tsx` (blockchain init, room discovery, content-lookup responder, entity voice, coin/labour/lab/tool/world buses, mining, torrent verification). Nothing new is booted — we just **relocate** each import behind a `LoadingPoint.start` closure.
 
-### 1. Guest mesh boot
+## 3. Chain runner  (`src/lib/guardrails/chainRunner.ts`)
 
-- New `src/lib/p2p/guestMode.ts`: `startGuestMesh()` — spins up the P2P layer with a throwaway peer id, `readOnly: true`, no IndexedDB writes to identity stores. `stopGuestMesh()` on unmount or on sign-up handoff.
-- Wire into `Preview.tsx`: call `startGuestMesh()` inside a `useEffect` when `!user && isPreviewMode`, so the mesh starts alongside the invite UI.
-- `AuthGuard.tsx` already lets `/?peerID=…-preview` through — extend the allow-list to include `/preview` explicitly.
+- Loads the user's chain order (see §5), plus loading-priority preset as the default.
+- Walks the chain sequentially with `requestIdleCallback` between steps.
+- Before starting the next step, reads Browser QScore. If below `minQScore` for that step → **pause the chain**, don't skip. Fire a `guardrails:chain-paused` event.
+- On recovery (QScore back above threshold + stable for N seconds) → resume from the exact step.
+- Broadcasts progress on the existing `scaffoldBus` so the App Health badge can show `✓ Local ✓ Mesh … ⏸ Blockchain (paused)`.
 
-### 2. Content lookup protocol
+## 4. Adaptive back-off hooks
 
-- New `src/lib/p2p/contentLookup.ts`:
-  - `requestContentHost(postId)` → broadcasts `{type: 'content-lookup', postId}` on the shared gossip channel used by `globalCell` / room discovery.
-  - Peers respond with `{type: 'content-host-ack', postId, peerId, handle, hasContent: true}` if the post is in their local store.
-  - Returns the first N respondents within a 5s window.
-- Existing peers add a listener that checks `store.get('posts', postId)` on incoming `content-lookup` and answers if found.
+Small, targeted throttles gated by Browser QScore. Each is a **wrapper**, not a rewrite:
 
-### 3. Preview page state machine
+- Animation frequency — new `useAdaptiveFrameRate` used by non-essential overlays.
+- Background sync — `syncScheduler.ts` reads QScore multiplier before scheduling.
+- P2P batching — `gossip.flush` interval doubles at warn, quadruples at degrade.
+- Blockchain sync — `chain-sync-request` debounce widens.
+- Torrent verification — pauses at degrade (reuses existing `stressMonitor`).
+- Mining — piggybacks on the existing `getFieldHealthMultiplier` already read by mining, we just add a hard-pause below `critical`.
 
-Rewrite `Preview.tsx` connection logic into an explicit state machine (still one component):
+Critical user interactions (input, routing, message send) are never throttled.
+
+## 5. Custom loading chains  (Settings)
+
+Extend the existing loading-priority section:
+
+- Reorderable list of logical loading points (`Local First` is pinned first, essential).
+- Toggle: "Adaptive pausing (Browser Guardrails)" — default **on**.
+- Persist to `localStorage: swarm-loading-chain` (`{ order: string[], adaptive: boolean }`).
+- The three existing presets (Gaming / Social / P2P) become **chain templates** users can start from.
+
+## 6. Device learning  (`src/lib/guardrails/deviceProfile.ts`)
+
+Rolling stats persisted to `localStorage: swarm-device-profile`:
+
+- Avg / p10 / p90 Browser QScore
+- Steps that most often trigger a pause
+- Time-to-recover after a pause
+- Startup duration per chain order
+
+After N cold boots with data, if a reordering would materially improve startup (avoided pauses), surface a **non-blocking Settings banner** proposing the new order. User accepts / dismisses. No auto-mutation of settings.
+
+## 7. Diagnostics
+
+- New card on `/storage-diagnostics` (route already exists): live Browser QScore, current chain state, last pause reason, recommended profile.
+- The existing App Health badge gains a `browser` domain sub-Q.
+
+---
+
+## Technical details
+
+**Files added**
+```
+src/lib/guardrails/browserHealth.ts
+src/lib/guardrails/loadingChain.ts
+src/lib/guardrails/chainRunner.ts
+src/lib/guardrails/deviceProfile.ts
+src/lib/guardrails/bus.ts
+src/hooks/useBrowserQScore.ts
+src/hooks/useAdaptiveFrameRate.ts
+src/components/settings/LoadingChainEditor.tsx
+src/components/diagnostics/BrowserGuardrailsCard.tsx
+```
+
+**Files edited**
+```
+src/main.tsx                      → move idle-imports into chainRunner
+src/pages/Settings.tsx            → mount LoadingChainEditor under existing Priority section
+src/pages/StorageDiagnostics.tsx  → mount BrowserGuardrailsCard
+src/lib/settings/loadingPriority.ts → export preset → chain-order map
+src/lib/uqrc/appHealth.ts         → accept 'browser' as HealthDomain (union widen)
+```
+
+**Constraints honored**
+- Every point's `start()` is idempotent so repeated boots (HMR, tab wake) are safe.
+- Never rewrites feature code — wraps existing dynamic imports.
+- Never blocks Local First; auth / routing / input never throttled.
+- No new deps.
+
+**Chain state machine**
 
 ```text
-guest-booting → dialing-origin → syncing-origin → rendered
+    ┌── QScore ≥ minQScore ──┐
+idle ─▶ starting ─▶ running ─┴─▶ done
                      │
-                     └─ timeout → searching-peers → syncing-fallback → rendered (with host badge)
-                                       │
-                                       └─ no-host → invite-cta-only
+      QScore < pauseBelowQScore
+                     ▼
+                  paused ──── QScore recovers ────▶ resuming ─▶ running
 ```
 
-- Remove the current "unauthenticated → hard-stop invite wall" branch. Guests see the invite CTA **and** the live preview area that fills in as content arrives.
-- Add `hostPeerId` / `hostHandle` state; when content came from fallback, render a small "Hosted by @handle" badge next to the post.
+**Rollout / verification**
 
-### 4. Live network stats strip
+1. Land §1 + §2 + §3 behind the existing preset defaults (order equals current boot order) so behavior is unchanged.
+2. Land §4 wrappers, verify existing throttles still fire (stress monitor, mining multiplier).
+3. Land §5 UI, keeping presets as one-click templates.
+4. Land §6 recommendations last — read-only until then.
 
-- New `src/components/preview/NetworkPulse.tsx`: three chips — `● N peers online`, `● N hosting this content`, `Join now to help share`.
-- Data source: `p2p.getActivePeerConnections().length` for peers online; `contentLookup` ack count for hosters; refreshes every 3s while `!user` or while still searching.
-- Mount above the invitation card in `Preview.tsx`.
-
-### 5. Sign-up handoff
-
-- When guest clicks "Create Free Account", stash `previewSession` + any downloaded post into `sessionStorage` under `preview:handoff` (already partially handled by `previewMode.ts`).
-- After auth completes in `Auth.tsx`, if `preview:handoff` exists, replay it: navigate back to `/preview?…` and reuse the cached post instead of re-fetching.
-
-### 6. Safety rails
-
-- Content verification: only render a post whose signature matches its claimed author key (reuse `contentSigning.ts` verify). Reject unsigned posts from fallback hosts to prevent spoofing.
-- Guest mesh never writes to `posts`, `profiles`, `identity`, or `blockchain` stores — everything held in a per-tab in-memory cache under `previewCache`.
-- Hard timeout: stop actively dialing after 60s to protect the browser; keep passive lookup channel open.
-- Rate-limit `content-lookup` broadcasts to 1 per 2s per postId.
-
-## Technical notes
-
-- **Files added:** `src/lib/p2p/guestMode.ts`, `src/lib/p2p/contentLookup.ts`, `src/components/preview/NetworkPulse.tsx`, `src/lib/preview/previewCache.ts`.
-- **Files edited:** `src/pages/Preview.tsx` (state machine + guest boot + host badge), `src/components/auth/AuthGuard.tsx` (allow `/preview`), `src/pages/Auth.tsx` (handoff replay), `src/lib/preview/previewMode.ts` (cache helpers), one peer-side listener registration in `src/lib/p2p/globalCell.ts` (respond to `content-lookup`).
-- **No schema changes.** All new messages ride the existing gossip channel; new IndexedDB stores are not required.
-- **Privacy:** guest ids are ephemeral (`guest-{random}`) and never persisted; guest mesh does not advertise itself in public cell registries.
-- **Verification loop:** confirm end-to-end in the live preview — open a share link in a fresh incognito tab, watch the mesh boot, the origin dial timeout in a forced-offline test, and the fallback peer serve the post with a "Hosted by …" badge.
-
-Trust-scoring fallback hosts:   
-Guests simply connect to the cell without trust metrics or concerns, they do not have a wallet to mine or health - they simply ride the bus as a viewer of one said content share.  
-  
-Cross-post prefetch:   
-This takes longer the post must become the fallback "Join Network to sync" badge if not connected to peer and cell connect does not sync.  
-  
-Paywalled/walled post handling behind guest mode:   
-Pay wall simply changes "Join to earn and unlock this post"  
+Verification per phase: Playwright screenshot of Settings → new editor; force a low QScore via a test-only hook and confirm chain pauses without freezing input.
