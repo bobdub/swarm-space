@@ -64,3 +64,11 @@ scheduleIdle(() => {
     .then((m) => m.startWrapSweep())
     .catch((err) => console.warn('[main] media coin wrap sweep failed', err));
 });
+
+// ── One-shot cleanup: enforce "one filling media coin per vault" so
+// legacy vaults with multiple unsealed coins auto-consolidate on boot.
+scheduleIdle(() => {
+  import('./lib/blockchain/syncVault')
+    .then((m) => m.reconcileMediaCoins())
+    .catch((err) => console.warn('[main] media coin reconcile failed', err));
+});

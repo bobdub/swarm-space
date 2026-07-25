@@ -136,6 +136,35 @@ function activeMediaCoin(v: SyncVault): VaultCoinRef | null {
   return null;
 }
 
+/**
+ * Enforce the "one filling coin per vault" invariant. Legacy vaults
+ * (or races) can leave multiple unsealed media coins around; this
+ * seals every unsealed media coin with content except the newest one
+ * and drops any empty duplicates. Returns true if the vault changed.
+ */
+function consolidateUnsealedMediaCoins(v: SyncVault): boolean {
+  const unsealed = v.coins.filter((c) => c.role === "media" && !c.sealed);
+  if (unsealed.length <= 1) return false;
+  // Keep the newest by createdAt as the sole "filling" coin.
+  const sorted = [...unsealed].sort(
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+  );
+  const keep = sorted[sorted.length - 1];
+  const drop = new Set<string>();
+  const now = new Date().toISOString();
+  for (const c of sorted) {
+    if (c.coinId === keep.coinId) continue;
+    if (c.fillBytes > 0) {
+      c.sealed = true;
+      c.sealedAt = c.sealedAt ?? now;
+    } else {
+      drop.add(c.coinId);
+    }
+  }
+  if (drop.size) v.coins = v.coins.filter((c) => !drop.has(c.coinId));
+  return true;
+}
+
 function allocateMediaCoinRef(vault: SyncVault, capacityBytes: number): VaultCoinRef {
   const idx = vault.coins.filter((c) => c.role === "media").length;
   const ref: VaultCoinRef = {
@@ -165,6 +194,8 @@ export async function getOrCreateMediaCoin(
   incomingBytes: number = 0,
 ): Promise<VaultCoinRef> {
   const vault = await ensureVault(peerId);
+  // Repair invariant before doing anything else.
+  consolidateUnsealedMediaCoins(vault);
   const size = Math.max(0, incomingBytes | 0);
 
   // Oversized single file gets its own dedicated coin.
@@ -195,6 +226,22 @@ export async function getOrCreateMediaCoin(
   const ref = allocateMediaCoinRef(vault, MEDIA_COIN_CAPACITY_BYTES);
   await saveVault(vault);
   return ref;
+}
+
+/**
+ * One-shot cleanup callable from boot / UI refresh. Walks every vault
+ * and enforces the single-filling-coin invariant. Safe to run often —
+ * no-op when vaults are already clean.
+ */
+export async function reconcileMediaCoins(): Promise<number> {
+  let changed = 0;
+  for (const v of await listVaults()) {
+    if (consolidateUnsealedMediaCoins(v)) {
+      await saveVault(v);
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 /** Flip a media coin to sealed. Idempotent. */
