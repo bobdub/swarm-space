@@ -17,6 +17,7 @@ export interface MigrationCandidate {
   mime: string;
   size: number;
   ref: string;
+  completedAt?: string;
 }
 
 export interface MigrationResult {
