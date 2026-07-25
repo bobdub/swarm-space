@@ -1,23 +1,13 @@
 /**
  * syncVault — per-peer local storage backed by sealed SWARM coins.
- *
- * Sits BESIDE existing gossip/chunk/manifest/torrent paths as a
- * read-through cache + verifier. Never introduces new transports or
- * gossip topics. Only sealed wallet coins are allocated as containers;
- * allocation is a non-destructive tag (coins stay in the wallet).
- *
- * See .lovable/plan.md → "Media Coin — Sync Vaults".
+ * Read-through cache + verifier. Never introduces new transports.
  */
 import { get, getAll, put, remove } from "@/lib/store";
 import type { SwarmCoin } from "./types";
 import { COIN_MAX_WEIGHT } from "./types";
 import { isSpendable } from "./coinSpend";
 
-/** Bytes of local payload each vault coin container can hold. */
-export const VAULT_COIN_CAPACITY_BYTES =
-  COIN_MAX_WEIGHT * 1024 * 1024; // ~100 MiB per coin container
-
-/** Rollover threshold — new receiver coin allocated past this fill fraction. */
+export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
 export const VAULT_ROLLOVER_FRACTION = 0.8;
 
 export type VaultCoinRole = "canonical" | "receiver";
@@ -36,14 +26,12 @@ export interface VaultIndexEntry {
   length: number;
   mime?: string;
   storedAt: string;
-  /** In-memory payload cache key (chunk ref or manifest id). */
   ref?: string;
 }
 
 export interface SyncVault {
   peerId: string;
   coins: VaultCoinRef[];
-  /** contentHash → entry. Persisted as a plain object for IDB. */
   index: Record<string, VaultIndexEntry>;
   hits: number;
   misses: number;
@@ -86,7 +74,6 @@ export async function ensureVault(peerId: string): Promise<SyncVault> {
 }
 
 function activeReceiverCoin(v: SyncVault): VaultCoinRef | null {
-  // Latest receiver coin below the rollover threshold.
   const receivers = v.coins.filter((c) => c.role === "receiver");
   for (let i = receivers.length - 1; i >= 0; i--) {
     const c = receivers[i];
@@ -95,10 +82,6 @@ function activeReceiverCoin(v: SyncVault): VaultCoinRef | null {
   return null;
 }
 
-/**
- * Find a sealed wallet coin not yet tagged into any vault and tag it as a
- * container. Returns null when the wallet has no spare sealed coin.
- */
 export async function allocateVaultCoin(
   peerId: string,
   role: VaultCoinRole,
@@ -108,9 +91,7 @@ export async function allocateVaultCoin(
   const taken = new Set(
     (await listVaults()).flatMap((v) => v.coins.map((c) => c.coinId)),
   );
-  const pick = candidateCoins.find(
-    (c) => isSpendable(c) && !taken.has(c.coinId),
-  );
+  const pick = candidateCoins.find((c) => isSpendable(c) && !taken.has(c.coinId));
   if (!pick) return null;
   const ref: VaultCoinRef = {
     coinId: pick.coinId,
@@ -124,10 +105,6 @@ export async function allocateVaultCoin(
   return ref;
 }
 
-/**
- * Ensure there is an active receiver coin for this peer with room to write.
- * Rolls over when the current active receiver crosses 80% capacity.
- */
 export async function getOrRolloverReceiverCoin(
   peerId: string,
   candidateCoins: SwarmCoin[],
@@ -138,7 +115,6 @@ export async function getOrRolloverReceiverCoin(
   return allocateVaultCoin(peerId, "receiver", candidateCoins);
 }
 
-/** Record a piece of content into a vault coin and update the index. */
 export async function recordVaultEntry(
   peerId: string,
   contentHash: string,
@@ -151,7 +127,6 @@ export async function recordVaultEntry(
   await saveVault(vault);
 }
 
-/** Look up an entry across all vaults (fast path for local retrieval). */
 export async function findVaultEntry(
   contentHash: string,
 ): Promise<{ vault: SyncVault; entry: VaultIndexEntry } | null> {
