@@ -12,7 +12,9 @@ import { PostCard } from "@/components/PostCard";
 import { BlogPostCard } from "@/components/BlogPostCard";
 import { classifyPost } from "@/lib/blogging/awareness";
 import { getAll } from "@/lib/store";
+import { getPostsNewerThan } from "@/lib/posts";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,7 @@ import {
 
 const Explore = () => {
   const { user } = useAuth();
+  const { isEnabled: p2pEnabled, stats: p2pStats } = useP2PContext();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
   const [postMetricsMap, setPostMetricsMap] = useState<Map<string, PostMetrics>>(() => new Map());
@@ -109,6 +112,30 @@ const Explore = () => {
   );
 
   const postsLoadingRef = useRef(false);
+  const newestLoadedAtRef = useRef<string | null>(null);
+  const knownIdsRef = useRef<Set<string>>(new Set());
+
+  const applyPostFilters = useCallback(
+    async (input: Post[], blockedIds: string[], hiddenIds: string[]): Promise<Post[]> => {
+      const visible = input.filter((post) => {
+        if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
+          return false;
+        }
+        return !blockedIds.includes(post.author) && !hiddenIds.includes(post.id);
+      });
+      const membershipFiltered = await filterPostsByProjectMembership(visible, user?.id ?? null);
+      const query = filtersRef.current.query.trim().toLowerCase();
+      if (!query) return membershipFiltered;
+      return membershipFiltered.filter((post) => {
+        const haystack = [post.content, post.authorName, ...(post.tags ?? [])]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    },
+    [user],
+  );
 
   const loadRecentPosts = useCallback(async (background = false) => {
     // Skip concurrent loads to reduce IndexedDB strain
@@ -127,25 +154,12 @@ const Explore = () => {
         ]);
       }
 
-      const visiblePosts = allPosts.filter((post) => {
-        if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
-          return false;
-        }
-        return !blockedIds.includes(post.author) && !hiddenIds.includes(post.id);
-      });
-      const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
-      const query = filtersRef.current.query.trim().toLowerCase();
-      const filtered = query
-        ? membershipFiltered.filter((post) => {
-            const haystack = [post.content, post.authorName, ...(post.tags ?? [])]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase();
-            return haystack.includes(query);
-          })
-        : membershipFiltered;
-
+      const filtered = await applyPostFilters(allPosts, blockedIds, hiddenIds);
       const sorted = [...filtered].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      // Refresh incremental-merge cursors so subsequent P2P deltas only add new rows.
+      knownIdsRef.current = new Set(sorted.map((p) => p.id));
+      newestLoadedAtRef.current = sorted.length > 0 ? sorted[0].createdAt : null;
 
       // Stable merge: only update state if posts actually changed
       setRecentPosts((prev) => {
@@ -174,7 +188,58 @@ const Explore = () => {
       setPostsLoading(false);
       postsLoadingRef.current = false;
     }
-  }, [user]);
+  }, [user, applyPostFilters]);
+
+  // Incremental merge — only pull rows newer than what we've already rendered
+  // and prepend them so existing PostCard/BlogPostCard instances keep their
+  // DOM identity. No metrics refetch for IDs already hydrated.
+  const mergeIncomingPosts = useCallback(async () => {
+    if (postsLoadingRef.current) return;
+    try {
+      const fresh = await getPostsNewerThan(newestLoadedAtRef.current);
+      const unseen = fresh.filter((p) => !knownIdsRef.current.has(p.id));
+      if (unseen.length === 0) return;
+
+      let blockedIds: string[] = [];
+      let hiddenIds: string[] = [];
+      if (user) {
+        [blockedIds, hiddenIds] = await Promise.all([
+          getBlockedUserIds(user.id),
+          getHiddenPostIds(user.id),
+        ]);
+      }
+
+      const filtered = await applyPostFilters(unseen, blockedIds, hiddenIds);
+      if (filtered.length === 0) return;
+      const sortedNew = [...filtered].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+
+      for (const p of sortedNew) knownIdsRef.current.add(p.id);
+      newestLoadedAtRef.current = sortedNew[0].createdAt;
+
+      setRecentPosts((prev) => [...sortedNew, ...prev]);
+
+      // Only hydrate metrics for IDs we haven't seen yet.
+      try {
+        const missing = sortedNew.map((p) => p.id).filter((id) => !postMetricsMap.has(id));
+        if (missing.length > 0) {
+          const added = await getPostMetricsMap(missing);
+          if (added.size > 0) {
+            setPostMetricsMap((prev) => {
+              const next = new Map(prev);
+              added.forEach((v, k) => next.set(k, v));
+              return next;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[Explore] Failed to hydrate metrics for new posts:", err);
+      }
+    } catch (error) {
+      console.warn("[Explore] Incremental merge failed:", error);
+    }
+  }, [user, applyPostFilters, postMetricsMap]);
 
   // Defer initial loads to idle so the route paints its shell first
   // and the Brain → Explore handoff doesn't slam IndexedDB on mount.
@@ -207,11 +272,15 @@ const Explore = () => {
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     const reload = () => {
+      // Only react when the mesh is actually delivering new content. When
+      // offline, local writes update state directly via composer flows —
+      // there's no reason to re-scan IndexedDB.
+      if (!p2pEnabled || p2pStats.connectedPeers <= 0) return;
       // Debounce rapid-fire events (e.g. comment/react triggers store write → event)
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         void loadProjects(filtersRef.current);
-        void loadRecentPosts(true);
+        void mergeIncomingPosts();
       }, 3000);
     };
 
@@ -222,7 +291,7 @@ const Explore = () => {
       window.removeEventListener("p2p-projects-updated", reload);
       window.removeEventListener("p2p-posts-updated", reload);
     };
-  }, [loadProjects, loadRecentPosts]);
+  }, [loadProjects, mergeIncomingPosts, p2pEnabled, p2pStats.connectedPeers]);
 
   const handleQueryChange = useCallback(
     (value: string) => {
