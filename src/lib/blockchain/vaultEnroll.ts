@@ -10,6 +10,7 @@ import {
   getOrCreateMediaCoin,
   sealMediaCoin,
   recordVaultEntry,
+  getVault,
 } from "./syncVault";
 
 export interface EnrollInput {
@@ -50,10 +51,17 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
     completedAt: input.completedAt ?? now,
   });
 
-  // Post-write seal check.
-  const filled = ref.fillBytes + size;
-  if (filled / ref.capacityBytes >= MEDIA_COIN_SEAL_FRACTION) {
-    await sealMediaCoin(vaultKey, ref.coinId);
-  }
+  // Post-write seal check — re-read the vault so we see the *actual*
+  // fill that recordVaultEntry persisted (the `ref` snapshot in scope
+  // is stale for freshly-allocated coins and would keep the coin stuck
+  // in "Sealing" forever).
+  try {
+    const fresh = await getVault(vaultKey);
+    const coin = fresh?.coins.find((c) => c.coinId === ref.coinId);
+    if (coin && !coin.sealed && coin.capacityBytes > 0
+      && coin.fillBytes / coin.capacityBytes >= MEDIA_COIN_SEAL_FRACTION) {
+      await sealMediaCoin(vaultKey, ref.coinId);
+    }
+  } catch { /* seal is best-effort; the wrap sweep will retry */ }
   return "archived";
 }
