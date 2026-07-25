@@ -25,3 +25,24 @@ scheduleIdle(() => {
     .then((m) => m.startChain())
     .catch((err) => console.warn('[main] guardrails chain failed', err));
 });
+
+// ── Sync Vault ingest — observes MediaCustody events and writes verified
+// media into the source peer's local vault. Feature-flagged; no new gossip.
+scheduleIdle(() => {
+  Promise.all([
+    import('./lib/blockchain/vaultIngest'),
+    import('./lib/blockchain/mediaCoin.standalone'),
+  ])
+    .then(([ingest, media]) => {
+      const engine = (media as unknown as { getMediaCoinEngine?: () => { getCoins?: () => unknown[] } }).getMediaCoinEngine?.();
+      ingest.startVaultIngest(async () => {
+        try {
+          const coins = engine?.getCoins?.() ?? [];
+          return coins as never;
+        } catch {
+          return [];
+        }
+      });
+    })
+    .catch((err) => console.warn('[main] vault ingest failed', err));
+});
