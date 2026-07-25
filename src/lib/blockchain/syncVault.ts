@@ -35,6 +35,14 @@ export interface VaultCoinRef {
   wrapped?: boolean;
   wrappedBadge?: "archived";
   lastWrapAttemptAt?: string;
+  /** Lifecycle phase for stuck-write detection. */
+  phase?: "filling" | "encrypting" | "writing" | "sealed";
+  /** True when this coin was sealed as a failed archive (never serves, never wraps). */
+  failed?: boolean;
+  /** Bumped on every recordVaultEntry / phase step. Drives stuck detection. */
+  lastProgressAt?: string;
+  /** Breadcrumb: original coin this ref was reallocated from after a stall. */
+  stalledFromCoinId?: string;
 }
 
 export interface VaultIndexEntry {
@@ -48,6 +56,9 @@ export interface VaultIndexEntry {
   pending?: boolean;
   firstSeenAt?: string;
   completedAt?: string;
+  /** True when the underlying bytes aren't yet local — enrolment created a
+   *  placeholder; seal is blocked until sync completes. */
+  awaitingSync?: boolean;
 }
 
 export interface SyncVault {
@@ -263,7 +274,7 @@ export async function listSealedMediaCoins(): Promise<Array<{ peerId: string; re
   const out: Array<{ peerId: string; ref: VaultCoinRef }> = [];
   for (const v of await listVaults()) {
     for (const c of v.coins) {
-      if (c.role === "media" && c.sealed && !c.wrapped) out.push({ peerId: v.peerId, ref: c });
+      if (c.role === "media" && c.sealed && !c.wrapped && !c.failed) out.push({ peerId: v.peerId, ref: c });
     }
   }
   return out;
@@ -283,7 +294,7 @@ export async function attemptWrapMediaCoin(
   const vault = await getVault(peerId);
   if (!vault) return false;
   const ref = vault.coins.find((c) => c.coinId === coinId);
-  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped) return false;
+  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped || ref.failed) return false;
 
   // Rewrite every entry that lived on the virtual media coin.
   const contentHashes: string[] = [];
@@ -391,7 +402,11 @@ export async function recordVaultEntry(
   const vault = await ensureVault(peerId);
   vault.index[contentHash] = { ...entry, storedAt: new Date().toISOString() };
   const coin = vault.coins.find((c) => c.coinId === entry.coinId);
-  if (coin) coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + entry.length);
+  if (coin) {
+    coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + entry.length);
+    coin.lastProgressAt = new Date().toISOString();
+    if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
+  }
   await saveVault(vault);
 }
 
