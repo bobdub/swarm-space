@@ -1,53 +1,98 @@
-The user is signed in and their username is still displayed, but after a reload their Creator Token is prompting for redeploy and their avatar is missing. This means the localStorage `me` record is intact (identity survived) but the IndexedDB records for the creator token and avatar chunks are not readable or were not restored. The plan is to diagnose the exact storage state, harden the chain/token recovery path, make avatar loading resilient, and give the user a reliable backup/restore path so this cannot happen again.
+# Share Links: Guest Auto-Connect + Content Fallback
 
-## 1. Diagnose the current storage state
+Goal: When someone opens a `?peerID=…-preview[&postID=…]` link they should immediately experience the network — mesh starts in the background as a **Guest**, content loads if any peer has it, and live network stats prove the mesh is alive — even before they sign up.
 
-Add a non-destructive **Storage Diagnostics** panel reachable from Settings → Legal & Docs / Storage (or a temporary `/storage-diag` route) that reports:
+Today the invite page only shows the "Create Free Account" wall for unauthenticated visitors and does nothing in the background. Authenticated visitors do connect, but only to the original sharer, with no fallback.
 
-- localStorage keys present, including `me`, `__swarm_chain_snapshot`, and `p2p-connection-state`.
-- IndexedDB `imagination-db` store counts for: `meta`, `blockchain`, `profileTokens`, `creatorVaults`, `profileTokenHoldings`, `manifests`, `chunks`, `tokenBalances`, `users`.
-- Whether the current signed-in user has a row in `users`, `profileTokens`, and `creatorVaults`.
-- Whether the chain contains a `profile_token_deploy` or `creator_token_deploy` transaction for the current user.
-- Whether the avatar manifest referenced by `me.profile.avatarRef` exists and has chunks.
-- Any IndexedDB open/version errors encountered while reading.
+## Flow
 
-This panel will tell us whether the data is truly gone or whether the app is reading from the wrong place after the DB_VERSION 25 upgrade.
+```text
+click share link
+   │
+   ▼
+/preview page renders invitation UI immediately
+   │
+   ├─► Guest mesh boot (background, no account required)
+   │       └─ start P2P read-only, no identity persisted
+   │
+   ├─► Parse peerID + postID from URL
+   │
+   ├─► Attempt direct dial to original peer  ── success ──► sync post ──► render inline
+   │        │ timeout ~8s
+   │        ▼
+   ├─► Ask public cells: "who has postID X?"
+   │        └─ any peer answers ─► connect ─► sync ─► render with "Hosted by @handle"
+   │
+   ├─► Live stats poll (every 3s while searching)
+   │       • active peers online
+   │       • peers hosting this content
+   │       • "Join now to help share"
+   │
+   └─► If still no host after 30s ─► keep searching quietly, show invite CTA
+```
 
-## 2. Harden chain persistence and snapshot recovery
+## Changes
 
-- Make `SwarmChain._syncFlush()` write the snapshot only after confirming the chain is non-empty, and keep the previous snapshot as `__swarm_chain_snapshot_prev` for one extra reload of safety.
-- In `loadChain`, if the snapshot is corrupt/empty, fall back to the previous snapshot before falling back to IndexedDB.
-- Ensure `addTransaction` is followed by a synchronous-best-effort snapshot write on `beforeunload`/`visibilitychange` so a reload immediately after deploy does not lose the pending deploy tx.
-- Add a `validateChainState` guard before replacing IndexedDB chain state with a snapshot so an empty snapshot can never overwrite a non-empty chain.
+### 1. Guest mesh boot
 
-## 3. Improve creator token recovery
+- New `src/lib/p2p/guestMode.ts`: `startGuestMesh()` — spins up the P2P layer with a throwaway peer id, `readOnly: true`, no IndexedDB writes to identity stores. `stopGuestMesh()` on unmount or on sign-up handoff.
+- Wire into `Preview.tsx`: call `startGuestMesh()` inside a `useEffect` when `!user && isPreviewMode`, so the mesh starts alongside the invite UI.
+- `AuthGuard.tsx` already lets `/?peerID=…-preview` through — extend the allow-list to include `/preview` explicitly.
 
-- Change `TokenRecoveryBoot` to run immediately when auth resolves (remove the 2.5 s delay) so recovery happens before any UI queries the token store.
-- Extend `recoverCreatorTokenFromChain` to scan both mined blocks and pending transactions for `profile_token_deploy`/`creator_token_deploy`.
-- If the deploy tx is found but the vault/holdings rebuild fails, still restore the token record so the UI does not show "Deploy".
-- Add a manual **Restore Creator Token** button in Wallet → Creator that re-runs the recovery scan and shows the result (found / not found / no chain data).
-- If the chain is empty and no snapshot exists, show a clear message: "No local chain or backup found — the token cannot be restored automatically." with an import-backup call to action.
+### 2. Content lookup protocol
 
-## 4. Fix avatar loading and chunk recovery
+- New `src/lib/p2p/contentLookup.ts`:
+  - `requestContentHost(postId)` → broadcasts `{type: 'content-lookup', postId}` on the shared gossip channel used by `globalCell` / room discovery.
+  - Peers respond with `{type: 'content-host-ack', postId, peerId, handle, hasContent: true}` if the post is in their local store.
+  - Returns the first N respondents within a 5s window.
+- Existing peers add a listener that checks `store.get('posts', postId)` on incoming `content-lookup` and answers if found.
 
-- In `Avatar.tsx`, cap the number of P2P retry attempts to 2 and suppress the repeated warning log storm when chunks are unavailable.
-- If the avatar manifest exists but chunks are missing, render the fallback initials and show a small "avatar missing" indicator on the profile so the user knows they need to re-upload, not that the app is broken.
-- Add a **Re-upload avatar** flow in Profile/Settings that overwrites the old `avatarRef` with a new upload and updates `me.profile.avatarRef` in localStorage and the `users` IndexedDB row atomically.
+### 3. Preview page state machine
 
-## 5. Add full-state export and restore
+Rewrite `Preview.tsx` connection logic into an explicit state machine (still one component):
 
-- Create `src/lib/backup/exportFullState.ts` that bundles into a single JSON file: identity (`me`, wrapped key), chain state, all blockchain stores (`tokenBalances`, `profileTokens`, `creatorVaults`, `profileTokenHoldings`, `coinListings`, `participantListings`, `miningSessions`, `rewardPool`, `tokenUnlockStates`), plus all `manifests` and `chunks` referenced by the user or avatar.
-- Add `src/lib/backup/importFullState.ts` that restores the bundle into a fresh IndexedDB/localStorage, with validation and a confirmation toast.
-- Wire the export/import into Settings → Storage as **Export full backup** and **Restore from backup**.
-- Add a one-time prompt after a successful deploy/token creation encouraging the user to export a backup.
+```text
+guest-booting → dialing-origin → syncing-origin → rendered
+                     │
+                     └─ timeout → searching-peers → syncing-fallback → rendered (with host badge)
+                                       │
+                                       └─ no-host → invite-cta-only
+```
 
-## 6. Verify with UQRC and security checks
+- Remove the current "unauthenticated → hard-stop invite wall" branch. Guests see the invite CTA **and** the live preview area that fills in as content arrives.
+- Add `hostPeerId` / `hostHandle` state; when content came from fallback, render a small "Hosted by @handle" badge next to the post.
 
-After implementation:
-- Run `scripts/uqrc-check.mjs` to confirm no new contradictions or hidden dependencies are introduced.
-- Run a basic security scan and address only new findings introduced by this plan.
-- Use the live preview to confirm the diagnostic panel renders, the recovery button runs without errors, and avatar fallback/re-upload works.
+### 4. Live network stats strip
 
-## Outcome
+- New `src/components/preview/NetworkPulse.tsx`: three chips — `● N peers online`, `● N hosting this content`, `Join now to help share`.
+- Data source: `p2p.getActivePeerConnections().length` for peers online; `contentLookup` ack count for hosters; refreshes every 3s while `!user` or while still searching.
+- Mount above the invitation card in `Preview.tsx`.
 
-The user will be able to see exactly what local data exists, trigger a manual token restore if the chain still holds the deploy transaction, re-upload a missing avatar, and export/restore a complete backup so tokens and avatars survive reloads and browser changes.
+### 5. Sign-up handoff
+
+- When guest clicks "Create Free Account", stash `previewSession` + any downloaded post into `sessionStorage` under `preview:handoff` (already partially handled by `previewMode.ts`).
+- After auth completes in `Auth.tsx`, if `preview:handoff` exists, replay it: navigate back to `/preview?…` and reuse the cached post instead of re-fetching.
+
+### 6. Safety rails
+
+- Content verification: only render a post whose signature matches its claimed author key (reuse `contentSigning.ts` verify). Reject unsigned posts from fallback hosts to prevent spoofing.
+- Guest mesh never writes to `posts`, `profiles`, `identity`, or `blockchain` stores — everything held in a per-tab in-memory cache under `previewCache`.
+- Hard timeout: stop actively dialing after 60s to protect the browser; keep passive lookup channel open.
+- Rate-limit `content-lookup` broadcasts to 1 per 2s per postId.
+
+## Technical notes
+
+- **Files added:** `src/lib/p2p/guestMode.ts`, `src/lib/p2p/contentLookup.ts`, `src/components/preview/NetworkPulse.tsx`, `src/lib/preview/previewCache.ts`.
+- **Files edited:** `src/pages/Preview.tsx` (state machine + guest boot + host badge), `src/components/auth/AuthGuard.tsx` (allow `/preview`), `src/pages/Auth.tsx` (handoff replay), `src/lib/preview/previewMode.ts` (cache helpers), one peer-side listener registration in `src/lib/p2p/globalCell.ts` (respond to `content-lookup`).
+- **No schema changes.** All new messages ride the existing gossip channel; new IndexedDB stores are not required.
+- **Privacy:** guest ids are ephemeral (`guest-{random}`) and never persisted; guest mesh does not advertise itself in public cell registries.
+- **Verification loop:** confirm end-to-end in the live preview — open a share link in a fresh incognito tab, watch the mesh boot, the origin dial timeout in a forced-offline test, and the fallback peer serve the post with a "Hosted by …" badge.
+
+Trust-scoring fallback hosts:   
+Guests simply connect to the cell without trust metrics or concerns, they do not have a wallet to mine or health - they simply ride the bus as a viewer of one said content share.  
+  
+Cross-post prefetch:   
+This takes longer the post must become the fallback "Join Network to sync" badge if not connected to peer and cell connect does not sync.  
+  
+Paywalled/walled post handling behind guest mode:   
+Pay wall simply changes "Join to earn and unlock this post"  
