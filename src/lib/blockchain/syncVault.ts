@@ -18,7 +18,7 @@ function isVaultUsable(coin: SwarmCoin): boolean {
 export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
 export const VAULT_ROLLOVER_FRACTION = 0.8;
 
-export type VaultCoinRole = "canonical" | "receiver";
+export type VaultCoinRole = "canonical" | "receiver" | "archive";
 
 export interface VaultCoinRef {
   coinId: string;
@@ -35,6 +35,8 @@ export interface VaultIndexEntry {
   mime?: string;
   storedAt: string;
   ref?: string;
+  name?: string;
+  pending?: boolean;
 }
 
 export interface SyncVault {
@@ -88,6 +90,54 @@ function activeReceiverCoin(v: SyncVault): VaultCoinRef | null {
     if (c.fillBytes / c.capacityBytes < VAULT_ROLLOVER_FRACTION) return c;
   }
   return null;
+}
+
+export async function ensureArchiveCoin(peerId: string): Promise<VaultCoinRef> {
+  const vault = await ensureVault(peerId);
+  const archiveId = `archive:${peerId}`;
+  const existing = vault.coins.find((c) => c.coinId === archiveId);
+  if (existing) return existing;
+  const ref: VaultCoinRef = {
+    coinId: archiveId,
+    role: "archive",
+    fillBytes: 0,
+    capacityBytes: Number.POSITIVE_INFINITY,
+    createdAt: new Date().toISOString(),
+  };
+  vault.coins.push(ref);
+  await saveVault(vault);
+  return ref;
+}
+
+/**
+ * Move every entry currently sitting on an `archive:*` coin onto a real
+ * receiver coin (allocating/rolling as needed). Returns count promoted.
+ */
+export async function promoteArchivedEntries(
+  peerId: string,
+  candidateCoins: SwarmCoin[],
+): Promise<number> {
+  const vault = await getVault(peerId);
+  if (!vault) return 0;
+  let promoted = 0;
+  for (const [hash, entry] of Object.entries(vault.index)) {
+    if (!entry.coinId.startsWith("archive:")) continue;
+    const receiver = await getOrRolloverReceiverCoin(peerId, candidateCoins);
+    if (!receiver) break;
+    // Re-read (getOrRolloverReceiverCoin may have mutated vault)
+    const fresh = (await getVault(peerId)) ?? vault;
+    fresh.index[hash] = {
+      ...entry,
+      coinId: receiver.coinId,
+      offset: receiver.fillBytes,
+      pending: false,
+    };
+    const coin = fresh.coins.find((c) => c.coinId === receiver.coinId);
+    if (coin) coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + (entry.length || 0));
+    await saveVault(fresh);
+    promoted += 1;
+  }
+  return promoted;
 }
 
 export async function allocateVaultCoin(

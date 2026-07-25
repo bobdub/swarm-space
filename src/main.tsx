@@ -44,3 +44,15 @@ scheduleIdle(() => {
     })
     .catch((err) => console.warn('[main] vault ingest failed', err));
 });
+
+// ── Sync Vault enforcement — flag entries whose torrent is no longer
+// seeding so the redundancy sweep can pull them back. 60 s cadence.
+scheduleIdle(() => {
+  import('./lib/blockchain/vaultSeeder')
+    .then((m) => {
+      const tick = () => { void m.enforceVaultSeeding().catch(() => {}); };
+      tick();
+      setInterval(tick, 60_000);
+    })
+    .catch((err) => console.warn('[main] vault seeder failed', err));
+});

@@ -14,13 +14,13 @@ import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSw
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { openDB } from '@/lib/store';
-import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
+import { listVaults, promoteArchivedEntries, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
 import {
   migrateCompletedIntoVaults,
-  migrationAlreadyRan,
-  markMigrationRan,
   type MigrationCandidate,
 } from '@/lib/blockchain/vaultMigration';
+import { getAll } from '@/lib/store';
+import type { SwarmCoin } from '@/lib/blockchain/types';
 import { ChevronRight, WifiOff } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
@@ -500,23 +500,20 @@ function PeerVaultsSection({
     return () => clearInterval(t);
   }, [refresh]);
 
-  // One-time migration of already-completed content into vaults
-  const migrationTried = useRef(false);
+  // Idempotent enrolment — every completed file/torrent that isn't yet in a
+  // vault gets added on each refresh. `enrollContent` short-circuits on hits.
+  // When no wallet coin is free, items land in an Archive coin so nothing is
+  // silently dropped.
   useEffect(() => {
-    if (migrationTried.current) return;
-    if (migrationAlreadyRan()) return;
     if (completedFiles.length === 0 && persistedTorrents.length === 0) return;
-    migrationTried.current = true;
-
     const selfKey = localPeerId || 'self';
     const candidates: MigrationCandidate[] = [];
-
     for (const f of completedFiles) {
-      const ownerRaw = f.owner || selfKey;
+      if (f.percent !== 100) continue;
       const isSelf = !f.owner || f.owner === localPeerId || f.owner === localPeerId.replace(/^peer-/, '');
       candidates.push({
         contentHash: f.fileId,
-        ownerPeerId: isSelf ? selfKey : ownerRaw,
+        ownerPeerId: isSelf ? selfKey : (f.owner || selfKey),
         isSelf,
         name: f.name,
         mime: f.mime,
@@ -530,24 +527,37 @@ function PeerVaultsSection({
         contentHash: t.manifestId,
         ownerPeerId: selfKey,
         isSelf: true,
-        name: t.manifestId.slice(0, 16) + '…',
-        mime: 'video/torrent',
+        name: t.manifestId,
+        mime: 'application/x-torrent',
         size: t.bytesTotal,
         ref: t.manifestId,
       });
     }
-
     (async () => {
       try {
         const r = await migrateCompletedIntoVaults(candidates);
-        if (r.needsCoin) setNeedsCoin(true);
-        if (r.enrolled > 0 || !r.needsCoin) markMigrationRan();
-        await refresh();
+        setNeedsCoin(r.needsCoin);
+        if (r.enrolled > 0) await refresh();
       } catch (err) {
-        console.warn('[PeerVaultsSection] migration failed', err);
+        console.warn('[PeerVaultsSection] enrol failed', err);
       }
     })();
   }, [completedFiles, persistedTorrents, localPeerId, refresh]);
+
+  const [promoting, setPromoting] = useState(false);
+  const promoteArchive = useCallback(async () => {
+    setPromoting(true);
+    try {
+      const coins = (await getAll<SwarmCoin>('swarmCoins').catch(() => []))
+        .filter((c) => c.status === 'wallet' && c.fillState !== 'spent');
+      if (!coins.length) { setNeedsCoin(true); return; }
+      const peers = (await listVaults()).map((v) => v.peerId);
+      for (const p of peers) await promoteArchivedEntries(p, coins);
+      await refresh();
+    } finally {
+      setPromoting(false);
+    }
+  }, [refresh]);
 
   const toggle = (peerId: string) => {
     setExpanded((prev) => {
@@ -578,15 +588,25 @@ function PeerVaultsSection({
           No peer vaults created.
           {needsCoin && (
             <span className="block mt-1 text-amber-400/70">
-              Mine a SWARM coin to enroll existing content into a vault.
+              Mine a SWARM coin to promote archived entries into a coin-backed vault.
             </span>
           )}
         </p>
       ) : (
+        <>
+        {needsCoin && (
+          <div className="flex items-center justify-between rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[0.65rem] text-amber-300/80">
+            <span>Some entries are archived — mine a SWARM coin to promote them.</span>
+            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[0.6rem]" disabled={promoting} onClick={() => void promoteArchive()}>
+              {promoting ? 'Promoting…' : 'Promote archive'}
+            </Button>
+          </div>
+        )}
         <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
           {sorted.map((v) => {
             const entries = Object.entries(v.index);
             const totalBytes = entries.reduce((s, [, e]) => s + (e.length || 0), 0);
+            const pendingCount = entries.reduce((n, [, e]) => n + (e.pending ? 1 : 0), 0);
             const isSelf = v.peerId === (localPeerId || 'self') || v.peerId === localPeerId.replace(/^peer-/, '');
             const label = isSelf ? 'self' : `@${v.peerId.replace(/^peer-/, '').slice(0, 10)}…`;
             const isOpen = expanded.has(v.peerId);
@@ -603,6 +623,9 @@ function PeerVaultsSection({
                     Coins Used: <span className="text-foreground/80">{v.coins.length}</span>
                     {'  '}
                     Media Files: <span className="text-foreground/80">{entries.length}</span>
+                    {pendingCount > 0 && (
+                      <>{'  '}Pending: <span className="text-amber-400/80">{pendingCount}</span></>
+                    )}
                   </span>
                   <span className="text-[0.55rem] text-foreground/40 shrink-0 ml-2">
                     {formatBytes(totalBytes)}
@@ -625,6 +648,7 @@ function PeerVaultsSection({
             );
           })}
         </div>
+        </>
       )}
     </div>
   );
@@ -632,13 +656,21 @@ function PeerVaultsSection({
 
 function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }) {
   const mime = entry.mime || 'unknown';
-  const label = entry.ref ? entry.ref.slice(0, 22) : hash.slice(0, 22);
+  const raw = entry.name || entry.ref || hash;
+  const label = raw.length > 28 ? raw.slice(0, 28) + '…' : raw;
+  const archived = entry.coinId.startsWith('archive:');
+  const pending = entry.pending || archived;
   return (
     <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
       {mimeIcon(mime)}
-      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70" title={hash}>
+      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70" title={entry.name || hash}>
         {label}
       </span>
+      {pending && (
+        <span className="text-[0.5rem] uppercase tracking-widest text-amber-400/80 border border-amber-500/30 rounded px-1 py-[1px]">
+          {archived ? 'Archive' : 'Pending'}
+        </span>
+      )}
       <span className="text-[0.55rem] text-foreground/40 shrink-0">
         {formatBytes(entry.length || 0)}
       </span>
