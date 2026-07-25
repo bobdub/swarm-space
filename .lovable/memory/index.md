@@ -28,6 +28,7 @@
 - [Remix — Elemental Alchemy Lab](mem://features/remix-elemental-lab) — /remix Lab/Brains/Assets tabs; real elements from SHELL_DEFS ∪ INNER_SYMBOLS; only labField may construct/tick a Field; mints media-coins; drops into Builder Bar via registerCustomPrefab; entry = FlaskConical button on BrainBuilderBar
 - [World Sculpting & Tools](mem://features/world-sculpting-tools) — Knife/Axe/Shovel composite tools, Salt Rock honing; single sculpting.applyImpact predicate (energy vs density+bond+curvature) shared by Users and NPCs; symmetric N=0..4..0 earth shells; horizon fade at √(2·R·h)
 - [Media Coin Architecture](mem://blockchain/media-coin-architecture) — Coins embed encrypted media pieces, custodyChain distribution
+- [Sync Vault Media Cache](mem://blockchain/sync-vault-media-cache) — Per-peer local cache in sealed coins; vaultLookup short-circuits torrent fetch
 - [Ledger Sync Protocol](mem://blockchain/ledger-sync-protocol) — 'chain-sync-request'/'response' to sync tx history
 - [P2P Network Entity](mem://architecture/p2p-network-entity) — 'Imagination' entity, Q_Score formula, 6 brain stages, UQRC
 - [Neural Network Architecture](mem://architecture/neural-network) — 9-layer Instinct, Phi transition, Welford-derived bell curve
