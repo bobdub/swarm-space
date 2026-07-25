@@ -632,6 +632,8 @@ const Settings = () => {
                   </Button>
                 </div>
               </Card>
+
+              <LoadingChainEditor />
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
