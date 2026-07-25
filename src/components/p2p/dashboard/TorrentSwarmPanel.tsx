@@ -21,6 +21,11 @@ import {
 } from '@/lib/blockchain/vaultMigration';
 import { getAll } from '@/lib/store';
 import type { SwarmCoin } from '@/lib/blockchain/types';
+import {
+  MEDIA_COIN_CAPACITY_BYTES,
+  MEDIA_COIN_SEAL_FRACTION,
+  MEDIA_COIN_APPROACHING_FRACTION,
+} from '@/lib/blockchain/types';
 import { ChevronRight, WifiOff } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
@@ -459,6 +464,7 @@ export function TorrentSwarmPanel() {
         completedFiles={complete}
         persistedTorrents={persistedTorrents}
         localPeerId={localPeerId}
+        incomingCount={incomplete.length}
       />
 
       {files.length === 0 && totalActivity === 0 && !hasTorrents && (
