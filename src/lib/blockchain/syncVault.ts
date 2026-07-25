@@ -4,7 +4,11 @@
  */
 import { get, getAll, put, remove } from "@/lib/store";
 import type { SwarmCoin } from "./types";
-import { COIN_MAX_WEIGHT } from "./types";
+import {
+  COIN_MAX_WEIGHT,
+  MEDIA_COIN_CAPACITY_BYTES,
+  MEDIA_COIN_SEAL_FRACTION,
+} from "./types";
 
 /**
  * Vault-usable predicate — any wallet-held coin that isn't already spent
@@ -18,7 +22,7 @@ function isVaultUsable(coin: SwarmCoin): boolean {
 export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
 export const VAULT_ROLLOVER_FRACTION = 0.8;
 
-export type VaultCoinRole = "canonical" | "receiver" | "archive";
+export type VaultCoinRole = "canonical" | "receiver" | "archive" | "media";
 
 export interface VaultCoinRef {
   coinId: string;
@@ -26,6 +30,11 @@ export interface VaultCoinRef {
   fillBytes: number;
   capacityBytes: number;
   createdAt: string;
+  sealed?: boolean;
+  sealedAt?: string;
+  wrapped?: boolean;
+  wrappedBadge?: "archived";
+  lastWrapAttemptAt?: string;
 }
 
 export interface VaultIndexEntry {
@@ -37,6 +46,8 @@ export interface VaultIndexEntry {
   ref?: string;
   name?: string;
   pending?: boolean;
+  firstSeenAt?: string;
+  completedAt?: string;
 }
 
 export interface SyncVault {
@@ -107,6 +118,118 @@ export async function ensureArchiveCoin(peerId: string): Promise<VaultCoinRef> {
   vault.coins.push(ref);
   await saveVault(vault);
   return ref;
+}
+
+// ── Media Coin (Sync Vault container) ──────────────────────────────────
+
+/**
+ * Active (unsealed) media coin ref for a vault, or null if none.
+ */
+function activeMediaCoin(v: SyncVault): VaultCoinRef | null {
+  for (let i = v.coins.length - 1; i >= 0; i--) {
+    const c = v.coins[i];
+    if (c.role !== "media" || c.sealed) continue;
+    if (c.fillBytes / c.capacityBytes < MEDIA_COIN_SEAL_FRACTION) return c;
+  }
+  return null;
+}
+
+/**
+ * Return the current unsealed media coin ref for `peerId`, allocating a
+ * fresh one when there is none or the active one is past 80% fill.
+ * The container is *virtual* until wrap-time: it carries an
+ * `archive:media:<peerId>:<n>` id so it never collides with real coins.
+ */
+export async function getOrCreateMediaCoin(peerId: string): Promise<VaultCoinRef> {
+  const vault = await ensureVault(peerId);
+  const active = activeMediaCoin(vault);
+  if (active) return active;
+  const idx = vault.coins.filter((c) => c.role === "media").length;
+  const ref: VaultCoinRef = {
+    coinId: `archive:media:${peerId}:${idx}:${Date.now().toString(36)}`,
+    role: "media",
+    fillBytes: 0,
+    capacityBytes: MEDIA_COIN_CAPACITY_BYTES,
+    createdAt: new Date().toISOString(),
+  };
+  vault.coins.push(ref);
+  await saveVault(vault);
+  return ref;
+}
+
+/** Flip a media coin to sealed. Idempotent. */
+export async function sealMediaCoin(peerId: string, coinId: string): Promise<void> {
+  const v = await getVault(peerId);
+  if (!v) return;
+  const c = v.coins.find((x) => x.coinId === coinId);
+  if (!c || c.role !== "media" || c.sealed) return;
+  c.sealed = true;
+  c.sealedAt = new Date().toISOString();
+  await saveVault(v);
+}
+
+/**
+ * List every sealed-but-unwrapped media coin across all vaults. Used by
+ * the wrap sweep to attempt promotion when the user gains SWARM.
+ */
+export async function listSealedMediaCoins(): Promise<Array<{ peerId: string; ref: VaultCoinRef }>> {
+  const out: Array<{ peerId: string; ref: VaultCoinRef }> = [];
+  for (const v of await listVaults()) {
+    for (const c of v.coins) {
+      if (c.role === "media" && c.sealed && !c.wrapped) out.push({ peerId: v.peerId, ref: c });
+    }
+  }
+  return out;
+}
+
+/**
+ * Wrap a sealed media coin against a free wallet coin. Marks the wallet
+ * coin `kind: "media"` (so it leaves the fungible pool/market/wallet),
+ * rewrites the vault entries to point at the new coinId, and if the
+ * source was the global archive it earns an `archived` badge.
+ */
+export async function attemptWrapMediaCoin(
+  peerId: string,
+  coinId: string,
+  freeWalletCoin: SwarmCoin,
+): Promise<boolean> {
+  const vault = await getVault(peerId);
+  if (!vault) return false;
+  const ref = vault.coins.find((c) => c.coinId === coinId);
+  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped) return false;
+
+  // Rewrite every entry that lived on the virtual media coin.
+  const contentHashes: string[] = [];
+  for (const [hash, entry] of Object.entries(vault.index)) {
+    if (entry.coinId !== coinId) continue;
+    vault.index[hash] = { ...entry, coinId: freeWalletCoin.coinId, pending: false };
+    contentHashes.push(hash);
+  }
+
+  // Rename the ref (keep sealed/fill/etc), stamp wrap metadata.
+  ref.coinId = freeWalletCoin.coinId;
+  ref.wrapped = true;
+  ref.lastWrapAttemptAt = new Date().toISOString();
+  if (peerId.startsWith("archive:")) ref.wrappedBadge = "archived";
+  await saveVault(vault);
+
+  // Engrave the underlying SwarmCoin so guards exclude it everywhere.
+  freeWalletCoin.kind = "media";
+  freeWalletCoin.sealBytes = ref.fillBytes;
+  freeWalletCoin.mediaCapacityBytes = ref.capacityBytes;
+  freeWalletCoin.mediaTargets = [{ peerId, contentHashes }];
+  await put("swarmCoins", freeWalletCoin);
+  return true;
+}
+
+/** Stamp a wrap attempt as "tried, insufficient" so the 24h cooldown starts. */
+export async function markWrapAttempt(peerId: string, coinId: string): Promise<void> {
+  const v = await getVault(peerId);
+  if (!v) return;
+  const c = v.coins.find((x) => x.coinId === coinId);
+  if (!c) return;
+  c.lastWrapAttemptAt = new Date().toISOString();
+  await saveVault(v);
 }
 
 /**
