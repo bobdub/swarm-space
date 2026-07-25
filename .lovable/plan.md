@@ -1,51 +1,75 @@
-## Explore Feed — Stop the Post-Load Refresh Strain
+## Media Coin — Sync Vaults & Local-First Retrieval
 
-### Problem (verified in `src/pages/Explore.tsx`)
+Extends the existing standalone Media Coin engine with **per-peer Sync Vaults** so mined SWARM coins become verifiable local storage for content received from trusted peers. Keeps all existing sync paths (gossip, chunk, manifest, torrent) untouched — the vault is read-through cache + local seeder, never a new transport.
 
-1. Initial paint runs `loadRecentPosts()` deferred via `requestIdleCallback` → shows content.
-2. Almost immediately, the `p2p-posts-updated` listener fires (peers announcing on connect) and after a 3s debounce runs `loadRecentPosts(true)` again — a **full IndexedDB re-read + re-filter + re-sort + full `getPostMetricsMap` refetch** for every post.
-3. Even when nothing new arrived, `postMetricsMap` state is replaced with a brand-new `Map` reference, forcing every `PostCard`/`BlogPostCard` to reconcile → visible strain / flash.
-4. There is no gate on P2P status: even when the mesh is offline, we still burn the same reload cycle whenever the event fires (e.g. from local writes).
+### Guardrails (non-negotiable)
+- Zero changes to existing gossip / chunk / manifest / torrent code paths. Vault sits *beside* them as cache + verifier.
+- Respects `mem://constraints/memory-coin-exploration-only`: this is **user content** (creator media), not learned-pattern coins, so it's in scope — but ships behind a soft flag (`?vaults=1` + Settings toggle) defaulting on for new installs, off until first successful bind for existing users, with a kill-switch.
+- Only `sealed` SWARM coins from the wallet can be allocated as vault containers (respects `coinSpend` rules). Vault allocation is a non-destructive tag, not a `spent` transition.
+- Storage-quota guarded via existing `quotaGuard` — vault writes stop at 90% and surface the existing warning.
 
-### Goals
+### Architecture
 
-- No feed refresh when disconnected — local-only reads on mount, no scheduled reloads.
-- When connected, **new posts stream in above** existing ones without touching already-rendered cards.
-- Media / metrics for posts already in the list are **not re-fetched**.
+```text
+                ┌─────────────────────────────┐
+   creator ──►  │  Media Coin (canonical)     │ ── torrent ──► peers
+                │  1 coin per published item  │
+                └─────────────────────────────┘
+                              │
+                              ▼
+peer B connects to peer A ──► Sync Vault(peerA)
+                              ├─ Media Coin #1  [~80% full]
+                              ├─ Media Coin #2  [filling]
+                              └─ manifest index (hash → coin+offset)
 
-### Changes (all in `src/pages/Explore.tsx`, plus one small helper)
+feed request ──► vault.lookup(hash)
+                  ├─ HIT  → serve locally, skip torrent
+                  └─ MISS → torrent fetches missing pieces → write into active vault coin
+```
 
-1. **Gate reload on P2P status**
-   - Import `useP2PContext`; read `isEnabled` + `stats.connectedPeers`.
-   - The `p2p-posts-updated` / `p2p-projects-updated` listener only schedules work when `isEnabled && connectedPeers > 0`. Otherwise it's a no-op (local writes already update local state via the composer flow).
+### Deliverables
 
-2. **Incremental merge instead of full replace**
-   - Split `loadRecentPosts` into two paths:
-     - `loadRecentPostsInitial()` — current behaviour, runs once on mount and on `filters.query` change.
-     - `mergeIncomingPosts()` — on `p2p-posts-updated`, read only posts with `createdAt > newestLoadedAt` (track `newestLoadedAtRef`). Apply the same block/hidden/membership/query filters. Prepend to `recentPosts` state, dedup by `id`. Never re-order or replace existing entries.
-   - Track a `knownIdsRef: Set<string>` to skip anything already rendered → guarantees existing cards keep their reference identity and don't re-render.
+**1. Sync Vault store** — `src/lib/blockchain/syncVault.ts`
+   - `SyncVault { peerId, coins: VaultCoinRef[], index: Map<contentHash, {coinId, offset, length}>, updatedAt }`
+   - `VaultCoinRef { coinId, role: 'canonical'|'receiver', fillBytes, capacityBytes }` — capacity derived from existing coin `maxWeight` scaled to bytes.
+   - CRUD via IndexedDB (`swarm-vaults` store, versioned through existing DB upgrade lifecycle — non-destructive).
+   - `allocateVaultCoin(peerId)` — pulls a sealed wallet coin, tags it as vault container, opens at 0% fill.
+   - `rolloverAt80(peerId)` — auto-allocates new receiver coin once active one crosses 80% capacity.
 
-3. **Metrics — only hydrate for new IDs**
-   - Change the metrics step to only call `getPostMetricsMap(newIds)` for IDs not already in `postMetricsMap`, then `setPostMetricsMap(prev => new Map([...prev, ...added]))`. Skip the state update entirely when `added.size === 0`.
+**2. Creator canonical binding** — extend `mediaCoin.standalone.ts` (additive only)
+   - On mint, tag the created NFT coin as `role: 'canonical'` inside the creator's own vault (`peerId = self`). Existing mint flow unchanged; just fires a new `emitMediaCustody` we already have.
 
-4. **Drop redundant full-refresh on `network-content-toggle`**
-   - Explore doesn't apply the show-network gate (unlike Home/Posts), so no listener is needed. Verify nothing else here listens.
+**3. Receiver write path** — `src/lib/blockchain/vaultIngest.ts`
+   - Subscribes to `onMediaCustody` (existing bus) — when a piece is verified & reassembled, writes bytes into the active receiver coin of the source peer's vault, updates the index.
+   - No changes to `chunkFetch.ts` / torrent code — this only *observes* completion events already emitted.
 
-5. **Small helper `src/lib/posts.ts` (or new `src/lib/postsQuery.ts`)**
-   - Add `getPostsNewerThan(iso: string): Promise<Post[]>` — thin wrapper over `getAll("posts")` that filters by `createdAt`. Keeps Explore lean and lets Home reuse it later.
+**4. Local retrieval short-circuit** — `src/lib/blockchain/vaultLookup.ts`
+   - `resolveFromVaults(contentHash): Uint8Array | null` — feed and preview call this *before* dialing torrents. Miss falls through to the existing pipeline unchanged.
+   - Wired into `contentPipeline.ts` at one call site (guard-flag gated).
 
-6. **Preserve behaviour**
-   - `filters.query` change still triggers a full `loadRecentPostsInitial()` (correct — the visible set actually changes).
-   - Projects tab reload flow is unchanged aside from being wrapped in the same connection gate.
+**5. Torrent reinforcement (read-only)** — `src/lib/blockchain/vaultSeeder.ts`
+   - Registers vault-held pieces with `meshTorrentAdapter` as *available* so the existing swarm treats us as a seeder. Uses the adapter's existing "have" API — no new gossip topic, no new pubsub channel.
 
-### Verification
+**6. UI surfaces (minimal)**
+   - Wallet → Coins: badge sealed coins tagged as vault containers with source peer + fill %.
+   - `/storage-diagnostics`: new "Sync Vaults" panel — peers, coin counts, vault size, hit-rate counter, "Purge vault for peer X" button.
+   - Settings → Storage: toggle "Use SWARM coins as media cache" (default on).
 
-- Load Explore offline → cards paint once, no second render (React DevTools profiler shows a single commit for the list).
-- Load Explore connected, then fire a synthetic `window.dispatchEvent(new Event('p2p-posts-updated'))` with no new rows → zero list re-render, zero IndexedDB read for existing IDs.
-- Fire the event after inserting a fresh post → new card slides in at the top, existing cards keep the same DOM nodes.
-- Typecheck + `bun run scripts/uqrc-check.mjs`.
+**7. Tests**
+   - `syncVault.test.ts` — allocate, rollover at 80%, index round-trip.
+   - `vaultLookup.test.ts` — hit/miss falls through cleanly, no torrent dial on hit.
+   - `vaultSeeder.test.ts` — announces `have` pieces to adapter without new topics.
 
-### Out of scope
+### Explicit non-goals (this plan)
+- No changes to coin economics, mining, spend rules, or lifecycle states.
+- No new gossip topics, pubsub channels, or transport paths.
+- No cross-peer vault sync — each vault is strictly local.
+- No auto-migration of existing cached media into vaults (opportunistic on next fetch).
+- Learned-pattern / brain memory coins remain out of scope per existing constraint.
 
-- Home (`src/lib/feed.ts`) and `src/pages/Posts.tsx` follow the same pattern and can be migrated in a follow-up once the Explore approach is proven.
-- No changes to P2P transport, storage, or PostCard internals.
+### Acceptance
+1. Publishing media creates one canonical Media Coin in the creator's self-vault, visible in Wallet.
+2. Receiving media from peer X writes into vault(X); coins roll over at 80% fill.
+3. Reloading a feed item served earlier hits the vault (verified via hit-counter) with zero torrent requests in devtools network.
+4. Toggling the Settings switch off restores pre-vault behavior identically.
+5. UQRC check + typecheck clean; no changes to gossip/chunk/manifest test suites.
