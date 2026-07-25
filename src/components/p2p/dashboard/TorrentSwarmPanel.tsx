@@ -406,32 +406,38 @@ export function TorrentSwarmPanel() {
       )}
 
       {/* TorrentSwarm overlay (recordings / large files) */}
-      <div className="space-y-2 border-t border-foreground/10 pt-3">
-        <div className="flex items-center justify-between">
-          <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
-            Network Created Content
-          </div>
-          <div className="flex items-center gap-1.5">
-            {deadCount > 0 && (
-              <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-destructive/80 border-destructive/30">
-                {deadCount} cleaned
+      {/* Incoming torrents (retained under Active Transfers grouping) */}
+      {hasTorrents && (
+        <div className="space-y-2 border-t border-foreground/10 pt-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
+              Incoming Torrents
+            </div>
+            <div className="flex items-center gap-1.5">
+              {deadCount > 0 && (
+                <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-destructive/80 border-destructive/30">
+                  {deadCount} cleaned
+                </Badge>
+              )}
+              <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
+                {incomingTorrentCount} incoming
               </Badge>
-            )}
-            <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
-              {incomingTorrentCount} incoming
-            </Badge>
+            </div>
           </div>
-        </div>
-        {hasTorrents ? (
           <div className="space-y-1 max-h-48 overflow-y-auto">
             {mergedTorrents.map(t => (
               <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
-        ) : (
-          <p className="text-xs text-foreground/35">No incoming replay torrents yet.</p>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Peer Vaults — per-peer local storage backed by sealed SWARM coins */}
+      <PeerVaultsSection
+        completedFiles={complete}
+        persistedTorrents={persistedTorrents}
+        localPeerId={localPeerId}
+      />
 
       {files.length === 0 && totalActivity === 0 && !hasTorrents && (
         <p className="text-xs text-foreground/30 text-center py-2">
