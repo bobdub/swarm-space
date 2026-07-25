@@ -460,6 +460,181 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
   );
 }
 
+// ── Peer Vaults ──────────────────────────────────────────────────────────
+
+function PeerVaultsSection({
+  completedFiles,
+  persistedTorrents,
+  localPeerId,
+}: {
+  completedFiles: FileTransferInfo[];
+  persistedTorrents: TorrentProgress[];
+  localPeerId: string;
+}) {
+  const [vaults, setVaults] = useState<SyncVault[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [needsCoin, setNeedsCoin] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      setVaults(await listVaults());
+    } catch {
+      setVaults([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const t = setInterval(() => { void refresh(); }, 4000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  // One-time migration of already-completed content into vaults
+  const migrationTried = useRef(false);
+  useEffect(() => {
+    if (migrationTried.current) return;
+    if (migrationAlreadyRan()) return;
+    if (completedFiles.length === 0 && persistedTorrents.length === 0) return;
+    migrationTried.current = true;
+
+    const selfKey = localPeerId || 'self';
+    const candidates: MigrationCandidate[] = [];
+
+    for (const f of completedFiles) {
+      const ownerRaw = f.owner || selfKey;
+      const isSelf = !f.owner || f.owner === localPeerId || f.owner === localPeerId.replace(/^peer-/, '');
+      candidates.push({
+        contentHash: f.fileId,
+        ownerPeerId: isSelf ? selfKey : ownerRaw,
+        isSelf,
+        name: f.name,
+        mime: f.mime,
+        size: f.size,
+        ref: f.fileId,
+      });
+    }
+    for (const t of persistedTorrents) {
+      if (t.state !== 'seeding' && t.state !== 'complete') continue;
+      candidates.push({
+        contentHash: t.manifestId,
+        ownerPeerId: selfKey,
+        isSelf: true,
+        name: t.manifestId.slice(0, 16) + '…',
+        mime: 'video/torrent',
+        size: t.bytesTotal,
+        ref: t.manifestId,
+      });
+    }
+
+    (async () => {
+      try {
+        const r = await migrateCompletedIntoVaults(candidates);
+        if (r.needsCoin) setNeedsCoin(true);
+        if (r.enrolled > 0 || !r.needsCoin) markMigrationRan();
+        await refresh();
+      } catch (err) {
+        console.warn('[PeerVaultsSection] migration failed', err);
+      }
+    })();
+  }, [completedFiles, persistedTorrents, localPeerId, refresh]);
+
+  const toggle = (peerId: string) => {
+    setExpanded((prev) => {
+      const n = new Set(prev);
+      if (n.has(peerId)) n.delete(peerId); else n.add(peerId);
+      return n;
+    });
+  };
+
+  const sorted = useMemo(
+    () => [...vaults].sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '')),
+    [vaults],
+  );
+
+  return (
+    <div className="space-y-2 border-t border-foreground/10 pt-3">
+      <div className="flex items-center justify-between">
+        <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40">
+          Peer Vaults
+        </div>
+        <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
+          {sorted.length} peer{sorted.length === 1 ? '' : 's'}
+        </Badge>
+      </div>
+
+      {sorted.length === 0 ? (
+        <p className="text-xs text-foreground/35">
+          No peer vaults created.
+          {needsCoin && (
+            <span className="block mt-1 text-amber-400/70">
+              Mine a SWARM coin to enroll existing content into a vault.
+            </span>
+          )}
+        </p>
+      ) : (
+        <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+          {sorted.map((v) => {
+            const entries = Object.entries(v.index);
+            const totalBytes = entries.reduce((s, [, e]) => s + (e.length || 0), 0);
+            const isSelf = v.peerId === (localPeerId || 'self') || v.peerId === localPeerId.replace(/^peer-/, '');
+            const label = isSelf ? 'self' : `@${v.peerId.replace(/^peer-/, '').slice(0, 10)}…`;
+            const isOpen = expanded.has(v.peerId);
+            return (
+              <div key={v.peerId} className="rounded-md border border-foreground/10">
+                <button
+                  type="button"
+                  onClick={() => toggle(v.peerId)}
+                  className="w-full flex items-center gap-2 p-2 text-left hover:bg-foreground/[0.03] transition-colors"
+                >
+                  <ChevronRight className={cn('h-3.5 w-3.5 text-foreground/40 transition-transform', isOpen && 'rotate-90')} />
+                  <span className="text-xs font-mono text-foreground/70 truncate flex-1">{label}</span>
+                  <span className="text-[0.6rem] text-foreground/50 shrink-0">
+                    Coins Used: <span className="text-foreground/80">{v.coins.length}</span>
+                    {'  '}
+                    Media Files: <span className="text-foreground/80">{entries.length}</span>
+                  </span>
+                  <span className="text-[0.55rem] text-foreground/40 shrink-0 ml-2">
+                    {formatBytes(totalBytes)}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-foreground/10 p-2 space-y-1">
+                    {entries.length === 0 ? (
+                      <p className="text-[0.65rem] text-foreground/30">Vault is empty.</p>
+                    ) : (
+                      <div className="max-h-56 overflow-y-auto space-y-1">
+                        {entries.map(([hash, e]) => (
+                          <VaultEntryRow key={hash} hash={hash} entry={e} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }) {
+  const mime = entry.mime || 'unknown';
+  const label = entry.ref ? entry.ref.slice(0, 22) : hash.slice(0, 22);
+  return (
+    <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
+      {mimeIcon(mime)}
+      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70" title={hash}>
+        {label}
+      </span>
+      <span className="text-[0.55rem] text-foreground/40 shrink-0">
+        {formatBytes(entry.length || 0)}
+      </span>
+    </div>
+  );
+}
+
 function FileRow({
   file,
   onPref,
