@@ -3202,6 +3202,7 @@ export class StandaloneSwarmMesh {
         chunksServed: this._assetSyncCounters.chunksServed,
         pendingManifests: this.assetRetryTimers.size,
         activeRetries: this.assetRetryAttempts.size,
+        queuedOffline: this.pendingAssetQueue.size,
       },
   };
   }
