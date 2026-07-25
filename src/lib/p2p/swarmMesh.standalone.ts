@@ -3837,6 +3837,7 @@ export class StandaloneSwarmMesh {
     }
     this.assetRetryTimers.clear();
     this.assetRetryAttempts.clear();
+    this.pendingAssetQueue.clear();
   }
 
   private scheduleAssetRetry(manifestId: string, sourcePeerId?: string): void {
