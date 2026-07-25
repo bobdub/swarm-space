@@ -41,7 +41,8 @@ export default function Preview() {
   const [phase, setPhase] = useState<PreviewPhase>('guest-booting');
   const [hostHandle, setHostHandle] = useState<string | null>(null);
   const startedRef = useRef(false);
-  const isGuest = !user && isGuestActive();
+  const isGuest = isGuestActive() || (user as unknown as { _guest?: boolean } | null)?._guest === true;
+  const isRealUser = !!user && !isGuest;
 
   // ── Boot: provision guest identity (if needed) + start responder ──
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function Preview() {
     startContentLookupResponder();
 
     (async () => {
-      if (!user) {
+      if (!isRealUser) {
         await ensureGuestIdentity();
       }
       // Kick the mesh — for guests the freshly-minted `me` will satisfy
@@ -203,7 +204,7 @@ export default function Preview() {
 
   if (!isPreviewMode) return null;
 
-  const showInvite = !user; // guests always see the CTA — content fills in alongside
+  const showInvite = !isRealUser; // guests always see the CTA — content fills in alongside
 
   return (
     <div className="min-h-screen pb-20 bg-gradient-to-b from-background via-primary/5 to-background">
