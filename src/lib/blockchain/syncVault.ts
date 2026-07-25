@@ -5,7 +5,15 @@
 import { get, getAll, put, remove } from "@/lib/store";
 import type { SwarmCoin } from "./types";
 import { COIN_MAX_WEIGHT } from "./types";
-import { isSpendable } from "./coinSpend";
+
+/**
+ * Vault-usable predicate — any wallet-held coin that isn't already spent
+ * can serve as a container. Vaults don't consume the coin, so the spend
+ * guard doesn't apply.
+ */
+function isVaultUsable(coin: SwarmCoin): boolean {
+  return coin.status === "wallet" && coin.fillState !== "spent";
+}
 
 export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
 export const VAULT_ROLLOVER_FRACTION = 0.8;
@@ -91,7 +99,7 @@ export async function allocateVaultCoin(
   const taken = new Set(
     (await listVaults()).flatMap((v) => v.coins.map((c) => c.coinId)),
   );
-  const pick = candidateCoins.find((c) => isSpendable(c) && !taken.has(c.coinId));
+  const pick = candidateCoins.find((c) => isVaultUsable(c) && !taken.has(c.coinId));
   if (!pick) return null;
   const ref: VaultCoinRef = {
     coinId: pick.coinId,
