@@ -429,7 +429,29 @@ export interface SwarmCoin {
   sealedAt?: string;
   /** Crafted chemical payload — atoms condensed into the coin via the Forge. */
   wrappedChemicals?: { symbol: string; count: number }[];
+  // ── Media Coin flavor (Sync Vault container) ─────────────────────────
+  /** When set to "media", this coin is a Sync Vault container and is
+   *  excluded from the fungible pool, the market, the lab smelter, and
+   *  the wallet UI. Absent ⇒ regular fungible SWARM coin. */
+  kind?: "fungible" | "media";
+  /** Media coin: bytes currently engraved into this container. */
+  sealBytes?: number;
+  /** Media coin: cap after which the coin auto-seals (~100 MiB). */
+  mediaCapacityBytes?: number;
+  /** Media coin: engraved delivery targets — filled on wrap. */
+  mediaTargets?: { peerId: string; contentHashes: string[] }[];
 }
+
+// ── Media Coin Constants ───────────────────────────────────────────────
+
+/** Bytes a media coin can hold before it auto-seals. */
+export const MEDIA_COIN_CAPACITY_BYTES = 100 * 1024 * 1024;
+/** Fill fraction at which sealing kicks in. */
+export const MEDIA_COIN_SEAL_FRACTION = 0.8;
+/** SWARM required to wrap a sealed media coin (also requires a free wallet coin). */
+export const MEDIA_COIN_WRAP_FEE = 1;
+/** Cooldown between wrap attempts when the user is short. */
+export const MEDIA_COIN_WRAP_RETRY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Token payload embedded inside a SWARM coin via Literal Wrap.
