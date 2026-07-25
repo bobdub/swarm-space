@@ -1,104 +1,143 @@
 ## Goal
 
-Turn Sync Vault storage into a clear two-tier system:
+Make Media Coins the authoritative source-of-truth for content verification and serving, with:
 
-1. **Archive vault** — receives *every* completed torrent/file immediately, whether or not we know the owner peer, and whether or not the user has SWARM to wrap it.
-2. **Peer vaults** — populated from the archive by *media coins* (a new coin flavor) that are sealed at a size threshold and, when the user has SWARM, wrapped and delivered to the owning peer's vault.
+1. **Offline-safe creation** — sealed archive coins can be built from purely local, already-verified content.
+2. **Stuck-write recovery** — stalled engraves are sealed as immutable "failed archives" and retried on a fresh coin.
+3. **Zero-interruption serving** — torrents remain the fallback until a coin is `complete`, then serving flips to the coin.
+4. **Viewer-first presentation** — completed media always renders in its typed viewer, never as a raw archive blob.
 
-Media coins are a distinct, non-fungible flavor of SWARM coin: they cannot be smelted in the Lab, cannot be listed on markets, and never live in the wallet — they live inside vaults.
+Nothing in this plan touches WebRTC, mesh transport, mining, or the existing wallet coin lifecycle.
 
 ---
 
 ## Behavior rules
 
-- **Archive-first ingest.** Every completed item lands in an archive vault entry with `name`, `mime`, `size`, `contentHash`, `ownerPeerId?`, `ref`, and a new `firstSeenAt` timestamp. No SWARM required.
-- **Seed pull.** Seeding reads bytes through vault entries (existing `vaultLookup` path); archive entries are valid sources.
-- **Seal threshold.** A media coin fills until `fill ≥ 0.8 * capacityBytes` OR a manual "Seal now" is requested, then flips to `sealed`. Sealed media coins are immutable.
-- **Wrap gate.** Sealing attempts to wrap: if the user holds ≥ `MEDIA_COIN_WRAP_FEE` SWARM, the coin is engraved with `ownerPeerId` targets and its entries are moved from the archive vault to the matching peer vault (auto-creating the peer vault if missing). If not enough SWARM, the coin stays in the archive vault and re-checks on a **24 h** cadence.
-- **Unknown-owner fallback.** If an entry has no `ownerPeerId` (old torrents, no creator metadata), the media coin stays attached to the *archive vault itself*. When later wrapped, it earns an `Archived` badge that replaces the plain "Archive" label; entries remain in the archive vault (they have no peer to route to).
-- **80% reuse rule.** When enrolling an item and a media coin is already loaded (bound, not sealed) with < 80% fill, reuse it; only allocate a new one at ≥ 80%.
-- **Guardrails.**
-  - Media coins are excluded from `coinWrap.ts` pool selection (they are not fungible wrappers).
-  - Media coins are excluded from `coinMarket.ts` listing eligibility.
-  - Lab smelting (`labMint` / remix inventory) filters them out.
-  - They never appear in the wallet UI; only in the Vaults panel.
-- **Timestamp integrity.** Torrent snapshots gain `completedAt`. Vault entries gain `firstSeenAt` and `sealedAt?`. Resync/refresh checks compare `name + completedAt` before treating a hash as "the same" file so a rename or re-encode doesn't get silently overwritten.
+### Media Coin lifecycle states (new, tracked on `VaultCoinRef`)
+
+```text
+filling  →  encrypting  →  writing  →  sealed  →  wrapped        (happy path)
+                    ↘  stalled  →  sealed(failed=true)             (stuck path)
+```
+
+- `filling` — active receiver; still accepting entries.
+- `encrypting` / `writing` — sealed threshold hit, engrave in progress.
+- `sealed` — immutable, ready for wrap sweep.
+- `wrapped` — engraved onto a wallet coin (existing state).
+- `failed=true` — sealed but incomplete; excluded from serving, retained for audit.
+
+### Migration (existing content → coin)
+
+1. **Pre-check stuck state.** Before enrolling anything, scan for coins in `encrypting`/`writing` whose `lastProgressAt` is older than `STUCK_WRITE_MS` (2 min). Run `resyncStalled()` first — one retry pass to complete recent stalls before allocating new coins.
+2. **Enroll** via existing `enrollContent` (unchanged happy path).
+3. **Torrent stays authoritative** for that content until the coin reports `sealed && !failed` and the underlying bytes verify against the manifest.
+4. **Flip on completion.** `vaultLookup.resolveFromVaults` becomes the primary read path for any hash whose coin is `sealed && !failed` (currently exists but is unused; wire it into the content bridge).
+5. **Peer-associated placement.** If `ownerPeerId` is known at seal time, entries move to `archive:<peer>` on wrap (existing logic). Global archive keeps its `Archived` badge.
+
+### Offline creation
+
+- Enrollment already runs against local IndexedDB — no P2P calls in `syncVault.ts`/`vaultEnroll.ts`. We only need to **stop gating** offline runs and add reconnect announcement.
+- Add `mediaCoinReconnectSync.ts`: listens for `p2p-online` / network status events and, on transition offline→online, calls `announceLocalCoins()` and `runWrapSweep()`.
+- If a hash referenced by an entry is missing from local storage, mark the entry `awaitingSync: true` and skip seal until bytes arrive (guards against sealing an empty shell).
+
+### Stuck-write detection & recovery (new `mediaCoinStuckWatch.ts`)
+
+- Every 30 s, scan `filling`/`encrypting`/`writing` coins. For each:
+  - Track `lastProgressAt` (bump on every `recordVaultEntry` or engrave step).
+  - If `now - lastProgressAt > STUCK_WRITE_MS` (2 min) AND `fillBytes > 0` AND coin is not `sealed`:
+    1. Mark `sealed = true, failed = true, sealedAt = now`.
+    2. Detach the affected entries from this coin (`stalledFromCoinId` breadcrumb kept for audit).
+    3. Requeue each detached entry through `enrollContent` from scratch — never resume mid-percentage.
+    4. Emit `media-coin-stalled` bus event for UI toast.
+- Failed coins never wrap and never serve; wrap sweep and lookup filter `failed`.
+
+### Content serving priority (new `contentResolver.ts` — thin façade)
+
+```text
+1. Media Coin (sealed && !failed && verified)   → serve via vaultLookup
+2. Torrent / file transfer                       → existing path
+3. Peer sync request                             → existing path
+4. Retry coin creation                           → enqueue enrollContent
+```
+
+- Callers that currently bypass vaults (image/video/audio players in `WallPostBillboard.tsx`, blog hero, feed media) switch to `resolveContent(hash, { mime })` which returns `{ bytes, mime, source }`.
+- Presentation rule: if `mime` starts with `image/`, `video/`, `audio/`, or is a supported embed, mount the typed viewer with the resolved bytes/blob URL. Only fall back to a raw-download button when no viewer matches.
+
+### Guards / invariants (extend existing)
+
+- `attemptWrapMediaCoin` refuses `failed` coins.
+- `listSealedMediaCoins` filters `failed`.
+- `resolveFromVaults` refuses entries whose coin is `failed` or not yet `sealed && verified`.
+- `coinWrap.ts`, `coinMarket.ts`, `labMint.ts` already exclude `kind === "media"`; verify the `failed` bit doesn't leak into wallet views either.
 
 ---
 
 ## Technical changes
 
-### 1. Type additions (`src/lib/blockchain/types.ts`)
-- `SwarmCoin.kind?: "fungible" | "media"` (absence = fungible for legacy compat).
-- `SwarmCoin.sealBytes?: number`, `SwarmCoin.mediaCapacityBytes?: number`.
-- `SwarmCoin.mediaTargets?: { peerId: string; contentHashes: string[] }[]` — engraved on wrap.
-- New constants: `MEDIA_COIN_CAPACITY_BYTES = 100 * 1024 * 1024`, `MEDIA_COIN_SEAL_FRACTION = 0.8`, `MEDIA_COIN_WRAP_FEE = 1` (SWARM), `MEDIA_COIN_WRAP_RETRY_MS = 24 * 3600 * 1000`.
+### 1. `src/lib/blockchain/syncVault.ts`
+- Extend `VaultCoinRef` with `phase?: "filling" | "encrypting" | "writing" | "sealed"`, `failed?: boolean`, `lastProgressAt?: string`, `stalledFromCoinId?: string`.
+- Extend `VaultIndexEntry` with `awaitingSync?: boolean`.
+- `recordVaultEntry` bumps `lastProgressAt` on the target coin.
+- New helpers: `markCoinPhase(peerId, coinId, phase)`, `markCoinFailed(peerId, coinId)`, `detachEntriesFromCoin(peerId, coinId): VaultIndexEntry[]`.
 
-### 2. Vault schema (`src/lib/blockchain/syncVault.ts`)
-- Extend `VaultCoinRole` with `"media"`.
-- `VaultCoinRef` gains `sealed?: boolean`, `sealedAt?: string`, `wrapped?: boolean`, `wrappedBadge?: "archived"`, `lastWrapAttemptAt?: string`.
-- `VaultIndexEntry` gains `firstSeenAt: string`, `completedAt?: string`.
-- New helpers:
-  - `getOrCreateMediaCoin(peerId)` — returns the active unsealed media coin, allocating a fresh one if none or the current is ≥ 80% full.
-  - `sealMediaCoin(peerId, coinId)` — sets `sealed:true, sealedAt`.
-  - `attemptWrapMediaCoin(peerId, coinId, userSwarmBalance)` — if balance ≥ fee, mark wrapped, move entries to the target peer vault (creating it if needed), stamp `wrappedBadge:"archived"` when the source was the archive vault.
+### 2. `src/lib/blockchain/mediaCoinStuckWatch.ts` (new)
+- 30 s interval + `visibilitychange` kicker.
+- `STUCK_WRITE_MS = 120_000`.
+- Uses `listVaults` → filter unsealed → apply rule → seal-failed + requeue.
+- Exports `startStuckWatch()`.
 
-### 3. Enrolment (`src/lib/blockchain/vaultEnroll.ts`)
-- Replace current `canonical/receiver/archive` selection with:
-  1. Always ensure an archive vault (`archive:global` if `ownerPeerId` is unknown, else `archive:<peer>`).
-  2. Call `getOrCreateMediaCoin` on that archive vault.
-  3. Record the entry with `firstSeenAt = now`, `completedAt = input.completedAt ?? now`.
-  4. If coin fill ≥ 80% after write, call `sealMediaCoin` and enqueue a wrap attempt.
+### 3. `src/lib/blockchain/mediaCoinReconnectSync.ts` (new)
+- Subscribes to existing `p2p-connection-state` bus.
+- On offline→online: broadcast local sealed-coin manifests + trigger `runWrapSweep`.
+- No-op if already online at boot.
 
-### 4. Wrap scheduler (new `src/lib/blockchain/mediaCoinWrapSweep.ts`)
-- Every ~5 min (and on `blockchain-transaction` deposit events), scan sealed-but-unwrapped media coins. For each, look up wallet SWARM (via `getUserSwarmBalance`). If sufficient, run `attemptWrapMediaCoin`; on shortfall, stamp `lastWrapAttemptAt = now` and skip until `MEDIA_COIN_WRAP_RETRY_MS` elapses.
-- Booted from `src/main.tsx` next to `startVaultIngest` / `enforceVaultSeeding`.
+### 4. `src/lib/blockchain/contentResolver.ts` (new)
+- `resolveContent(hash, hint?) → { bytes, mime, source: "coin" | "torrent" | "peer" | "pending" }`.
+- Order: `resolveFromVaults` → existing torrent/file lookup (`getChunk` / `fileTransfers`) → peer request → pending.
+- Skips coin path when phase !== `sealed` or `failed`.
 
-### 5. Torrent metadata (`src/lib/p2p/torrentSwarm.standalone.ts`)
-- Persist `completedAt` on the snapshot alongside existing `name`, `mimeType`, `creatorId`.
-- `TorrentSwarmPanel.tsx` passes `completedAt` through to `enrollContent`.
+### 5. `src/lib/blockchain/vaultLookup.ts`
+- Add coin-state gate: return `null` when the entry's coin is `failed` or not yet `sealed`.
 
-### 6. Guards
-- `coinWrap.ts` `getPoolCoins` filter: `c.kind !== "media"`.
-- `coinMarket.ts` list-creation guard: reject coins with `kind === "media"`.
-- `labMint.ts` / remix inventory selectors: exclude `kind === "media"`.
-- Wallet balance/coin listings (`AssetsTab`, wallet coin lists): exclude `kind === "media"`.
+### 6. `src/lib/blockchain/vaultEnroll.ts`
+- Call `resyncStalled()` (from stuck watch) as first step.
+- Set `phase: "filling"` on new coin; bump `lastProgressAt`.
 
-### 7. UI (`TorrentSwarmPanel.tsx`)
-- Media coin rows show a **Sealed** chip once sealed, a **Wrapped** chip once wrapped, and an **Archived** badge (replaces plain "Archive" label) when the wrap engraves owner-less content.
-- Retry countdown next to sealed-unwrapped rows: `Retries in Xh Ym` based on `lastWrapAttemptAt`.
-- The existing "Promote archive" button becomes "Wrap sealed coins" and calls `attemptWrapMediaCoin` for each sealed-unwrapped coin now.
+### 7. `src/lib/blockchain/mediaCoinWrapSweep.ts`
+- Filter out `failed` coins in `listSealedMediaCoins` consumer.
 
-### 8. Tests (`src/lib/blockchain/__tests__/syncVault.test.ts` extension + new `mediaCoin.test.ts`)
-- Enrolment writes to archive vault when no wallet SWARM.
-- Media coin seals at 80% fill; subsequent enrolments start a fresh coin.
-- Sealed coin wrapping with sufficient SWARM moves entries to the target peer vault and stamps `wrappedBadge:"archived"` only when source was archive.
-- Guards: media coins never returned from `getPoolCoins`, market list creation, or lab smelt selectors.
+### 8. UI — `src/components/p2p/dashboard/TorrentSwarmPanel.tsx`
+- New chips: `Encrypting`, `Writing`, `Failed archive`, `Awaiting sync`.
+- Grouped "Failed archives" collapsible section under Completed.
+- Toast on `media-coin-stalled` event with "View coin" link.
+
+### 9. Viewer routing — surgical, presentation-only
+- `src/components/world/WallPostBillboard.tsx`, `BlogPostCard`, feed media components: switch content reads to `resolveContent`. Keep existing viewer components; just feed them the resolved bytes/blob URL. Raw-archive fallback only when `mime` is unknown.
+
+### 10. Boot wiring — `src/main.tsx`
+- Add `startStuckWatch()` and `startReconnectSync()` next to `startWrapSweep()`.
+
+### 11. Tests
+- `mediaCoinStuckWatch.test.ts` — stalled coin gets sealed+failed, entries requeue onto a fresh coin.
+- `contentResolver.test.ts` — priority order (coin > torrent > peer > pending), failed coin is skipped.
+- Extend `syncVault.test.ts` — `awaitingSync` blocks seal, `lastProgressAt` bumped on record.
 
 ---
 
 ## Files touched
 
-- `src/lib/blockchain/types.ts` — kind/seal/media fields + constants.
-- `src/lib/blockchain/syncVault.ts` — media coin helpers, entry timestamps.
-- `src/lib/blockchain/vaultEnroll.ts` — archive-first + media coin flow.
-- `src/lib/blockchain/mediaCoinWrapSweep.ts` — new, 5 min + event-driven wrap.
-- `src/lib/blockchain/coinWrap.ts`, `coinMarket.ts`, `src/lib/remix/labMint.ts` — media-coin exclusions.
-- `src/lib/p2p/torrentSwarm.standalone.ts` — persist `completedAt`.
-- `src/components/p2p/dashboard/TorrentSwarmPanel.tsx` — chips, badges, rename button.
-- `src/components/wallet/AssetsTab.tsx` — hide `kind === "media"` coins.
-- `src/main.tsx` — schedule the wrap sweep.
-- Tests as above.
+- Modify: `syncVault.ts`, `vaultEnroll.ts`, `vaultLookup.ts`, `mediaCoinWrapSweep.ts`, `TorrentSwarmPanel.tsx`, `WallPostBillboard.tsx`, `main.tsx`, plus 2–3 media-consuming feed/blog components.
+- Add: `mediaCoinStuckWatch.ts`, `mediaCoinReconnectSync.ts`, `contentResolver.ts`, tests.
 
 ## Not touched
 
-Torrent transport, chunk fetch, existing SWARM coin mining lifecycle, wallet balance math, creator vault, walled posts, encryption pipeline.
+Mesh transport, WebRTC, mining, wallet math, existing torrent chunker, encryption pipeline, creator vault, walled posts.
 
 ## Acceptance
 
-1. Every completed torrent/file appears in a vault entry within one refresh, even with 0 SWARM.
-2. Once ~80 MB of media has accumulated on a peer's stream, its media coin flips to **Sealed**.
-3. Depositing enough SWARM (≥ 1) auto-wraps sealed coins on the next sweep or event; entries migrate to the owner-peer vault (or stay in archive with an `Archived` badge if owner is unknown).
-4. With 0 SWARM, sealed coins wait and retry once per 24 h; the UI shows the countdown.
-5. Media coins do not appear in wallet, market, or lab smelt selectors, and `coinWrap` never picks one as a fungible wrapper.
-6. Renamed/re-encoded files (different `completedAt`) create a new vault entry instead of overwriting the prior one.
+1. Offline: enrolling a locally-complete file produces a `sealed` media coin without a live P2P connection.
+2. A coin whose `writing` phase stalls >2 min is sealed as `failed`, its entries requeue on a new coin, and torrent serving is uninterrupted throughout.
+3. Once a coin reports `sealed && !failed`, subsequent reads for that hash come from the vault path; torrent stays as fallback only.
+4. Media whose MIME maps to a known viewer never renders as a raw archive download.
+5. Failed coins never appear in wrap sweep, market, wallet, or serving; they remain visible in the panel under "Failed archives".
+6. On reconnect after offline creation, new local coins are announced and the wrap sweep runs.

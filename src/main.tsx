@@ -72,3 +72,19 @@ scheduleIdle(() => {
     .then((m) => m.reconcileMediaCoins())
     .catch((err) => console.warn('[main] media coin reconcile failed', err));
 });
+
+// ── Stuck-write watch — seals stalled media coins as failed archives
+// and requeues their entries onto fresh coins. 30 s cadence.
+scheduleIdle(() => {
+  import('./lib/blockchain/mediaCoinStuckWatch')
+    .then((m) => m.startStuckWatch())
+    .catch((err) => console.warn('[main] media coin stuck watch failed', err));
+});
+
+// ── Reconnect sync — announces offline-created coins + kicks a wrap
+// sweep the moment connectivity returns.
+scheduleIdle(() => {
+  import('./lib/blockchain/mediaCoinReconnectSync')
+    .then((m) => m.startReconnectSync())
+    .catch((err) => console.warn('[main] media coin reconnect sync failed', err));
+});

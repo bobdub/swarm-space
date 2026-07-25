@@ -35,6 +35,14 @@ export interface VaultCoinRef {
   wrapped?: boolean;
   wrappedBadge?: "archived";
   lastWrapAttemptAt?: string;
+  /** Lifecycle phase for stuck-write detection. */
+  phase?: "filling" | "encrypting" | "writing" | "sealed";
+  /** True when this coin was sealed as a failed archive (never serves, never wraps). */
+  failed?: boolean;
+  /** Bumped on every recordVaultEntry / phase step. Drives stuck detection. */
+  lastProgressAt?: string;
+  /** Breadcrumb: original coin this ref was reallocated from after a stall. */
+  stalledFromCoinId?: string;
 }
 
 export interface VaultIndexEntry {
@@ -48,6 +56,9 @@ export interface VaultIndexEntry {
   pending?: boolean;
   firstSeenAt?: string;
   completedAt?: string;
+  /** True when the underlying bytes aren't yet local — enrolment created a
+   *  placeholder; seal is blocked until sync completes. */
+  awaitingSync?: boolean;
 }
 
 export interface SyncVault {
@@ -263,7 +274,7 @@ export async function listSealedMediaCoins(): Promise<Array<{ peerId: string; re
   const out: Array<{ peerId: string; ref: VaultCoinRef }> = [];
   for (const v of await listVaults()) {
     for (const c of v.coins) {
-      if (c.role === "media" && c.sealed && !c.wrapped) out.push({ peerId: v.peerId, ref: c });
+      if (c.role === "media" && c.sealed && !c.wrapped && !c.failed) out.push({ peerId: v.peerId, ref: c });
     }
   }
   return out;
@@ -283,7 +294,7 @@ export async function attemptWrapMediaCoin(
   const vault = await getVault(peerId);
   if (!vault) return false;
   const ref = vault.coins.find((c) => c.coinId === coinId);
-  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped) return false;
+  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped || ref.failed) return false;
 
   // Rewrite every entry that lived on the virtual media coin.
   const contentHashes: string[] = [];
@@ -317,6 +328,76 @@ export async function markWrapAttempt(peerId: string, coinId: string): Promise<v
   if (!c) return;
   c.lastWrapAttemptAt = new Date().toISOString();
   await saveVault(v);
+}
+
+// ── Phase / stuck-write helpers ────────────────────────────────────────
+
+export async function markCoinPhase(
+  peerId: string,
+  coinId: string,
+  phase: NonNullable<VaultCoinRef["phase"]>,
+): Promise<void> {
+  const v = await getVault(peerId);
+  if (!v) return;
+  const c = v.coins.find((x) => x.coinId === coinId);
+  if (!c || c.role !== "media") return;
+  c.phase = phase;
+  c.lastProgressAt = new Date().toISOString();
+  if (phase === "sealed" && !c.sealed) {
+    c.sealed = true;
+    c.sealedAt = c.sealedAt ?? new Date().toISOString();
+  }
+  await saveVault(v);
+}
+
+/**
+ * Seal a media coin as an immutable failed archive. Never wraps, never
+ * serves; kept for auditing.
+ */
+export async function markCoinFailed(peerId: string, coinId: string): Promise<void> {
+  const v = await getVault(peerId);
+  if (!v) return;
+  const c = v.coins.find((x) => x.coinId === coinId);
+  if (!c || c.role !== "media" || c.wrapped) return;
+  c.failed = true;
+  c.sealed = true;
+  c.phase = "sealed";
+  c.sealedAt = c.sealedAt ?? new Date().toISOString();
+  await saveVault(v);
+}
+
+/**
+ * Detach every entry that currently points at coinId, returning them so
+ * the caller can requeue enrolment onto a fresh coin. Entries are removed
+ * from the vault index (breadcrumbs live on the failed ref via `stalledFromCoinId`).
+ */
+export async function detachEntriesFromCoin(
+  peerId: string,
+  coinId: string,
+): Promise<Array<{ contentHash: string; entry: VaultIndexEntry }>> {
+  const v = await getVault(peerId);
+  if (!v) return [];
+  const detached: Array<{ contentHash: string; entry: VaultIndexEntry }> = [];
+  for (const [hash, entry] of Object.entries(v.index)) {
+    if (entry.coinId !== coinId) continue;
+    detached.push({ contentHash: hash, entry });
+    delete v.index[hash];
+  }
+  if (detached.length) await saveVault(v);
+  return detached;
+}
+
+/**
+ * List every unsealed media coin across all vaults for stuck detection.
+ */
+export async function listUnsealedMediaCoins(): Promise<Array<{ peerId: string; ref: VaultCoinRef }>> {
+  const out: Array<{ peerId: string; ref: VaultCoinRef }> = [];
+  for (const v of await listVaults()) {
+    for (const c of v.coins) {
+      if (c.role === "media" && !c.sealed && !c.failed) out.push({ peerId: v.peerId, ref: c });
+    }
+  }
+  return out;
 }
 
 /**
@@ -391,7 +472,11 @@ export async function recordVaultEntry(
   const vault = await ensureVault(peerId);
   vault.index[contentHash] = { ...entry, storedAt: new Date().toISOString() };
   const coin = vault.coins.find((c) => c.coinId === entry.coinId);
-  if (coin) coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + entry.length);
+  if (coin) {
+    coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + entry.length);
+    coin.lastProgressAt = new Date().toISOString();
+    if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
+  }
   await saveVault(vault);
 }
 

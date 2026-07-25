@@ -10,7 +10,9 @@ import {
   getOrCreateMediaCoin,
   sealMediaCoin,
   recordVaultEntry,
+  markCoinPhase,
 } from "./syncVault";
+import { resyncStalled } from "./mediaCoinStuckWatch";
 
 export interface EnrollInput {
   contentHash: string;
@@ -27,6 +29,10 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   const existing = await findVaultEntry(input.contentHash);
   if (existing) return "skipped";
 
+  // Pre-check: seal-fail any coin whose engrave stalled before we
+  // allocate a fresh one. Idempotent + guarded against reentry.
+  try { await resyncStalled(); } catch { /* best-effort */ }
+
   // Archive-first: unknown owner => global archive vault; known peer =>
   // that peer's archive vault. Media coin lives inside the vault until
   // the wrap sweep engraves a wallet coin onto it.
@@ -40,6 +46,10 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   // triggers a pre-engrave seal + fresh coin. Files never split.
   const ref = await getOrCreateMediaCoin(vaultKey, size);
   const now = new Date().toISOString();
+
+  // Mark phase "writing" for the duration of this engrave so the stuck
+  // watch can distinguish quiet coins from actively-writing ones.
+  try { await markCoinPhase(vaultKey, ref.coinId, "writing"); } catch { /* noop */ }
 
   await recordVaultEntry(vaultKey, input.contentHash, {
     coinId: ref.coinId,
@@ -59,6 +69,9 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   // mid-engrave.
   if (size >= MEDIA_COIN_CAPACITY_BYTES) {
     try { await sealMediaCoin(vaultKey, ref.coinId); } catch { /* best-effort */ }
+  } else {
+    // Return to a quiescent "filling" phase after a successful write.
+    try { await markCoinPhase(vaultKey, ref.coinId, "filling"); } catch { /* noop */ }
   }
   return "archived";
 }
