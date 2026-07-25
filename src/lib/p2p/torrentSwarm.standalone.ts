@@ -167,6 +167,12 @@ function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: Torren
             receivedChunks: state === "seeding" || state === "complete" ? manifest.totalChunks : 0,
             totalSize: manifest.totalSize,
             persistedAt: Date.now(),
+            // Vault-enrolment metadata — without these the Sync Vault
+            // fallback can't derive real filename / owning peer after a
+            // reload, and every entry collapses to "self / <manifestId>".
+            name: manifest.name,
+            mimeType: manifest.mimeType,
+            creatorId: manifest.creatorId,
           },
         });
         tx.oncomplete = () => {
