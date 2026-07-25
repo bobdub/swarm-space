@@ -444,10 +444,12 @@ export interface SwarmCoin {
 
 // ── Media Coin Constants ───────────────────────────────────────────────
 
-/** Bytes a media coin can hold before it auto-seals. */
-export const MEDIA_COIN_CAPACITY_BYTES = 100 * 1024 * 1024;
-/** Fill fraction at which sealing kicks in. */
-export const MEDIA_COIN_SEAL_FRACTION = 0.8;
+/** Bytes a media coin can hold before it auto-seals. Hard cap = 500 MiB. */
+export const MEDIA_COIN_CAPACITY_BYTES = 500 * 1024 * 1024;
+/** Fill fraction at which sealing kicks in (≈350 MiB of 500 MiB). */
+export const MEDIA_COIN_SEAL_FRACTION = 0.7;
+/** Fill fraction where the UI flags a coin as "approaching seal" (≈300 MiB). */
+export const MEDIA_COIN_APPROACHING_FRACTION = 0.6;
 /** SWARM required to wrap a sealed media coin (also requires a free wallet coin). */
 export const MEDIA_COIN_WRAP_FEE = 1;
 /** Cooldown between wrap attempts when the user is short. */

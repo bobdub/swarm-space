@@ -21,6 +21,11 @@ import {
 } from '@/lib/blockchain/vaultMigration';
 import { getAll } from '@/lib/store';
 import type { SwarmCoin } from '@/lib/blockchain/types';
+import {
+  MEDIA_COIN_CAPACITY_BYTES,
+  MEDIA_COIN_SEAL_FRACTION,
+  MEDIA_COIN_APPROACHING_FRACTION,
+} from '@/lib/blockchain/types';
 import { ChevronRight, WifiOff } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
@@ -459,6 +464,7 @@ export function TorrentSwarmPanel() {
         completedFiles={complete}
         persistedTorrents={persistedTorrents}
         localPeerId={localPeerId}
+        incomingCount={incomplete.length}
       />
 
       {files.length === 0 && totalActivity === 0 && !hasTorrents && (
@@ -488,14 +494,17 @@ function PeerVaultsSection({
   completedFiles,
   persistedTorrents,
   localPeerId,
+  incomingCount,
 }: {
   completedFiles: FileTransferInfo[];
   persistedTorrents: PersistedTorrentInfo[];
   localPeerId: string;
+  incomingCount: number;
 }) {
   const [vaults, setVaults] = useState<SyncVault[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [needsCoin, setNeedsCoin] = useState(false);
+  const [lastCheck, setLastCheck] = useState<{ enrolled: number; skipped: number } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -553,6 +562,7 @@ function PeerVaultsSection({
       try {
         const r = await migrateCompletedIntoVaults(candidates);
         setNeedsCoin(r.needsCoin);
+        setLastCheck({ enrolled: r.enrolled, skipped: r.skipped });
         if (r.enrolled > 0) await refresh();
       } catch (err) {
         console.warn('[PeerVaultsSection] enrol failed', err);
@@ -588,6 +598,25 @@ function PeerVaultsSection({
     [vaults],
   );
 
+  // Cross-vault file counts — Archived (media coin, unwrapped), Wrapped
+  // (media coin, wrapped), plus "Incoming" from active downloads.
+  const { archivedCount, wrappedCount, totalEntries } = useMemo(() => {
+    let archived = 0;
+    let wrapped = 0;
+    let total = 0;
+    for (const v of vaults) {
+      const coinMap = new Map(v.coins.map((c) => [c.coinId, c]));
+      for (const e of Object.values(v.index)) {
+        total += 1;
+        const c = coinMap.get(e.coinId);
+        if (!c) continue;
+        if (c.role === 'media' && c.wrapped) wrapped += 1;
+        else if (c.role === 'media' || e.coinId.startsWith('archive:') || e.pending) archived += 1;
+      }
+    }
+    return { archivedCount: archived, wrappedCount: wrapped, totalEntries: total };
+  }, [vaults]);
+
   return (
     <div className="space-y-2 border-t border-foreground/10 pt-3">
       <div className="flex items-center justify-between">
@@ -597,6 +626,24 @@ function PeerVaultsSection({
         <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
           {sorted.length} peer{sorted.length === 1 ? '' : 's'}
         </Badge>
+      </div>
+
+      {/* Cross-vault file counts */}
+      <div className="flex flex-wrap gap-1.5 text-[0.55rem]">
+        <span className="rounded border border-amber-500/30 bg-amber-500/5 px-1.5 py-0.5 text-amber-300/80 uppercase tracking-widest">
+          Archived <span className="text-amber-200">{archivedCount}</span>
+        </span>
+        <span className="rounded border border-emerald-500/30 bg-emerald-500/5 px-1.5 py-0.5 text-emerald-300/80 uppercase tracking-widest">
+          Wrapped <span className="text-emerald-200">{wrappedCount}</span>
+        </span>
+        <span className="rounded border border-sky-500/30 bg-sky-500/5 px-1.5 py-0.5 text-sky-300/80 uppercase tracking-widest">
+          Incoming <span className="text-sky-200">{incomingCount}</span>
+        </span>
+        {lastCheck && (
+          <span className="rounded border border-foreground/15 px-1.5 py-0.5 text-foreground/50 uppercase tracking-widest" title="Last sweep">
+            Checked {totalEntries} · +{lastCheck.enrolled} new · {lastCheck.skipped} dedup
+          </span>
+        )}
       </div>
 
       {sorted.length === 0 ? (
@@ -649,6 +696,40 @@ function PeerVaultsSection({
                 </button>
                 {isOpen && (
                   <div className="border-t border-foreground/10 p-2 space-y-1">
+                    {/* Coin math — one row per coin, showing real fill vs 500 MiB cap */}
+                    {v.coins.length > 0 && (
+                      <div className="space-y-1 pb-1">
+                        {v.coins.map((c) => {
+                          const cap = Number.isFinite(c.capacityBytes) ? c.capacityBytes : MEDIA_COIN_CAPACITY_BYTES;
+                          const pct = cap > 0 ? Math.min(100, (c.fillBytes / cap) * 100) : 0;
+                          const frac = cap > 0 ? c.fillBytes / cap : 0;
+                          const state = c.wrapped
+                            ? 'Wrapped'
+                            : c.sealed
+                              ? 'Sealed'
+                              : frac >= MEDIA_COIN_SEAL_FRACTION
+                                ? 'Sealing'
+                                : frac >= MEDIA_COIN_APPROACHING_FRACTION
+                                  ? 'Approaching'
+                                  : 'Filling';
+                          const tone =
+                            state === 'Wrapped' ? 'text-emerald-300 border-emerald-500/30'
+                            : state === 'Sealed' || state === 'Sealing' ? 'text-amber-300 border-amber-500/30'
+                            : state === 'Approaching' ? 'text-sky-300 border-sky-500/30'
+                            : 'text-foreground/50 border-foreground/15';
+                          const short = c.coinId.length > 20 ? c.coinId.slice(0, 12) + '…' + c.coinId.slice(-5) : c.coinId;
+                          return (
+                            <div key={c.coinId} className="flex items-center gap-2 text-[0.55rem]">
+                              <span className="font-mono text-foreground/50 truncate flex-1" title={c.coinId}>{short}</span>
+                              <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', tone)}>{state}</span>
+                              <span className="text-foreground/50 shrink-0 tabular-nums">
+                                {formatBytes(c.fillBytes)} / {Number.isFinite(cap) ? formatBytes(cap) : '∞'} ({pct.toFixed(0)}%)
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     {entries.length === 0 ? (
                       <p className="text-[0.65rem] text-foreground/30">Vault is empty.</p>
                     ) : (
