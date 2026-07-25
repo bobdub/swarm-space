@@ -31,14 +31,12 @@ scheduleIdle(() => {
 scheduleIdle(() => {
   Promise.all([
     import('./lib/blockchain/vaultIngest'),
-    import('./lib/blockchain/mediaCoin.standalone'),
+    import('./lib/store'),
   ])
-    .then(([ingest, media]) => {
-      const engine = (media as unknown as { getMediaCoinEngine?: () => { getCoins?: () => unknown[] } }).getMediaCoinEngine?.();
+    .then(([ingest, store]) => {
       ingest.startVaultIngest(async () => {
         try {
-          const coins = engine?.getCoins?.() ?? [];
-          return coins as never;
+          return await store.getAll('swarmCoins');
         } catch {
           return [];
         }
