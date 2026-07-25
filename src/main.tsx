@@ -56,3 +56,11 @@ scheduleIdle(() => {
     })
     .catch((err) => console.warn('[main] vault seeder failed', err));
 });
+
+// ── Media Coin wrap sweep — promotes sealed archive coins onto real
+// wallet coins whenever the user has enough SWARM. 5 min + on tx events.
+scheduleIdle(() => {
+  import('./lib/blockchain/mediaCoinWrapSweep')
+    .then((m) => m.startWrapSweep())
+    .catch((err) => console.warn('[main] media coin wrap sweep failed', err));
+});

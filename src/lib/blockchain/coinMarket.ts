@@ -289,6 +289,7 @@ export async function listCoinForSale(params: {
   if (!coin) throw new Error("Coin not found in your wallet.");
   if (coin.ownerId !== sellerId) throw new Error("You do not own this coin.");
   if (coin.status !== "wallet") throw new Error("This coin is not in your wallet.");
+  if (coin.kind === "media") throw new Error("Media coins are Sync Vault containers and cannot be listed.");
 
   // Tier gate — enforce max open listings for this seller based on pool size.
   const pool = await getRewardPool();

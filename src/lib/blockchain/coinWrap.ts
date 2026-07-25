@@ -44,7 +44,8 @@ function shuffle<T>(arr: T[]): T[] {
 
 async function getPoolCoins(): Promise<SwarmCoin[]> {
   const all = await getAll<SwarmCoin>("swarmCoins");
-  return all.filter((c) => c.status === "pool");
+  // Media coins are Sync Vault containers — never usable as fungible wrappers.
+  return all.filter((c) => c.status === "pool" && c.kind !== "media");
 }
 
 async function saveCoin(coin: SwarmCoin): Promise<void> {
