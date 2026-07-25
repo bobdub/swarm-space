@@ -208,6 +208,7 @@ export interface AssetSyncStats {
   chunksServed: number;
   pendingManifests: number;
   activeRetries: number;
+  queuedOffline?: number;
 }
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
@@ -370,6 +371,8 @@ export class StandaloneSwarmMesh {
   private pendingAssetRequests = new Map<string, PendingAssetRequest>();
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
+  /** Manifests parked while offline — drained when any peer connects. */
+  private pendingAssetQueue = new Map<string, string | undefined>();
   private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
   /** Tracks which peers are seeding which files (manifestId → Set of peerIds) */
   private fileSeeders = new Map<string, Set<string>>();
@@ -2038,6 +2041,9 @@ export class StandaloneSwarmMesh {
       // Exchange content inventories
       this.sendContentInventory(conn);
 
+      // Soft-retry drain: any manifests parked while offline now have a peer.
+      this.drainPendingAssetQueue();
+
       // Send our profile to the peer
       this.sendProfileExchange(conn);
 
@@ -3197,6 +3203,7 @@ export class StandaloneSwarmMesh {
         chunksServed: this._assetSyncCounters.chunksServed,
         pendingManifests: this.assetRetryTimers.size,
         activeRetries: this.assetRetryAttempts.size,
+        queuedOffline: this.pendingAssetQueue.size,
       },
   };
   }
@@ -3835,6 +3842,7 @@ export class StandaloneSwarmMesh {
     }
     this.assetRetryTimers.clear();
     this.assetRetryAttempts.clear();
+    this.pendingAssetQueue.clear();
   }
 
   private scheduleAssetRetry(manifestId: string, sourcePeerId?: string): void {
@@ -3844,6 +3852,16 @@ export class StandaloneSwarmMesh {
 
     // Skip if previously exhausted (persisted across refreshes)
     if (getExhaustedRetries().has(manifestId)) {
+      return;
+    }
+
+    // Soft-retry: while the mesh is offline, park the request instead of
+    // burning attempts against dead peers. drainPendingAssetQueue() picks
+    // it up as soon as any connection lands.
+    if (this.connections.size === 0) {
+      if (!this.pendingAssetQueue.has(manifestId)) {
+        this.pendingAssetQueue.set(manifestId, sourcePeerId);
+      }
       return;
     }
 
@@ -3858,9 +3876,25 @@ export class StandaloneSwarmMesh {
     this.assetRetryAttempts.set(manifestId, attempt);
     const timer = setTimeout(() => {
       this.assetRetryTimers.delete(manifestId);
+      // Connection may have dropped while the timer was pending — re-check.
+      if (this.connections.size === 0) {
+        this.pendingAssetQueue.set(manifestId, sourcePeerId);
+        return;
+      }
       void this.ensurePostAssets([manifestId], sourcePeerId);
     }, ASSET_RETRY_INTERVAL_MS);
     this.assetRetryTimers.set(manifestId, timer);
+  }
+
+  /** Fire parked retries once at least one peer is connected. */
+  private drainPendingAssetQueue(): void {
+    if (this.pendingAssetQueue.size === 0) return;
+    if (this.connections.size === 0) return;
+    const drained = Array.from(this.pendingAssetQueue.entries());
+    this.pendingAssetQueue.clear();
+    for (const [manifestId, sourcePeerId] of drained) {
+      this.scheduleAssetRetry(manifestId, sourcePeerId);
+    }
   }
 
   private createAssetRequestId(): string {

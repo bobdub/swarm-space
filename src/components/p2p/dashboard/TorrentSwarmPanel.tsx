@@ -21,7 +21,7 @@ import {
   markMigrationRan,
   type MigrationCandidate,
 } from '@/lib/blockchain/vaultMigration';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, WifiOff } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '—';
@@ -402,6 +402,17 @@ export function TorrentSwarmPanel() {
         <div className="flex items-center gap-2 text-xs text-amber-400/80">
           <RefreshCw className="h-3 w-3 animate-spin" />
           <span>{assetSync.activeRetries} asset{assetSync.activeRetries !== 1 ? 's' : ''} retrying</span>
+        </div>
+      )}
+
+      {/* Parked while offline — no network calls until a peer connects */}
+      {(assetSync.queuedOffline ?? 0) > 0 && (
+        <div className="flex items-center gap-2 text-xs text-foreground/50">
+          <WifiOff className="h-3 w-3" />
+          <span>
+            {assetSync.queuedOffline} asset{(assetSync.queuedOffline ?? 0) !== 1 ? 's' : ''} queued —
+            waiting for a peer
+          </span>
         </div>
       )}
 
