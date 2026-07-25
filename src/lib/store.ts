@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 25;
+const DB_VERSION = 26;
 
 
 export interface Chunk {
@@ -382,6 +382,13 @@ export async function openDB(): Promise<IDBDatabase> {
         pStore.createIndex("tokenId", "tokenId", { unique: false });
         pStore.createIndex("userId", "userId", { unique: false });
         pStore.createIndex("status", "status", { unique: false });
+      }
+
+      // Sync Vaults — per-peer local media cache backed by sealed SWARM coins.
+      // Non-destructive addition; existing stores untouched.
+      if (!db.objectStoreNames.contains("syncVaults")) {
+        const vStore = db.createObjectStore("syncVaults", { keyPath: "peerId" });
+        vStore.createIndex("updatedAt", "updatedAt", { unique: false });
       }
     };
     
