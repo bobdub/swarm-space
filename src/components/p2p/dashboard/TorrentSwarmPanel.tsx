@@ -66,7 +66,7 @@ const emptyAssetSync: AssetSyncStats = {
 
 export function TorrentSwarmPanel() {
   const [torrents, setTorrents] = useState<TorrentProgress[]>([]);
-  const [persistedTorrents, setPersistedTorrents] = useState<TorrentProgress[]>([]);
+  const [persistedTorrents, setPersistedTorrents] = useState<PersistedTorrentInfo[]>([]);
   const [assetSync, setAssetSync] = useState<AssetSyncStats>(emptyAssetSync);
   const [peerCount, setPeerCount] = useState(0);
   const [files, setFiles] = useState<FileTransferInfo[]>([]);
