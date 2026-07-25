@@ -208,6 +208,7 @@ export interface AssetSyncStats {
   chunksServed: number;
   pendingManifests: number;
   activeRetries: number;
+  queuedOffline?: number;
 }
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
