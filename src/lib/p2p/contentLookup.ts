@@ -12,7 +12,8 @@
  * fully-booted mesh.
  */
 
-import type { Post, UserMeta } from '@/types';
+import type { Post } from '@/types';
+import type { UserMeta } from '@/lib/auth';
 import { get } from '@/lib/store';
 
 const CHANNEL = 'swarm-content-lookup-v1';
