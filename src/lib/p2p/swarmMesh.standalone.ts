@@ -2040,6 +2040,9 @@ export class StandaloneSwarmMesh {
       // Exchange content inventories
       this.sendContentInventory(conn);
 
+      // Soft-retry drain: any manifests parked while offline now have a peer.
+      this.drainPendingAssetQueue();
+
       // Send our profile to the peer
       this.sendProfileExchange(conn);
 
