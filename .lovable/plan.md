@@ -1,148 +1,51 @@
-# Browser Guardrails & Logical Loading Chains
+## Explore Feed — Stop the Post-Load Refresh Strain
 
-Turn boot from a fixed idle-callback dump into an **adaptive, pausable chain** driven by a live Browser QScore. Sits on top of the existing loading-priority preset (Gaming / Social / P2P), not in place of it.
+### Problem (verified in `src/pages/Explore.tsx`)
 
-## Scope
+1. Initial paint runs `loadRecentPosts()` deferred via `requestIdleCallback` → shows content.
+2. Almost immediately, the `p2p-posts-updated` listener fires (peers announcing on connect) and after a 3s debounce runs `loadRecentPosts(true)` again — a **full IndexedDB re-read + re-filter + re-sort + full `getPostMetricsMap` refetch** for every post.
+3. Even when nothing new arrived, `postMetricsMap` state is replaced with a brand-new `Map` reference, forcing every `PostCard`/`BlogPostCard` to reconcile → visible strain / flash.
+4. There is no gate on P2P status: even when the mesh is offline, we still burn the same reload cycle whenever the event fires (e.g. from local writes).
 
-- Additive. No existing feature is removed.
-- Reuses the UQRC field engine + `appHealth` bus we already have — Browser QScore is a **new domain** on the same bus, not a parallel system.
-- All work is client-side, presentation + boot orchestration. No schema / backend changes.
+### Goals
 
----
+- No feed refresh when disconnected — local-only reads on mount, no scheduled reloads.
+- When connected, **new posts stream in above** existing ones without touching already-rendered cards.
+- Media / metrics for posts already in the list are **not re-fetched**.
 
-## 1. Browser Health monitor  (`src/lib/guardrails/browserHealth.ts`)
+### Changes (all in `src/pages/Explore.tsx`, plus one small helper)
 
-Pure observer, no side-effects on subsystems. Samples ~1 Hz, throttled.
+1. **Gate reload on P2P status**
+   - Import `useP2PContext`; read `isEnabled` + `stats.connectedPeers`.
+   - The `p2p-posts-updated` / `p2p-projects-updated` listener only schedules work when `isEnabled && connectedPeers > 0`. Otherwise it's a no-op (local writes already update local state via the composer flow).
 
-Signals collected (all optional — degrade gracefully when unsupported):
+2. **Incremental merge instead of full replace**
+   - Split `loadRecentPosts` into two paths:
+     - `loadRecentPostsInitial()` — current behaviour, runs once on mount and on `filters.query` change.
+     - `mergeIncomingPosts()` — on `p2p-posts-updated`, read only posts with `createdAt > newestLoadedAt` (track `newestLoadedAtRef`). Apply the same block/hidden/membership/query filters. Prepend to `recentPosts` state, dedup by `id`. Never re-order or replace existing entries.
+   - Track a `knownIdsRef: Set<string>` to skip anything already rendered → guarantees existing cards keep their reference identity and don't re-render.
 
-| Signal | API |
-|---|---|
-| Frame rate / jank | `requestAnimationFrame` delta EMA |
-| Long tasks | `PerformanceObserver({ type: 'longtask' })` |
-| Main-thread latency | `setTimeout(0)` drift probe |
-| Memory pressure | `performance.memory.usedJSHeapSize` (Chromium) |
-| Render latency | `event` timing entries |
-| Message backlog | queued idle callbacks + rAF debt |
-| Sync workload | count of active `withHealth` domains from `appHealth` |
+3. **Metrics — only hydrate for new IDs**
+   - Change the metrics step to only call `getPostMetricsMap(newIds)` for IDs not already in `postMetricsMap`, then `setPostMetricsMap(prev => new Map([...prev, ...added]))`. Skip the state update entirely when `added.size === 0`.
 
-Combined into a **Browser QScore** in `[0..1]` (1 = healthy). Emits an event on `guardrails.bus` when it crosses configured thresholds (warn 0.55, degrade 0.35, critical 0.20) with hysteresis to prevent flapping.
+4. **Drop redundant full-refresh on `network-content-toggle`**
+   - Explore doesn't apply the show-network gate (unlike Home/Posts), so no listener is needed. Verify nothing else here listens.
 
-Feeds a `browser:*` namespace into `recordAppEvent` so it shows up in the existing App Health badge alongside p2p/storage/stream/mining.
+5. **Small helper `src/lib/posts.ts` (or new `src/lib/postsQuery.ts`)**
+   - Add `getPostsNewerThan(iso: string): Promise<Post[]>` — thin wrapper over `getAll("posts")` that filters by `createdAt`. Keeps Explore lean and lets Home reuse it later.
 
-## 2. Logical Loading Points  (`src/lib/guardrails/loadingChain.ts`)
+6. **Preserve behaviour**
+   - `filters.query` change still triggers a full `loadRecentPostsInitial()` (correct — the visible set actually changes).
+   - Projects tab reload flow is unchanged aside from being wrapped in the same connection gate.
 
-Registry of subsystems. Each point declares:
+### Verification
 
-```ts
-type LoadingPoint = {
-  id: 'local' | 'mesh' | 'brain' | 'brain-game' | 'blockchain' | 'torrents' | 'mining' | string;
-  label: string;
-  essential: boolean;           // essential points always run
-  minQScore: number;            // won't start below this
-  pauseBelowQScore: number;     // running-work back-off threshold
-  start: () => Promise<void>;   // idempotent
-  pause?: () => void;
-  resume?: () => void;
-};
-```
+- Load Explore offline → cards paint once, no second render (React DevTools profiler shows a single commit for the list).
+- Load Explore connected, then fire a synthetic `window.dispatchEvent(new Event('p2p-posts-updated'))` with no new rows → zero list re-render, zero IndexedDB read for existing IDs.
+- Fire the event after inserting a fresh post → new card slides in at the top, existing cards keep the same DOM nodes.
+- Typecheck + `bun run scripts/uqrc-check.mjs`.
 
-The seven initial points wrap the existing dynamic imports currently in `src/main.tsx` (blockchain init, room discovery, content-lookup responder, entity voice, coin/labour/lab/tool/world buses, mining, torrent verification). Nothing new is booted — we just **relocate** each import behind a `LoadingPoint.start` closure.
+### Out of scope
 
-## 3. Chain runner  (`src/lib/guardrails/chainRunner.ts`)
-
-- Loads the user's chain order (see §5), plus loading-priority preset as the default.
-- Walks the chain sequentially with `requestIdleCallback` between steps.
-- Before starting the next step, reads Browser QScore. If below `minQScore` for that step → **pause the chain**, don't skip. Fire a `guardrails:chain-paused` event.
-- On recovery (QScore back above threshold + stable for N seconds) → resume from the exact step.
-- Broadcasts progress on the existing `scaffoldBus` so the App Health badge can show `✓ Local ✓ Mesh … ⏸ Blockchain (paused)`.
-
-## 4. Adaptive back-off hooks
-
-Small, targeted throttles gated by Browser QScore. Each is a **wrapper**, not a rewrite:
-
-- Animation frequency — new `useAdaptiveFrameRate` used by non-essential overlays.
-- Background sync — `syncScheduler.ts` reads QScore multiplier before scheduling.
-- P2P batching — `gossip.flush` interval doubles at warn, quadruples at degrade.
-- Blockchain sync — `chain-sync-request` debounce widens.
-- Torrent verification — pauses at degrade (reuses existing `stressMonitor`).
-- Mining — piggybacks on the existing `getFieldHealthMultiplier` already read by mining, we just add a hard-pause below `critical`.
-
-Critical user interactions (input, routing, message send) are never throttled.
-
-## 5. Custom loading chains  (Settings)
-
-Extend the existing loading-priority section:
-
-- Reorderable list of logical loading points (`Local First` is pinned first, essential).
-- Toggle: "Adaptive pausing (Browser Guardrails)" — default **on**.
-- Persist to `localStorage: swarm-loading-chain` (`{ order: string[], adaptive: boolean }`).
-- The three existing presets (Gaming / Social / P2P) become **chain templates** users can start from.
-
-## 6. Device learning  (`src/lib/guardrails/deviceProfile.ts`)
-
-Rolling stats persisted to `localStorage: swarm-device-profile`:
-
-- Avg / p10 / p90 Browser QScore
-- Steps that most often trigger a pause
-- Time-to-recover after a pause
-- Startup duration per chain order
-
-After N cold boots with data, if a reordering would materially improve startup (avoided pauses), surface a **non-blocking Settings banner** proposing the new order. User accepts / dismisses. No auto-mutation of settings.
-
-## 7. Diagnostics
-
-- New card on `/storage-diagnostics` (route already exists): live Browser QScore, current chain state, last pause reason, recommended profile.
-- The existing App Health badge gains a `browser` domain sub-Q.
-
----
-
-## Technical details
-
-**Files added**
-```
-src/lib/guardrails/browserHealth.ts
-src/lib/guardrails/loadingChain.ts
-src/lib/guardrails/chainRunner.ts
-src/lib/guardrails/deviceProfile.ts
-src/lib/guardrails/bus.ts
-src/hooks/useBrowserQScore.ts
-src/hooks/useAdaptiveFrameRate.ts
-src/components/settings/LoadingChainEditor.tsx
-src/components/diagnostics/BrowserGuardrailsCard.tsx
-```
-
-**Files edited**
-```
-src/main.tsx                      → move idle-imports into chainRunner
-src/pages/Settings.tsx            → mount LoadingChainEditor under existing Priority section
-src/pages/StorageDiagnostics.tsx  → mount BrowserGuardrailsCard
-src/lib/settings/loadingPriority.ts → export preset → chain-order map
-src/lib/uqrc/appHealth.ts         → accept 'browser' as HealthDomain (union widen)
-```
-
-**Constraints honored**
-- Every point's `start()` is idempotent so repeated boots (HMR, tab wake) are safe.
-- Never rewrites feature code — wraps existing dynamic imports.
-- Never blocks Local First; auth / routing / input never throttled.
-- No new deps.
-
-**Chain state machine**
-
-```text
-    ┌── QScore ≥ minQScore ──┐
-idle ─▶ starting ─▶ running ─┴─▶ done
-                     │
-      QScore < pauseBelowQScore
-                     ▼
-                  paused ──── QScore recovers ────▶ resuming ─▶ running
-```
-
-**Rollout / verification**
-
-1. Land §1 + §2 + §3 behind the existing preset defaults (order equals current boot order) so behavior is unchanged.
-2. Land §4 wrappers, verify existing throttles still fire (stress monitor, mining multiplier).
-3. Land §5 UI, keeping presets as one-click templates.
-4. Land §6 recommendations last — read-only until then.
-
-Verification per phase: Playwright screenshot of Settings → new editor; force a low QScore via a test-only hook and confirm chain pauses without freezing input.
+- Home (`src/lib/feed.ts`) and `src/pages/Posts.tsx` follow the same pattern and can be migrated in a follow-up once the Explore approach is proven.
+- No changes to P2P transport, storage, or PostCard internals.
