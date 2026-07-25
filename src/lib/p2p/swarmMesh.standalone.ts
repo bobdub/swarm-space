@@ -370,6 +370,8 @@ export class StandaloneSwarmMesh {
   private pendingAssetRequests = new Map<string, PendingAssetRequest>();
   private assetRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private assetRetryAttempts = new Map<string, number>();
+  /** Manifests parked while offline — drained when any peer connects. */
+  private pendingAssetQueue = new Map<string, string | undefined>();
   private _assetSyncCounters = { manifestsPulled: 0, chunksPulled: 0, chunksServed: 0 };
   /** Tracks which peers are seeding which files (manifestId → Set of peerIds) */
   private fileSeeders = new Map<string, Set<string>>();
