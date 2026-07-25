@@ -62,6 +62,14 @@ const emptyAssetSync: AssetSyncStats = {
   activeRetries: 0,
 };
 
+// Extends TorrentProgress with the vault-enrolment metadata now carried in
+// each persisted manifest snapshot (see torrentSwarm.standalone.ts).
+type PersistedTorrentInfo = TorrentProgress & {
+  name?: string;
+  mime?: string;
+  creatorId?: string;
+};
+
 // countStore removed — we derive counts from the already-filtered `files` state
 
 export function TorrentSwarmPanel() {
@@ -161,7 +169,7 @@ export function TorrentSwarmPanel() {
         req.onerror = () => resolve([]);
       });
 
-      const progress: TorrentProgress[] = entries
+      const progress: PersistedTorrentInfo[] = entries
         .filter((entry) => typeof entry.k === 'string' && entry.k.startsWith('torrent-manifest:'))
         .map((entry) => {
           const record = (entry.v ?? {}) as Record<string, unknown>;
@@ -178,6 +186,9 @@ export function TorrentSwarmPanel() {
             bytesTotal: (record.totalSize as number) ?? 0,
             activePeers: 0,
             seeders: 0,
+            name: typeof record.name === 'string' ? (record.name as string) : undefined,
+            mime: typeof record.mimeType === 'string' ? (record.mimeType as string) : undefined,
+            creatorId: typeof record.creatorId === 'string' ? (record.creatorId as string) : undefined,
           };
         })
         .filter((item) => Boolean(item.manifestId));
@@ -479,7 +490,7 @@ function PeerVaultsSection({
   localPeerId,
 }: {
   completedFiles: FileTransferInfo[];
-  persistedTorrents: TorrentProgress[];
+  persistedTorrents: PersistedTorrentInfo[];
   localPeerId: string;
 }) {
   const [vaults, setVaults] = useState<SyncVault[]>([]);
@@ -523,12 +534,17 @@ function PeerVaultsSection({
     }
     for (const t of persistedTorrents) {
       if (t.state !== 'seeding' && t.state !== 'complete') continue;
+      // Prefer real owner (creatorId) so peer vaults get built when the
+      // torrent was received from another peer. Fall back to self only
+      // when the persisted snapshot predates the metadata upgrade.
+      const owner = t.creatorId && t.creatorId !== localPeerId ? t.creatorId : selfKey;
+      const isSelfOwned = owner === selfKey;
       candidates.push({
         contentHash: t.manifestId,
-        ownerPeerId: selfKey,
-        isSelf: true,
-        name: t.manifestId,
-        mime: 'application/x-torrent',
+        ownerPeerId: owner,
+        isSelf: isSelfOwned,
+        name: t.name || t.manifestId,
+        mime: t.mime || 'application/x-torrent',
         size: t.bytesTotal,
         ref: t.manifestId,
       });
