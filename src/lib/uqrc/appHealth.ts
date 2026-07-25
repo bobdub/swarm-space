@@ -18,7 +18,7 @@
 
 import { getSharedFieldEngine, type FieldEngine } from './fieldEngine';
 
-export type HealthDomain = 'p2p' | 'storage' | 'stream' | 'mining' | 'route';
+export type HealthDomain = 'p2p' | 'storage' | 'stream' | 'mining' | 'route' | 'browser';
 
 export interface RecordEventOpts {
   reward?: number;
