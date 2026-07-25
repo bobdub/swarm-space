@@ -21,7 +21,7 @@ import {
   markMigrationRan,
   type MigrationCandidate,
 } from '@/lib/blockchain/vaultMigration';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, WifiOff } from 'lucide-react';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '—';
