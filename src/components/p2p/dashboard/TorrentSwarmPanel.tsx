@@ -704,22 +704,25 @@ function PeerVaultsSection({
                           const cap = Number.isFinite(c.capacityBytes) ? c.capacityBytes : MEDIA_COIN_CAPACITY_BYTES;
                           const pct = cap > 0 ? Math.min(100, (c.fillBytes / cap) * 100) : 0;
                           const frac = cap > 0 ? c.fillBytes / cap : 0;
-                          const state = c.wrapped
-                            ? 'Wrapped'
-                            : c.sealed
-                              ? 'Sealed'
-                              : frac >= MEDIA_COIN_SEAL_FRACTION
-                                ? 'Sealing'
-                                : frac >= MEDIA_COIN_APPROACHING_FRACTION
-                                  ? 'Approaching'
-                                  : 'Filling';
+                          const state = c.failed
+                            ? 'Failed'
+                            : c.wrapped
+                              ? 'Wrapped'
+                              : c.sealed
+                                ? 'Sealed'
+                                : frac >= MEDIA_COIN_SEAL_FRACTION
+                                  ? 'Sealing'
+                                  : frac >= MEDIA_COIN_APPROACHING_FRACTION
+                                    ? 'Approaching'
+                                    : 'Filling';
                           const tone =
-                            state === 'Wrapped' ? 'text-emerald-300 border-emerald-500/30'
+                            state === 'Failed' ? 'text-rose-300 border-rose-500/30'
+                            : state === 'Wrapped' ? 'text-emerald-300 border-emerald-500/30'
                             : state === 'Sealed' || state === 'Sealing' ? 'text-amber-300 border-amber-500/30'
                             : state === 'Approaching' ? 'text-sky-300 border-sky-500/30'
                             : 'text-foreground/50 border-foreground/15';
                           const short = c.coinId.length > 20 ? c.coinId.slice(0, 12) + '…' + c.coinId.slice(-5) : c.coinId;
-                          const done = c.wrapped || c.sealed;
+                          const done = c.wrapped || c.sealed || c.failed;
                           return { c, cap, pct, state, tone, short, done };
                         });
                         const active = rows.filter((r) => !r.done);
