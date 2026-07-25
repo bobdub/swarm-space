@@ -159,6 +159,7 @@ export async function listAllCoins(): Promise<SwarmCoin[]> {
 export async function listCraftableCoins(userId: string): Promise<SwarmCoin[]> {
   const all = await listAllCoins();
   return all.filter((c) => {
+    if (c.kind === "media") return false;
     const ownedByUserOrPool = c.ownerId === userId || c.status === 'pool';
     const unsealed = !c.fillState || c.fillState === 'pool' || c.fillState === 'bound' || c.fillState === 'filling';
     return ownedByUserOrPool && unsealed;
@@ -167,7 +168,7 @@ export async function listCraftableCoins(userId: string): Promise<SwarmCoin[]> {
 
 export async function listSealedUserCoins(userId: string): Promise<SwarmCoin[]> {
   const all = await listAllCoins();
-  return all.filter((c) => c.ownerId === userId && (c.fillState === 'sealed' || (c.fillState === undefined && c.status === 'wallet')));
+  return all.filter((c) => c.kind !== 'media' && c.ownerId === userId && (c.fillState === 'sealed' || (c.fillState === undefined && c.status === 'wallet')));
 }
 
 // ── Public API ──────────────────────────────────────────────────────────

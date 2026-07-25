@@ -173,6 +173,7 @@ function persistTorrentManifestSnapshot(manifest: TorrentManifest, state: Torren
             name: manifest.name,
             mimeType: manifest.mimeType,
             creatorId: manifest.creatorId,
+            completedAt: Date.now(),
           },
         });
         tx.oncomplete = () => {

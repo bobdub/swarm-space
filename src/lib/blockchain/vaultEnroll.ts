@@ -3,14 +3,12 @@
  * the owning peer's Sync Vault. Falls back to an Archive coin when no
  * real wallet coin is free, so nothing is ever silently dropped.
  */
-import { getAll } from "@/lib/store";
-import type { SwarmCoin } from "./types";
+import { MEDIA_COIN_SEAL_FRACTION } from "./types";
 import {
-  ensureArchiveCoin,
   ensureVault,
   findVaultEntry,
-  getOrRolloverReceiverCoin,
-  allocateVaultCoin,
+  getOrCreateMediaCoin,
+  sealMediaCoin,
   recordVaultEntry,
 } from "./syncVault";
 
@@ -22,39 +20,40 @@ export interface EnrollInput {
   mime: string;
   size: number;
   ref: string;
-}
-
-async function walletCoins(): Promise<SwarmCoin[]> {
-  try {
-    const all = await getAll<SwarmCoin>("swarmCoins");
-    return all.filter((c) => c.status === "wallet" && c.fillState !== "spent");
-  } catch {
-    return [];
-  }
+  completedAt?: string;
 }
 
 export async function enrollContent(input: EnrollInput): Promise<"skipped" | "enrolled" | "archived"> {
   const existing = await findVaultEntry(input.contentHash);
   if (existing) return "skipped";
 
-  await ensureVault(input.ownerPeerId);
-  const coins = await walletCoins();
-  let ref = input.isSelf
-    ? (await allocateVaultCoin(input.ownerPeerId, "canonical", coins))
-      ?? (await getOrRolloverReceiverCoin(input.ownerPeerId, coins))
-    : await getOrRolloverReceiverCoin(input.ownerPeerId, coins);
+  // Archive-first: unknown owner => global archive vault; known peer =>
+  // that peer's archive vault. Media coin lives inside the vault until
+  // the wrap sweep engraves a wallet coin onto it.
+  const hasOwner = !!input.ownerPeerId && input.ownerPeerId !== "self";
+  const vaultKey = hasOwner ? input.ownerPeerId : "archive:global";
+  await ensureVault(vaultKey);
 
-  const archived = !ref;
-  if (!ref) ref = await ensureArchiveCoin(input.ownerPeerId);
+  const ref = await getOrCreateMediaCoin(vaultKey);
+  const size = Math.max(0, input.size | 0);
+  const now = new Date().toISOString();
 
-  await recordVaultEntry(input.ownerPeerId, input.contentHash, {
+  await recordVaultEntry(vaultKey, input.contentHash, {
     coinId: ref.coinId,
     offset: ref.fillBytes,
-    length: Math.max(0, input.size | 0),
+    length: size,
     mime: input.mime,
     ref: input.ref,
     name: input.name,
-    pending: archived,
+    pending: true, // pending until wrapped onto a real wallet coin
+    firstSeenAt: now,
+    completedAt: input.completedAt ?? now,
   });
-  return archived ? "archived" : "enrolled";
+
+  // Post-write seal check.
+  const filled = ref.fillBytes + size;
+  if (filled / ref.capacityBytes >= MEDIA_COIN_SEAL_FRACTION) {
+    await sealMediaCoin(vaultKey, ref.coinId);
+  }
+  return "archived";
 }
