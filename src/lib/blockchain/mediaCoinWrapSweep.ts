@@ -5,7 +5,7 @@
  */
 import { getAll } from "@/lib/store";
 import type { SwarmCoin } from "./types";
-import { MEDIA_COIN_WRAP_FEE, MEDIA_COIN_WRAP_RETRY_MS } from "./types";
+import { MEDIA_COIN_CAPACITY_BYTES, MEDIA_COIN_WRAP_FEE, MEDIA_COIN_WRAP_RETRY_MS } from "./types";
 import {
   attemptWrapMediaCoin,
   listSealedMediaCoins,
@@ -57,7 +57,9 @@ export async function runWrapSweep(): Promise<{ wrapped: number; waiting: number
       waiting += 1;
       continue;
     }
-    const ok = await attemptWrapMediaCoin(peerId, ref.coinId, coin).catch(() => false);
+    const needsAssist = ref.fillBytes > MEDIA_COIN_CAPACITY_BYTES || ref.capacityBytes > MEDIA_COIN_CAPACITY_BYTES;
+    const assistCoin = needsAssist ? free.shift() : undefined;
+    const ok = await attemptWrapMediaCoin(peerId, ref.coinId, coin, assistCoin).catch(() => false);
     if (ok) wrapped += 1; else waiting += 1;
   }
   return { wrapped, waiting };

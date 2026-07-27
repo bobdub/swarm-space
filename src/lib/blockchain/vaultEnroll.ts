@@ -8,7 +8,7 @@ import {
   ensureVault,
   findVaultEntry,
   getOrCreateMediaCoin,
-  sealMediaCoin,
+  forceSealCompletedMediaCoin,
   recordVaultEntry,
   markCoinPhase,
 } from "./syncVault";
@@ -40,7 +40,7 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   const vaultKey = hasOwner ? input.ownerPeerId : "archive:global";
   await ensureVault(vaultKey);
 
-  const size = Math.max(0, input.size | 0);
+  const size = Number.isFinite(input.size) && input.size > 0 ? Math.floor(input.size) : 0;
   // Size-aware allocator: oversized files get a dedicated coin; a
   // normal file that would push the active coin past the seal line
   // triggers a pre-engrave seal + fresh coin. Files never split.
@@ -68,7 +68,7 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
   // file would push them past the seal line, so we never seal a coin
   // mid-engrave.
   if (size >= MEDIA_COIN_CAPACITY_BYTES) {
-    try { await sealMediaCoin(vaultKey, ref.coinId); } catch { /* best-effort */ }
+    try { await forceSealCompletedMediaCoin(vaultKey, ref.coinId, "oversized-complete"); } catch { /* best-effort */ }
   } else {
     // Return to a quiescent "filling" phase after a successful write.
     try { await markCoinPhase(vaultKey, ref.coinId, "filling"); } catch { /* noop */ }
