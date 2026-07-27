@@ -232,7 +232,7 @@ export async function getOrCreateMediaCoin(
 ): Promise<VaultCoinRef> {
   const vault = await ensureVault(peerId);
   // Repair invariant before doing anything else.
-  consolidateUnsealedMediaCoins(vault);
+  const repaired = consolidateUnsealedMediaCoins(vault);
   const size = safeByteSize(incomingBytes);
 
   // Oversized single file gets its own dedicated coin.
@@ -246,7 +246,10 @@ export async function getOrCreateMediaCoin(
   const active = activeMediaCoin(vault);
   if (active) {
     // Fits without crossing seal line → reuse.
-    if (active.fillBytes + size <= sealBytes) return active;
+    if (active.fillBytes + size <= sealBytes) {
+      if (repaired) await saveVault(vault);
+      return active;
+    }
     // Would push the coin over the seal threshold: seal current (only
     // if it already carries content) and allocate a fresh coin for
     // this file. Sealing happens BEFORE the new engrave starts.
