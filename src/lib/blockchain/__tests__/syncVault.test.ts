@@ -23,10 +23,13 @@ import {
   getOrRolloverReceiverCoin,
   recordVaultEntry,
   findVaultEntry,
+  getOrCreateMediaCoin,
+  forceSealCompletedMediaCoin,
+  getVault,
   VAULT_COIN_CAPACITY_BYTES,
   VAULT_ROLLOVER_FRACTION,
 } from "../syncVault";
-import type { SwarmCoin } from "../types";
+import { MEDIA_COIN_CAPACITY_BYTES, type SwarmCoin } from "../types";
 
 function sealedCoin(id: string): SwarmCoin {
   return {
@@ -68,5 +71,26 @@ describe("syncVault", () => {
     const found = await findVaultEntry("h42");
     expect(found?.vault.peerId).toBe("peer-C");
     expect(found?.entry.length).toBe(128);
+  });
+
+  it("force-seals a completed oversized media coin without adding seal bytes", async () => {
+    const size = MEDIA_COIN_CAPACITY_BYTES * 2;
+    const ref = await getOrCreateMediaCoin("peer-large", size);
+    expect(ref.capacityBytes).toBe(size);
+    await recordVaultEntry("peer-large", "big-file", {
+      coinId: ref.coinId,
+      offset: 0,
+      length: size,
+      ref: "big-file",
+      completedAt: new Date().toISOString(),
+    });
+    const sealed = await forceSealCompletedMediaCoin("peer-large", ref.coinId, "oversized-complete");
+    expect(sealed).toBe(true);
+    const vault = await getVault("peer-large");
+    const coin = vault?.coins.find((c) => c.coinId === ref.coinId);
+    expect(coin?.sealed).toBe(true);
+    expect(coin?.phase).toBe("sealed");
+    expect(coin?.sealReason).toBe("oversized-complete");
+    expect(coin?.fillBytes).toBe(size);
   });
 });

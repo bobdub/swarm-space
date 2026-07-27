@@ -23,6 +23,13 @@ export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
 export const VAULT_ROLLOVER_FRACTION = 0.8;
 
 export type VaultCoinRole = "canonical" | "receiver" | "archive" | "media";
+export type VaultSealReason =
+  | "pre-engrave-rollover"
+  | "oversized-complete"
+  | "completed-stall"
+  | "reconcile"
+  | "manual"
+  | "failed-stall";
 
 export interface VaultCoinRef {
   coinId: string;
@@ -32,6 +39,12 @@ export interface VaultCoinRef {
   createdAt: string;
   sealed?: boolean;
   sealedAt?: string;
+  /** When seal was first requested; sealing itself is metadata-only. */
+  sealRequestedAt?: string;
+  /** Why this coin became sealed; used to recover jammed large-file writes. */
+  sealReason?: VaultSealReason;
+  /** Optional extra wallet coin attached during wrap for oversized payload pressure. */
+  sealAssistedByCoinId?: string;
   wrapped?: boolean;
   wrappedBadge?: "archived";
   lastWrapAttemptAt?: string;
@@ -147,6 +160,20 @@ function activeMediaCoin(v: SyncVault): VaultCoinRef | null {
   return null;
 }
 
+function safeByteSize(bytes: number): number {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 0;
+  return Math.floor(bytes);
+}
+
+function stampSeal(ref: VaultCoinRef, reason: VaultSealReason, now: string): void {
+  ref.sealRequestedAt = ref.sealRequestedAt ?? now;
+  ref.sealReason = ref.sealReason ?? reason;
+  ref.sealed = true;
+  ref.phase = "sealed";
+  ref.sealedAt = ref.sealedAt ?? now;
+  ref.lastProgressAt = now;
+}
+
 /**
  * Enforce the "one filling coin per vault" invariant. Legacy vaults
  * (or races) can leave multiple unsealed media coins around; this
@@ -166,8 +193,7 @@ function consolidateUnsealedMediaCoins(v: SyncVault): boolean {
   for (const c of sorted) {
     if (c.coinId === keep.coinId) continue;
     if (c.fillBytes > 0) {
-      c.sealed = true;
-      c.sealedAt = c.sealedAt ?? now;
+      stampSeal(c, "reconcile", now);
     } else {
       drop.add(c.coinId);
     }
@@ -207,7 +233,7 @@ export async function getOrCreateMediaCoin(
   const vault = await ensureVault(peerId);
   // Repair invariant before doing anything else.
   consolidateUnsealedMediaCoins(vault);
-  const size = Math.max(0, incomingBytes | 0);
+  const size = safeByteSize(incomingBytes);
 
   // Oversized single file gets its own dedicated coin.
   if (size >= MEDIA_COIN_CAPACITY_BYTES) {
@@ -225,8 +251,7 @@ export async function getOrCreateMediaCoin(
     // if it already carries content) and allocate a fresh coin for
     // this file. Sealing happens BEFORE the new engrave starts.
     if (active.fillBytes > 0) {
-      active.sealed = true;
-      active.sealedAt = new Date().toISOString();
+      stampSeal(active, "pre-engrave-rollover", new Date().toISOString());
     } else {
       // Empty active coin can't hold this file even at zero fill
       // (size > sealBytes). Drop it so we don't leave orphan refs.
@@ -256,14 +281,42 @@ export async function reconcileMediaCoins(): Promise<number> {
 }
 
 /** Flip a media coin to sealed. Idempotent. */
-export async function sealMediaCoin(peerId: string, coinId: string): Promise<void> {
+export async function sealMediaCoin(
+  peerId: string,
+  coinId: string,
+  reason: VaultSealReason = "manual",
+): Promise<void> {
   const v = await getVault(peerId);
   if (!v) return;
   const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c || c.role !== "media" || c.sealed) return;
-  c.sealed = true;
-  c.sealedAt = new Date().toISOString();
+  if (!c || c.role !== "media") return;
+  const now = new Date().toISOString();
+  stampSeal(c, reason, now);
   await saveVault(v);
+}
+
+/**
+ * Force-seal a completed media coin after bytes have already been recorded.
+ * This is the safe recovery path for large files: it never detaches entries,
+ * never adds bytes to a full coin, and only succeeds when recorded entries are
+ * locally complete enough to serve or fall back through the existing chunk path.
+ */
+export async function forceSealCompletedMediaCoin(
+  peerId: string,
+  coinId: string,
+  reason: Extract<VaultSealReason, "oversized-complete" | "completed-stall">,
+): Promise<boolean> {
+  const v = await getVault(peerId);
+  if (!v) return false;
+  const c = v.coins.find((x) => x.coinId === coinId);
+  if (!c || c.role !== "media" || c.failed) return false;
+  const entries = Object.values(v.index).filter((entry) => entry.coinId === coinId);
+  if (entries.length === 0) return false;
+  const complete = entries.every((entry) => !entry.awaitingSync && (Boolean(entry.completedAt) || entry.length > 0));
+  if (!complete) return false;
+  stampSeal(c, reason, new Date().toISOString());
+  await saveVault(v);
+  return true;
 }
 
 /**
@@ -290,6 +343,7 @@ export async function attemptWrapMediaCoin(
   peerId: string,
   coinId: string,
   freeWalletCoin: SwarmCoin,
+  sealAssistCoin?: SwarmCoin,
 ): Promise<boolean> {
   const vault = await getVault(peerId);
   if (!vault) return false;
@@ -308,6 +362,7 @@ export async function attemptWrapMediaCoin(
   ref.coinId = freeWalletCoin.coinId;
   ref.wrapped = true;
   ref.lastWrapAttemptAt = new Date().toISOString();
+  if (sealAssistCoin) ref.sealAssistedByCoinId = sealAssistCoin.coinId;
   if (peerId.startsWith("archive:")) ref.wrappedBadge = "archived";
   await saveVault(vault);
 
@@ -316,7 +371,18 @@ export async function attemptWrapMediaCoin(
   freeWalletCoin.sealBytes = ref.fillBytes;
   freeWalletCoin.mediaCapacityBytes = ref.capacityBytes;
   freeWalletCoin.mediaTargets = [{ peerId, contentHashes }];
+  freeWalletCoin.mediaRole = "primary";
+  if (sealAssistCoin) freeWalletCoin.mediaAssistCoinIds = [sealAssistCoin.coinId];
   await put("swarmCoins", freeWalletCoin);
+  if (sealAssistCoin) {
+    sealAssistCoin.kind = "media";
+    sealAssistCoin.sealBytes = 0;
+    sealAssistCoin.mediaCapacityBytes = 0;
+    sealAssistCoin.mediaTargets = [{ peerId, contentHashes }];
+    sealAssistCoin.mediaRole = "seal-assist";
+    sealAssistCoin.mediaPrimaryCoinId = freeWalletCoin.coinId;
+    await put("swarmCoins", sealAssistCoin);
+  }
   return true;
 }
 
@@ -344,8 +410,7 @@ export async function markCoinPhase(
   c.phase = phase;
   c.lastProgressAt = new Date().toISOString();
   if (phase === "sealed" && !c.sealed) {
-    c.sealed = true;
-    c.sealedAt = c.sealedAt ?? new Date().toISOString();
+    stampSeal(c, "manual", c.lastProgressAt);
   }
   await saveVault(v);
 }
@@ -360,9 +425,7 @@ export async function markCoinFailed(peerId: string, coinId: string): Promise<vo
   const c = v.coins.find((x) => x.coinId === coinId);
   if (!c || c.role !== "media" || c.wrapped) return;
   c.failed = true;
-  c.sealed = true;
-  c.phase = "sealed";
-  c.sealedAt = c.sealedAt ?? new Date().toISOString();
+  stampSeal(c, "failed-stall", new Date().toISOString());
   await saveVault(v);
 }
 
@@ -473,7 +536,7 @@ export async function recordVaultEntry(
   vault.index[contentHash] = { ...entry, storedAt: new Date().toISOString() };
   const coin = vault.coins.find((c) => c.coinId === entry.coinId);
   if (coin) {
-    coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + entry.length);
+    coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + safeByteSize(entry.length));
     coin.lastProgressAt = new Date().toISOString();
     if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
   }

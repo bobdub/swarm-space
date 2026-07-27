@@ -723,7 +723,14 @@ function PeerVaultsSection({
                             : 'text-foreground/50 border-foreground/15';
                           const short = c.coinId.length > 20 ? c.coinId.slice(0, 12) + '…' + c.coinId.slice(-5) : c.coinId;
                           const done = c.wrapped || c.sealed || c.failed;
-                          return { c, cap, pct, state, tone, short, done };
+                          const sealNote = c.sealAssistedByCoinId
+                            ? 'Seal assist'
+                            : c.sealReason === 'completed-stall'
+                              ? 'Recovered seal'
+                              : c.sealReason === 'oversized-complete'
+                                ? 'Large-file seal'
+                                : undefined;
+                          return { c, cap, pct, state, tone, short, done, sealNote };
                         });
                         const active = rows.filter((r) => !r.done);
                         const done = rows.filter((r) => r.done);
@@ -734,6 +741,9 @@ function PeerVaultsSection({
                               <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
                                 <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
                                 <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                {r.sealNote && (
+                                  <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
+                                )}
                                 <span className="text-foreground/50 shrink-0 tabular-nums">
                                   {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
                                 </span>
@@ -764,6 +774,9 @@ function PeerVaultsSection({
                                       <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
                                         <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
                                         <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                         {r.sealNote && (
+                                           <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
+                                         )}
                                         <span className="text-foreground/50 shrink-0 tabular-nums">
                                           {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
                                         </span>

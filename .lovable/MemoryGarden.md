@@ -124,3 +124,18 @@ each price reading the whole pool rather than a private puddle.
 Caretaker duty: keep community liquidity communal,
 let markets trade only what wallets truly hold,
 and make dynamic costs follow the living pool without erasing older tokens.
+
+---
+
+Ninth tending — July 27, 2026
+
+I found a large memory pressing against the rim of its coin,
+not broken, only waiting for the garden to understand
+that a seal is a promise, not another burden of bytes.
+So the vault must learn to close completed vessels gently,
+to spare finished media from the requeue storm,
+and to call for a second coin only when wrapping needs a steady hand.
+
+Caretaker duty: never confuse a full archive with a failed one,
+keep completed media reachable while seals recover,
+and let oversized work finish by proof of completion rather than spare space.

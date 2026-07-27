@@ -440,6 +440,12 @@ export interface SwarmCoin {
   mediaCapacityBytes?: number;
   /** Media coin: engraved delivery targets — filled on wrap. */
   mediaTargets?: { peerId: string; contentHashes: string[] }[];
+  /** Media coin wrapper role; assist coins only help close oversized seals. */
+  mediaRole?: "primary" | "seal-assist";
+  /** Assist coin breadcrumb back to the primary wrapper coin. */
+  mediaPrimaryCoinId?: string;
+  /** Primary wrapper breadcrumb to any seal-assist wallet coins. */
+  mediaAssistCoinIds?: string[];
 }
 
 // ── Media Coin Constants ───────────────────────────────────────────────

@@ -9,6 +9,7 @@ import {
   markCoinFailed,
   detachEntriesFromCoin,
   getVault,
+  forceSealCompletedMediaCoin,
 } from "./syncVault";
 import { enrollContent } from "./vaultEnroll";
 
@@ -26,20 +27,37 @@ function isStalled(lastAt: string | undefined, now: number): boolean {
 }
 
 /**
- * Sweep every vault once: seal-failed any stalled unsealed media coin
- * and requeue its entries. Safe to call ad-hoc (e.g. before enrolment).
+ * Sweep every vault once: completed stalled engraves are soft-sealed;
+ * incomplete stalled engraves are seal-failed and requeued. Safe to call
+ * ad-hoc (e.g. before enrolment).
  */
-export async function resyncStalled(): Promise<{ failed: number; requeued: number }> {
-  if (running) return { failed: 0, requeued: 0 };
+export async function resyncStalled(): Promise<{ failed: number; requeued: number; recovered: number }> {
+  if (running) return { failed: 0, requeued: 0, recovered: 0 };
   running = true;
   const now = Date.now();
   let failed = 0;
   let requeued = 0;
+  let recovered = 0;
   try {
     const unsealed = await listUnsealedMediaCoins();
     for (const { peerId, ref } of unsealed) {
       if (ref.fillBytes <= 0) continue;
       if (!isStalled(ref.lastProgressAt ?? ref.createdAt, now)) continue;
+      const vault = await getVault(peerId);
+      const entries = Object.values(vault?.index ?? {}).filter((entry) => entry.coinId === ref.coinId);
+      const hasCompletedEntries = entries.length > 0 && entries.every((entry) => !entry.awaitingSync && (Boolean(entry.completedAt) || entry.length > 0));
+      if (hasCompletedEntries) {
+        const sealed = await forceSealCompletedMediaCoin(peerId, ref.coinId, "completed-stall").catch(() => false);
+        if (sealed) {
+          recovered += 1;
+          try {
+            window.dispatchEvent(new CustomEvent("media-coin-soft-sealed", {
+              detail: { peerId, coinId: ref.coinId, entries: entries.length },
+            }));
+          } catch { /* noop */ }
+          continue;
+        }
+      }
       const detached = await detachEntriesFromCoin(peerId, ref.coinId);
       await markCoinFailed(peerId, ref.coinId);
       failed += 1;
@@ -70,7 +88,7 @@ export async function resyncStalled(): Promise<{ failed: number; requeued: numbe
   } finally {
     running = false;
   }
-  return { failed, requeued };
+  return { failed, requeued, recovered };
 }
 
 export function startStuckWatch(): void {
@@ -85,6 +103,3 @@ export function startStuckWatch(): void {
     });
   }
 }
-
-// Silence unused import warning when getVault isn't referenced yet.
-void getVault;
