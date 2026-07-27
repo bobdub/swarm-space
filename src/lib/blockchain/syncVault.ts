@@ -463,7 +463,7 @@ export async function attemptWrapMediaCoin(
   freeWalletCoin: SwarmCoin,
   sealAssistCoin?: SwarmCoin,
 ): Promise<boolean> {
-  const contentHashes = await withVaultQueue(peerId, async () => {
+  const wrapped = await withVaultQueue(peerId, async () => {
     const vault = await getVault(peerId);
     if (!vault) return null;
     const ref = vault.coins.find((c) => c.coinId === coinId);
@@ -481,16 +481,18 @@ export async function attemptWrapMediaCoin(
     ref.lastWrapAttemptAt = new Date().toISOString();
     if (sealAssistCoin) ref.sealAssistedByCoinId = sealAssistCoin.coinId;
     if (peerId.startsWith("archive:")) ref.wrappedBadge = "archived";
+    const fillBytes = ref.fillBytes;
+    const capacityBytes = ref.capacityBytes;
     await saveVaultUnlocked(vault);
-    return hashes;
+    return { contentHashes: hashes, fillBytes, capacityBytes };
   });
-  if (!contentHashes) return false;
+  if (!wrapped) return false;
 
   // Engrave the underlying SwarmCoin so guards exclude it everywhere.
   freeWalletCoin.kind = "media";
-  freeWalletCoin.sealBytes = ref.fillBytes;
-  freeWalletCoin.mediaCapacityBytes = ref.capacityBytes;
-  freeWalletCoin.mediaTargets = [{ peerId, contentHashes }];
+  freeWalletCoin.sealBytes = wrapped.fillBytes;
+  freeWalletCoin.mediaCapacityBytes = wrapped.capacityBytes;
+  freeWalletCoin.mediaTargets = [{ peerId, contentHashes: wrapped.contentHashes }];
   freeWalletCoin.mediaRole = "primary";
   if (sealAssistCoin) freeWalletCoin.mediaAssistCoinIds = [sealAssistCoin.coinId];
   await put("swarmCoins", freeWalletCoin);
@@ -498,7 +500,7 @@ export async function attemptWrapMediaCoin(
     sealAssistCoin.kind = "media";
     sealAssistCoin.sealBytes = 0;
     sealAssistCoin.mediaCapacityBytes = 0;
-    sealAssistCoin.mediaTargets = [{ peerId, contentHashes }];
+    sealAssistCoin.mediaTargets = [{ peerId, contentHashes: wrapped.contentHashes }];
     sealAssistCoin.mediaRole = "seal-assist";
     sealAssistCoin.mediaPrimaryCoinId = freeWalletCoin.coinId;
     await put("swarmCoins", sealAssistCoin);
@@ -635,6 +637,26 @@ export async function recordVaultEntry(
       if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
     }
     await saveVaultUnlocked(vault);
+  });
+}
+
+export async function updateVaultEntryPendingStates(
+  peerId: string,
+  pendingByHash: Map<string, boolean>,
+): Promise<void> {
+  if (pendingByHash.size === 0) return;
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    let changed = false;
+    for (const [hash, pending] of pendingByHash) {
+      const entry = v.index[hash];
+      if (!entry) continue;
+      if (!!entry.pending === pending) continue;
+      v.index[hash] = { ...entry, pending };
+      changed = true;
+    }
+    if (changed) await saveVaultUnlocked(v);
   });
 }
 
