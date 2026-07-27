@@ -181,6 +181,33 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
     coin.mediaRole = coin.mediaRole ?? "primary";
     try { await put("swarmCoins", coin); } catch { /* best-effort */ }
 
+    // Debit 1 SWARM from the wallet ledger — the mined coin has been
+    // consumed as an immutable media container and is no longer fungible.
+    try {
+      const [{ getCurrentUser }, { getSwarmChain }] = await Promise.all([
+        import("@/lib/auth"),
+        import("./chain"),
+      ]);
+      const user = getCurrentUser();
+      const chain = getSwarmChain();
+      if (user) {
+        chain.addTransaction({
+          id: `engrave-burn-${coin.coinId}`,
+          type: "token_burn",
+          from: user.id,
+          to: "burn",
+          amount: 1,
+          fee: 0,
+          nonce: 0,
+          timestamp: new Date().toISOString(),
+          signature: "",
+          publicKey: "",
+          chainId: "SWARM",
+          meta: { reason: "media_engrave", coinId: coin.coinId, peerId, contentHash: file.contentHash },
+        });
+      }
+    } catch { /* best-effort ledger debit */ }
+
     engraved += 1;
   }
 
