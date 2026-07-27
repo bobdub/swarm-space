@@ -171,9 +171,12 @@ function reconcileVaultInMemory(v: SyncVault): boolean {
       role: "media",
       sealed: true,
       wrapped: true,
-      capacityBytes: Number.isFinite(raw.capacityBytes) && raw.capacityBytes > 0
-        ? raw.capacityBytes
-        : MEDIA_COIN_CAPACITY_BYTES,
+      capacityBytes: Math.max(
+        MEDIA_COIN_CAPACITY_BYTES,
+        Number.isFinite(raw.capacityBytes) && raw.capacityBytes > 0
+          ? raw.capacityBytes
+          : 0,
+      ),
       sealedAt: raw.sealedAt ?? now,
       sealReason: raw.sealReason ?? "reconcile",
     };
