@@ -5,7 +5,6 @@
 import { get, getAll, put, remove } from "@/lib/store";
 import type { SwarmCoin } from "./types";
 import {
-  COIN_MAX_WEIGHT,
   MEDIA_COIN_CAPACITY_BYTES,
   MEDIA_COIN_SEAL_FRACTION,
 } from "./types";
@@ -19,10 +18,7 @@ function isVaultUsable(coin: SwarmCoin): boolean {
   return coin.status === "wallet" && coin.fillState !== "spent";
 }
 
-export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
-export const VAULT_ROLLOVER_FRACTION = 0.8;
-
-export type VaultCoinRole = "canonical" | "receiver" | "archive" | "media";
+export type VaultCoinRole = "canonical" | "media";
 export type VaultSealReason =
   | "pre-engrave-rollover"
   | "oversized-complete"
@@ -116,32 +112,6 @@ export async function ensureVault(peerId: string): Promise<SyncVault> {
   };
   await saveVault(fresh);
   return fresh;
-}
-
-function activeReceiverCoin(v: SyncVault): VaultCoinRef | null {
-  const receivers = v.coins.filter((c) => c.role === "receiver");
-  for (let i = receivers.length - 1; i >= 0; i--) {
-    const c = receivers[i];
-    if (c.fillBytes / c.capacityBytes < VAULT_ROLLOVER_FRACTION) return c;
-  }
-  return null;
-}
-
-export async function ensureArchiveCoin(peerId: string): Promise<VaultCoinRef> {
-  const vault = await ensureVault(peerId);
-  const archiveId = `archive:${peerId}`;
-  const existing = vault.coins.find((c) => c.coinId === archiveId);
-  if (existing) return existing;
-  const ref: VaultCoinRef = {
-    coinId: archiveId,
-    role: "archive",
-    fillBytes: 0,
-    capacityBytes: Number.POSITIVE_INFINITY,
-    createdAt: new Date().toISOString(),
-  };
-  vault.coins.push(ref);
-  await saveVault(vault);
-  return ref;
 }
 
 // ── Media Coin (Sync Vault container) ──────────────────────────────────
