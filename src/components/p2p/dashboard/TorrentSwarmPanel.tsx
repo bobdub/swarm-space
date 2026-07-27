@@ -564,7 +564,16 @@ function PeerVaultsSection({
         const r = await migrateCompletedIntoVaults(candidates);
         setNeedsCoin(r.needsCoin);
         setLastCheck({ enrolled: r.enrolled, skipped: r.skipped });
-        if (r.enrolled > 0) await refresh();
+        if (r.enrolled > 0) {
+          await refresh();
+          // Kick the engraver as soon as new awaiting files land so
+          // real mined coins get consumed without waiting for the tick.
+          try {
+            const m = await import('@/lib/blockchain/mediaCoinWrapSweep');
+            await m.runWrapSweep().catch(() => {});
+            await refresh();
+          } catch { /* noop */ }
+        }
       } catch (err) {
         console.warn('[PeerVaultsSection] enrol failed', err);
       }
@@ -646,6 +655,7 @@ function PeerVaultsSection({
         <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
           {sorted.map((v) => {
             const entries = Object.entries(v.index);
+            const awaiting = Array.isArray(v.files) ? v.files : [];
             const totalBytes = entries.reduce((s, [, e]) => s + (e.length || 0), 0);
             const pendingCount = entries.reduce((n, [, e]) => n + (e.pending ? 1 : 0), 0);
             const isSelf = v.peerId === (localPeerId || 'self') || v.peerId === localPeerId.replace(/^peer-/, '');
@@ -664,6 +674,9 @@ function PeerVaultsSection({
                     Coins Used: <span className="text-foreground/80">{v.coins.length}</span>
                     {'  '}
                     Media Files: <span className="text-foreground/80">{entries.length}</span>
+                    {awaiting.length > 0 && (
+                      <>{'  '}Awaiting: <span className="text-amber-400/80">{awaiting.length}</span></>
+                    )}
                     {pendingCount > 0 && (
                       <>{'  '}Pending: <span className="text-amber-400/80">{pendingCount}</span></>
                     )}
@@ -765,15 +778,35 @@ function PeerVaultsSection({
                         );
                       })()
                     )}
-                    {entries.length === 0 ? (
+                    {awaiting.length > 0 && (
+                      <div className="rounded border border-amber-500/20 bg-amber-500/[0.04] p-1.5 space-y-1">
+                        <div className="text-[0.55rem] uppercase tracking-widest text-amber-300/80">
+                          Awaiting engraver ({awaiting.length}) — needs a free mined SWARM coin
+                        </div>
+                        {awaiting.slice(0, 20).map((f) => (
+                          <div key={f.contentHash} className="flex items-center gap-2 text-[0.6rem]">
+                            <span className="font-mono text-foreground/60 truncate flex-1" title={f.contentHash}>
+                              {f.name || f.contentHash.slice(0, 24)}
+                            </span>
+                            <span className="text-foreground/40 tabular-nums shrink-0">
+                              {formatBytes(f.size)}
+                            </span>
+                          </div>
+                        ))}
+                        {awaiting.length > 20 && (
+                          <div className="text-[0.55rem] text-foreground/40">+ {awaiting.length - 20} more</div>
+                        )}
+                      </div>
+                    )}
+                    {entries.length === 0 && awaiting.length === 0 ? (
                       <p className="text-[0.65rem] text-foreground/30">Vault is empty.</p>
-                    ) : (
+                    ) : entries.length > 0 ? (
                       <div className="max-h-56 overflow-y-auto space-y-1">
                         {entries.map(([hash, e]) => (
                           <VaultEntryRow key={hash} hash={hash} entry={e} />
                         ))}
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
