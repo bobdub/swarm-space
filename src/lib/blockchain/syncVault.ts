@@ -80,6 +80,22 @@ export interface SyncVault {
 }
 
 const STORE = "syncVaults";
+const vaultQueues = new Map<string, Promise<void>>();
+
+async function withVaultQueue<T>(peerId: string, task: () => Promise<T>): Promise<T> {
+  const previous = vaultQueues.get(peerId) ?? Promise.resolve();
+  let release = () => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const queued = previous.catch(() => {}).then(() => gate);
+  vaultQueues.set(peerId, queued);
+  await previous.catch(() => {});
+  try {
+    return await task();
+  } finally {
+    release();
+    if (vaultQueues.get(peerId) === queued) vaultQueues.delete(peerId);
+  }
+}
 
 export async function getVault(peerId: string): Promise<SyncVault | null> {
   const v = await get<SyncVault>(STORE, peerId);
@@ -91,6 +107,11 @@ export async function listVaults(): Promise<SyncVault[]> {
 }
 
 export async function saveVault(v: SyncVault): Promise<void> {
+  v.updatedAt = new Date().toISOString();
+  await put(STORE, v);
+}
+
+async function saveVaultUnlocked(v: SyncVault): Promise<void> {
   v.updatedAt = new Date().toISOString();
   await put(STORE, v);
 }
@@ -150,6 +171,63 @@ function stampSeal(ref: VaultCoinRef, reason: VaultSealReason, now: string): voi
  * seals every unsealed media coin with content except the newest one
  * and drops any empty duplicates. Returns true if the vault changed.
  */
+function normalizeMediaCapacity(ref: VaultCoinRef): boolean {
+  if (ref.role !== "media") return false;
+  if (!Number.isFinite(ref.capacityBytes) || ref.capacityBytes <= 0) {
+    ref.capacityBytes = MEDIA_COIN_CAPACITY_BYTES;
+    return true;
+  }
+  if (ref.capacityBytes < MEDIA_COIN_CAPACITY_BYTES) {
+    ref.capacityBytes = MEDIA_COIN_CAPACITY_BYTES;
+    return true;
+  }
+  return false;
+}
+
+function entriesForCoin(v: SyncVault, coinId: string): VaultIndexEntry[] {
+  return Object.values(v.index).filter((entry) => entry.coinId === coinId);
+}
+
+function entriesAreComplete(entries: VaultIndexEntry[]): boolean {
+  return entries.length > 0 && entries.every((entry) => !entry.awaitingSync && (Boolean(entry.completedAt) || entry.length > 0));
+}
+
+function reconcileVaultInMemory(v: SyncVault): boolean {
+  let dirty = false;
+  const keep: VaultCoinRef[] = [];
+  const now = new Date().toISOString();
+
+  for (const raw of v.coins) {
+    const role = raw.role as string;
+    const legacy = role === "receiver" || role === "archive";
+    const ref: VaultCoinRef = legacy ? { ...raw, role: "media" } : raw;
+    if (legacy) dirty = true;
+    if (normalizeMediaCapacity(ref)) dirty = true;
+
+    const entries = entriesForCoin(v, ref.coinId);
+    if (ref.role === "media") {
+      if (entries.length === 0 && !ref.sealed && !ref.wrapped) {
+        dirty = true;
+        continue;
+      }
+      if (legacy && entries.length > 0) {
+        stampSeal(ref, "reconcile", now);
+        dirty = true;
+      }
+      const sealBytes = Math.floor(ref.capacityBytes * MEDIA_COIN_SEAL_FRACTION);
+      if (!ref.sealed && ref.fillBytes >= sealBytes && entriesAreComplete(entries)) {
+        stampSeal(ref, "reconcile", now);
+        dirty = true;
+      }
+    }
+    keep.push(ref);
+  }
+
+  v.coins = keep;
+  if (consolidateUnsealedMediaCoins(v)) dirty = true;
+  return dirty;
+}
+
 function consolidateUnsealedMediaCoins(v: SyncVault): boolean {
   const unsealed = v.coins.filter((c) => c.role === "media" && !c.sealed);
   if (unsealed.length <= 1) return false;
@@ -200,41 +278,100 @@ export async function getOrCreateMediaCoin(
   peerId: string,
   incomingBytes: number = 0,
 ): Promise<VaultCoinRef> {
-  const vault = await ensureVault(peerId);
-  // Repair invariant before doing anything else.
-  const repaired = consolidateUnsealedMediaCoins(vault);
-  const size = safeByteSize(incomingBytes);
+  return withVaultQueue(peerId, async () => {
+    const vault = await ensureVault(peerId);
+    const repaired = reconcileVaultInMemory(vault);
+    const size = safeByteSize(incomingBytes);
 
-  // Oversized single file gets its own dedicated coin.
-  if (size >= MEDIA_COIN_CAPACITY_BYTES) {
-    const ref = allocateMediaCoinRef(vault, size);
-    await saveVault(vault);
-    return ref;
-  }
-
-  const sealBytes = Math.floor(MEDIA_COIN_CAPACITY_BYTES * MEDIA_COIN_SEAL_FRACTION);
-  const active = activeMediaCoin(vault);
-  if (active) {
-    // Fits without crossing seal line → reuse.
-    if (active.fillBytes + size <= sealBytes) {
-      if (repaired) await saveVault(vault);
-      return active;
+    if (size >= MEDIA_COIN_CAPACITY_BYTES) {
+      const ref = allocateMediaCoinRef(vault, size);
+      await saveVaultUnlocked(vault);
+      return { ...ref };
     }
-    // Would push the coin over the seal threshold: seal current (only
-    // if it already carries content) and allocate a fresh coin for
-    // this file. Sealing happens BEFORE the new engrave starts.
-    if (active.fillBytes > 0) {
-      stampSeal(active, "pre-engrave-rollover", new Date().toISOString());
+
+    const sealBytes = Math.floor(MEDIA_COIN_CAPACITY_BYTES * MEDIA_COIN_SEAL_FRACTION);
+    const active = activeMediaCoin(vault);
+    if (active) {
+      if (active.fillBytes + size <= sealBytes) {
+        if (repaired) await saveVaultUnlocked(vault);
+        return { ...active };
+      }
+      if (active.fillBytes > 0) {
+        stampSeal(active, "pre-engrave-rollover", new Date().toISOString());
+      } else {
+        vault.coins = vault.coins.filter((c) => c.coinId !== active.coinId);
+      }
+    }
+
+    const ref = allocateMediaCoinRef(vault, MEDIA_COIN_CAPACITY_BYTES);
+    await saveVaultUnlocked(vault);
+    return { ...ref };
+  });
+}
+
+export interface EnrollVaultEntryInput {
+  contentHash: string;
+  mime?: string;
+  ref?: string;
+  name?: string;
+  size: number;
+  completedAt?: string;
+}
+
+export async function enrollVaultEntry(
+  peerId: string,
+  input: EnrollVaultEntryInput,
+): Promise<"skipped" | "enrolled"> {
+  return withVaultQueue(peerId, async () => {
+    const existing = await findVaultEntry(input.contentHash);
+    if (existing) return "skipped";
+
+    const vault = await ensureVault(peerId);
+    reconcileVaultInMemory(vault);
+    const size = safeByteSize(input.size);
+    let ref: VaultCoinRef;
+
+    if (size >= MEDIA_COIN_CAPACITY_BYTES) {
+      ref = allocateMediaCoinRef(vault, size);
     } else {
-      // Empty active coin can't hold this file even at zero fill
-      // (size > sealBytes). Drop it so we don't leave orphan refs.
-      vault.coins = vault.coins.filter((c) => c.coinId !== active.coinId);
+      const sealBytes = Math.floor(MEDIA_COIN_CAPACITY_BYTES * MEDIA_COIN_SEAL_FRACTION);
+      const active = activeMediaCoin(vault);
+      if (active && active.fillBytes + size <= sealBytes) {
+        ref = active;
+      } else {
+        if (active) {
+          if (active.fillBytes > 0) stampSeal(active, "pre-engrave-rollover", new Date().toISOString());
+          else vault.coins = vault.coins.filter((c) => c.coinId !== active.coinId);
+        }
+        ref = allocateMediaCoinRef(vault, MEDIA_COIN_CAPACITY_BYTES);
+      }
     }
-  }
 
-  const ref = allocateMediaCoinRef(vault, MEDIA_COIN_CAPACITY_BYTES);
-  await saveVault(vault);
-  return ref;
+    const now = new Date().toISOString();
+    ref.phase = "writing";
+    ref.lastProgressAt = now;
+    vault.index[input.contentHash] = {
+      coinId: ref.coinId,
+      offset: ref.fillBytes,
+      length: size,
+      mime: input.mime,
+      ref: input.ref,
+      name: input.name,
+      pending: true,
+      firstSeenAt: now,
+      completedAt: input.completedAt ?? now,
+      storedAt: now,
+    };
+    ref.fillBytes = Math.min(ref.capacityBytes, ref.fillBytes + size);
+    ref.lastProgressAt = now;
+    if (size >= MEDIA_COIN_CAPACITY_BYTES) {
+      stampSeal(ref, "oversized-complete", now);
+    } else {
+      ref.phase = "filling";
+    }
+    await saveVaultUnlocked(vault);
+    return "enrolled";
+  });
 }
 
 /**
@@ -245,8 +382,14 @@ export async function getOrCreateMediaCoin(
 export async function reconcileMediaCoins(): Promise<number> {
   let changed = 0;
   for (const v of await listVaults()) {
-    if (consolidateUnsealedMediaCoins(v)) {
-      await saveVault(v);
+    const didChange = await withVaultQueue(v.peerId, async () => {
+      const latest = await getVault(v.peerId);
+      if (!latest) return false;
+      if (!reconcileVaultInMemory(latest)) return false;
+      await saveVaultUnlocked(latest);
+      return true;
+    });
+    if (didChange) {
       changed += 1;
     }
   }
@@ -259,13 +402,15 @@ export async function sealMediaCoin(
   coinId: string,
   reason: VaultSealReason = "manual",
 ): Promise<void> {
-  const v = await getVault(peerId);
-  if (!v) return;
-  const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c || c.role !== "media") return;
-  const now = new Date().toISOString();
-  stampSeal(c, reason, now);
-  await saveVault(v);
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    const c = v.coins.find((x) => x.coinId === coinId);
+    if (!c || c.role !== "media") return;
+    const now = new Date().toISOString();
+    stampSeal(c, reason, now);
+    await saveVaultUnlocked(v);
+  });
 }
 
 /**
@@ -279,17 +424,17 @@ export async function forceSealCompletedMediaCoin(
   coinId: string,
   reason: Extract<VaultSealReason, "oversized-complete" | "completed-stall">,
 ): Promise<boolean> {
-  const v = await getVault(peerId);
-  if (!v) return false;
-  const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c || c.role !== "media" || c.failed) return false;
-  const entries = Object.values(v.index).filter((entry) => entry.coinId === coinId);
-  if (entries.length === 0) return false;
-  const complete = entries.every((entry) => !entry.awaitingSync && (Boolean(entry.completedAt) || entry.length > 0));
-  if (!complete) return false;
-  stampSeal(c, reason, new Date().toISOString());
-  await saveVault(v);
-  return true;
+  return withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return false;
+    const c = v.coins.find((x) => x.coinId === coinId);
+    if (!c || c.role !== "media" || c.failed) return false;
+    const entries = entriesForCoin(v, coinId);
+    if (!entriesAreComplete(entries)) return false;
+    stampSeal(c, reason, new Date().toISOString());
+    await saveVaultUnlocked(v);
+    return true;
+  });
 }
 
 /**
@@ -318,26 +463,28 @@ export async function attemptWrapMediaCoin(
   freeWalletCoin: SwarmCoin,
   sealAssistCoin?: SwarmCoin,
 ): Promise<boolean> {
-  const vault = await getVault(peerId);
-  if (!vault) return false;
-  const ref = vault.coins.find((c) => c.coinId === coinId);
-  if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped || ref.failed) return false;
+  const contentHashes = await withVaultQueue(peerId, async () => {
+    const vault = await getVault(peerId);
+    if (!vault) return null;
+    const ref = vault.coins.find((c) => c.coinId === coinId);
+    if (!ref || ref.role !== "media" || !ref.sealed || ref.wrapped || ref.failed) return null;
 
-  // Rewrite every entry that lived on the virtual media coin.
-  const contentHashes: string[] = [];
-  for (const [hash, entry] of Object.entries(vault.index)) {
-    if (entry.coinId !== coinId) continue;
-    vault.index[hash] = { ...entry, coinId: freeWalletCoin.coinId, pending: false };
-    contentHashes.push(hash);
-  }
+    const hashes: string[] = [];
+    for (const [hash, entry] of Object.entries(vault.index)) {
+      if (entry.coinId !== coinId) continue;
+      vault.index[hash] = { ...entry, coinId: freeWalletCoin.coinId, pending: false };
+      hashes.push(hash);
+    }
 
-  // Rename the ref (keep sealed/fill/etc), stamp wrap metadata.
-  ref.coinId = freeWalletCoin.coinId;
-  ref.wrapped = true;
-  ref.lastWrapAttemptAt = new Date().toISOString();
-  if (sealAssistCoin) ref.sealAssistedByCoinId = sealAssistCoin.coinId;
-  if (peerId.startsWith("archive:")) ref.wrappedBadge = "archived";
-  await saveVault(vault);
+    ref.coinId = freeWalletCoin.coinId;
+    ref.wrapped = true;
+    ref.lastWrapAttemptAt = new Date().toISOString();
+    if (sealAssistCoin) ref.sealAssistedByCoinId = sealAssistCoin.coinId;
+    if (peerId.startsWith("archive:")) ref.wrappedBadge = "archived";
+    await saveVaultUnlocked(vault);
+    return hashes;
+  });
+  if (!contentHashes) return false;
 
   // Engrave the underlying SwarmCoin so guards exclude it everywhere.
   freeWalletCoin.kind = "media";
@@ -361,12 +508,14 @@ export async function attemptWrapMediaCoin(
 
 /** Stamp a wrap attempt as "tried, insufficient" so the 24h cooldown starts. */
 export async function markWrapAttempt(peerId: string, coinId: string): Promise<void> {
-  const v = await getVault(peerId);
-  if (!v) return;
-  const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c) return;
-  c.lastWrapAttemptAt = new Date().toISOString();
-  await saveVault(v);
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    const c = v.coins.find((x) => x.coinId === coinId);
+    if (!c) return;
+    c.lastWrapAttemptAt = new Date().toISOString();
+    await saveVaultUnlocked(v);
+  });
 }
 
 // ── Phase / stuck-write helpers ────────────────────────────────────────
@@ -376,16 +525,18 @@ export async function markCoinPhase(
   coinId: string,
   phase: NonNullable<VaultCoinRef["phase"]>,
 ): Promise<void> {
-  const v = await getVault(peerId);
-  if (!v) return;
-  const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c || c.role !== "media") return;
-  c.phase = phase;
-  c.lastProgressAt = new Date().toISOString();
-  if (phase === "sealed" && !c.sealed) {
-    stampSeal(c, "manual", c.lastProgressAt);
-  }
-  await saveVault(v);
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    const c = v.coins.find((x) => x.coinId === coinId);
+    if (!c || c.role !== "media") return;
+    c.phase = phase;
+    c.lastProgressAt = new Date().toISOString();
+    if (phase === "sealed" && !c.sealed) {
+      stampSeal(c, "manual", c.lastProgressAt);
+    }
+    await saveVaultUnlocked(v);
+  });
 }
 
 /**
@@ -393,13 +544,15 @@ export async function markCoinPhase(
  * serves; kept for auditing.
  */
 export async function markCoinFailed(peerId: string, coinId: string): Promise<void> {
-  const v = await getVault(peerId);
-  if (!v) return;
-  const c = v.coins.find((x) => x.coinId === coinId);
-  if (!c || c.role !== "media" || c.wrapped) return;
-  c.failed = true;
-  stampSeal(c, "failed-stall", new Date().toISOString());
-  await saveVault(v);
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    const c = v.coins.find((x) => x.coinId === coinId);
+    if (!c || c.role !== "media" || c.wrapped) return;
+    c.failed = true;
+    stampSeal(c, "failed-stall", new Date().toISOString());
+    await saveVaultUnlocked(v);
+  });
 }
 
 /**
@@ -411,16 +564,18 @@ export async function detachEntriesFromCoin(
   peerId: string,
   coinId: string,
 ): Promise<Array<{ contentHash: string; entry: VaultIndexEntry }>> {
-  const v = await getVault(peerId);
-  if (!v) return [];
-  const detached: Array<{ contentHash: string; entry: VaultIndexEntry }> = [];
-  for (const [hash, entry] of Object.entries(v.index)) {
-    if (entry.coinId !== coinId) continue;
-    detached.push({ contentHash: hash, entry });
-    delete v.index[hash];
-  }
-  if (detached.length) await saveVault(v);
-  return detached;
+  return withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return [];
+    const detached: Array<{ contentHash: string; entry: VaultIndexEntry }> = [];
+    for (const [hash, entry] of Object.entries(v.index)) {
+      if (entry.coinId !== coinId) continue;
+      detached.push({ contentHash: hash, entry });
+      delete v.index[hash];
+    }
+    if (detached.length) await saveVaultUnlocked(v);
+    return detached;
+  });
 }
 
 /**
@@ -442,32 +597,20 @@ export async function listUnsealedMediaCoins(): Promise<Array<{ peerId: string; 
  * entries keep serving, and drops empty legacy refs.
  */
 export async function reconcileLegacyVaultCoins(): Promise<number> {
+  return reconcileVaultCoinState();
+}
+
+export async function reconcileVaultCoinState(): Promise<number> {
   let changed = 0;
   for (const v of await listVaults()) {
-    let dirty = false;
-    const keep: VaultCoinRef[] = [];
-    for (const c of v.coins) {
-      const role = c.role as string;
-      if (role !== "receiver" && role !== "archive") {
-        keep.push(c);
-        continue;
-      }
-      const hasEntries = Object.values(v.index).some((e) => e.coinId === c.coinId);
-      if (!hasEntries) { dirty = true; continue; }
-      const coerced: VaultCoinRef = { ...c, role: "media" };
-      const cap = Number.isFinite(coerced.capacityBytes) && coerced.capacityBytes > 0
-        ? coerced.capacityBytes
-        : MEDIA_COIN_CAPACITY_BYTES;
-      coerced.capacityBytes = cap;
-      stampSeal(coerced, "reconcile", new Date().toISOString());
-      keep.push(coerced);
-      dirty = true;
-    }
-    if (dirty) {
-      v.coins = keep;
-      await saveVault(v);
-      changed += 1;
-    }
+    const didChange = await withVaultQueue(v.peerId, async () => {
+      const latest = await getVault(v.peerId);
+      if (!latest) return false;
+      if (!reconcileVaultInMemory(latest)) return false;
+      await saveVaultUnlocked(latest);
+      return true;
+    });
+    if (didChange) changed += 1;
   }
   return changed;
 }
@@ -481,15 +624,18 @@ export async function recordVaultEntry(
   contentHash: string,
   entry: Omit<VaultIndexEntry, "storedAt">,
 ): Promise<void> {
-  const vault = await ensureVault(peerId);
-  vault.index[contentHash] = { ...entry, storedAt: new Date().toISOString() };
-  const coin = vault.coins.find((c) => c.coinId === entry.coinId);
-  if (coin) {
-    coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + safeByteSize(entry.length));
-    coin.lastProgressAt = new Date().toISOString();
-    if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
-  }
-  await saveVault(vault);
+  await withVaultQueue(peerId, async () => {
+    const vault = await ensureVault(peerId);
+    vault.index[contentHash] = { ...entry, storedAt: new Date().toISOString() };
+    const coin = vault.coins.find((c) => c.coinId === entry.coinId);
+    if (coin) {
+      normalizeMediaCapacity(coin);
+      coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + safeByteSize(entry.length));
+      coin.lastProgressAt = new Date().toISOString();
+      if (!coin.phase && coin.role === "media" && !coin.sealed) coin.phase = "filling";
+    }
+    await saveVaultUnlocked(vault);
+  });
 }
 
 export async function findVaultEntry(
@@ -507,9 +653,11 @@ export async function bumpVaultCounter(
   peerId: string,
   kind: "hit" | "miss",
 ): Promise<void> {
-  const v = await getVault(peerId);
-  if (!v) return;
-  if (kind === "hit") v.hits += 1;
-  else v.misses += 1;
-  await saveVault(v);
+  await withVaultQueue(peerId, async () => {
+    const v = await getVault(peerId);
+    if (!v) return;
+    if (kind === "hit") v.hits += 1;
+    else v.misses += 1;
+    await saveVaultUnlocked(v);
+  });
 }
