@@ -700,13 +700,11 @@ function PeerVaultsSection({
                             : 'text-foreground/50 border-foreground/15';
                           const short = c.coinId.length > 20 ? c.coinId.slice(0, 12) + '…' + c.coinId.slice(-5) : c.coinId;
                           const done = c.wrapped || c.sealed || c.failed;
-                          const sealNote = c.sealAssistedByCoinId
-                            ? 'Seal assist'
-                            : c.sealReason === 'completed-stall'
-                              ? 'Recovered seal'
-                              : c.sealReason === 'oversized-complete'
-                                ? 'Large-file seal'
-                                : undefined;
+                          const sealNote = c.sealReason === 'engraved'
+                            ? 'Engraved'
+                            : c.sealReason === 'reconcile'
+                              ? 'Repaired'
+                              : undefined;
                           return { c, cap, pct, state, tone, short, done, sealNote };
                         });
                         const active = rows.filter((r) => !r.done);

@@ -22,8 +22,7 @@ import {
   ensureVault,
   recordVaultEntry,
   findVaultEntry,
-  getOrCreateMediaCoin,
-  forceSealCompletedMediaCoin,
+  engraveFileOntoCoin,
   getVault,
   reconcileLegacyVaultCoins,
   reconcileVaultCoinState,
@@ -52,82 +51,75 @@ describe("syncVault", () => {
     expect(v.peerId).toBe("peer-A");
   });
 
-  it("indexes entries and looks them up across vaults", async () => {
-    const ref = await getOrCreateMediaCoin("peer-C", 128);
-    await recordVaultEntry("peer-C", "h42", { coinId: ref.coinId, offset: 0, length: 128, ref: "h42" });
+  it("enrolled files sit in files[] until a real mined coin engraves them", async () => {
+    await enrollVaultEntry("peer-C", { contentHash: "h42", ref: "h42", name: "n", size: 128 });
+    const v = await getVault("peer-C");
+    expect(v?.files.map((f) => f.contentHash)).toContain("h42");
+    expect(v?.coins).toHaveLength(0);
+    await engraveFileOntoCoin("peer-C", { contentHash: "h42", walletCoinId: "wallet-1", size: 128 });
+    const after = await getVault("peer-C");
+    expect(after?.files.some((f) => f.contentHash === "h42")).toBe(false);
     const found = await findVaultEntry("h42");
     expect(found?.vault.peerId).toBe("peer-C");
-    expect(found?.entry.length).toBe(128);
+    expect(found?.entry.coinId).toBe("wallet-1");
   });
 
-  it("force-seals a completed oversized media coin without adding seal bytes", async () => {
-    const size = MEDIA_COIN_CAPACITY_BYTES * 2;
-    const ref = await getOrCreateMediaCoin("peer-large", size);
-    expect(ref.capacityBytes).toBe(size);
-    await recordVaultEntry("peer-large", "big-file", {
-      coinId: ref.coinId,
-      offset: 0,
-      length: size,
-      ref: "big-file",
-      completedAt: new Date().toISOString(),
-    });
-    const sealed = await forceSealCompletedMediaCoin("peer-large", ref.coinId, "oversized-complete");
-    expect(sealed).toBe(true);
-    const vault = await getVault("peer-large");
-    const coin = vault?.coins.find((c) => c.coinId === ref.coinId);
-    expect(coin?.sealed).toBe(true);
-    expect(coin?.phase).toBe("sealed");
-    expect(coin?.sealReason).toBe("oversized-complete");
-    expect(coin?.fillBytes).toBe(size);
+  it("engraver refuses synthetic (fabricated) coin ids", async () => {
+    await enrollVaultEntry("peer-fake", { contentHash: "hh", ref: "hh", name: "n", size: 10 });
+    const ok = await engraveFileOntoCoin("peer-fake", { contentHash: "hh", walletCoinId: "archive:media:peer-fake:0:abc", size: 10 });
+    expect(ok).toBe(false);
   });
 
-  it("reconciles legacy receiver/archive coin roles into sealed media", async () => {
+  it("reconciles legacy fabricated coins by demoting entries back to files[]", async () => {
     const v = await ensureVault("peer-legacy");
     v.coins.push({
-      coinId: "legacy-1",
+      coinId: "archive:media:peer-legacy:0:abc",
       // biome-ignore lint: legacy role
       role: "receiver" as any,
       fillBytes: 42,
       capacityBytes: 100 * 1024 * 1024,
       createdAt: new Date().toISOString(),
+      // biome-ignore lint: legacy sealed hint
+      sealed: false as any,
+      // biome-ignore lint: legacy wrapped hint
+      wrapped: false as any,
     });
-    v.index["h-legacy"] = { coinId: "legacy-1", offset: 0, length: 42, ref: "h-legacy", storedAt: new Date().toISOString() };
+    v.index["h-legacy"] = { coinId: "archive:media:peer-legacy:0:abc", offset: 0, length: 42, ref: "h-legacy", storedAt: new Date().toISOString() };
     await saveVault(v);
     const n = await reconcileLegacyVaultCoins();
     expect(n).toBeGreaterThanOrEqual(1);
     const after = await getVault("peer-legacy");
-    const c = after?.coins.find((c) => c.coinId === "legacy-1");
-    expect(c?.role).toBe("media");
-    expect(c?.sealed).toBe(true);
-    expect(c?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
+    expect(after?.coins).toHaveLength(0);
+    expect(after?.index["h-legacy"]).toBeUndefined();
+    expect(after?.files.some((f) => f.contentHash === "h-legacy" && f.size === 42)).toBe(true);
   });
 
-  it("repairs duplicate active coins while preserving completed coins", async () => {
-    const v = await ensureVault("peer-duplicates");
+  it("real mined coin refs are normalized to sealed media on reconcile", async () => {
+    const v = await ensureVault("peer-real");
     const now = new Date().toISOString();
-    v.coins.push(
-      { coinId: "old-active", role: "media", fillBytes: 1024, capacityBytes: 100 * 1024 * 1024, createdAt: now },
-      { coinId: "new-active", role: "media", fillBytes: 0, capacityBytes: MEDIA_COIN_CAPACITY_BYTES, createdAt: new Date(Date.now() + 1).toISOString() },
-      { coinId: "done", role: "media", fillBytes: MEDIA_COIN_CAPACITY_BYTES, capacityBytes: MEDIA_COIN_CAPACITY_BYTES, createdAt: now, sealed: true },
-    );
-    v.index["old-hash"] = { coinId: "old-active", offset: 0, length: 1024, ref: "old-hash", storedAt: now, completedAt: now };
-    v.index["done-hash"] = { coinId: "done", offset: 0, length: 2048, ref: "done-hash", storedAt: now, completedAt: now };
+    v.coins.push({
+      coinId: "wallet-real-1",
+      // biome-ignore lint: legacy role/flags absent
+      role: "media" as any,
+      fillBytes: 1024,
+      capacityBytes: 100 * 1024 * 1024,
+      createdAt: now,
+      // biome-ignore lint: not yet sealed
+      sealed: false as any,
+      // biome-ignore lint: not yet wrapped
+      wrapped: false as any,
+    });
     await saveVault(v);
-
     const n = await reconcileVaultCoinState();
     expect(n).toBeGreaterThanOrEqual(1);
-    const after = await getVault("peer-duplicates");
-    const active = after?.coins.filter((c) => c.role === "media" && !c.sealed) ?? [];
-    expect(active).toHaveLength(1);
-    expect(active[0].coinId).toBe("old-active");
-    const old = after?.coins.find((c) => c.coinId === "old-active");
-    expect(old?.sealed).toBeFalsy();
-    expect(old?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
-    expect(after?.coins.some((c) => c.coinId === "new-active")).toBe(false);
-    expect(after?.coins.find((c) => c.coinId === "done")?.sealed).toBe(true);
+    const after = await getVault("peer-real");
+    const coin = after?.coins.find((c) => c.coinId === "wallet-real-1");
+    expect(coin?.sealed).toBe(true);
+    expect(coin?.wrapped).toBe(true);
+    expect(coin?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
   });
 
-  it("atomic enrollment leaves one active filling coin under concurrent writes", async () => {
+  it("atomic enrollment queues concurrent files without fabricating coins", async () => {
     const chunk = 10 * 1024 * 1024;
     await Promise.all(Array.from({ length: 12 }, (_, i) => enrollVaultEntry("peer-concurrent", {
       contentHash: `concurrent-${i}`,
@@ -138,10 +130,9 @@ describe("syncVault", () => {
     })));
 
     const vault = await getVault("peer-concurrent");
-    const active = vault?.coins.filter((c) => c.role === "media" && !c.sealed) ?? [];
-    expect(active).toHaveLength(1);
-    expect(active[0].capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
-    expect(Object.keys(vault?.index ?? {})).toHaveLength(12);
+    expect(vault?.coins).toHaveLength(0);
+    expect(vault?.files).toHaveLength(12);
+    expect(Object.keys(vault?.index ?? {})).toHaveLength(0);
   });
 
   it("keeps wrapped entries resolved when pending updates run", async () => {
@@ -174,3 +165,5 @@ describe("syncVault", () => {
 
 // keep sealedCoin helper referenced to avoid unused warning
 void sealedCoin;
+// silence unused param variables
+void recordVaultEntry;
