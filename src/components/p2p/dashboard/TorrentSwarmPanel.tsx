@@ -14,7 +14,7 @@ import { getTorrentSwarm as getTorrentSwarmSingleton } from '@/lib/p2p/torrentSw
 import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { openDB } from '@/lib/store';
-import { listVaults, promoteArchivedEntries, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
+import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
 import {
   migrateCompletedIntoVaults,
   type MigrationCandidate,
@@ -571,21 +571,6 @@ function PeerVaultsSection({
     })();
   }, [completedFiles, persistedTorrents, localPeerId, refresh]);
 
-  const [promoting, setPromoting] = useState(false);
-  const promoteArchive = useCallback(async () => {
-    setPromoting(true);
-    try {
-      const coins = (await getAll<SwarmCoin>('swarmCoins').catch(() => []))
-        .filter((c) => c.status === 'wallet' && c.fillState !== 'spent');
-      if (!coins.length) { setNeedsCoin(true); return; }
-      const peers = (await listVaults()).map((v) => v.peerId);
-      for (const p of peers) await promoteArchivedEntries(p, coins);
-      await refresh();
-    } finally {
-      setPromoting(false);
-    }
-  }, [refresh]);
-
   const toggle = (peerId: string) => {
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -658,14 +643,6 @@ function PeerVaultsSection({
         </p>
       ) : (
         <>
-        {needsCoin && (
-          <div className="flex items-center justify-between rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-[0.65rem] text-amber-300/80">
-            <span>Some entries are archived — mine a SWARM coin to promote them.</span>
-            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[0.6rem]" disabled={promoting} onClick={() => void promoteArchive()}>
-              {promoting ? 'Promoting…' : 'Promote archive'}
-            </Button>
-          </div>
-        )}
         <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
           {sorted.map((v) => {
             const entries = Object.entries(v.index);

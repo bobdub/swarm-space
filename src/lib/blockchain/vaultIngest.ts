@@ -1,10 +1,11 @@
 /**
- * vaultIngest — observes MediaCustody events and writes verified media
- * into the source peer's Sync Vault. Never mutates transport code.
+ * vaultIngest — thin adapter. Observes MediaCustody events and funnels
+ * each into the single writer (`enrollContent`) so the 500 MiB Media
+ * Coin pipeline is the ONLY thing allocating vault storage.
  */
 import { onMediaCustody } from "./mediaCoin.bus";
 import type { SwarmCoin } from "./types";
-import { getOrRolloverReceiverCoin, recordVaultEntry } from "./syncVault";
+import { enrollContent } from "./vaultEnroll";
 import { isVaultsEnabled } from "./vaultConfig";
 
 export type CoinProvider = () => Promise<SwarmCoin[]>;
@@ -14,7 +15,7 @@ let started = false;
 let unsub: (() => void) | null = null;
 
 export function startVaultIngest(
-  getWalletCoins: CoinProvider,
+  _getWalletCoins: CoinProvider,
   getPieceLength?: LengthProvider,
 ): () => void {
   if (started) return () => {};
@@ -22,14 +23,14 @@ export function startVaultIngest(
   unsub = onMediaCustody(async (evt) => {
     if (!isVaultsEnabled()) return;
     try {
-      const coins = await getWalletCoins();
-      const ref = await getOrRolloverReceiverCoin(evt.ownerId, coins);
-      if (!ref) return;
       const length = getPieceLength ? await getPieceLength(evt.pieceHash) : 0;
-      await recordVaultEntry(evt.ownerId, evt.pieceHash, {
-        coinId: ref.coinId,
-        offset: ref.fillBytes,
-        length,
+      await enrollContent({
+        contentHash: evt.pieceHash,
+        ownerPeerId: evt.ownerId,
+        isSelf: false,
+        name: evt.pieceHash,
+        mime: "application/octet-stream",
+        size: length,
         ref: evt.pieceHash,
       });
     } catch (err) {

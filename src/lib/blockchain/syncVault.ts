@@ -5,7 +5,6 @@
 import { get, getAll, put, remove } from "@/lib/store";
 import type { SwarmCoin } from "./types";
 import {
-  COIN_MAX_WEIGHT,
   MEDIA_COIN_CAPACITY_BYTES,
   MEDIA_COIN_SEAL_FRACTION,
 } from "./types";
@@ -19,10 +18,7 @@ function isVaultUsable(coin: SwarmCoin): boolean {
   return coin.status === "wallet" && coin.fillState !== "spent";
 }
 
-export const VAULT_COIN_CAPACITY_BYTES = COIN_MAX_WEIGHT * 1024 * 1024;
-export const VAULT_ROLLOVER_FRACTION = 0.8;
-
-export type VaultCoinRole = "canonical" | "receiver" | "archive" | "media";
+export type VaultCoinRole = "canonical" | "media";
 export type VaultSealReason =
   | "pre-engrave-rollover"
   | "oversized-complete"
@@ -116,32 +112,6 @@ export async function ensureVault(peerId: string): Promise<SyncVault> {
   };
   await saveVault(fresh);
   return fresh;
-}
-
-function activeReceiverCoin(v: SyncVault): VaultCoinRef | null {
-  const receivers = v.coins.filter((c) => c.role === "receiver");
-  for (let i = receivers.length - 1; i >= 0; i--) {
-    const c = receivers[i];
-    if (c.fillBytes / c.capacityBytes < VAULT_ROLLOVER_FRACTION) return c;
-  }
-  return null;
-}
-
-export async function ensureArchiveCoin(peerId: string): Promise<VaultCoinRef> {
-  const vault = await ensureVault(peerId);
-  const archiveId = `archive:${peerId}`;
-  const existing = vault.coins.find((c) => c.coinId === archiveId);
-  if (existing) return existing;
-  const ref: VaultCoinRef = {
-    coinId: archiveId,
-    role: "archive",
-    fillBytes: 0,
-    capacityBytes: Number.POSITIVE_INFINITY,
-    createdAt: new Date().toISOString(),
-  };
-  vault.coins.push(ref);
-  await saveVault(vault);
-  return ref;
 }
 
 // ── Media Coin (Sync Vault container) ──────────────────────────────────
@@ -467,68 +437,44 @@ export async function listUnsealedMediaCoins(): Promise<Array<{ peerId: string; 
 }
 
 /**
- * Move every entry currently sitting on an `archive:*` coin onto a real
- * receiver coin (allocating/rolling as needed). Returns count promoted.
+ * Boot-time repair for pre-pipeline vaults. Coerces legacy
+ * `receiver` / `archive` coin refs into sealed `media` refs so their
+ * entries keep serving, and drops empty legacy refs.
  */
-export async function promoteArchivedEntries(
-  peerId: string,
-  candidateCoins: SwarmCoin[],
-): Promise<number> {
-  const vault = await getVault(peerId);
-  if (!vault) return 0;
-  let promoted = 0;
-  for (const [hash, entry] of Object.entries(vault.index)) {
-    if (!entry.coinId.startsWith("archive:")) continue;
-    const receiver = await getOrRolloverReceiverCoin(peerId, candidateCoins);
-    if (!receiver) break;
-    // Re-read (getOrRolloverReceiverCoin may have mutated vault)
-    const fresh = (await getVault(peerId)) ?? vault;
-    fresh.index[hash] = {
-      ...entry,
-      coinId: receiver.coinId,
-      offset: receiver.fillBytes,
-      pending: false,
-    };
-    const coin = fresh.coins.find((c) => c.coinId === receiver.coinId);
-    if (coin) coin.fillBytes = Math.min(coin.capacityBytes, coin.fillBytes + (entry.length || 0));
-    await saveVault(fresh);
-    promoted += 1;
+export async function reconcileLegacyVaultCoins(): Promise<number> {
+  let changed = 0;
+  for (const v of await listVaults()) {
+    let dirty = false;
+    const keep: VaultCoinRef[] = [];
+    for (const c of v.coins) {
+      const role = c.role as string;
+      if (role !== "receiver" && role !== "archive") {
+        keep.push(c);
+        continue;
+      }
+      const hasEntries = Object.values(v.index).some((e) => e.coinId === c.coinId);
+      if (!hasEntries) { dirty = true; continue; }
+      const coerced: VaultCoinRef = { ...c, role: "media" };
+      const cap = Number.isFinite(coerced.capacityBytes) && coerced.capacityBytes > 0
+        ? coerced.capacityBytes
+        : MEDIA_COIN_CAPACITY_BYTES;
+      coerced.capacityBytes = cap;
+      stampSeal(coerced, "reconcile", new Date().toISOString());
+      keep.push(coerced);
+      dirty = true;
+    }
+    if (dirty) {
+      v.coins = keep;
+      await saveVault(v);
+      changed += 1;
+    }
   }
-  return promoted;
+  return changed;
 }
 
-export async function allocateVaultCoin(
-  peerId: string,
-  role: VaultCoinRole,
-  candidateCoins: SwarmCoin[],
-): Promise<VaultCoinRef | null> {
-  const vault = await ensureVault(peerId);
-  const taken = new Set(
-    (await listVaults()).flatMap((v) => v.coins.map((c) => c.coinId)),
-  );
-  const pick = candidateCoins.find((c) => isVaultUsable(c) && !taken.has(c.coinId));
-  if (!pick) return null;
-  const ref: VaultCoinRef = {
-    coinId: pick.coinId,
-    role,
-    fillBytes: 0,
-    capacityBytes: VAULT_COIN_CAPACITY_BYTES,
-    createdAt: new Date().toISOString(),
-  };
-  vault.coins.push(ref);
-  await saveVault(vault);
-  return ref;
-}
-
-export async function getOrRolloverReceiverCoin(
-  peerId: string,
-  candidateCoins: SwarmCoin[],
-): Promise<VaultCoinRef | null> {
-  const vault = await ensureVault(peerId);
-  const active = activeReceiverCoin(vault);
-  if (active) return active;
-  return allocateVaultCoin(peerId, "receiver", candidateCoins);
-}
+// isVaultUsable retained for potential future allocators that pick
+// wallet coins directly (wrap sweep uses its own filter today).
+void isVaultUsable;
 
 export async function recordVaultEntry(
   peerId: string,

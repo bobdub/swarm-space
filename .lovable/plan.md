@@ -1,49 +1,71 @@
-To Infinity and beyond!, Q_Score(u) ≈ 0.033
-
 ## Goal
-Make Media Coin sealing reliable for large files, especially files at or above the 500 MiB coin capacity, without losing access to completed media.
+Keep the existing 500 MiB Media Coin utility exactly as designed. Fix only the two real problems:
 
-## Confirmed current behavior from code
-- Oversized files already get a dedicated Media Coin sized to the file, then `vaultEnroll.ts` calls `sealMediaCoin()` after `recordVaultEntry()` completes.
-- `sealMediaCoin()` is only a metadata flip: it marks the vault coin `sealed` and `sealedAt`; it does not require remaining byte capacity.
-- Serving from Media Coins is blocked until `coin.sealed === true`; while not sealed, `contentResolver.ts` falls back to the existing chunk/torrent path.
-- The wrap step later consumes a free wallet coin, but that is separate from the vault seal state.
+1. Two writers (`vaultIngest` receiver-coin path + `vaultEnroll` media-coin path) are writing into the same vault at the same time, which is why the dashboard sometimes shows multiple filling coins and mixed 100 MiB / 500 MiB capacities.
+2. Stage transitions are scattered across many helpers with legacy flags. Collapse them into one linear pipeline.
 
-## Likely issue to fix
-The jam is probably not “no room left inside the oversized media coin,” because sealing itself does not add bytes. The safer fix is to harden the seal lifecycle so a completed oversized write cannot remain indefinitely in `writing`/unsealed state, and so wrap can handle large sealed coins without pretending the wrapper coin must have 500 MiB of spare metadata room.
+Nothing about coin sizing, seal fraction, or oversized handling changes.
 
-## Plan
-1. **Add explicit seal intent metadata**
-   - Extend Media Coin refs with lightweight fields such as `sealRequestedAt`, `sealReason`, and `sealAssistedByCoinId`.
-   - Use these only for state tracking and UI diagnostics; do not change file bytes.
+## Fixed pipeline (no new concepts)
 
-2. **Make completed oversized writes force-sealable**
-   - After a file entry is recorded successfully, if `size >= MEDIA_COIN_CAPACITY_BYTES`, call a stronger seal helper that:
-     - verifies the entry exists on the coin,
-     - marks phase as `sealed`,
-     - sets `sealed = true`,
-     - records the seal reason as `oversized-complete`.
-   - This matches your “if media/file is done and sealing is still stuck, count it as sealed” idea, but only after successful record completion.
+```text
+Completed content
+   │
+   ▼
+Archived Stage      → written into vault via a SINGLE writer (enrollContent)
+                      vault key = ownerPeerId, or "archive:global" if unknown
+   │
+   ▼
+Wrapping Stage      → getOrCreateMediaCoin picks the current 500 MiB filling coin,
+                      or allocates a new one, per the rules already in syncVault.ts
+                      (oversized → dedicated coin; would-cross-seal → seal old + new coin)
+   │
+   ▼
+Sealed Stage        → seal at ≥350 MiB (existing MEDIA_COIN_SEAL_FRACTION) or oversized-complete
+   │
+   ▼
+Routed to peer      → existing wrap sweep engraves onto a free wallet coin
+                      (skipped for archive:global — migration content stays put)
+```
 
-3. **Add jam recovery for already-completed writes**
-   - Update the stuck-watch logic so if an unsealed Media Coin is stuck but already has completed vault entries, it soft-seals it instead of immediately failing/requeueing.
-   - Only use fail-and-requeue when there are no completed entries or the entry is still awaiting sync.
-   - This protects access to completed large files.
+Files can create as many coins as their sizes demand. There is no per-vault coin cap.
 
-4. **Add optional seal-assist coin logic for wrap pressure**
-   - During wrap sweep, if a sealed Media Coin is too large or otherwise cannot be represented by one free wallet coin, allow an additional free wallet coin to be attached as a `sealer`/assist marker.
-   - The assist coin is marked `kind: "media"` and excluded from spend/market just like the primary wrapper.
-   - This implements your “tack on another coin that is the sealer” idea at the wrap layer, where extra SWARM coins actually matter.
+## Root cause of the "multi coins filling" bug
+`src/lib/blockchain/vaultIngest.ts` still calls `getOrRolloverReceiverCoin`, which allocates a 100 MiB `receiver`-role coin into the same vault that `vaultEnroll.ts` is filling with a 500 MiB `media`-role coin. Both writers race on the same `syncVaults` record, so the UI shows two filling coins with different capacities. This is the "two scripts fighting to write the coin" behavior.
 
-5. **Keep serving fallback intact**
-   - Do not interrupt torrent/chunk serving during sealing, recovery, or wrap attempts.
-   - Once a completed coin is sealed, Media Coin serving becomes authoritative as already designed.
+## Changes (minimal, no bloat)
 
-6. **Update vault UI state labels only if needed**
-   - Show large completed coins as `Sealed` instead of leaving them visually stuck in `Sealing`.
-   - If seal-assist was used, show a small `Seal assist` note in the coin details.
+### 1) Delete the tangled receiver path
+- `src/lib/blockchain/vaultIngest.ts` — rewrite as a thin adapter that calls `enrollContent(...)` from `vaultEnroll.ts` for each `onMediaCustody` event, using the piece hash as `contentHash` and the reported byte length as `size`. No coin allocation here anymore.
+- `src/lib/blockchain/syncVault.ts` — remove `getOrRolloverReceiverCoin`, `allocateVaultCoin`, `activeReceiverCoin`, `VAULT_COIN_CAPACITY_BYTES`, `VAULT_ROLLOVER_FRACTION`, and the `"receiver"` variant from `VaultCoinRole`. Remove `ensureArchiveCoin` and `promoteArchivedEntries` (both unused once the receiver path is gone; the archive is expressed via the `archive:global` vault key, not a role).
+
+### 2) Boot-time repair for existing vaults
+Add `reconcileLegacyVaultCoins()` to `syncVault.ts` and call it once from `src/main.tsx` boot sequence (next to the existing `reconcileMediaCoins` call). It walks every vault and:
+- Coerces any `role: "receiver"` or `role: "archive"` ref that carries entries into `role: "media"` sealed with reason `reconcile`.
+- Drops any receiver/archive ref that has no entries.
+- Leaves everything else alone.
+
+No entries are lost; sealed reconciled coins still serve via the existing content resolver path.
+
+### 3) Single writer guarantee
+- All content ingestion funnels through `enrollContent` in `vaultEnroll.ts`. The existing `findVaultEntry` idempotency check plus the `consolidateUnsealedMediaCoins` invariant already enforce "at most one filling coin per vault"; removing the receiver writer is what actually makes it hold in practice.
+
+### 4) Dashboard cleanup
+`src/components/p2p/dashboard/TorrentSwarmPanel.tsx` — remove any UI branch that reads `role === "receiver"` or the 100 MiB `VAULT_COIN_CAPACITY_BYTES`. Keep the existing Filling / Approaching / Sealing / Sealed / Wrapped / Failed chips exactly as they are. This is a delete-only change in the UI.
+
+### 5) Tests
+Extend `src/lib/blockchain/__tests__/syncVault.test.ts`:
+- `vaultIngest` events end up as `media` coins, never as `receiver`.
+- A vault preloaded with a legacy `receiver` ref plus entries is repaired into a sealed media ref with the same entries intact.
+- The single-filling-coin invariant still holds after mixed enrollContent + custody-event traffic.
+
+## Explicitly NOT changing
+- 500 MiB `MEDIA_COIN_CAPACITY_BYTES`.
+- 70% `MEDIA_COIN_SEAL_FRACTION` (≈350 MiB seal line).
+- Oversized-file handling in `getOrCreateMediaCoin`.
+- Stuck-write watcher, wrap sweep, seal-assist, contentResolver priority.
+- Any transport, torrent, or encryption code.
 
 ## Validation
-- Run targeted checks for the blockchain/vault modules.
-- Manually reason/test the 1 GiB path: allocate dedicated 1 GiB coin → record entry → force seal → resolver serves from coin if bytes exist, otherwise falls back to chunk/torrent.
-- Verify normal under-500 MiB behavior still seals only between engravings and still uses one active filling coin per vault.
+- Run vault tests.
+- Load the dashboard: only 500 MiB `media` coins visible; no 100 MiB entries; at most one filling coin per vault.

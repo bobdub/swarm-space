@@ -19,15 +19,13 @@ vi.mock("@/lib/store", () => {
 
 import {
   ensureVault,
-  allocateVaultCoin,
-  getOrRolloverReceiverCoin,
   recordVaultEntry,
   findVaultEntry,
   getOrCreateMediaCoin,
   forceSealCompletedMediaCoin,
   getVault,
-  VAULT_COIN_CAPACITY_BYTES,
-  VAULT_ROLLOVER_FRACTION,
+  reconcileLegacyVaultCoins,
+  saveVault,
 } from "../syncVault";
 import { MEDIA_COIN_CAPACITY_BYTES, type SwarmCoin } from "../types";
 
@@ -46,28 +44,14 @@ function sealedCoin(id: string): SwarmCoin {
 }
 
 describe("syncVault", () => {
-  it("ensures a vault and allocates a sealed coin as container", async () => {
+  it("ensures a vault", async () => {
     const v = await ensureVault("peer-A");
     expect(v.peerId).toBe("peer-A");
-    const ref = await allocateVaultCoin("peer-A", "receiver", [sealedCoin("c1")]);
-    expect(ref?.coinId).toBe("c1");
-    expect(ref?.role).toBe("receiver");
-  });
-
-  it("rolls over to a fresh coin past 80% fill", async () => {
-    const coins = [sealedCoin("c-x"), sealedCoin("c-y")];
-    const first = await getOrRolloverReceiverCoin("peer-B", coins);
-    expect(first?.coinId).toBe("c-x");
-    const big = Math.floor(VAULT_COIN_CAPACITY_BYTES * (VAULT_ROLLOVER_FRACTION + 0.05));
-    await recordVaultEntry("peer-B", "h1", { coinId: "c-x", offset: 0, length: big, ref: "h1" });
-    const next = await getOrRolloverReceiverCoin("peer-B", coins);
-    expect(next?.coinId).toBe("c-y");
   });
 
   it("indexes entries and looks them up across vaults", async () => {
-    const coins = [sealedCoin("c-z")];
-    await getOrRolloverReceiverCoin("peer-C", coins);
-    await recordVaultEntry("peer-C", "h42", { coinId: "c-z", offset: 0, length: 128, ref: "h42" });
+    const ref = await getOrCreateMediaCoin("peer-C", 128);
+    await recordVaultEntry("peer-C", "h42", { coinId: ref.coinId, offset: 0, length: 128, ref: "h42" });
     const found = await findVaultEntry("h42");
     expect(found?.vault.peerId).toBe("peer-C");
     expect(found?.entry.length).toBe(128);
@@ -93,4 +77,27 @@ describe("syncVault", () => {
     expect(coin?.sealReason).toBe("oversized-complete");
     expect(coin?.fillBytes).toBe(size);
   });
+
+  it("reconciles legacy receiver/archive coin roles into sealed media", async () => {
+    const v = await ensureVault("peer-legacy");
+    v.coins.push({
+      coinId: "legacy-1",
+      // biome-ignore lint: legacy role
+      role: "receiver" as any,
+      fillBytes: 42,
+      capacityBytes: 100 * 1024 * 1024,
+      createdAt: new Date().toISOString(),
+    });
+    v.index["h-legacy"] = { coinId: "legacy-1", offset: 0, length: 42, ref: "h-legacy", storedAt: new Date().toISOString() };
+    await saveVault(v);
+    const n = await reconcileLegacyVaultCoins();
+    expect(n).toBeGreaterThanOrEqual(1);
+    const after = await getVault("peer-legacy");
+    const c = after?.coins.find((c) => c.coinId === "legacy-1");
+    expect(c?.role).toBe("media");
+    expect(c?.sealed).toBe(true);
+  });
 });
+
+// keep sealedCoin helper referenced to avoid unused warning
+void sealedCoin;
