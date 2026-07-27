@@ -1,20 +1,25 @@
 /**
- * mediaCoinWrapSweep — periodically tries to wrap sealed media coins
- * with a free wallet coin once the user has enough SWARM. Respects a
- * 24 h retry cooldown per coin.
+ * mediaCoinWrapSweep — the vault engraver.
+ *
+ * Files never fabricate coins. Awaiting-engraver files sit in each
+ * vault's `files[]` list until a free mined wallet coin is available
+ * in the user's wallet. When one is, we engrave the file's metadata
+ * onto that real coin (`kind = "media"`), then route the sealed coin
+ * ref into the correct peer vault. This is the single writer.
+ *
+ * Backwards-compat: the exported names `runWrapSweep` / `startWrapSweep`
+ * are preserved so existing boot / reconnect callers keep working.
  */
-import { getAll } from "@/lib/store";
+import { getAll, put } from "@/lib/store";
 import type { SwarmCoin } from "./types";
-import { MEDIA_COIN_CAPACITY_BYTES, MEDIA_COIN_WRAP_FEE, MEDIA_COIN_WRAP_RETRY_MS } from "./types";
 import {
-  attemptWrapMediaCoin,
-  listSealedMediaCoins,
-  markWrapAttempt,
+  engraveFileOntoCoin,
+  listAwaitingFiles,
 } from "./syncVault";
 
 let started = false;
 
-async function freeWalletCoins(): Promise<SwarmCoin[]> {
+async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   try {
     const all = await getAll<SwarmCoin>("swarmCoins");
     return all.filter(
@@ -29,40 +34,55 @@ async function freeWalletCoins(): Promise<SwarmCoin[]> {
   }
 }
 
-async function currentSwarmBalance(): Promise<number> {
-  // Best-effort: count free wallet coins as SWARM units. The wrap fee
-  // is 1, so having ≥1 free coin means we can pay and use one as the
-  // container.
-  return (await freeWalletCoins()).length;
-}
+/**
+ * Engrave as many awaiting files as free mined wallet coins allow.
+ * Never allocates coins. Never seals unmet files. Returns counts so
+ * callers can surface progress.
+ */
+export async function runWrapSweep(): Promise<{ engraved: number; waiting: number; wrapped: number }> {
+  const awaiting = await listAwaitingFiles();
+  if (awaiting.length === 0) return { engraved: 0, waiting: 0, wrapped: 0 };
 
-export async function runWrapSweep(): Promise<{ wrapped: number; waiting: number }> {
-  const sealed = await listSealedMediaCoins();
-  if (sealed.length === 0) return { wrapped: 0, waiting: 0 };
+  const free = await freeMinedWalletCoins();
+  if (free.length === 0) return { engraved: 0, waiting: awaiting.length, wrapped: 0 };
 
-  const balance = await currentSwarmBalance();
-  if (balance < MEDIA_COIN_WRAP_FEE) return { wrapped: 0, waiting: sealed.length };
-
-  const free = await freeWalletCoins();
-  const now = Date.now();
-  let wrapped = 0;
-  let waiting = 0;
-
-  for (const { peerId, ref } of sealed) {
-    const last = ref.lastWrapAttemptAt ? new Date(ref.lastWrapAttemptAt).getTime() : 0;
-    if (last && now - last < MEDIA_COIN_WRAP_RETRY_MS) { waiting += 1; continue; }
+  let engraved = 0;
+  for (const { peerId, file } of awaiting) {
     const coin = free.shift();
-    if (!coin) {
-      await markWrapAttempt(peerId, ref.coinId).catch(() => {});
-      waiting += 1;
+    if (!coin) break;
+
+    const ok = await engraveFileOntoCoin(peerId, {
+      contentHash: file.contentHash,
+      walletCoinId: coin.coinId,
+      size: file.size,
+      mime: file.mime,
+      name: file.name,
+      ref: file.ref,
+      reason: "engraved",
+    }).catch(() => false);
+
+    if (!ok) {
+      // Push the coin back — engraving may have been a no-op because
+      // the file was already indexed elsewhere. Try it on the next file.
+      free.unshift(coin);
       continue;
     }
-    const needsAssist = ref.fillBytes > MEDIA_COIN_CAPACITY_BYTES || ref.capacityBytes > MEDIA_COIN_CAPACITY_BYTES;
-    const assistCoin = needsAssist ? free.shift() : undefined;
-    const ok = await attemptWrapMediaCoin(peerId, ref.coinId, coin, assistCoin).catch(() => false);
-    if (ok) wrapped += 1; else waiting += 1;
+
+    // Mark the wallet coin as a media container so wallet UI and
+    // markets exclude it from the fungible pool.
+    coin.kind = "media";
+    coin.sealBytes = Math.max(coin.sealBytes ?? 0, file.size);
+    coin.mediaTargets = [
+      ...(coin.mediaTargets ?? []),
+      { peerId, contentHashes: [file.contentHash] },
+    ];
+    coin.mediaRole = coin.mediaRole ?? "primary";
+    try { await put("swarmCoins", coin); } catch { /* best-effort */ }
+
+    engraved += 1;
   }
-  return { wrapped, waiting };
+
+  return { engraved, waiting: awaiting.length - engraved, wrapped: engraved };
 }
 
 export function startWrapSweep(): void {
@@ -70,8 +90,10 @@ export function startWrapSweep(): void {
   started = true;
   const tick = () => { void runWrapSweep().catch(() => {}); };
   tick();
-  setInterval(tick, 5 * 60_000);
+  setInterval(tick, 60_000);
   if (typeof window !== "undefined") {
+    // Freshly-mined coins are the primary unblocking event.
     window.addEventListener("blockchain-transaction", tick);
+    window.addEventListener("swarm-coin-minted", tick);
   }
 }
