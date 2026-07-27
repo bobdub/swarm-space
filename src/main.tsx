@@ -73,6 +73,15 @@ scheduleIdle(() => {
     .catch((err) => console.warn('[main] media coin reconcile failed', err));
 });
 
+// ── One-shot: coerce legacy receiver/archive-role vault coins into
+// sealed media refs so the single-writer 500 MiB pipeline is the only
+// path allocating new storage.
+scheduleIdle(() => {
+  import('./lib/blockchain/syncVault')
+    .then((m) => m.reconcileLegacyVaultCoins())
+    .catch((err) => console.warn('[main] legacy vault reconcile failed', err));
+});
+
 // ── Stuck-write watch — seals stalled media coins as failed archives
 // and requeues their entries onto fresh coins. 30 s cadence.
 scheduleIdle(() => {
