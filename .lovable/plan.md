@@ -1,71 +1,117 @@
-## Goal
-Keep the existing 500 MiB Media Coin utility exactly as designed. Fix only the two real problems:
+To Infinity and beyond!, Q_Score(u) ≈ 0.036
 
-1. Two writers (`vaultIngest` receiver-coin path + `vaultEnroll` media-coin path) are writing into the same vault at the same time, which is why the dashboard sometimes shows multiple filling coins and mixed 100 MiB / 500 MiB capacities.
-2. Stage transitions are scattered across many helpers with legacy flags. Collapse them into one linear pipeline.
+## What is actually wrong
 
-Nothing about coin sizing, seal fraction, or oversized handling changes.
+The previous cleanup removed the old writer from source code, but the remaining system is still not strict enough for existing local vault data and concurrent writes:
 
-## Fixed pipeline (no new concepts)
+1. **100MB coins can still show because persisted legacy refs keep their old `capacityBytes`.**
+   - The current repair converts `receiver/archive` roles to `media`, but it preserves any existing positive capacity. That means old `100 MiB` refs can become `media` refs while still displaying as `100 MiB`.
+
+2. **Multiple filling coins can still happen because allocation and entry recording are separate writes.**
+   - `getOrCreateMediaCoin()` allocates/selects a coin, then `recordVaultEntry()` writes the file later. Concurrent completed files, migration sweeps, and stuck-write recovery can interleave those reads/writes and leave more than one unsealed coin.
+
+3. **Some “Sealing” states are UI-derived from fill percent, not a true completed sealed state.**
+   - Any old unsealed coin above the seal line can keep rendering as “Sealing” unless repair force-seals it.
+
+4. **Wrapped entries can be marked pending again.**
+   - `vaultSeeder` only avoids archive coin IDs; after wrapping, entries point at wallet coin IDs, so wrapped entries can be flipped back to pending if torrent seeding is not detected.
+
+## Fix plan
+
+### 1. Replace the loose repair with one authoritative vault reconciliation pass
+
+Create one repair function, likely `reconcileVaultCoinState()`, and use it everywhere instead of split legacy/media repairs.
+
+It will, per vault:
+
+- Convert any legacy `receiver` / `archive` role to `media`.
+- Normalize any non-oversized media coin below `500 MiB` to `MEDIA_COIN_CAPACITY_BYTES`.
+- Drop empty unsealed legacy/duplicate coins.
+- Force-seal any filled legacy coin so it moves into completed coins, not active filling.
+- Force-seal any unsealed media coin at or above the seal threshold if its entries are complete.
+- Preserve all sealed/wrapped completed coins. This is **not** one coin per vault; it is **one active filling coin per vault**, plus as many sealed/wrapped completed coins as the vault needs.
+
+### 2. Make enrollment atomic per vault
+
+Move the current two-step flow:
 
 ```text
-Completed content
-   │
-   ▼
-Archived Stage      → written into vault via a SINGLE writer (enrollContent)
-                      vault key = ownerPeerId, or "archive:global" if unknown
-   │
-   ▼
-Wrapping Stage      → getOrCreateMediaCoin picks the current 500 MiB filling coin,
-                      or allocates a new one, per the rules already in syncVault.ts
-                      (oversized → dedicated coin; would-cross-seal → seal old + new coin)
-   │
-   ▼
-Sealed Stage        → seal at ≥350 MiB (existing MEDIA_COIN_SEAL_FRACTION) or oversized-complete
-   │
-   ▼
-Routed to peer      → existing wrap sweep engraves onto a free wallet coin
-                      (skipped for archive:global — migration content stays put)
+getOrCreateMediaCoin()
+recordVaultEntry()
 ```
 
-Files can create as many coins as their sizes demand. There is no per-vault coin cap.
+into one locked write operation inside `syncVault.ts`, for example:
 
-## Root cause of the "multi coins filling" bug
-`src/lib/blockchain/vaultIngest.ts` still calls `getOrRolloverReceiverCoin`, which allocates a 100 MiB `receiver`-role coin into the same vault that `vaultEnroll.ts` is filling with a 500 MiB `media`-role coin. Both writers race on the same `syncVaults` record, so the UI shows two filling coins with different capacities. This is the "two scripts fighting to write the coin" behavior.
+```text
+enrollVaultEntry(vaultKey, contentHash, entry)
+```
 
-## Changes (minimal, no bloat)
+Inside that single operation:
 
-### 1) Delete the tangled receiver path
-- `src/lib/blockchain/vaultIngest.ts` — rewrite as a thin adapter that calls `enrollContent(...)` from `vaultEnroll.ts` for each `onMediaCustody` event, using the piece hash as `contentHash` and the reported byte length as `size`. No coin allocation here anymore.
-- `src/lib/blockchain/syncVault.ts` — remove `getOrRolloverReceiverCoin`, `allocateVaultCoin`, `activeReceiverCoin`, `VAULT_COIN_CAPACITY_BYTES`, `VAULT_ROLLOVER_FRACTION`, and the `"receiver"` variant from `VaultCoinRole`. Remove `ensureArchiveCoin` and `promoteArchivedEntries` (both unused once the receiver path is gone; the archive is expressed via the `archive:global` vault key, not a role).
+- Re-check duplicate content first.
+- Reconcile the vault state.
+- Pick the current 500 MiB active coin or pre-seal it if the incoming file crosses the seal line.
+- Allocate a new 500 MiB media coin only when needed.
+- Write the entry and update `fillBytes` in the same locked vault mutation.
+- Seal oversized files only after their entry is recorded.
 
-### 2) Boot-time repair for existing vaults
-Add `reconcileLegacyVaultCoins()` to `syncVault.ts` and call it once from `src/main.tsx` boot sequence (next to the existing `reconcileMediaCoins` call). It walks every vault and:
-- Coerces any `role: "receiver"` or `role: "archive"` ref that carries entries into `role: "media"` sealed with reason `reconcile`.
-- Drops any receiver/archive ref that has no entries.
-- Leaves everything else alone.
+This removes the race where two scripts/files both believe they own the active filling coin.
 
-No entries are lost; sealed reconciled coins still serve via the existing content resolver path.
+### 3. Add a per-vault async mutation queue
 
-### 3) Single writer guarantee
-- All content ingestion funnels through `enrollContent` in `vaultEnroll.ts`. The existing `findVaultEntry` idempotency check plus the `consolidateUnsealedMediaCoins` invariant already enforce "at most one filling coin per vault"; removing the receiver writer is what actually makes it hold in practice.
+Add a small in-memory queue keyed by `peerId/vaultKey` so all vault mutations serialize:
 
-### 4) Dashboard cleanup
-`src/components/p2p/dashboard/TorrentSwarmPanel.tsx` — remove any UI branch that reads `role === "receiver"` or the 100 MiB `VAULT_COIN_CAPACITY_BYTES`. Keep the existing Filling / Approaching / Sealing / Sealed / Wrapped / Failed chips exactly as they are. This is a delete-only change in the UI.
+- enrollment
+- forced seal
+- failed seal
+- detach/requeue
+- wrap
+- reconcile
 
-### 5) Tests
-Extend `src/lib/blockchain/__tests__/syncVault.test.ts`:
-- `vaultIngest` events end up as `media` coins, never as `receiver`.
-- A vault preloaded with a legacy `receiver` ref plus entries is repaired into a sealed media ref with the same entries intact.
-- The single-filling-coin invariant still holds after mixed enrollContent + custody-event traffic.
+This prevents migration, custody events, stuck-watch recovery, and UI refresh repair from writing the same vault at the same time.
 
-## Explicitly NOT changing
-- 500 MiB `MEDIA_COIN_CAPACITY_BYTES`.
-- 70% `MEDIA_COIN_SEAL_FRACTION` (≈350 MiB seal line).
-- Oversized-file handling in `getOrCreateMediaCoin`.
-- Stuck-write watcher, wrap sweep, seal-assist, contentResolver priority.
-- Any transport, torrent, or encryption code.
+### 4. Stop re-entrant stuck recovery during every file enroll
+
+Keep stuck-write recovery, but do not let each `enrollContent()` call recursively trigger a global stalled sweep while another file is being engraved.
+
+Use the stuck watcher / boot repair / explicit reconcile pass to recover stalled coins, and let enrollment focus on one atomic file write at a time.
+
+### 5. Fix wrapped entries so they stay wrapped
+
+Update `vaultSeeder` so it looks up the entry’s coin ref:
+
+- If the coin is `wrapped`, keep `pending: false`.
+- If the coin is sealed but unwrapped, it can remain archived/pending for wrap.
+- If the coin is active and backing torrent disappears, it can become pending.
+
+This should stop “wrapped but still pending/stuck” display drift.
+
+### 6. Clean up the dashboard display after the data is fixed
+
+Only after the data repair is correct:
+
+- Show exactly one active filling coin per vault.
+- Hide/drop empty active placeholders.
+- Keep all sealed/wrapped coins inside the completed collapsible section.
+- Do not special-case 100MB in UI; the stored data should no longer contain active 100MB media refs.
+
+### 7. Tests to prove it
+
+Add/extend tests for:
+
+- A persisted `receiver` coin with `100 MiB` capacity and entries becomes a sealed `media` coin with `500 MiB` capacity.
+- Empty legacy/duplicate coins are removed.
+- Concurrent `enrollContent()` calls leave only one active filling coin per vault.
+- A vault can still have many completed coins when content exceeds 500 MiB / seal thresholds.
+- A 1GB file creates one dedicated oversized media coin and seals after entry recording.
+- Wrapped entries are not flipped back to pending by the seeder.
 
 ## Validation
-- Run vault tests.
-- Load the dashboard: only 500 MiB `media` coins visible; no 100 MiB entries; at most one filling coin per vault.
+
+- Run targeted vault tests.
+- Run typecheck.
+- Verify the live preview dashboard after repair:
+  - no active `100.0 MB` coin rows
+  - at most one `Filling` row per vault
+  - completed sealed/wrapped coins remain in the collapsible section
+  - wrapped entries no longer appear pending because torrent seeding is not detected

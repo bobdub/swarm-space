@@ -2,7 +2,7 @@
  * vaultSeeder — read-only advertisement of vault-held pieces.
  * Does NOT register new gossip topics; cross-peer seeding hook lands later.
  */
-import { findVaultEntry, listVaults, saveVault } from "./syncVault";
+import { findVaultEntry, listVaults, updateVaultEntryPendingStates } from "./syncVault";
 import { getAll } from "@/lib/store";
 
 export async function vaultHas(contentHash: string): Promise<boolean> {
@@ -50,15 +50,17 @@ export async function enforceVaultSeeding(): Promise<void> {
   }
   const vaults = await listVaults();
   for (const v of vaults) {
-    let changed = false;
+    const updates = new Map<string, boolean>();
     for (const [hash, entry] of Object.entries(v.index)) {
+      const coin = v.coins.find((c) => c.coinId === entry.coinId);
+      if (coin?.wrapped) {
+        if (entry.pending) updates.set(hash, false);
+        continue;
+      }
       const stillLive = live.has(entry.ref ?? hash) || live.has(hash);
       const pending = !stillLive;
-      if (!!entry.pending !== pending && !entry.coinId.startsWith("archive:")) {
-        v.index[hash] = { ...entry, pending };
-        changed = true;
-      }
+      if (!!entry.pending !== pending && !entry.coinId.startsWith("archive:")) updates.set(hash, pending);
     }
-    if (changed) await saveVault(v);
+    await updateVaultEntryPendingStates(v.peerId, updates);
   }
 }
