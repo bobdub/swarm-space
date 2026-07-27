@@ -28,6 +28,7 @@ import {
   reconcileLegacyVaultCoins,
   reconcileVaultCoinState,
   saveVault,
+  updateVaultEntryPendingStates,
 } from "../syncVault";
 import { MEDIA_COIN_CAPACITY_BYTES, type SwarmCoin } from "../types";
 
@@ -141,6 +142,33 @@ describe("syncVault", () => {
     expect(active).toHaveLength(1);
     expect(active[0].capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
     expect(Object.keys(vault?.index ?? {})).toHaveLength(12);
+  });
+
+  it("keeps wrapped entries resolved when pending updates run", async () => {
+    const now = new Date().toISOString();
+    const v = await ensureVault("peer-wrapped");
+    v.coins.push({
+      coinId: "wallet-media-1",
+      role: "media",
+      fillBytes: 2048,
+      capacityBytes: MEDIA_COIN_CAPACITY_BYTES,
+      createdAt: now,
+      sealed: true,
+      wrapped: true,
+    });
+    v.index["wrapped-hash"] = {
+      coinId: "wallet-media-1",
+      offset: 0,
+      length: 2048,
+      ref: "wrapped-hash",
+      storedAt: now,
+      completedAt: now,
+      pending: false,
+    };
+    await saveVault(v);
+    await updateVaultEntryPendingStates("peer-wrapped", new Map([["wrapped-hash", true]]));
+    const after = await getVault("peer-wrapped");
+    expect(after?.index["wrapped-hash"].pending).toBe(true);
   });
 });
 
