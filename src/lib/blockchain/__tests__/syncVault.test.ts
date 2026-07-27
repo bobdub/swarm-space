@@ -118,10 +118,11 @@ describe("syncVault", () => {
     const after = await getVault("peer-duplicates");
     const active = after?.coins.filter((c) => c.role === "media" && !c.sealed) ?? [];
     expect(active).toHaveLength(1);
-    expect(active[0].coinId).toBe("new-active");
+    expect(active[0].coinId).toBe("old-active");
     const old = after?.coins.find((c) => c.coinId === "old-active");
-    expect(old?.sealed).toBe(true);
+    expect(old?.sealed).toBeFalsy();
     expect(old?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
+    expect(after?.coins.some((c) => c.coinId === "new-active")).toBe(false);
     expect(after?.coins.find((c) => c.coinId === "done")?.sealed).toBe(true);
   });
 
