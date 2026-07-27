@@ -100,16 +100,23 @@ async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
 
 async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   try {
+    const { getCurrentUser } = await import("@/lib/auth");
+    const user = getCurrentUser();
+    if (!user) return [];
     const all = await getAll<SwarmCoin>("swarmCoins");
-    // A mined SWARM coin holds wrapped SWARM tokens — that's expected.
-    // Any wallet-held, non-media, non-spent coin can be engraved into a
-    // Media Coin. Empty (unwrapped) coins are preferred so we don't
-    // convert active SWARM balance first.
+    // Only truly free mined wallet coins may be engraved. Coins already
+    // carrying wrapped tokens, chemicals, first artifacts, media payloads,
+    // or spent state are not free containers.
     const usable = all.filter(
       (c) =>
+        c.ownerId === user.id &&
         c.status === "wallet" &&
         c.kind !== "media" &&
-        c.fillState !== "spent",
+        c.fillState !== "spent" &&
+        (c.wrappedTokens?.length ?? 0) === 0 &&
+        (c.wrappedChemicals?.length ?? 0) === 0 &&
+        !c.firstArtifactNftId &&
+        (c.weight ?? 0) <= 0,
     );
     usable.sort((a, b) => (a.wrappedTokens?.length ?? 0) - (b.wrappedTokens?.length ?? 0));
     return usable;
