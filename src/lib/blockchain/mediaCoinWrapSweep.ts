@@ -22,13 +22,18 @@ let started = false;
 async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   try {
     const all = await getAll<SwarmCoin>("swarmCoins");
-    return all.filter(
+    // A mined SWARM coin holds wrapped SWARM tokens — that's expected.
+    // Any wallet-held, non-media, non-spent coin can be engraved into a
+    // Media Coin. Empty (unwrapped) coins are preferred so we don't
+    // convert active SWARM balance first.
+    const usable = all.filter(
       (c) =>
         c.status === "wallet" &&
         c.kind !== "media" &&
-        c.fillState !== "spent" &&
-        (c.wrappedTokens?.length ?? 0) === 0,
+        c.fillState !== "spent",
     );
+    usable.sort((a, b) => (a.wrappedTokens?.length ?? 0) - (b.wrappedTokens?.length ?? 0));
+    return usable;
   } catch {
     return [];
   }
