@@ -18,6 +18,7 @@ vi.mock("@/lib/store", () => {
 });
 
 import {
+  enrollVaultEntry,
   ensureVault,
   recordVaultEntry,
   findVaultEntry,
@@ -25,6 +26,7 @@ import {
   forceSealCompletedMediaCoin,
   getVault,
   reconcileLegacyVaultCoins,
+  reconcileVaultCoinState,
   saveVault,
 } from "../syncVault";
 import { MEDIA_COIN_CAPACITY_BYTES, type SwarmCoin } from "../types";
@@ -96,6 +98,48 @@ describe("syncVault", () => {
     const c = after?.coins.find((c) => c.coinId === "legacy-1");
     expect(c?.role).toBe("media");
     expect(c?.sealed).toBe(true);
+    expect(c?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
+  });
+
+  it("repairs duplicate active coins while preserving completed coins", async () => {
+    const v = await ensureVault("peer-duplicates");
+    const now = new Date().toISOString();
+    v.coins.push(
+      { coinId: "old-active", role: "media", fillBytes: 1024, capacityBytes: 100 * 1024 * 1024, createdAt: now },
+      { coinId: "new-active", role: "media", fillBytes: 0, capacityBytes: MEDIA_COIN_CAPACITY_BYTES, createdAt: new Date(Date.now() + 1).toISOString() },
+      { coinId: "done", role: "media", fillBytes: MEDIA_COIN_CAPACITY_BYTES, capacityBytes: MEDIA_COIN_CAPACITY_BYTES, createdAt: now, sealed: true },
+    );
+    v.index["old-hash"] = { coinId: "old-active", offset: 0, length: 1024, ref: "old-hash", storedAt: now, completedAt: now };
+    v.index["done-hash"] = { coinId: "done", offset: 0, length: 2048, ref: "done-hash", storedAt: now, completedAt: now };
+    await saveVault(v);
+
+    const n = await reconcileVaultCoinState();
+    expect(n).toBeGreaterThanOrEqual(1);
+    const after = await getVault("peer-duplicates");
+    const active = after?.coins.filter((c) => c.role === "media" && !c.sealed) ?? [];
+    expect(active).toHaveLength(1);
+    expect(active[0].coinId).toBe("new-active");
+    const old = after?.coins.find((c) => c.coinId === "old-active");
+    expect(old?.sealed).toBe(true);
+    expect(old?.capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
+    expect(after?.coins.find((c) => c.coinId === "done")?.sealed).toBe(true);
+  });
+
+  it("atomic enrollment leaves one active filling coin under concurrent writes", async () => {
+    const chunk = 10 * 1024 * 1024;
+    await Promise.all(Array.from({ length: 12 }, (_, i) => enrollVaultEntry("peer-concurrent", {
+      contentHash: `concurrent-${i}`,
+      name: `file-${i}`,
+      ref: `concurrent-${i}`,
+      size: chunk,
+      completedAt: new Date().toISOString(),
+    })));
+
+    const vault = await getVault("peer-concurrent");
+    const active = vault?.coins.filter((c) => c.role === "media" && !c.sealed) ?? [];
+    expect(active).toHaveLength(1);
+    expect(active[0].capacityBytes).toBe(MEDIA_COIN_CAPACITY_BYTES);
+    expect(Object.keys(vault?.index ?? {})).toHaveLength(12);
   });
 });
 

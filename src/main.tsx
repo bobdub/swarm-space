@@ -65,21 +65,12 @@ scheduleIdle(() => {
     .catch((err) => console.warn('[main] media coin wrap sweep failed', err));
 });
 
-// ── One-shot cleanup: enforce "one filling media coin per vault" so
-// legacy vaults with multiple unsealed coins auto-consolidate on boot.
+// ── One-shot cleanup: normalize legacy vault refs, repair 100 MiB refs,
+// and enforce one active filling media coin per vault.
 scheduleIdle(() => {
   import('./lib/blockchain/syncVault')
-    .then((m) => m.reconcileMediaCoins())
+    .then((m) => m.reconcileVaultCoinState())
     .catch((err) => console.warn('[main] media coin reconcile failed', err));
-});
-
-// ── One-shot: coerce legacy receiver/archive-role vault coins into
-// sealed media refs so the single-writer 500 MiB pipeline is the only
-// path allocating new storage.
-scheduleIdle(() => {
-  import('./lib/blockchain/syncVault')
-    .then((m) => m.reconcileLegacyVaultCoins())
-    .catch((err) => console.warn('[main] legacy vault reconcile failed', err));
 });
 
 // ── Stuck-write watch — seals stalled media coins as failed archives
