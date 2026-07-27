@@ -1,117 +1,76 @@
-To Infinity and beyond!, Q_Score(u) ≈ 0.036
+To Infinity and beyond! Q_Score(u) ≈ 0.028
 
-## What is actually wrong
+## What I got wrong
 
-The previous cleanup removed the old writer from source code, but the remaining system is still not strict enough for existing local vault data and concurrent writes:
+The vault code has been fabricating "media coins" (`getOrCreateMediaCoin`, synthetic `coinId`s inside `syncVault.ts`) instead of using coins that were actually mined into the user's wallet. That is why you keep seeing mismatched 100MB/500MB rows, multiple filling coins, and stuck sealing — the vault is inventing containers the ecosystem never issued.
 
-1. **100MB coins can still show because persisted legacy refs keep their old `capacityBytes`.**
-   - The current repair converts `receiver/archive` roles to `media`, but it preserves any existing positive capacity. That means old `100 MiB` refs can become `media` refs while still displaying as `100 MiB`.
+Coins are **only** created by mining. The Archive Vault is a file holder, not a coin factory.
 
-2. **Multiple filling coins can still happen because allocation and entry recording are separate writes.**
-   - `getOrCreateMediaCoin()` allocates/selects a coin, then `recordVaultEntry()` writes the file later. Concurrent completed files, migration sweeps, and stuck-write recovery can interleave those reads/writes and leave more than one unsealed coin.
-
-3. **Some “Sealing” states are UI-derived from fill percent, not a true completed sealed state.**
-   - Any old unsealed coin above the seal line can keep rendering as “Sealing” unless repair force-seals it.
-
-4. **Wrapped entries can be marked pending again.**
-   - `vaultSeeder` only avoids archive coin IDs; after wrapping, entries point at wallet coin IDs, so wrapped entries can be flipped back to pending if torrent seeding is not detected.
-
-## Fix plan
-
-### 1. Replace the loose repair with one authoritative vault reconciliation pass
-
-Create one repair function, likely `reconcileVaultCoinState()`, and use it everywhere instead of split legacy/media repairs.
-
-It will, per vault:
-
-- Convert any legacy `receiver` / `archive` role to `media`.
-- Normalize any non-oversized media coin below `500 MiB` to `MEDIA_COIN_CAPACITY_BYTES`.
-- Drop empty unsealed legacy/duplicate coins.
-- Force-seal any filled legacy coin so it moves into completed coins, not active filling.
-- Force-seal any unsealed media coin at or above the seal threshold if its entries are complete.
-- Preserve all sealed/wrapped completed coins. This is **not** one coin per vault; it is **one active filling coin per vault**, plus as many sealed/wrapped completed coins as the vault needs.
-
-### 2. Make enrollment atomic per vault
-
-Move the current two-step flow:
+## Correct model (what the plan enforces)
 
 ```text
-getOrCreateMediaCoin()
-recordVaultEntry()
+Torrent completes
+  -> Archive Vault stores the raw file + metadata (peerId if known)
+  -> file sits in Archive as "awaiting engraver"
+  -> when a free mined wallet coin is available (kind != media, unwrapped)
+       -> engrave one file at a time onto that real coin
+       -> seal it (fill/seal thresholds apply to the real coin)
+       -> if peerId known: route sealed coin reference into that Peer Vault
+       -> else: keep sealed coin reference in Archive as legacy
+  -> if no free mined coin: file stays in Archive, no coin fabricated
 ```
 
-into one locked write operation inside `syncVault.ts`, for example:
+Peer Vaults never engrave; they only receive already-sealed real coins.
 
-```text
-enrollVaultEntry(vaultKey, contentHash, entry)
-```
+## Plan
 
-Inside that single operation:
+### 1. Delete all coin fabrication from the vault layer
+- Remove `getOrCreateMediaCoin`, synthetic `media-*` / `archive:*` coin IDs, and the "media capacity" allocation logic from `src/lib/blockchain/syncVault.ts`.
+- Remove pre-seal, size-based allocation, seal-assist coin creation, and `consolidateUnsealedMediaCoins`.
+- `enrollVaultEntry` becomes: store the file entry against the vault, mark it `awaiting-engraver`. It does not touch any `coin`.
 
-- Re-check duplicate content first.
-- Reconcile the vault state.
-- Pick the current 500 MiB active coin or pre-seal it if the incoming file crosses the seal line.
-- Allocate a new 500 MiB media coin only when needed.
-- Write the entry and update `fillBytes` in the same locked vault mutation.
-- Seal oversized files only after their entry is recorded.
+### 2. Archive Vault becomes a plain file holder
+- Vault shape stores: `files[]` (hash, size, mime, name, ref, ownerPeerId?, receivedAt, engravedCoinId?), and `sealedCoins[]` (references to real mined wallet coins that were engraved here).
+- No `capacityBytes`, no `fillState`, no fabricated coin objects on files.
 
-This removes the race where two scripts/files both believe they own the active filling coin.
+### 3. Engraver worker uses only mined wallet coins
+- New single worker `src/lib/blockchain/vaultEngraver.ts` runs one file at a time per tick.
+- Pulls a free mined coin from the wallet: `swarmCoins` where `status==='wallet' && kind!=='media' && !wrapped && !spent && wrappedTokens.length===0`.
+- If none: exit; file stays in Archive. No fabrication, no retry storm.
+- If one: engrave next `awaiting-engraver` file onto it, record `engravedCoinId` on the file entry, mark the coin as media-engraved (existing `SwarmCoin` fields only: mark `kind='media'`, set `mediaRefs`, seal via existing wallet coin seal path).
 
-### 3. Add a per-vault async mutation queue
+### 4. Route sealed coins after engraving
+- If the file has `ownerPeerId`, move the sealed coin reference into that Peer Vault's `sealedCoins[]`, remove the file from Archive's `files[]`.
+- If no `ownerPeerId`, keep the sealed coin reference in Archive's `sealedCoins[]` (legacy).
+- Peer Vault code path never creates coins — it only accepts routed sealed references.
 
-Add a small in-memory queue keyed by `peerId/vaultKey` so all vault mutations serialize:
+### 5. Migrate legacy persisted vault data (non-destructive)
+- One-shot boot pass in `syncVault.ts`:
+  - Any legacy fabricated coin (synthetic id, `role: receiver|archive|media`, `capacityBytes` set) is demoted back into `files[]` entries (from the vault index), and the fabricated coin object is dropped.
+  - Real wallet-backed sealed entries (that already reference a mined `swarmCoins` row) are preserved as `sealedCoins[]`.
+- No IndexedDB deletion; only rewrite of the vault records.
 
-- enrollment
-- forced seal
-- failed seal
-- detach/requeue
-- wrap
-- reconcile
+### 6. Rip out the sweeps that assumed fabricated coins
+- Delete `mediaCoinStuckWatch.ts` re-queue logic tied to fake coins; replace with a much smaller engraver tick (calls the worker in §3).
+- `mediaCoinWrapSweep.ts` becomes obsolete for engraving — engraving already uses real coins. Keep it only if it still does something orthogonal (SWARM-based wrap of already-engraved coins); otherwise remove.
+- `vaultIngest.ts` stays a thin adapter that records `awaiting-engraver` files only (no size=0 fake coin creation).
 
-This prevents migration, custody events, stuck-watch recovery, and UI refresh repair from writing the same vault at the same time.
+### 7. UI reflects the real model
+- `TorrentSwarmPanel.tsx`:
+  - Archive Vault: two lists — `Awaiting engraver (files)` and `Sealed archive coins`.
+  - Peer Vaults: only `Sealed coins routed to this peer` (collapsible).
+  - No "Filling 100MB / 500MB" rows anywhere. No lifecycle chips that imply fabricated coins.
+  - Show a small badge "No free mined coin — engraving paused" when Archive has files but wallet has none.
 
-### 4. Stop re-entrant stuck recovery during every file enroll
+### 8. Tests
+- Legacy fabricated coin persisted from an older session is demoted to a file entry and its fake coin object is removed.
+- Enrolling a completed file with no free mined coin leaves it in Archive `files[]`; zero coins created anywhere.
+- Enrolling with one free mined wallet coin engraves exactly one file, seals that real coin, and — if `ownerPeerId` present — routes it to the correct Peer Vault.
+- Concurrent enrolls with only one free mined coin engrave one file, leave the rest awaiting; still zero fabricated coins.
+- Zero-size custody events do not create file entries.
 
-Keep stuck-write recovery, but do not let each `enrollContent()` call recursively trigger a global stalled sweep while another file is being engraved.
+## Acceptance
 
-Use the stuck watcher / boot repair / explicit reconcile pass to recover stalled coins, and let enrollment focus on one atomic file write at a time.
-
-### 5. Fix wrapped entries so they stay wrapped
-
-Update `vaultSeeder` so it looks up the entry’s coin ref:
-
-- If the coin is `wrapped`, keep `pending: false`.
-- If the coin is sealed but unwrapped, it can remain archived/pending for wrap.
-- If the coin is active and backing torrent disappears, it can become pending.
-
-This should stop “wrapped but still pending/stuck” display drift.
-
-### 6. Clean up the dashboard display after the data is fixed
-
-Only after the data repair is correct:
-
-- Show exactly one active filling coin per vault.
-- Hide/drop empty active placeholders.
-- Keep all sealed/wrapped coins inside the completed collapsible section.
-- Do not special-case 100MB in UI; the stored data should no longer contain active 100MB media refs.
-
-### 7. Tests to prove it
-
-Add/extend tests for:
-
-- A persisted `receiver` coin with `100 MiB` capacity and entries becomes a sealed `media` coin with `500 MiB` capacity.
-- Empty legacy/duplicate coins are removed.
-- Concurrent `enrollContent()` calls leave only one active filling coin per vault.
-- A vault can still have many completed coins when content exceeds 500 MiB / seal thresholds.
-- A 1GB file creates one dedicated oversized media coin and seals after entry recording.
-- Wrapped entries are not flipped back to pending by the seeder.
-
-## Validation
-
-- Run targeted vault tests.
-- Run typecheck.
-- Verify the live preview dashboard after repair:
-  - no active `100.0 MB` coin rows
-  - at most one `Filling` row per vault
-  - completed sealed/wrapped coins remain in the collapsible section
-  - wrapped entries no longer appear pending because torrent seeding is not detected
+- Grep for coin creation inside `src/lib/blockchain/syncVault*` and related vault files returns nothing that mints/synthesizes a coin.
+- Live preview: after boot, Archive shows real files awaiting engraving; no `100MB` or duplicate `Filling` rows; Peer Vaults only show sealed routed coins.
+- Mining a new wallet coin visibly triggers engraving of the next Archive file on the next tick.
