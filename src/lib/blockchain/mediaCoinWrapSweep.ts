@@ -30,8 +30,8 @@ function isMineBackedTransaction(tx: { type?: string; meta?: Record<string, unkn
   return reason.includes("confirmed mesh work") || reason.includes("network service unit");
 }
 
-function minedCoinId(txId: string, index: number): string {
-  return `mined:${txId}:${index}`;
+function minedCoinId(userId: string, index: number): string {
+  return `mined:${userId}:${index}`;
 }
 
 function buildMinedWalletCoin(params: {
@@ -72,23 +72,30 @@ async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
     const mined = chain.getChain().flatMap((block) =>
       (block.transactions ?? []).map((tx) => ({ tx, height: block.index })),
     );
+    const ledger = [...mined, ...pending].filter(({ tx }) => tx.to === user.id && isMineBackedTransaction(tx));
+    const minedBalance = Math.floor(
+      ledger.reduce((sum, { tx }) => {
+        const amount = Number(tx.amount ?? 0);
+        return Number.isFinite(amount) && amount > 0 ? sum + amount : sum;
+      }, 0),
+    );
+    if (minedBalance <= 0) return 0;
 
-    for (const { tx, height } of [...mined, ...pending]) {
-      if (records.length >= limit) break;
-      if (tx.to !== user.id || !isMineBackedTransaction(tx)) continue;
-      const units = Math.floor(Number(tx.amount ?? 0));
-      if (!Number.isFinite(units) || units <= 0) continue;
-      for (let i = 0; i < units && records.length < limit; i += 1) {
-        const coinId = minedCoinId(tx.id, i);
-        if (existingIds.has(coinId)) continue;
-        existingIds.add(coinId);
-        records.push(buildMinedWalletCoin({
-          coinId,
-          ownerId: user.id,
-          minedAt: tx.timestamp,
-          minedInBlock: height,
-        }));
-      }
+    const representedWalletCoins = existing.filter((coin) => coin.ownerId === user.id && coin.status === "wallet").length;
+    const missing = Math.max(0, minedBalance - representedWalletCoins);
+    if (missing <= 0) return 0;
+
+    const latestProof = ledger[ledger.length - 1];
+    for (let i = representedWalletCoins; records.length < Math.min(limit, missing); i += 1) {
+      const coinId = minedCoinId(user.id, i);
+      if (existingIds.has(coinId)) continue;
+      existingIds.add(coinId);
+      records.push(buildMinedWalletCoin({
+        coinId,
+        ownerId: user.id,
+        minedAt: latestProof?.tx.timestamp ?? new Date().toISOString(),
+        minedInBlock: latestProof?.height,
+      }));
     }
 
     for (const coin of records) await put("swarmCoins", coin);
