@@ -28,8 +28,8 @@ import {
   reconcileLegacyVaultCoins,
   reconcileVaultCoinState,
   saveVault,
-  updateVaultEntryPendingStates,
 } from "../syncVault";
+import { enforceVaultSeeding } from "../vaultSeeder";
 import { MEDIA_COIN_CAPACITY_BYTES, type SwarmCoin } from "../types";
 
 function sealedCoin(id: string): SwarmCoin {
@@ -166,9 +166,9 @@ describe("syncVault", () => {
       pending: false,
     };
     await saveVault(v);
-    await updateVaultEntryPendingStates("peer-wrapped", new Map([["wrapped-hash", true]]));
+    await enforceVaultSeeding();
     const after = await getVault("peer-wrapped");
-    expect(after?.index["wrapped-hash"].pending).toBe(true);
+    expect(after?.index["wrapped-hash"].pending).toBe(false);
   });
 });
 
