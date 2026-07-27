@@ -324,7 +324,21 @@ export async function enrollVaultEntry(
 ): Promise<"skipped" | "enrolled"> {
   return withVaultQueue(peerId, async () => {
     const existing = await findVaultEntry(input.contentHash);
-    if (existing) return "skipped";
+    if (existing) {
+      // Already in THIS vault → truly a duplicate, skip.
+      if (existing.vault.peerId === peerId) return "skipped";
+      // Otherwise the entry is stranded in a different vault (typically
+      // `archive:global` from an earlier session when the owner was
+      // unknown). Relocate it: drop from the old vault so the target
+      // peer vault can engrave the bytes into its own media coin.
+      try {
+        const stale = await getVault(existing.vault.peerId);
+        if (stale && stale.index[input.contentHash]) {
+          delete stale.index[input.contentHash];
+          await saveVaultUnlocked(stale);
+        }
+      } catch { /* best-effort — proceed to enrol */ }
+    }
 
     const vault = await ensureVault(peerId);
     reconcileVaultInMemory(vault);
