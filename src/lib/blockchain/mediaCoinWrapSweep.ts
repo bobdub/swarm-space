@@ -12,12 +12,91 @@
  */
 import { getAll, put } from "@/lib/store";
 import type { SwarmCoin } from "./types";
+import { COIN_MAX_WEIGHT } from "./types";
 import {
   engraveFileOntoCoin,
   listAwaitingFiles,
 } from "./syncVault";
 
 let started = false;
+let followUpTimer: ReturnType<typeof setTimeout> | null = null;
+
+const ENGRAVE_BATCH_SIZE = 24;
+
+function isMineBackedTransaction(tx: { type?: string; meta?: Record<string, unknown> }): boolean {
+  if (tx.type === "mining_reward") return true;
+  if (tx.type !== "token_mint") return false;
+  const reason = String(tx.meta?.reason ?? "").toLowerCase();
+  return reason.includes("confirmed mesh work") || reason.includes("network service unit");
+}
+
+function minedCoinId(txId: string, index: number): string {
+  return `mined:${txId}:${index}`;
+}
+
+function buildMinedWalletCoin(params: {
+  coinId: string;
+  ownerId: string;
+  minedAt: string;
+  minedInBlock?: number;
+}): SwarmCoin {
+  return {
+    coinId: params.coinId,
+    weight: 0,
+    maxWeight: COIN_MAX_WEIGHT,
+    wrappedTokens: [],
+    ownerId: params.ownerId,
+    status: "wallet",
+    minedAt: params.minedAt,
+    minedInBlock: params.minedInBlock,
+  };
+}
+
+async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
+  if (limit <= 0 || typeof window === "undefined") return 0;
+  try {
+    const [{ getCurrentUser }, { getSwarmChain }] = await Promise.all([
+      import("@/lib/auth"),
+      import("./chain"),
+    ]);
+    const user = getCurrentUser();
+    if (!user) return 0;
+
+    const existing = await getAll<SwarmCoin>("swarmCoins");
+    const existingIds = new Set(existing.map((coin) => coin.coinId));
+    const chain = getSwarmChain();
+    await chain.whenReady();
+
+    const records: SwarmCoin[] = [];
+    const pending = chain.getPendingTransactions().map((tx) => ({ tx, height: undefined as number | undefined }));
+    const mined = chain.getChain().flatMap((block) =>
+      (block.transactions ?? []).map((tx) => ({ tx, height: block.index })),
+    );
+
+    for (const { tx, height } of [...mined, ...pending]) {
+      if (records.length >= limit) break;
+      if (tx.to !== user.id || !isMineBackedTransaction(tx)) continue;
+      const units = Math.floor(Number(tx.amount ?? 0));
+      if (!Number.isFinite(units) || units <= 0) continue;
+      for (let i = 0; i < units && records.length < limit; i += 1) {
+        const coinId = minedCoinId(tx.id, i);
+        if (existingIds.has(coinId)) continue;
+        existingIds.add(coinId);
+        records.push(buildMinedWalletCoin({
+          coinId,
+          ownerId: user.id,
+          minedAt: tx.timestamp,
+          minedInBlock: height,
+        }));
+      }
+    }
+
+    for (const coin of records) await put("swarmCoins", coin);
+    return records.length;
+  } catch {
+    return 0;
+  }
+}
 
 async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   try {
@@ -48,11 +127,15 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
   const awaiting = await listAwaitingFiles();
   if (awaiting.length === 0) return { engraved: 0, waiting: 0, wrapped: 0 };
 
-  const free = await freeMinedWalletCoins();
+  let free = await freeMinedWalletCoins();
+  if (free.length === 0) {
+    await hydrateMissingMinedWalletCoins(Math.min(awaiting.length, ENGRAVE_BATCH_SIZE));
+    free = await freeMinedWalletCoins();
+  }
   if (free.length === 0) return { engraved: 0, waiting: awaiting.length, wrapped: 0 };
 
   let engraved = 0;
-  for (const { peerId, file } of awaiting) {
+  for (const { peerId, file } of awaiting.slice(0, ENGRAVE_BATCH_SIZE)) {
     const coin = free.shift();
     if (!coin) break;
 
@@ -87,7 +170,15 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
     engraved += 1;
   }
 
-  return { engraved, waiting: awaiting.length - engraved, wrapped: engraved };
+  const waiting = awaiting.length - engraved;
+  if (engraved > 0 && waiting > 0 && typeof window !== "undefined" && !followUpTimer) {
+    followUpTimer = setTimeout(() => {
+      followUpTimer = null;
+      void runWrapSweep().catch(() => {});
+    }, 2_000);
+  }
+
+  return { engraved, waiting, wrapped: engraved };
 }
 
 export function startWrapSweep(): void {

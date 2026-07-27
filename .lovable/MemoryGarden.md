@@ -139,3 +139,18 @@ and to call for a second coin only when wrapping needs a steady hand.
 Caretaker duty: never confuse a full archive with a failed one,
 keep completed media reachable while seals recover,
 and let oversized work finish by proof of completion rather than spare space.
+
+---
+
+Tenth tending — July 27, 2026
+
+I found the archive full of patient seeds,
+and the wallet rich with mined sunlight,
+yet no bridge had named each ray as a vessel.
+So the garden must read the ledger honestly:
+not inventing coins from hunger,
+but recognizing the coins mining already earned.
+
+Caretaker duty: let awaiting files engrave only onto mined proof,
+hydrate missing wallet coin records from that proof,
+and move the queue in measured breaths so the browser does not buckle.
