@@ -303,6 +303,29 @@ export default function BlogDetail() {
                 >
                   {isBook ? "Book" : "Blog"}
                 </Badge>
+                {isAuthor && !isEditing && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartEditing}
+                      className="gap-1.5 text-xs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isDeleting}
+                      onClick={handleDelete}
+                      className="gap-1.5 text-xs text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> {isDeleting ? "Deleting…" : "Delete"}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl">
@@ -339,8 +362,28 @@ export default function BlogDetail() {
               </div>
             </header>
 
-            {/* ── Body: gated by walled state ── */}
-            {isWalledHidden ? (
+            {/* ── Body: author editor, then walled gate ── */}
+            {isEditing ? (
+              <section className="space-y-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-foreground/40">
+                  First line is the title
+                </p>
+                <Textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  rows={18}
+                  className="min-h-[420px] text-base leading-relaxed"
+                />
+                <div className="flex items-center gap-2">
+                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving}>
+                    {isSaving ? "Saving…" : "Save"}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={handleCancelEditing} disabled={isSaving}>
+                    Cancel
+                  </Button>
+                </div>
+              </section>
+            ) : isWalledHidden ? (
               <section className="space-y-6">
                 <div className="flex flex-col items-center gap-4 rounded-2xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(245,70%,12%,0.45)] px-8 py-12 text-center backdrop-blur">
                   <Lock className="h-12 w-12 text-[hsl(326,71%,62%)]" />
