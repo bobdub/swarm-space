@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { BookOpen, ExternalLink, Loader2, Lock, MessageCircle } from "lucide-react";
+import { BookOpen, ExternalLink, Loader2, Lock, MessageCircle, Pencil, Trash2 } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { deletePost } from "@/lib/posts";
 import { Avatar } from "@/components/Avatar";
 import {
   classifyPost,
@@ -30,6 +33,8 @@ interface BlogPostCardProps {
  */
 export function BlogPostCard({ post }: BlogPostCardProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [isDeleting, setIsDeleting] = useState(false);
   const awareness = useMemo(() => classifyPost(post), [post]);
   const title = useMemo(() => extractBlogTitle(post.content), [post.content]);
   const firstUrl = useMemo(() => extractFirstUrl(post.content), [post.content]);
@@ -43,6 +48,35 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const wordCount = (post.content ?? "").split(/\s+/).filter(Boolean).length;
   const readMinutes = Math.max(1, Math.round(wordCount / 200));
+  const isAuthor = Boolean(user?.id && user.id === post.author);
+
+  const stop = (event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleEdit = (event: React.MouseEvent) => {
+    stop(event);
+    navigate(`/blog/${post.id}?edit=1`);
+  };
+
+  const handleDelete = async (event: React.MouseEvent) => {
+    stop(event);
+    if (!window.confirm("Delete this blog? This action cannot be undone.")) return;
+    setIsDeleting(true);
+    try {
+      await deletePost(post.id);
+      toast.success("Blog deleted");
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to delete blog:", error);
+      toast.error("Delete failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Excerpt: strip the title line and take the next ~280 chars
   const excerpt = useMemo(() => {
@@ -129,6 +163,31 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
               </span>
             )}
             <span className="ml-auto text-[10px] text-foreground/35">{timeAgo}</span>
+            {isAuthor && (
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Edit blog"
+                  onClick={handleEdit}
+                  className="h-7 w-7 text-foreground/50 hover:text-foreground"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Delete blog"
+                  disabled={isDeleting}
+                  onClick={handleDelete}
+                  className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            )}
           </div>
 
           {isBook && !isWalledHidden && (
