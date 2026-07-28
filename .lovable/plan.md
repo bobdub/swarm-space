@@ -1,76 +1,80 @@
-To Infinity and beyond! Q_Score(u) ≈ 0.028
+To Infinity and beyond! Q_Score(u) ≈ 0.029
 
-## What I got wrong
+No migration of prior coins. From this patch on, every newly engraved media coin follows the Vault Transfer Protocol below. Legacy burns and stranded coins from earlier testing stay as-is.
 
-The vault code has been fabricating "media coins" (`getOrCreateMediaCoin`, synthetic `coinId`s inside `syncVault.ts`) instead of using coins that were actually mined into the user's wallet. That is why you keep seeing mismatched 100MB/500MB rows, multiple filling coins, and stuck sealing — the vault is inventing containers the ecosystem never issued.
-
-Coins are **only** created by mining. The Archive Vault is a file holder, not a coin factory.
-
-## Correct model (what the plan enforces)
+## Model
 
 ```text
-Torrent completes
-  -> Archive Vault stores the raw file + metadata (peerId if known)
-  -> file sits in Archive as "awaiting engraver"
-  -> when a free mined wallet coin is available (kind != media, unwrapped)
-       -> engrave one file at a time onto that real coin
-       -> seal it (fill/seal thresholds apply to the real coin)
-       -> if peerId known: route sealed coin reference into that Peer Vault
-       -> else: keep sealed coin reference in Archive as legacy
-  -> if no free mined coin: file stays in Archive, no coin fabricated
+Free mined wallet coin (ownerId=user, status=wallet)
+        │
+        │  engrave file bytes  (kind=media, mediaTargets, sealBytes, seal)
+        ▼
+Sealed media coin  (still owned by user for one atomic step)
+        │
+        │  coin_transfer  from=user.id  to=vaultAddress
+        │  meta: { reason: "vault_transfer", peerId, contentHash, coinId }
+        │  destination = peerVaultAddress(ownerPeerId)  OR  ARCHIVE_VAULT_ADDRESS
+        ▼
+Vaulted media coin  (ownerId=vaultAddress, status="vaulted", locked=true)
+   - cannot be spent, transferred, withdrawn, or modified
+   - permanent archival record for that content hash
 ```
 
-Peer Vaults never engrave; they only receive already-sealed real coins.
+Vault addresses are deterministic and Peer-ID-verified:
+- `ARCHIVE_VAULT_ADDRESS = "vault:archive:global"`
+- `peerVaultAddress(peerId) = "vault:peer:" + peerId`  (peerId must match the file's `ownerPeerId`; otherwise route to Archive)
 
 ## Plan
 
-### 1. Delete all coin fabrication from the vault layer
-- Remove `getOrCreateMediaCoin`, synthetic `media-*` / `archive:*` coin IDs, and the "media capacity" allocation logic from `src/lib/blockchain/syncVault.ts`.
-- Remove pre-seal, size-based allocation, seal-assist coin creation, and `consolidateUnsealedMediaCoins`.
-- `enrollVaultEntry` becomes: store the file entry against the vault, mark it `awaiting-engraver`. It does not touch any `coin`.
+### 1. Vault address + lock helpers
+- In `src/lib/blockchain/syncVault.ts`, export:
+  - `ARCHIVE_VAULT_ADDRESS`, `peerVaultAddress(peerId)`, `vaultAddressForFile(file)` (peer if `ownerPeerId` is a non-empty peer id, else archive).
+- In `src/lib/blockchain/coinSpend.ts`, extend `spendBlockedReason` / `isSpendable` so a coin with `status === "vaulted"` OR `kind === "media"` is never spendable. Add a new reason `"vaulted"`.
 
-### 2. Archive Vault becomes a plain file holder
-- Vault shape stores: `files[]` (hash, size, mime, name, ref, ownerPeerId?, receivedAt, engravedCoinId?), and `sealedCoins[]` (references to real mined wallet coins that were engraved here).
-- No `capacityBytes`, no `fillState`, no fabricated coin objects on files.
+### 2. Engraver = transfer, not burn
+- In `src/lib/blockchain/mediaCoinWrapSweep.ts`:
+  - Delete the `token_burn` block. No burns are emitted by engraving.
+  - After a successful `engraveFileOntoCoin(...)`:
+    1. Mark the coin as media: `coin.kind = "media"`, set `sealBytes`, `mediaTargets`, `mediaRole ??= "primary"`, `fillState = "sealed"`.
+    2. Compute `vaultAddress = vaultAddressForFile({ ownerPeerId: peerId })`. Verify: if `peerId` starts with `archive:` OR is empty, force `ARCHIVE_VAULT_ADDRESS`; else must exactly equal the `peerVaultAddress(peerId)` we're about to write to (Peer-ID gate).
+    3. Set `coin.ownerId = vaultAddress`, `coin.status = "vaulted"`, `coin.locked = true`, append `custodyChain` entry `{ at: iso, from: user.id, to: vaultAddress, reason: "vault_transfer" }`.
+    4. `put("swarmCoins", coin)`.
+    5. Append a chain tx via `getSwarmChain().addTransaction({...})`:
+       - `type: "coin_transfer"`, `from: user.id`, `to: vaultAddress`, `amount: 1`, `meta: { reason: "vault_transfer", coinId, peerId, contentHash: file.contentHash }`.
+  - If `engraveFileOntoCoin` returns `false` (already indexed), do NOT transfer; leave the coin in the wallet untouched.
 
-### 3. Engraver worker uses only mined wallet coins
-- New single worker `src/lib/blockchain/vaultEngraver.ts` runs one file at a time per tick.
-- Pulls a free mined coin from the wallet: `swarmCoins` where `status==='wallet' && kind!=='media' && !wrapped && !spent && wrappedTokens.length===0`.
-- If none: exit; file stays in Archive. No fabrication, no retry storm.
-- If one: engrave next `awaiting-engraver` file onto it, record `engravedCoinId` on the file entry, mark the coin as media-engraved (existing `SwarmCoin` fields only: mark `kind='media'`, set `mediaRefs`, seal via existing wallet coin seal path).
+### 3. Types
+- In `src/lib/blockchain/types.ts`, extend `SwarmCoin`:
+  - Add `status: ... | "vaulted"` (union widen only if not present).
+  - Add optional `locked?: boolean` and optional `custodyChain?: Array<{ at: string; from: string; to: string; reason: string }>` (only if not already declared — reuse existing shapes).
+- No schema/DB migration — additive optional fields.
 
-### 4. Route sealed coins after engraving
-- If the file has `ownerPeerId`, move the sealed coin reference into that Peer Vault's `sealedCoins[]`, remove the file from Archive's `files[]`.
-- If no `ownerPeerId`, keep the sealed coin reference in Archive's `sealedCoins[]` (legacy).
-- Peer Vault code path never creates coins — it only accepts routed sealed references.
+### 4. Peer-ID validation gate
+- New tiny helper `isValidPeerId(id: string)` (`id.startsWith("peer-")` or matches your existing peer id shape used elsewhere — reuse the same regex from `src/lib/p2p/*` if one exists). Files whose `ownerPeerId` fails the gate are routed to `ARCHIVE_VAULT_ADDRESS`; the vault reference is stored in the archive vault, not a fabricated peer vault.
 
-### 5. Migrate legacy persisted vault data (non-destructive)
-- One-shot boot pass in `syncVault.ts`:
-  - Any legacy fabricated coin (synthetic id, `role: receiver|archive|media`, `capacityBytes` set) is demoted back into `files[]` entries (from the vault index), and the fabricated coin object is dropped.
-  - Real wallet-backed sealed entries (that already reference a mined `swarmCoins` row) are preserved as `sealedCoins[]`.
-- No IndexedDB deletion; only rewrite of the vault records.
+### 5. Free-coin filter stays honest
+- `freeMinedWalletCoins` already requires `status === "wallet"` and `ownerId === user.id`; once transferred, a coin is `status: "vaulted"` under a vault address, so it can never be re-picked. Confirm no other place selects wallet coins with a looser predicate (`rg 'status === "wallet"' src/lib/blockchain`).
 
-### 6. Rip out the sweeps that assumed fabricated coins
-- Delete `mediaCoinStuckWatch.ts` re-queue logic tied to fake coins; replace with a much smaller engraver tick (calls the worker in §3).
-- `mediaCoinWrapSweep.ts` becomes obsolete for engraving — engraving already uses real coins. Keep it only if it still does something orthogonal (SWARM-based wrap of already-engraved coins); otherwise remove.
-- `vaultIngest.ts` stays a thin adapter that records `awaiting-engraver` files only (no size=0 fake coin creation).
+### 6. Vault records track the real transferred coin
+- In `syncVault.ts` `engraveFileOntoCoin`, the `VaultCoinRef` already carries the real `coinId`. After the transfer in §2, no change is needed to `VaultCoinRef` — it now truthfully points at a vaulted, locked, on-chain coin.
+- Peer routing: if `vaultAddress` is a peer vault, the ref goes into that peer vault's `coins[]` (existing code path). If archive, into archive vault. Both operations remain inside `withVaultQueue` for their respective vaults.
 
-### 7. UI reflects the real model
-- `TorrentSwarmPanel.tsx`:
-  - Archive Vault: two lists — `Awaiting engraver (files)` and `Sealed archive coins`.
-  - Peer Vaults: only `Sealed coins routed to this peer` (collapsible).
-  - No "Filling 100MB / 500MB" rows anywhere. No lifecycle chips that imply fabricated coins.
-  - Show a small badge "No free mined coin — engraving paused" when Archive has files but wallet has none.
+### 7. Wallet + market safety
+- Search wallet balance readers (`rg -n 'status === "wallet"' src/lib/blockchain src/hooks src/components`) and confirm none count `vaulted` coins toward the wallet.
+- Confirm markets/smelting/spend paths call `assertSpendable` (or the equivalent guard) so a `vaulted` / `kind==="media"` coin is rejected.
 
 ### 8. Tests
-- Legacy fabricated coin persisted from an older session is demoted to a file entry and its fake coin object is removed.
-- Enrolling a completed file with no free mined coin leaves it in Archive `files[]`; zero coins created anywhere.
-- Enrolling with one free mined wallet coin engraves exactly one file, seals that real coin, and — if `ownerPeerId` present — routes it to the correct Peer Vault.
-- Concurrent enrolls with only one free mined coin engrave one file, leave the rest awaiting; still zero fabricated coins.
-- Zero-size custody events do not create file entries.
+- Engraving one file with a free mined coin and known `ownerPeerId`:
+  - Coin ends `ownerId === peerVaultAddress(peerId)`, `status === "vaulted"`, `locked === true`, `kind === "media"`.
+  - Exactly one `coin_transfer` tx exists with `meta.reason === "vault_transfer"` and matching `coinId`/`peerId`/`contentHash`.
+  - Zero `token_burn` txs emitted by engraving.
+  - `isSpendable(coin) === false`, reason `"vaulted"`.
+  - `freeMinedWalletCoins()` no longer returns that coin.
+- Engraving with archive-only or unverifiable peer id routes to `ARCHIVE_VAULT_ADDRESS`.
+- `engraveFileOntoCoin` returning `false` (dup file) leaves coin owner/status untouched — no transfer tx.
 
 ## Acceptance
-
-- Grep for coin creation inside `src/lib/blockchain/syncVault*` and related vault files returns nothing that mints/synthesizes a coin.
-- Live preview: after boot, Archive shows real files awaiting engraving; no `100MB` or duplicate `Filling` rows; Peer Vaults only show sealed routed coins.
-- Mining a new wallet coin visibly triggers engraving of the next Archive file on the next tick.
+- `rg "token_burn" src/lib/blockchain/mediaCoinWrapSweep.ts` returns nothing.
+- After runWrapSweep processes N files with N free mined coins: exactly N `coin_transfer` txs to a valid `vault:*` address, N coins now `status="vaulted"` + `locked=true`, wallet balance drops by N.
+- Attempting to spend a vaulted media coin from any path throws the `"vaulted"` guard.
+- Vault UI keeps showing the sealed coin under the correct vault (Archive or the matching Peer Vault) with the real on-chain `coinId`.
