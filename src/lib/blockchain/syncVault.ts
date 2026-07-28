@@ -77,6 +77,34 @@ export interface SyncVault {
 const STORE = "syncVaults";
 const vaultQueues = new Map<string, Promise<void>>();
 
+// ── Vault Transfer Protocol addressing ─────────────────────────────────
+
+/** Canonical global archive vault address. */
+export const ARCHIVE_VAULT_ADDRESS = "vault:archive:global";
+
+/** Deterministic on-chain address for a peer's vault protocol. */
+export function peerVaultAddress(peerId: string): string {
+  return `vault:peer:${peerId}`;
+}
+
+/**
+ * Peer-ID gate. Only well-formed peer ids may receive a peer vault
+ * transfer; everything else routes to the global archive vault.
+ */
+export function isValidPeerId(peerId?: string | null): boolean {
+  if (!peerId) return false;
+  const id = String(peerId).trim();
+  if (!id || id.startsWith("archive:") || id.startsWith("vault:")) return false;
+  return /^[A-Za-z0-9_-]{3,128}$/.test(id);
+}
+
+/** Resolve the vault address a freshly engraved coin must be sent to. */
+export function vaultAddressForFile(file: { ownerPeerId?: string | null }): string {
+  return isValidPeerId(file.ownerPeerId)
+    ? peerVaultAddress(String(file.ownerPeerId))
+    : ARCHIVE_VAULT_ADDRESS;
+}
+
 async function withVaultQueue<T>(peerId: string, task: () => Promise<T>): Promise<T> {
   const previous = vaultQueues.get(peerId) ?? Promise.resolve();
   let release = () => {};
