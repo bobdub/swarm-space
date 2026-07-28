@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BookOpen, Clock, Lock, User } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, Lock, Pencil, Trash2, User } from "lucide-react";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
@@ -9,7 +9,10 @@ import { CommentThread } from "@/components/CommentThread";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { get } from "@/lib/store";
+import { updatePost, deletePost } from "@/lib/posts";
 import {
   classifyPost,
   extractBlogTitle,
@@ -24,13 +27,19 @@ import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
-  const { ensureManifest } = useP2PContext();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { ensureManifest, broadcastPost } = useP2PContext();
 
   const loadPost = useCallback(async () => {
     if (!postId) {
