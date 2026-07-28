@@ -306,7 +306,11 @@ export async function getWrappedContents(coinId: string): Promise<WrappedTokenPa
 
 export async function getUserWalletCoins(userId: string): Promise<SwarmCoin[]> {
   const all = await getAll<SwarmCoin>("swarmCoins");
-  return all.filter((c) => c.ownerId === userId && c.status === "wallet");
+  // Vault-locked coins live under a vault address and are never part of
+  // the spendable wallet set.
+  return all.filter(
+    (c) => c.ownerId === userId && c.status === "wallet" && !c.locked && c.kind !== "media",
+  );
 }
 
 // ── Graveyard Throttle: Mint Empty Coin Into Pool ──────────────────────

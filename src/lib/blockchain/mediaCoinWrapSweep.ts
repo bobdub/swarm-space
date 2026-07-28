@@ -16,6 +16,10 @@ import { COIN_MAX_WEIGHT } from "./types";
 import {
   engraveFileOntoCoin,
   listAwaitingFiles,
+  vaultAddressForFile,
+  peerVaultAddress,
+  ARCHIVE_VAULT_ADDRESS,
+  isValidPeerId,
 } from "./syncVault";
 
 let started = false;
@@ -118,6 +122,8 @@ async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
       (c) =>
         c.ownerId === user.id &&
         c.status === "wallet" &&
+        !c.locked &&
+        !c.vaultAddress &&
         c.kind !== "media" &&
         c.fillState !== "spent" &&
         (c.wrappedTokens?.length ?? 0) === 0 &&
@@ -130,6 +136,84 @@ async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Vault Transfer Protocol — an engraved coin is immediately transferred
+ * out of the wallet into its designated vault address (Peer-ID verified)
+ * and locked there forever as the archival record of that media.
+ */
+async function transferEngravedCoinToVault(
+  coin: SwarmCoin,
+  peerId: string,
+  file: { contentHash: string; size: number; ownerPeerId?: string },
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // Peer-ID gate: the destination must resolve from the file's owning
+  // peer (falling back to the vault the file was queued in). Anything
+  // unverifiable routes to the global archive vault protocol.
+  const candidate = file.ownerPeerId ?? peerId;
+  const vaultAddress = isValidPeerId(candidate)
+    ? peerVaultAddress(candidate)
+    : vaultAddressForFile({ ownerPeerId: undefined });
+  const verified =
+    vaultAddress === ARCHIVE_VAULT_ADDRESS ||
+    vaultAddress === peerVaultAddress(candidate);
+  const destination = verified ? vaultAddress : ARCHIVE_VAULT_ADDRESS;
+
+  let ownerId = coin.ownerId;
+  try {
+    const { getCurrentUser } = await import("@/lib/auth");
+    ownerId = getCurrentUser()?.id ?? coin.ownerId;
+  } catch { /* keep existing owner */ }
+
+  // 1) Engrave the media identity onto the real mined coin.
+  coin.kind = "media";
+  coin.sealBytes = Math.max(coin.sealBytes ?? 0, file.size);
+  coin.mediaTargets = [
+    ...(coin.mediaTargets ?? []),
+    { peerId, contentHashes: [file.contentHash] },
+  ];
+  coin.mediaRole = coin.mediaRole ?? "primary";
+  coin.fillState = "sealed";
+  coin.sealedAt = coin.sealedAt ?? now;
+
+  // 2) Transfer custody into the vault protocol and lock it.
+  coin.ownerId = destination;
+  coin.status = "vaulted";
+  coin.vaultAddress = destination;
+  coin.locked = true;
+  coin.custodyChain = [
+    ...(coin.custodyChain ?? []),
+    { at: now, from: ownerId, to: destination, reason: "vault_transfer" },
+  ];
+  try { await put("swarmCoins", coin); } catch { /* best-effort */ }
+
+  // 3) Record the transfer on chain. This debits the wallet balance —
+  //    no burn required; the value moves into the vault address.
+  try {
+    const { getSwarmChain } = await import("./chain");
+    getSwarmChain().addTransaction({
+      id: `vault-transfer-${coin.coinId}`,
+      type: "coin_transfer",
+      from: ownerId,
+      to: destination,
+      amount: 1,
+      fee: 0,
+      nonce: 0,
+      timestamp: now,
+      signature: "",
+      publicKey: "",
+      chainId: "SWARM",
+      meta: {
+        reason: "vault_transfer",
+        coinId: coin.coinId,
+        peerId: candidate,
+        contentHash: file.contentHash,
+      },
+    });
+  } catch { /* best-effort ledger record */ }
 }
 
 /**
@@ -170,44 +254,7 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
       continue;
     }
 
-    // Mark the wallet coin as a media container so wallet UI and
-    // markets exclude it from the fungible pool.
-    coin.kind = "media";
-    coin.sealBytes = Math.max(coin.sealBytes ?? 0, file.size);
-    coin.mediaTargets = [
-      ...(coin.mediaTargets ?? []),
-      { peerId, contentHashes: [file.contentHash] },
-    ];
-    coin.mediaRole = coin.mediaRole ?? "primary";
-    try { await put("swarmCoins", coin); } catch { /* best-effort */ }
-
-    // Debit 1 SWARM from the wallet ledger — the mined coin has been
-    // consumed as an immutable media container and is no longer fungible.
-    try {
-      const [{ getCurrentUser }, { getSwarmChain }] = await Promise.all([
-        import("@/lib/auth"),
-        import("./chain"),
-      ]);
-      const user = getCurrentUser();
-      const chain = getSwarmChain();
-      if (user) {
-        chain.addTransaction({
-          id: `engrave-burn-${coin.coinId}`,
-          type: "token_burn",
-          from: user.id,
-          to: "burn",
-          amount: 1,
-          fee: 0,
-          nonce: 0,
-          timestamp: new Date().toISOString(),
-          signature: "",
-          publicKey: "",
-          chainId: "SWARM",
-          meta: { reason: "media_engrave", coinId: coin.coinId, peerId, contentHash: file.contentHash },
-        });
-      }
-    } catch { /* best-effort ledger debit */ }
-
+    await transferEngravedCoinToVault(coin, peerId, file);
     engraved += 1;
   }
 

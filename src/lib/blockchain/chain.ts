@@ -293,6 +293,7 @@ export class SwarmChain {
     "coin_market_settle",
     "coin_market_cancel",
     "cross_chain_swap",
+    "coin_transfer",
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {

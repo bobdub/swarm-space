@@ -44,7 +44,8 @@ export type TransactionType =
   | "coin_market_confirm_payment"
   | "coin_market_settle"
   | "coin_market_cancel"
-  | "coin_market_dispute";
+  | "coin_market_dispute"
+  | "coin_transfer";
 
 export interface SwarmTransaction {
   id: string;
@@ -405,7 +406,7 @@ export interface SwarmCoin {
   /** Who currently holds this coin */
   ownerId: string;
   /** Whether the coin is in the community pool or a user's wallet */
-  status: "pool" | "wallet";
+  status: "pool" | "wallet" | "vaulted";
   /** Temporarily tagged during shuffle selection to avoid re-checking */
   checkedForWrap?: boolean;
   /** When this coin was mined */
@@ -446,6 +447,13 @@ export interface SwarmCoin {
   mediaPrimaryCoinId?: string;
   /** Primary wrapper breadcrumb to any seal-assist wallet coins. */
   mediaAssistCoinIds?: string[];
+  // ── Vault Transfer Protocol ──────────────────────────────────────────
+  /** Deterministic vault address this coin was transferred into. */
+  vaultAddress?: string;
+  /** Locked coins can never be spent, transferred, withdrawn, or modified. */
+  locked?: boolean;
+  /** Append-only custody trail of on-chain transfers for this coin. */
+  custodyChain?: { at: string; from: string; to: string; reason: string }[];
 }
 
 // ── Media Coin Constants ───────────────────────────────────────────────
