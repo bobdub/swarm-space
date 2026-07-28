@@ -1,80 +1,46 @@
-To Infinity and beyond! Q_Score(u) ≈ 0.029
+## Goal
 
-No migration of prior coins. From this patch on, every newly engraved media coin follows the Vault Transfer Protocol below. Legacy burns and stranded coins from earlier testing stay as-is.
+Let a blog's author edit or delete it, using the exact same data layer `PostCard` already uses. No new storage, no new sync path, no changes to any non-blog surface.
 
-## Model
+## Why this is safe
 
-```text
-Free mined wallet coin (ownerId=user, status=wallet)
-        │
-        │  engrave file bytes  (kind=media, mediaTargets, sealBytes, seal)
-        ▼
-Sealed media coin  (still owned by user for one atomic step)
-        │
-        │  coin_transfer  from=user.id  to=vaultAddress
-        │  meta: { reason: "vault_transfer", peerId, contentHash, coinId }
-        │  destination = peerVaultAddress(ownerPeerId)  OR  ARCHIVE_VAULT_ADDRESS
-        ▼
-Vaulted media coin  (ownerId=vaultAddress, status="vaulted", locked=true)
-   - cannot be spent, transferred, withdrawn, or modified
-   - permanent archival record for that content hash
-```
+Blogs are ordinary posts rendered by a different card (`classifyPost` in `src/lib/blogging/awareness.ts` picks `BlogPostCard`). The mutation functions already exist and already enforce ownership server-side of the UI:
 
-Vault addresses are deterministic and Peer-ID-verified:
-- `ARCHIVE_VAULT_ADDRESS = "vault:archive:global"`
-- `peerVaultAddress(peerId) = "vault:peer:" + peerId`  (peerId must match the file's `ownerPeerId`; otherwise route to Archive)
+- `updatePost(postId, { content, nsfw })` — `src/lib/posts.ts:26`, throws `Cannot edit another user's post` unless `currentUser.id === post.author`.
+- `deletePost(postId)` — `src/lib/posts.ts:53`, same ownership guard.
 
-## Plan
+`PostCard` (`src/components/PostCard.tsx:738-793`) already calls both, shows a toast, and fires `window.dispatchEvent(new CustomEvent("p2p-posts-updated"))` so feeds refresh. The plan copies that proven flow verbatim — nothing new is invented.
 
-### 1. Vault address + lock helpers
-- In `src/lib/blockchain/syncVault.ts`, export:
-  - `ARCHIVE_VAULT_ADDRESS`, `peerVaultAddress(peerId)`, `vaultAddressForFile(file)` (peer if `ownerPeerId` is a non-empty peer id, else archive).
-- In `src/lib/blockchain/coinSpend.ts`, extend `spendBlockedReason` / `isSpendable` so a coin with `status === "vaulted"` OR `kind === "media"` is never spendable. Add a new reason `"vaulted"`.
+## Scope
 
-### 2. Engraver = transfer, not burn
-- In `src/lib/blockchain/mediaCoinWrapSweep.ts`:
-  - Delete the `token_burn` block. No burns are emitted by engraving.
-  - After a successful `engraveFileOntoCoin(...)`:
-    1. Mark the coin as media: `coin.kind = "media"`, set `sealBytes`, `mediaTargets`, `mediaRole ??= "primary"`, `fillState = "sealed"`.
-    2. Compute `vaultAddress = vaultAddressForFile({ ownerPeerId: peerId })`. Verify: if `peerId` starts with `archive:` OR is empty, force `ARCHIVE_VAULT_ADDRESS`; else must exactly equal the `peerVaultAddress(peerId)` we're about to write to (Peer-ID gate).
-    3. Set `coin.ownerId = vaultAddress`, `coin.status = "vaulted"`, `coin.locked = true`, append `custodyChain` entry `{ at: iso, from: user.id, to: vaultAddress, reason: "vault_transfer" }`.
-    4. `put("swarmCoins", coin)`.
-    5. Append a chain tx via `getSwarmChain().addTransaction({...})`:
-       - `type: "coin_transfer"`, `from: user.id`, `to: vaultAddress`, `amount: 1`, `meta: { reason: "vault_transfer", coinId, peerId, contentHash: file.contentHash }`.
-  - If `engraveFileOntoCoin` returns `false` (already indexed), do NOT transfer; leave the coin in the wallet untouched.
+Two files only:
 
-### 3. Types
-- In `src/lib/blockchain/types.ts`, extend `SwarmCoin`:
-  - Add `status: ... | "vaulted"` (union widen only if not present).
-  - Add optional `locked?: boolean` and optional `custodyChain?: Array<{ at: string; from: string; to: string; reason: string }>` (only if not already declared — reuse existing shapes).
-- No schema/DB migration — additive optional fields.
+1. `src/pages/BlogDetail.tsx` — the primary edit/delete surface.
+2. `src/components/BlogPostCard.tsx` — a small author-only menu for quick delete / "Edit" jump.
 
-### 4. Peer-ID validation gate
-- New tiny helper `isValidPeerId(id: string)` (`id.startsWith("peer-")` or matches your existing peer id shape used elsewhere — reuse the same regex from `src/lib/p2p/*` if one exists). Files whose `ownerPeerId` fails the gate are routed to `ARCHIVE_VAULT_ADDRESS`; the vault reference is stored in the archive vault, not a fabricated peer vault.
+## 1. BlogDetail: full edit + delete
 
-### 5. Free-coin filter stays honest
-- `freeMinedWalletCoins` already requires `status === "wallet"` and `ownerId === user.id`; once transferred, a coin is `status: "vaulted"` under a vault address, so it can never be re-picked. Confirm no other place selects wallet coins with a looser predicate (`rg 'status === "wallet"' src/lib/blockchain`).
+- Compute `const isAuthor = user?.id === post?.author;` (same expression as `PostCard.tsx:217`).
+- Add local state: `isEditing`, `draft` (seeded from `post.content`), `isSaving`, `isDeleting`.
+- When `isAuthor` and not walled-hidden, render an **Edit** and **Delete** button in the existing header/meta row.
+- **Edit mode**: replace the rendered title+body block with a single `Textarea` bound to `draft` (the first non-empty line is the title, matching `extractBlogTitle`, so one textarea preserves the existing title convention with zero format changes) plus **Save** / **Cancel**.
+  - Save: `await updatePost(post.id, { content: draft.trim() })`, set local `post` state to the returned post, `broadcastPost(updated)` (same helper `PostCard` uses via P2P context), toast, dispatch `p2p-posts-updated`, exit edit mode.
+  - Guard against empty content with a destructive toast, same as `PostCard:738`.
+- **Delete**: `window.confirm` → `await deletePost(post.id)` → toast → dispatch `p2p-posts-updated` → `navigate("/")`.
+- Both buttons disabled while their action runs.
 
-### 6. Vault records track the real transferred coin
-- In `syncVault.ts` `engraveFileOntoCoin`, the `VaultCoinRef` already carries the real `coinId`. After the transfer in §2, no change is needed to `VaultCoinRef` — it now truthfully points at a vaulted, locked, on-chain coin.
-- Peer routing: if `vaultAddress` is a peer vault, the ref goes into that peer vault's `coins[]` (existing code path). If archive, into archive vault. Both operations remain inside `withVaultQueue` for their respective vaults.
+## 2. BlogPostCard: author-only quick actions
 
-### 7. Wallet + market safety
-- Search wallet balance readers (`rg -n 'status === "wallet"' src/lib/blockchain src/hooks src/components`) and confirm none count `vaulted` coins toward the wallet.
-- Confirm markets/smelting/spend paths call `assertSpendable` (or the equivalent guard) so a `vaulted` / `kind==="media"` coin is rejected.
+- Card is wrapped in a `<Link>`, so the action buttons must call `e.preventDefault(); e.stopPropagation();` — otherwise the click also navigates. This is the one real interaction hazard and it is handled explicitly.
+- Render only when `user?.id === post.author`: a small icon row in the footer with **Edit** (navigates to `/blog/${post.id}?edit=1`) and **Delete** (confirm → `deletePost` → toast → dispatch `p2p-posts-updated`).
+- `BlogDetail` reads `?edit=1` on mount and opens edit mode directly, so the card never needs its own editor.
 
-### 8. Tests
-- Engraving one file with a free mined coin and known `ownerPeerId`:
-  - Coin ends `ownerId === peerVaultAddress(peerId)`, `status === "vaulted"`, `locked === true`, `kind === "media"`.
-  - Exactly one `coin_transfer` tx exists with `meta.reason === "vault_transfer"` and matching `coinId`/`peerId`/`contentHash`.
-  - Zero `token_burn` txs emitted by engraving.
-  - `isSpendable(coin) === false`, reason `"vaulted"`.
-  - `freeMinedWalletCoins()` no longer returns that coin.
-- Engraving with archive-only or unverifiable peer id routes to `ARCHIVE_VAULT_ADDRESS`.
-- `engraveFileOntoCoin` returning `false` (dup file) leaves coin owner/status untouched — no transfer tx.
+## What is explicitly not touched
 
-## Acceptance
-- `rg "token_burn" src/lib/blockchain/mediaCoinWrapSweep.ts` returns nothing.
-- After runWrapSweep processes N files with N free mined coins: exactly N `coin_transfer` txs to a valid `vault:*` address, N coins now `status="vaulted"` + `locked=true`, wallet balance drops by N.
-- Attempting to spend a vaulted media coin from any path throws the `"vaulted"` guard.
-- Vault UI keeps showing the sealed coin under the correct vault (Archive or the matching Peer Vault) with the real on-chain `coinId`.
+- No changes to `awareness.ts` classification, walled-post logic, hero-media loading, `PostCard`, feed queries, or any blockchain/vault code.
+- Walled blogs: buttons render for the author only (the author always passes `canViewWalledPost`), so no unlock logic is bypassed.
+
+## Verification
+
+- Run the existing test suite plus a typecheck.
+- Drive the live preview with Playwright: open a blog detail page as its author, edit the body, save, confirm the updated text renders and the feed card reflects it; then delete and confirm redirect and removal from the feed. Report the observed result rather than assuming it.
