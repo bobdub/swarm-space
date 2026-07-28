@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, BookOpen, Clock, Lock, User } from "lucide-react";
+import { ArrowLeft, BookOpen, Clock, Lock, Pencil, Trash2, User } from "lucide-react";
 
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { PostCard } from "@/components/PostCard";
@@ -9,7 +9,10 @@ import { CommentThread } from "@/components/CommentThread";
 import { Avatar } from "@/components/Avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { get } from "@/lib/store";
+import { updatePost, deletePost } from "@/lib/posts";
 import {
   classifyPost,
   extractBlogTitle,
@@ -24,13 +27,19 @@ import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [heroUrl, setHeroUrl] = useState<string | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
-  const { ensureManifest } = useP2PContext();
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const { ensureManifest, broadcastPost } = useP2PContext();
 
   const loadPost = useCallback(async () => {
     if (!postId) {
@@ -147,6 +156,70 @@ export default function BlogDetail() {
 
   const timeAgo = post ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : "";
 
+  const isAuthor = Boolean(user?.id && post?.author && user.id === post.author);
+
+  useEffect(() => {
+    if (!post || !isAuthor) return;
+    if (searchParams.get("edit") === "1") {
+      setDraft(post.content ?? "");
+      setIsEditing(true);
+    }
+  }, [post, isAuthor, searchParams]);
+
+  const handleStartEditing = () => {
+    if (!post) return;
+    setDraft(post.content ?? "");
+    setIsEditing(true);
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setDraft(post?.content ?? "");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!post) return;
+    if (!draft.trim()) {
+      toast.error("Content required", { description: "Blog content cannot be empty." });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const updated = await updatePost(post.id, { content: draft.trim() });
+      setPost(updated);
+      broadcastPost(updated);
+      toast.success("Blog updated");
+      setIsEditing(false);
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to update blog:", error);
+      toast.error("Update failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!post || !isAuthor) return;
+    if (!window.confirm("Delete this blog? This action cannot be undone.")) return;
+    setIsDeleting(true);
+    try {
+      await deletePost(post.id);
+      toast.success("Blog deleted");
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      navigate("/posts");
+    } catch (error) {
+      console.error("Failed to delete blog:", error);
+      toast.error("Delete failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <TopNavigationBar />
@@ -230,6 +303,29 @@ export default function BlogDetail() {
                 >
                   {isBook ? "Book" : "Blog"}
                 </Badge>
+                {isAuthor && !isEditing && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleStartEditing}
+                      className="gap-1.5 text-xs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isDeleting}
+                      onClick={handleDelete}
+                      className="gap-1.5 text-xs text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> {isDeleting ? "Deleting…" : "Delete"}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl">
@@ -266,8 +362,28 @@ export default function BlogDetail() {
               </div>
             </header>
 
-            {/* ── Body: gated by walled state ── */}
-            {isWalledHidden ? (
+            {/* ── Body: author editor, then walled gate ── */}
+            {isEditing ? (
+              <section className="space-y-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-foreground/40">
+                  First line is the title
+                </p>
+                <Textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  rows={18}
+                  className="min-h-[420px] text-base leading-relaxed"
+                />
+                <div className="flex items-center gap-2">
+                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving}>
+                    {isSaving ? "Saving…" : "Save"}
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={handleCancelEditing} disabled={isSaving}>
+                    Cancel
+                  </Button>
+                </div>
+              </section>
+            ) : isWalledHidden ? (
               <section className="space-y-6">
                 <div className="flex flex-col items-center gap-4 rounded-2xl border border-[hsla(326,71%,62%,0.2)] bg-[hsla(245,70%,12%,0.45)] px-8 py-12 text-center backdrop-blur">
                   <Lock className="h-12 w-12 text-[hsl(326,71%,62%)]" />
