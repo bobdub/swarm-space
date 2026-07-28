@@ -156,6 +156,70 @@ export default function BlogDetail() {
 
   const timeAgo = post ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true }) : "";
 
+  const isAuthor = Boolean(user?.id && post?.author && user.id === post.author);
+
+  useEffect(() => {
+    if (!post || !isAuthor) return;
+    if (searchParams.get("edit") === "1") {
+      setDraft(post.content ?? "");
+      setIsEditing(true);
+    }
+  }, [post, isAuthor, searchParams]);
+
+  const handleStartEditing = () => {
+    if (!post) return;
+    setDraft(post.content ?? "");
+    setIsEditing(true);
+  };
+
+  const handleCancelEditing = () => {
+    setIsEditing(false);
+    setDraft(post?.content ?? "");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!post) return;
+    if (!draft.trim()) {
+      toast.error("Content required", { description: "Blog content cannot be empty." });
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const updated = await updatePost(post.id, { content: draft.trim() });
+      setPost(updated);
+      broadcastPost(updated);
+      toast.success("Blog updated");
+      setIsEditing(false);
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+    } catch (error) {
+      console.error("Failed to update blog:", error);
+      toast.error("Update failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!post || !isAuthor) return;
+    if (!window.confirm("Delete this blog? This action cannot be undone.")) return;
+    setIsDeleting(true);
+    try {
+      await deletePost(post.id);
+      toast.success("Blog deleted");
+      window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
+      navigate("/posts");
+    } catch (error) {
+      console.error("Failed to delete blog:", error);
+      toast.error("Delete failed", {
+        description: error instanceof Error ? error.message : "Please try again.",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <TopNavigationBar />
