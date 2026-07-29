@@ -1,46 +1,45 @@
 ## Goal
 
-Let a blog's author edit or delete it, using the exact same data layer `PostCard` already uses. No new storage, no new sync path, no changes to any non-blog surface.
+When a blog's content contains a YouTube link, the blog banner shows a **playable embedded video** instead of a plain link chip. Applies to both the blog detail page and the blog card in feeds.
 
-## Why this is safe
+## Current state (verified by reading the code)
 
-Blogs are ordinary posts rendered by a different card (`classifyPost` in `src/lib/blogging/awareness.ts` picks `BlogPostCard`). The mutation functions already exist and already enforce ownership server-side of the UI:
+- `src/components/PostCard.tsx:50-97` already has a working `extractYoutubeVideoIds()` (handles `youtu.be`, `/watch?v=`, `/embed/`, `/shorts/`, `/live/`, `/v/`) and renders `<iframe src="https://www.youtube.com/embed/${id}">` at line 1264-1280. It is **local to PostCard** — not exported, not used by blogs.
+- `src/pages/BlogDetail.tsx:257-284` renders the hero as either a decrypted image (`heroUrl`) or the quill fallback. No URL/video path at all.
+- `src/components/BlogPostCard.tsx` uses `extractFirstUrl` and renders a static `ExternalLink` chip with the URL text (`HeroSection`, lines 326-338) — this is exactly the "only showing the link" symptom.
 
-- `updatePost(postId, { content, nsfw })` — `src/lib/posts.ts:26`, throws `Cannot edit another user's post` unless `currentUser.id === post.author`.
-- `deletePost(postId)` — `src/lib/posts.ts:53`, same ownership guard.
+## Changes
 
-`PostCard` (`src/components/PostCard.tsx:738-793`) already calls both, shows a toast, and fires `window.dispatchEvent(new CustomEvent("p2p-posts-updated"))` so feeds refresh. The plan copies that proven flow verbatim — nothing new is invented.
+### 1. New shared module `src/lib/blogging/youtube.ts`
+- Move (copy verbatim) the URL regex + `extractYoutubeVideoIds` logic from `PostCard.tsx` into this file and export it, plus `firstYoutubeVideoId(content): string | null` and `youtubeEmbedUrl(id)`.
+- `PostCard.tsx` imports it and deletes its private copy — behaviour there is unchanged (same function body).
 
-## Scope
+### 2. New component `src/components/blogging/BlogVideoHero.tsx`
+- Props: `videoId`, optional `title`.
+- Renders a 16:9 responsive container with an `<iframe>` (`allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"`, `allowFullScreen`, `loading="lazy"`, `title` for a11y). No autoplay.
+- Uses the same rounded/bordered shell classes already used by the image hero so the visual language is unchanged.
 
-Two files only:
+### 3. `src/pages/BlogDetail.tsx`
+- Compute `const youtubeId = useMemo(() => firstYoutubeVideoId(post?.content ?? ""), [post?.content])`.
+- Hero priority: decrypted image `heroUrl` → **YouTube embed** → quill fallback. (Image keeps priority since it is author-uploaded media.)
+- Walled/hidden blogs: only render the embed when the existing view gate already allows content — no change to the walled logic.
 
-1. `src/pages/BlogDetail.tsx` — the primary edit/delete surface.
-2. `src/components/BlogPostCard.tsx` — a small author-only menu for quick delete / "Edit" jump.
+### 4. `src/components/BlogPostCard.tsx` (`HeroSection`)
+- When there is no decrypted image and a YouTube ID exists, render the playable embed in the hero slot instead of the `ExternalLink` chip.
+- The card is wrapped in a `<Link>`, so the embed wrapper gets `onClick={e => e.stopPropagation()}` (and `preventDefault`) so pressing play doesn't navigate away. Non-YouTube URLs keep the existing chip.
 
-## 1. BlogDetail: full edit + delete
+## Verification (must all pass before reporting success)
 
-- Compute `const isAuthor = user?.id === post?.author;` (same expression as `PostCard.tsx:217`).
-- Add local state: `isEditing`, `draft` (seeded from `post.content`), `isSaving`, `isDeleting`.
-- When `isAuthor` and not walled-hidden, render an **Edit** and **Delete** button in the existing header/meta row.
-- **Edit mode**: replace the rendered title+body block with a single `Textarea` bound to `draft` (the first non-empty line is the title, matching `extractBlogTitle`, so one textarea preserves the existing title convention with zero format changes) plus **Save** / **Cancel**.
-  - Save: `await updatePost(post.id, { content: draft.trim() })`, set local `post` state to the returned post, `broadcastPost(updated)` (same helper `PostCard` uses via P2P context), toast, dispatch `p2p-posts-updated`, exit edit mode.
-  - Guard against empty content with a destructive toast, same as `PostCard:738`.
-- **Delete**: `window.confirm` → `await deletePost(post.id)` → toast → dispatch `p2p-posts-updated` → `navigate("/")`.
-- Both buttons disabled while their action runs.
+1. **Unit test** `src/lib/blogging/__tests__/youtube.test.ts` — asserts ID extraction for `youtu.be/ID`, `watch?v=ID`, `/shorts/ID`, `/embed/ID`, ignores non-YouTube URLs and malformed text. Run with `bunx vitest run`.
+2. **Typecheck** with `tsgo`.
+3. **Live-preview Playwright run** (the real proof):
+   - Sign in using the injected sandbox session if available; otherwise report explicitly that the authored path could not be driven.
+   - Create/open a blog whose content contains a YouTube URL, navigate to `/blog/:id`.
+   - Assert an `iframe[src*="youtube.com/embed/"]` exists in the hero, is visible, and has non-zero bounding box; screenshot the hero element.
+   - Load the feed containing the blog card and assert the same iframe renders there, and that clicking inside the player does **not** navigate away from the feed (URL unchanged).
+   - Check the console log for errors introduced by the embed.
+4. Report the observed result — including a "not verified" statement for any step that could not be driven. No success claim without the screenshot + assertions above.
 
-## 2. BlogPostCard: author-only quick actions
+## Not touched
 
-- Card is wrapped in a `<Link>`, so the action buttons must call `e.preventDefault(); e.stopPropagation();` — otherwise the click also navigates. This is the one real interaction hazard and it is handled explicitly.
-- Render only when `user?.id === post.author`: a small icon row in the footer with **Edit** (navigates to `/blog/${post.id}?edit=1`) and **Delete** (confirm → `deletePost` → toast → dispatch `p2p-posts-updated`).
-- `BlogDetail` reads `?edit=1` on mount and opens edit mode directly, so the card never needs its own editor.
-
-## What is explicitly not touched
-
-- No changes to `awareness.ts` classification, walled-post logic, hero-media loading, `PostCard`, feed queries, or any blockchain/vault code.
-- Walled blogs: buttons render for the author only (the author always passes `canViewWalledPost`), so no unlock logic is bypassed.
-
-## Verification
-
-- Run the existing test suite plus a typecheck.
-- Drive the live preview with Playwright: open a blog detail page as its author, edit the body, save, confirm the updated text renders and the feed card reflects it; then delete and confirm redirect and removal from the feed. Report the observed result rather than assuming it.
+`awareness.ts` classification, walled/paywall logic, hero image decryption (`heroMedia.ts`), edit/delete tooling, feed queries, blockchain/vault code.
