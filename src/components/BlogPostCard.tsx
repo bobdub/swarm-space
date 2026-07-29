@@ -21,6 +21,8 @@ import type { Post } from "@/types";
 import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
 import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
+import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
+import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
 
 interface BlogPostCardProps {
   post: Post;
@@ -218,6 +220,7 @@ function HeroSection({
   const [loading, setLoading] = useState(false);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const { ensureManifest } = useP2PContext();
+  const youtubeId = useMemo(() => firstYoutubeVideoId(post.content ?? ""), [post.content]);
 
   const loadHeroImage = useCallback(async () => {
     if (!hasMedia || !post.manifestIds || post.manifestIds.length === 0) {
@@ -319,6 +322,21 @@ function HeroSection({
           <img src={blogQuillIcon} alt="" className="h-16 w-16 object-contain" aria-hidden />
         </div>
         <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
+      </div>
+    );
+  }
+
+  // Playable YouTube banner when no decrypted image hero is available.
+  if (youtubeId) {
+    return (
+      <div
+        className="relative"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        <BlogVideoHero videoId={youtubeId} />
       </div>
     );
   }
