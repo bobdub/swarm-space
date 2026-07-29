@@ -24,6 +24,8 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import type { Post } from "@/types";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
 import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
+import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
+import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
@@ -132,6 +134,11 @@ export default function BlogDetail() {
   const isWalledHidden = isWalled && !canView;
 
   const title = useMemo(() => (post ? extractBlogTitle(post.content) : ""), [post]);
+
+  const youtubeId = useMemo(
+    () => (post && !isWalledHidden ? firstYoutubeVideoId(post.content ?? "") : null),
+    [post, isWalledHidden],
+  );
 
   const contentBody = useMemo(() => {
     if (!post || isWalledHidden) return "";
@@ -268,6 +275,12 @@ export default function BlogDetail() {
                   <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
                   <div className="absolute inset-0 bg-gradient-to-r from-background/20 via-transparent to-background/20" />
                 </div>
+              </div>
+            </div>
+          ) : youtubeId ? (
+            <div className="relative mx-auto max-w-5xl px-4 pt-6 md:px-8">
+              <div className="overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.12)] shadow-[0_40px_120px_hsla(326,71%,62%,0.12)]">
+                <BlogVideoHero videoId={youtubeId} title={title} />
               </div>
             </div>
           ) : (
