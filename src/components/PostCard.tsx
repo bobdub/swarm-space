@@ -41,6 +41,7 @@ import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/walledPost";
 import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
+import { extractYoutubeVideoIds } from "@/lib/blogging/youtube";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
