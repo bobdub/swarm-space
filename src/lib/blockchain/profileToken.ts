@@ -168,6 +168,30 @@ export async function deployProfileToken(params: {
   return { token: profileToken, transaction };
 }
 
+/**
+ * Update (or clear) the wide banner image on a creator token.
+ * Pure metadata edit — no credits, no SWARM, no chain transaction.
+ */
+export async function updateCreatorTokenBanner(
+  userId: string,
+  banner: string | null,
+): Promise<CreatorToken> {
+  const token = await getProfileToken(userId);
+  if (!token) throw new Error("Creator token not deployed");
+
+  const next: CreatorToken = { ...token };
+  if (banner) next.banner = banner;
+  else delete next.banner;
+
+  await saveProfileToken(next);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("creator-token-updated", { detail: next }));
+  }
+
+  return next;
+}
+
 /** @deprecated Use deployProfileToken — Creator Tokens are one-per-account */
 export async function mintProfileToken(params: {
   userId: string;
