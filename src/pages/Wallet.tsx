@@ -555,6 +555,51 @@ export default function Wallet() {
                 {profileToken ? (
                   <div className="space-y-6">
                     <div className="p-6 border rounded-lg bg-accent/30">
+                      {/* Token banner */}
+                      <div className="mb-4">
+                        {profileToken.banner ? (
+                          <img
+                            src={profileToken.banner}
+                            alt={`${profileToken.name} banner`}
+                            className="aspect-[3/1] w-full rounded-lg border object-cover"
+                          />
+                        ) : (
+                          <div className="flex aspect-[3/1] w-full items-center justify-center rounded-lg border border-dashed text-sm text-muted-foreground">
+                            No banner yet — upload one for your market
+                          </div>
+                        )}
+                        <input
+                          ref={bannerInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => void handleBannerFile(e.target.files?.[0])}
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={bannerBusy}
+                            onClick={() => bannerInputRef.current?.click()}
+                          >
+                            <ImagePlus className="mr-2 h-4 w-4" />
+                            {profileToken.banner ? "Replace banner" : "Upload banner"}
+                          </Button>
+                          {profileToken.banner && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={bannerBusy}
+                              onClick={() => void handleRemoveBanner()}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <h3 className="text-2xl font-bold">{profileToken.ticker}</h3>
@@ -580,6 +625,14 @@ export default function Wallet() {
                         Deployed: {new Date(profileToken.deployedAt).toLocaleString()}
                       </p>
                       <div className="mt-6 flex flex-wrap gap-3">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => navigate("/profile?tab=market")}
+                        >
+                          <Store className="mr-2 h-4 w-4" />
+                          Open my Market
+                        </Button>
                         <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
                           <DialogTrigger asChild>
                             <Button

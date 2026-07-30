@@ -275,6 +275,13 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       )}
       {/* Header */}
       <div className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.6)] p-6 backdrop-blur-xl">
+        {token.banner && (
+          <img
+            src={token.banner}
+            alt={`${token.name} banner`}
+            className="mb-5 aspect-[3/1] w-full rounded-2xl border border-[hsla(174,59%,56%,0.18)] object-cover"
+          />
+        )}
         <div className="flex flex-wrap items-center gap-4">
           {token.image && (
             <img src={token.image} alt={token.ticker} className="h-16 w-16 rounded-2xl object-cover" />
