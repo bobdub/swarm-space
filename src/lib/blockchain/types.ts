@@ -122,6 +122,8 @@ export interface CreatorToken {
   contractAddress?: string;
   description?: string;
   image?: string;
+  /** Wide banner image (data URL) shown on the creator market header. */
+  banner?: string;
   /** When the creator market was permanently closed. Redeployment is blocked. */
   closedAt?: string;
   /** Reason for closure (creator-provided or "market_dissolved"). */
