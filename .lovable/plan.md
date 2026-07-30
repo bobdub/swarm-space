@@ -1,45 +1,42 @@
 ## Goal
 
-When a blog's content contains a YouTube link, the blog banner shows a **playable embedded video** instead of a plain link chip. Applies to both the blog detail page and the blog card in feeds.
+In **Wallet → Creator**, let a creator upload a banner image for their Creator Token, and add a button that jumps straight to their profile Market tab.
 
-## Current state (verified by reading the code)
+## What gets built
 
-- `src/components/PostCard.tsx:50-97` already has a working `extractYoutubeVideoIds()` (handles `youtu.be`, `/watch?v=`, `/embed/`, `/shorts/`, `/live/`, `/v/`) and renders `<iframe src="https://www.youtube.com/embed/${id}">` at line 1264-1280. It is **local to PostCard** — not exported, not used by blogs.
-- `src/pages/BlogDetail.tsx:257-284` renders the hero as either a decrypted image (`heroUrl`) or the quill fallback. No URL/video path at all.
-- `src/components/BlogPostCard.tsx` uses `extractFirstUrl` and renders a static `ExternalLink` chip with the URL text (`HeroSection`, lines 326-338) — this is exactly the "only showing the link" symptom.
+### 1. Banner field on the token record
+`CreatorToken` already has an optional `image` field (used as a 16×16 avatar in the market header). Add a sibling optional `banner?: string` (data URL) so the square logo and the wide banner stay independent.
 
-## Changes
+New helper `updateCreatorTokenBanner(userId, banner | null)` in `src/lib/blockchain/profileToken.ts` that loads the token via `getProfileToken`, sets/clears `banner`, saves via `saveProfileToken`, and dispatches a `creator-token-updated` window event. Purely a metadata edit — no credits, no SWARM, no chain transaction, no effect on redeploy/permanence rules.
 
-### 1. New shared module `src/lib/blogging/youtube.ts`
-- Move (copy verbatim) the URL regex + `extractYoutubeVideoIds` logic from `PostCard.tsx` into this file and export it, plus `firstYoutubeVideoId(content): string | null` and `youtubeEmbedUrl(id)`.
-- `PostCard.tsx` imports it and deletes its private copy — behaviour there is unchanged (same function body).
+### 2. Banner uploader in Wallet → Creator
+In the deployed-token card in `src/pages/Wallet.tsx`:
+- Show the current banner (or a dashed empty state) as a wide 3:1 strip at the top of the card.
+- "Upload banner" button opens a hidden `<input type="file" accept="image/*">`.
+- Client-side downscale in a `<canvas>` to max 1200px wide, export as JPEG (quality ~0.82) so the stored data URL stays small; reject files over 8 MB before reading and show a toast.
+- "Remove banner" button when one exists.
+- Save through `updateCreatorTokenBanner`, then refresh local state.
 
-### 2. New component `src/components/blogging/BlogVideoHero.tsx`
-- Props: `videoId`, optional `title`.
-- Renders a 16:9 responsive container with an `<iframe>` (`allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"`, `allowFullScreen`, `loading="lazy"`, `title` for a11y). No autoplay.
-- Uses the same rounded/bordered shell classes already used by the image hero so the visual language is unchanged.
+### 3. "Open my Market" button
+Next to Rename/Redeploy, a primary button navigating to `/profile?tab=market` (Profile already reads the `tab` search param and has a `market` tab). Shown only when a token is deployed.
 
-### 3. `src/pages/BlogDetail.tsx`
-- Compute `const youtubeId = useMemo(() => firstYoutubeVideoId(post?.content ?? ""), [post?.content])`.
-- Hero priority: decrypted image `heroUrl` → **YouTube embed** → quill fallback. (Image keeps priority since it is author-uploaded media.)
-- Walled/hidden blogs: only render the embed when the existing view gate already allows content — no change to the walled logic.
+### 4. Banner on the market header
+In `src/components/profile/CreatorMarketTab.tsx`, when `token.banner` exists, render it as a full-width image strip at the top of the existing header card (rounded, `object-cover`, ~3:1, `alt` = `${token.name} banner`). Existing avatar/name/price row is unchanged and still renders below it.
 
-### 4. `src/components/BlogPostCard.tsx` (`HeroSection`)
-- When there is no decrypted image and a YouTube ID exists, render the playable embed in the hero slot instead of the `ExternalLink` chip.
-- The card is wrapped in a `<Link>`, so the embed wrapper gets `onClick={e => e.stopPropagation()}` (and `preventDefault`) so pressing play doesn't navigate away. Non-YouTube URLs keep the existing chip.
+## Technical notes
 
-## Verification (must all pass before reporting success)
+- Banner lives with the token record in IndexedDB (same store as the rest of the token metadata) — no new store, no DB version bump, `banner` is optional so old records load fine.
+- Downscaling keeps the data URL in the low hundreds of KB, safe for IndexedDB and for the record's P2P propagation path.
+- No `<form>` elements; buttons use `type="button"` per project convention.
 
-1. **Unit test** `src/lib/blogging/__tests__/youtube.test.ts` — asserts ID extraction for `youtu.be/ID`, `watch?v=ID`, `/shorts/ID`, `/embed/ID`, ignores non-YouTube URLs and malformed text. Run with `bunx vitest run`.
-2. **Typecheck** with `tsgo`.
-3. **Live-preview Playwright run** (the real proof):
-   - Sign in using the injected sandbox session if available; otherwise report explicitly that the authored path could not be driven.
-   - Create/open a blog whose content contains a YouTube URL, navigate to `/blog/:id`.
-   - Assert an `iframe[src*="youtube.com/embed/"]` exists in the hero, is visible, and has non-zero bounding box; screenshot the hero element.
-   - Load the feed containing the blog card and assert the same iframe renders there, and that clicking inside the player does **not** navigate away from the feed (URL unchanged).
-   - Check the console log for errors introduced by the embed.
-4. Report the observed result — including a "not verified" statement for any step that could not be driven. No success claim without the screenshot + assertions above.
+## Verification
 
-## Not touched
+- Typecheck.
+- Live-preview pass with Playwright: open `/wallet` → Creator tab, upload a small generated PNG, confirm the banner strip renders and persists after a reload; click "Open my Market" and confirm it lands on `/profile?tab=market` with the banner shown in the market header.
 
-`awareness.ts` classification, walled/paywall logic, hero image decryption (`heroMedia.ts`), edit/delete tooling, feed queries, blockchain/vault code.
+## Files touched
+
+- `src/lib/blockchain/types.ts` (add `banner?`)
+- `src/lib/blockchain/profileToken.ts` (add `updateCreatorTokenBanner`)
+- `src/pages/Wallet.tsx` (uploader + market button)
+- `src/components/profile/CreatorMarketTab.tsx` (render banner)
