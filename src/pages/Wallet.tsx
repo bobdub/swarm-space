@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat,
+  Link2, Repeat, ImagePlus, Trash2, Store,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -22,7 +22,7 @@ import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
 import { getUserNFTs } from "@/lib/blockchain/nft";
 import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
-import { deployProfileToken, getUserProfileToken } from "@/lib/blockchain/profileToken";
+import { deployProfileToken, getUserProfileToken, updateCreatorTokenBanner } from "@/lib/blockchain/profileToken";
 import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
 import { AssetsTab } from "@/components/wallet/AssetsTab";
 import { MetaMaskConnectButton } from "@/components/wallet/MetaMaskConnectButton";
@@ -94,6 +94,67 @@ export default function Wallet() {
   const [tokenName, setTokenName] = useState("");
   const [tokenTicker, setTokenTicker] = useState("");
   const [tokenDescription, setTokenDescription] = useState("");
+  const bannerInputRef = useRef<HTMLInputElement | null>(null);
+  const [bannerBusy, setBannerBusy] = useState(false);
+
+  const downscaleImage = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read image"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Unsupported image file"));
+        img.onload = () => {
+          const maxW = 1200;
+          const scale = Math.min(1, maxW / (img.width || maxW));
+          const w = Math.max(1, Math.round((img.width || maxW) * scale));
+          const h = Math.max(1, Math.round((img.height || maxW / 3) * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { reject(new Error("Canvas unavailable")); return; }
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", 0.82));
+        };
+        img.src = String(reader.result);
+      };
+      reader.readAsDataURL(file);
+    });
+
+  const handleBannerFile = async (file?: File | null) => {
+    if (!file || !user) return;
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Banner must be under 8 MB");
+      return;
+    }
+    setBannerBusy(true);
+    try {
+      const dataUrl = await downscaleImage(file);
+      const updated = await updateCreatorTokenBanner(user.id, dataUrl);
+      setProfileToken(updated);
+      toast.success("Banner updated");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to update banner");
+    } finally {
+      setBannerBusy(false);
+      if (bannerInputRef.current) bannerInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveBanner = async () => {
+    if (!user) return;
+    setBannerBusy(true);
+    try {
+      const updated = await updateCreatorTokenBanner(user.id, null);
+      setProfileToken(updated);
+      toast.success("Banner removed");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to remove banner");
+    } finally {
+      setBannerBusy(false);
+    }
+  };
 
   useEffect(() => {
     void loadWalletData();
