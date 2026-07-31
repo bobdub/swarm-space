@@ -1,42 +1,40 @@
-## Goal
+## Diagnosis (verified by reading the code)
 
-In **Wallet → Creator**, let a creator upload a banner image for their Creator Token, and add a button that jumps straight to their profile Market tab.
+Creator Token markets live in three local IndexedDB stores: `profileTokens`, `creatorVaults`, `profileTokenHoldings`. Nothing on the live mesh replicates them.
 
-## What gets built
+- `src/lib/blockchain/p2pSync.ts` **does** implement market replication (`request_profile_tokens` / `send_profile_tokens`, replicating tokens, vaults and holdings).
+- That class (`BlockchainP2PSync`) is only constructed inside `src/lib/p2p/transports/hybridOrchestrator.ts`, and `HybridOrchestrator` is **never instantiated anywhere in `src/`** — only the feature-flag name appears elsewhere. So that entire market-sync path is dead code today.
+- The live mesh, `src/lib/p2p/swarmMesh.standalone.ts`, only exchanges `chain-sync-request` / `chain-sync-response` (raw blocks) and `blockchain-tx` notices. Its `handleChainSyncResponse` just calls `chain.addTransaction(tx)` — it never calls `applyMarketTransaction`, and no code rebuilds a `profileTokens` / `creatorVaults` record from a `profile_token_deploy` transaction.
 
-### 1. Banner field on the token record
-`CreatorToken` already has an optional `image` field (used as a 16×16 avatar in the market header). Add a sibling optional `banner?: string` (data URL) so the square logo and the wide banner stay independent.
+Net effect: the owner sees their market because it was written locally at deploy time; peers have neither the store records nor any derivation path, so the Market tab renders empty for them.
 
-New helper `updateCreatorTokenBanner(userId, banner | null)` in `src/lib/blockchain/profileToken.ts` that loads the token via `getProfileToken`, sets/clears `banner`, saves via `saveProfileToken`, and dispatches a `creator-token-updated` window event. Purely a metadata edit — no credits, no SWARM, no chain transaction, no effect on redeploy/permanence rules.
+## Fix
 
-### 2. Banner uploader in Wallet → Creator
-In the deployed-token card in `src/pages/Wallet.tsx`:
-- Show the current banner (or a dashed empty state) as a wide 3:1 strip at the top of the card.
-- "Upload banner" button opens a hidden `<input type="file" accept="image/*">`.
-- Client-side downscale in a `<canvas>` to max 1200px wide, export as JPEG (quality ~0.82) so the stored data URL stays small; reject files over 8 MB before reading and show a toast.
-- "Remove banner" button when one exists.
-- Save through `updateCreatorTokenBanner`, then refresh local state.
+**1. Add a market-sync channel to the live mesh** (`swarmMesh.standalone.ts`)
 
-### 3. "Open my Market" button
-Next to Rename/Redeploy, a primary button navigating to `/profile?tab=market` (Profile already reads the `tab` search param and has a `market` tab). Shown only when a token is deployed.
+- New message types `market-sync-request` and `market-sync-response`, registered in the existing `switch (msg.type)` router alongside `chain-sync-request`.
+- Send `market-sync-request` on each successful peer handshake (right next to the existing `chain-sync-request` send), plus on a low-frequency interval reusing the current interval block.
+- `handleMarketSyncRequest`: read all `profileTokens`, `creatorVaults`, `profileTokenHoldings` and reply to that one peer.
+- `handleMarketSyncResponse`: merge with an "own-record-wins" rule — never overwrite a token/vault whose `userId` is the local identity; for remote records adopt when missing or when the incoming record is newer (`deployedAt` / vault `totalDeposited`+`updatedAt`). Then dispatch `creator-token-updated` and `creator-vault-update` window events so open tabs refresh.
+- Payloads are chunk-friendly: strip `banner`/`image` data URLs above a size threshold from the sync payload so large base64 images don't blow the data channel; peers fetch the visual later via the existing token record update on next sync. (Alternative if preferred: keep images and cap the batch size per message.)
 
-### 4. Banner on the market header
-In `src/components/profile/CreatorMarketTab.tsx`, when `token.banner` exists, render it as a full-width image strip at the top of the existing header card (rounded, `object-cover`, ~3:1, `alt` = `${token.name} banner`). Existing avatar/name/price row is unchanged and still renders below it.
+**2. Make the chain itself a fallback source of truth**
 
-## Technical notes
+- In `handleChainSyncResponse`, after adding transactions, run `applyMarketTransaction(tx)` (already exists in `coinMarket.ts`) for market-type txs.
+- Add a `rebuildMarketsFromChain()` helper that scans the chain for `profile_token_deploy` transactions and, when no local `profileTokens` record exists for that `userId`, reconstructs the token (name/ticker/supply are all present in `tx.meta`) plus an empty vault. Run it after chain adoption. This guarantees markets appear even if a peer misses a market-sync message.
 
-- Banner lives with the token record in IndexedDB (same store as the rest of the token metadata) — no new store, no DB version bump, `banner` is optional so old records load fine.
-- Downscaling keeps the data URL in the low hundreds of KB, safe for IndexedDB and for the record's P2P propagation path.
-- No `<form>` elements; buttons use `type="button"` per project convention.
+**3. Push on change instead of waiting for a poll**
 
-## Verification
+- On `deployProfileToken` and on `updateCreatorTokenBanner`, broadcast a `market-sync-response` for that single token so connected peers see the market immediately.
 
-- Typecheck.
-- Live-preview pass with Playwright: open `/wallet` → Creator tab, upload a small generated PNG, confirm the banner strip renders and persists after a reload; click "Open my Market" and confirm it lands on `/profile?tab=market` with the banner shown in the market header.
+**4. Verification (done before reporting success)**
 
-## Files touched
+- Drive two browser contexts against the preview with Playwright: context A deploys/owns a market; context B opens `/profile?tab=market` for A's profile and must render the token header, price and Buy control.
+- Confirm via console that `market-sync-response` was received and that `profileTokens` in B's IndexedDB contains A's record.
+- Second pass: clear B's market stores, force only a chain sync, and confirm `rebuildMarketsFromChain()` alone restores the visible market.
+- Run `tsgo` and the existing vitest suite.
 
-- `src/lib/blockchain/types.ts` (add `banner?`)
-- `src/lib/blockchain/profileToken.ts` (add `updateCreatorTokenBanner`)
-- `src/pages/Wallet.tsx` (uploader + market button)
-- `src/components/profile/CreatorMarketTab.tsx` (render banner)
+## Notes
+
+- `HybridOrchestrator` / `p2pSync.ts` stay untouched — no attempt to revive that unused transport in this change.
+- No changes to pricing, vault split, or trading logic; this is replication only.

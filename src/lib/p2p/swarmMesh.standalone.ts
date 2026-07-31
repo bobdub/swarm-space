@@ -254,6 +254,7 @@ interface StoredChunkLike {
 const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
+const MARKET_SYNC_INTERVAL = 60_000;
 const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
 const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
@@ -723,6 +724,7 @@ export class StandaloneSwarmMesh {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
   private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
+  private marketSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── Event Handlers ────────────────────────────────────────────────
   private phaseHandlers = new Set<PhaseHandler>();
@@ -2069,6 +2071,11 @@ export class StandaloneSwarmMesh {
         conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId }));
       } catch { /* ignore */ }
 
+      // ── Request Creator Token market snapshots so peers see each other's markets ──
+      try {
+        conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId }));
+      } catch { /* ignore */ }
+
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
         console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
@@ -2608,6 +2615,8 @@ export class StandaloneSwarmMesh {
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
         case 'chain-sync-request': this.handleChainSyncRequest(from); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
+        case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
+        case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
         default: break;
       }
@@ -2961,12 +2970,77 @@ export class StandaloneSwarmMesh {
             if (block.transactions) {
               for (const tx of block.transactions) {
                 try { chain.addTransaction(tx); } catch { /* dup or invalid */ }
+                if (typeof tx?.type === 'string' && tx.type.startsWith('coin_market_')) {
+                  import('../blockchain/coinMarket')
+                    .then(({ applyMarketTransaction }) => applyMarketTransaction(tx))
+                    .catch(() => { /* ignore */ });
+                }
               }
             }
           }
         }
+        // Markets are derivable from chain history — rebuild anything missing.
+        import('../blockchain/marketSync')
+          .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
+          .catch(() => { /* ignore */ });
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CREATOR MARKET SYNC — replicate profile markets across the mesh
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async handleMarketSyncRequest(from: string): Promise<void> {
+    try {
+      const { buildMarketSnapshot } = await import('../blockchain/marketSync');
+      const snapshot = await buildMarketSnapshot();
+      if (!snapshot.tokens.length && !snapshot.vaults.length && !snapshot.holdings.length) return;
+      const conn = this.connections.get(from);
+      if (!conn) return;
+      conn.send(JSON.stringify({ type: 'market-sync-response', from: this.peerId, snapshot }));
+      console.log(
+        `[SwarmMesh] 🏪 Sent ${snapshot.tokens.length} market(s) to ${from.slice(0, 16)}…`,
+      );
+    } catch (err) {
+      console.warn('[SwarmMesh] market-sync-request failed:', err);
+    }
+  }
+
+  private async handleMarketSyncResponse(from: string, msg: Record<string, unknown>): Promise<void> {
+    const snapshot = msg.snapshot as Parameters<
+      typeof import('../blockchain/marketSync')['mergeMarketSnapshot']
+    >[0];
+    if (!snapshot) return;
+    try {
+      const [{ mergeMarketSnapshot }, { getCurrentUser }] = await Promise.all([
+        import('../blockchain/marketSync'),
+        import('../auth'),
+      ]);
+      const localUserId = getCurrentUser()?.id ?? null;
+      const merged = await mergeMarketSnapshot(snapshot, localUserId);
+      if (merged.tokens || merged.vaults || merged.holdings) {
+        console.log(
+          `[SwarmMesh] 🏪 Replicated ${merged.tokens} market(s) / ${merged.vaults} vault(s) / ` +
+          `${merged.holdings} holding(s) from ${from.slice(0, 16)}…`,
+        );
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] market-sync-response failed:', err);
+    }
+  }
+
+  /** Push a market snapshot (optionally a single token) to all connected peers. */
+  async broadcastMarketSnapshot(tokenId?: string): Promise<void> {
+    try {
+      const { buildMarketSnapshot } = await import('../blockchain/marketSync');
+      const snapshot = await buildMarketSnapshot(tokenId);
+      if (!snapshot.tokens.length && !snapshot.vaults.length) return;
+      this.broadcastInternal({ type: 'market-sync-response', snapshot });
+      console.log(`[SwarmMesh] 🏪 Broadcast market snapshot (${snapshot.tokens.length} token(s))`);
+    } catch (err) {
+      console.warn('[SwarmMesh] broadcastMarketSnapshot failed:', err);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3021,11 +3095,27 @@ export class StandaloneSwarmMesh {
     this.contentSyncTimer = setInterval(() => {
       for (const [, conn] of this.connections) this.sendContentInventory(conn);
     }, CONTENT_SYNC_INTERVAL);
+
+    // Low-frequency market reconciliation.
+    let marketTick = 0;
+    this.marketSyncTimer = setInterval(() => {
+      marketTick++;
+      if (this.connections.size === 0) return;
+      for (const [, conn] of this.connections) {
+        try { conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId })); } catch { /* ignore */ }
+      }
+      if (marketTick % 3 === 0) {
+        import('../blockchain/marketSync')
+          .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
+          .catch(() => { /* ignore */ });
+      }
+    }, MARKET_SYNC_INTERVAL);
   }
 
   private clearIntervals(): void {
     if (this.heartbeatTimer !== null) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.contentSyncTimer !== null) { clearInterval(this.contentSyncTimer); this.contentSyncTimer = null; }
+    if (this.marketSyncTimer !== null) { clearInterval(this.marketSyncTimer); this.marketSyncTimer = null; }
   }
 
   // ═══════════════════════════════════════════════════════════════════

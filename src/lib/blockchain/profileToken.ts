@@ -16,6 +16,16 @@ import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getProfileToken, saveProfileToken } from "./storage";
 
+/** Best-effort push of a market snapshot to connected mesh peers. */
+async function broadcastMarketToMesh(tokenId: string): Promise<void> {
+  try {
+    const { getSwarmMeshStandalone } = await import("../p2p/swarmMesh.standalone");
+    await getSwarmMeshStandalone().broadcastMarketSnapshot(tokenId);
+  } catch (err) {
+    console.warn("[CreatorToken] Market broadcast skipped:", err);
+  }
+}
+
 export async function deployProfileToken(params: {
   userId: string;
   name: string;
@@ -160,6 +170,9 @@ export async function deployProfileToken(params: {
     console.warn("[CreatorToken] Community pool derivation failed:", err);
   }
 
+  // Push the new market to connected peers so it appears on their profiles.
+  await broadcastMarketToMesh(tokenId);
+
   console.log(
     `[CreatorToken] Deployed ${params.ticker} — supply ${initialSupply}/${CREATOR_TOKEN_MAX_SUPPLY} unlocked, ` +
       `seeded ${creatorSeed} tokens to creator via ${swarmSeed} SWARM vault split`,
@@ -188,6 +201,8 @@ export async function updateCreatorTokenBanner(
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("creator-token-updated", { detail: next }));
   }
+
+  await broadcastMarketToMesh(next.tokenId);
 
   return next;
 }
