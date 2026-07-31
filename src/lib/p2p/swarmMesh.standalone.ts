@@ -723,6 +723,7 @@ export class StandaloneSwarmMesh {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private contentSyncTimer: ReturnType<typeof setInterval> | null = null;
   private libraryReconnectTimer: ReturnType<typeof setInterval> | null = null;
+  private marketSyncTimer: ReturnType<typeof setInterval> | null = null;
 
   // ── Event Handlers ────────────────────────────────────────────────
   private phaseHandlers = new Set<PhaseHandler>();
@@ -3088,11 +3089,27 @@ export class StandaloneSwarmMesh {
     this.contentSyncTimer = setInterval(() => {
       for (const [, conn] of this.connections) this.sendContentInventory(conn);
     }, CONTENT_SYNC_INTERVAL);
+
+    // Low-frequency market reconciliation.
+    let marketTick = 0;
+    this.marketSyncTimer = setInterval(() => {
+      marketTick++;
+      if (this.connections.size === 0) return;
+      for (const [, conn] of this.connections) {
+        try { conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId })); } catch { /* ignore */ }
+      }
+      if (marketTick % 3 === 0) {
+        import('../blockchain/marketSync')
+          .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
+          .catch(() => { /* ignore */ });
+      }
+    }, MARKET_SYNC_INTERVAL);
   }
 
   private clearIntervals(): void {
     if (this.heartbeatTimer !== null) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.contentSyncTimer !== null) { clearInterval(this.contentSyncTimer); this.contentSyncTimer = null; }
+    if (this.marketSyncTimer !== null) { clearInterval(this.marketSyncTimer); this.marketSyncTimer = null; }
   }
 
   // ═══════════════════════════════════════════════════════════════════
