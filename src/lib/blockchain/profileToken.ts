@@ -160,6 +160,9 @@ export async function deployProfileToken(params: {
     console.warn("[CreatorToken] Community pool derivation failed:", err);
   }
 
+  // Push the new market to connected peers so it appears on their profiles.
+  await broadcastMarketToMesh(tokenId);
+
   console.log(
     `[CreatorToken] Deployed ${params.ticker} — supply ${initialSupply}/${CREATOR_TOKEN_MAX_SUPPLY} unlocked, ` +
       `seeded ${creatorSeed} tokens to creator via ${swarmSeed} SWARM vault split`,
@@ -188,6 +191,8 @@ export async function updateCreatorTokenBanner(
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("creator-token-updated", { detail: next }));
   }
+
+  await broadcastMarketToMesh(next.tokenId);
 
   return next;
 }
