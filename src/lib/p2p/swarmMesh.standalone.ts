@@ -2069,6 +2069,11 @@ export class StandaloneSwarmMesh {
         conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId }));
       } catch { /* ignore */ }
 
+      // ── Request Creator Token market snapshots so peers see each other's markets ──
+      try {
+        conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId }));
+      } catch { /* ignore */ }
+
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
         console.log('[SwarmMesh][Mining] ⛏️ PEER CONNECTED — resuming mining loop');
@@ -2608,6 +2613,8 @@ export class StandaloneSwarmMesh {
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
         case 'chain-sync-request': this.handleChainSyncRequest(from); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
+        case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
+        case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
         default: break;
       }
