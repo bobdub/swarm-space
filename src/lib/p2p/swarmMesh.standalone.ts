@@ -2970,6 +2970,11 @@ export class StandaloneSwarmMesh {
             if (block.transactions) {
               for (const tx of block.transactions) {
                 try { chain.addTransaction(tx); } catch { /* dup or invalid */ }
+                if (typeof tx?.type === 'string' && tx.type.startsWith('coin_market_')) {
+                  import('../blockchain/coinMarket')
+                    .then(({ applyMarketTransaction }) => applyMarketTransaction(tx))
+                    .catch(() => { /* ignore */ });
+                }
               }
             }
           }
