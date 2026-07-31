@@ -16,6 +16,16 @@ import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getProfileToken, saveProfileToken } from "./storage";
 
+/** Best-effort push of a market snapshot to connected mesh peers. */
+async function broadcastMarketToMesh(tokenId: string): Promise<void> {
+  try {
+    const { getSwarmMeshStandalone } = await import("../p2p/swarmMesh.standalone");
+    await getSwarmMeshStandalone().broadcastMarketSnapshot(tokenId);
+  } catch (err) {
+    console.warn("[CreatorToken] Market broadcast skipped:", err);
+  }
+}
+
 export async function deployProfileToken(params: {
   userId: string;
   name: string;
