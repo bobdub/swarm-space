@@ -2972,8 +2972,68 @@ export class StandaloneSwarmMesh {
             }
           }
         }
+        // Markets are derivable from chain history — rebuild anything missing.
+        import('../blockchain/marketSync')
+          .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
+          .catch(() => { /* ignore */ });
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CREATOR MARKET SYNC — replicate profile markets across the mesh
+  // ═══════════════════════════════════════════════════════════════════
+
+  private async handleMarketSyncRequest(from: string): Promise<void> {
+    try {
+      const { buildMarketSnapshot } = await import('../blockchain/marketSync');
+      const snapshot = await buildMarketSnapshot();
+      if (!snapshot.tokens.length && !snapshot.vaults.length && !snapshot.holdings.length) return;
+      const conn = this.connections.get(from);
+      if (!conn) return;
+      conn.send(JSON.stringify({ type: 'market-sync-response', from: this.peerId, snapshot }));
+      console.log(
+        `[SwarmMesh] 🏪 Sent ${snapshot.tokens.length} market(s) to ${from.slice(0, 16)}…`,
+      );
+    } catch (err) {
+      console.warn('[SwarmMesh] market-sync-request failed:', err);
+    }
+  }
+
+  private async handleMarketSyncResponse(from: string, msg: Record<string, unknown>): Promise<void> {
+    const snapshot = msg.snapshot as Parameters<
+      typeof import('../blockchain/marketSync')['mergeMarketSnapshot']
+    >[0];
+    if (!snapshot) return;
+    try {
+      const [{ mergeMarketSnapshot }, { getCurrentUser }] = await Promise.all([
+        import('../blockchain/marketSync'),
+        import('../auth'),
+      ]);
+      const localUserId = getCurrentUser()?.id ?? null;
+      const merged = await mergeMarketSnapshot(snapshot, localUserId);
+      if (merged.tokens || merged.vaults || merged.holdings) {
+        console.log(
+          `[SwarmMesh] 🏪 Replicated ${merged.tokens} market(s) / ${merged.vaults} vault(s) / ` +
+          `${merged.holdings} holding(s) from ${from.slice(0, 16)}…`,
+        );
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] market-sync-response failed:', err);
+    }
+  }
+
+  /** Push a market snapshot (optionally a single token) to all connected peers. */
+  async broadcastMarketSnapshot(tokenId?: string): Promise<void> {
+    try {
+      const { buildMarketSnapshot } = await import('../blockchain/marketSync');
+      const snapshot = await buildMarketSnapshot(tokenId);
+      if (!snapshot.tokens.length && !snapshot.vaults.length) return;
+      this.broadcastInternal({ type: 'market-sync-response', snapshot });
+      console.log(`[SwarmMesh] 🏪 Broadcast market snapshot (${snapshot.tokens.length} token(s))`);
+    } catch (err) {
+      console.warn('[SwarmMesh] broadcastMarketSnapshot failed:', err);
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
