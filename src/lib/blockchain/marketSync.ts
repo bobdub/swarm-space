@@ -5,6 +5,8 @@
 // This module builds a compact snapshot, merges incoming snapshots with an
 // "own record wins" rule, and can rebuild markets straight from chain history.
 import { getAll, put } from "../store";
+import { saveProfileToken } from "./storage";
+import { saveProfileTokenHolding } from "./profileTokenBalance";
 import type { CreatorToken, CreatorVault, SwarmTransaction } from "./types";
 import {
   CREATOR_TOKEN_MAX_SUPPLY,
@@ -105,9 +107,9 @@ export async function mergeMarketSnapshot(
         merged.banner !== existing.banner ||
         merged.closedAt !== existing.closedAt;
       if (!changed) continue;
-      await put(TOKEN_STORE, merged);
+      await saveProfileToken(merged);
     } else {
-      await put(TOKEN_STORE, incoming);
+      await saveProfileToken(incoming);
     }
     tokens++;
   }
@@ -133,7 +135,7 @@ export async function mergeMarketSnapshot(
     if (localUserId && incoming.userId === localUserId) continue; // own balance wins
     const existing = holdingByKey.get(`${incoming.userId}:${incoming.tokenId}`);
     if (existing && !isNewer(incoming.lastUpdated, existing.lastUpdated)) continue;
-    await put(HOLDING_STORE, incoming);
+    await saveProfileTokenHolding(incoming);
     holdings++;
   }
 
@@ -199,7 +201,7 @@ export async function rebuildMarketsFromChain(): Promise<number> {
       deployedAt: tx.timestamp ?? new Date().toISOString(),
       contractAddress: `swarm://${tokenId}`,
     };
-    await put(TOKEN_STORE, token);
+    await saveProfileToken(token);
     tokenByUser.set(userId, token);
 
     if (!vaultById.has(tokenId)) {
