@@ -254,6 +254,7 @@ interface StoredChunkLike {
 const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
+const MARKET_SYNC_INTERVAL = 60_000;
 const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
 const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
