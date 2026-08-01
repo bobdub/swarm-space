@@ -115,16 +115,35 @@ function tierUnlockShare(tier: number): number {
 
 /** Preview sell-back proceeds for `tokens`. */
 export function quoteSell(vault: CreatorVault | null, tokens: number) {
-  if (!vault || tokens <= 0) return { proceeds: 0, tier: 0, capped: false };
+  if (!vault || tokens <= 0) {
+    return { proceeds: 0, tier: 0, capped: false, fromReserve: 0, fromFloor: 0, source: "none" as const };
+  }
   const tier = computeTier(vault);
-  if (tier === 0) return { proceeds: 0, tier, capped: true };
   const bondingPerToken = priceAtSupply(Math.max(0, vault.circulatingSupply - tokens));
   const bondingProceeds = bondingPerToken * tokens;
-  const unlocked = vault.buybackReserve * tierUnlockShare(tier);
-  const floor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
-  const spendable = Math.max(0, Math.min(unlocked, vault.buybackReserve - floor));
-  const proceeds = round6(Math.min(bondingProceeds, spendable));
-  return { proceeds, tier, capped: proceeds < bondingProceeds };
+
+  // Ladder portion (Buyback Reserve, tier-gated, never breaching the hard floor)
+  let fromReserve = 0;
+  if (tier > 0) {
+    const unlocked = vault.buybackReserve * tierUnlockShare(tier);
+    const hardFloor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
+    const spendable = Math.max(0, Math.min(unlocked, vault.buybackReserve - hardFloor));
+    fromReserve = round6(Math.min(bondingProceeds, spendable));
+  }
+
+  // Stability Floor fallback — this is what "Redeem at Floor" used to do.
+  // It guarantees holders always have an exit, even at Tier 0.
+  let fromFloor = 0;
+  const shortfall = round6(bondingProceeds - fromReserve);
+  if (shortfall > 0 && vault.circulatingSupply > 0 && vault.stabilityFloor > 0) {
+    const floorPerToken = vault.stabilityFloor / vault.circulatingSupply;
+    fromFloor = round6(Math.min(shortfall, floorPerToken * tokens, vault.stabilityFloor));
+  }
+
+  const proceeds = round6(fromReserve + fromFloor);
+  const source: "reserve" | "floor" | "mixed" | "none" =
+    fromReserve > 0 && fromFloor > 0 ? "mixed" : fromReserve > 0 ? "reserve" : fromFloor > 0 ? "floor" : "none";
+  return { proceeds, tier, capped: proceeds < round6(bondingProceeds), fromReserve, fromFloor, source };
 }
 
 // ── Buy / Sell ───────────────────────────────────────────────────────
