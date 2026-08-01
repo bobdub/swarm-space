@@ -132,7 +132,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
   const handleCloseMarket = async () => {
     if (!viewerId || !token) return;
-    if (!window.confirm("Close this market permanently? This cannot be undone. The Open Market bucket will be sent to the community pool and all escrows refunded.")) return;
+    if (!window.confirm("Close this market permanently? This cannot be undone. The Open Market bucket will be sent to the community pool.")) return;
     setBusy(true);
     try {
       await closeCreatorMarket({ creatorId: viewerId, tokenId: token.tokenId });
@@ -167,7 +167,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   }
 
   const v = vault;
-  const canSell = (v?.currentTier ?? 0) > 0 && heldTokens > 0;
+  const canSell = heldTokens > 0 && ((v?.buybackReserve ?? 0) > 0 || (v?.stabilityFloor ?? 0) > 0);
 
   return (
     <div className="space-y-6">
