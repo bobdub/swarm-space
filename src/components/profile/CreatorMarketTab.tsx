@@ -311,9 +311,19 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             <div className="text-sm text-foreground/70">
               Proceeds: <span className="font-mono">{fmt(sellQuote.proceeds, 4)} SWARM</span>{" "}
               {sellQuote.capped && sellN > 0 && (
-                <span className="text-[10px] text-[hsl(45,90%,66%)]">(tier-capped)</span>
+                <span className="text-[10px] text-[hsl(45,90%,66%)]">(liquidity-capped)</span>
               )}
             </div>
+            {sellN > 0 && sellQuote.source !== "none" && (
+              <div className="text-[10px] uppercase tracking-widest text-foreground/50">
+                Paid from{" "}
+                {sellQuote.source === "reserve"
+                  ? `Ladder Tier ${sellQuote.tier}`
+                  : sellQuote.source === "floor"
+                    ? "Stability Floor"
+                    : `Ladder Tier ${sellQuote.tier} + Stability Floor`}
+              </div>
+            )}
             <Button
               type="button"
               variant="secondary"
@@ -321,9 +331,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
               disabled={busy || !canSell || sellN <= 0 || sellN > heldTokens || sellQuote.proceeds <= 0}
               className="w-full"
             >
-              {ladder.active === 0
-                ? "Buyback inactive"
-                : `Sell ${sellN || 0} ${token.ticker}`}
+              {heldTokens <= 0
+                ? "No tokens held"
+                : sellN > 0 && sellQuote.proceeds <= 0
+                  ? "No vault liquidity"
+                  : `Sell ${sellN || 0} ${token.ticker}`}
             </Button>
           </div>
         </div>
@@ -365,7 +377,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             <Lock className="h-4 w-4" /> Market Closure Protocol
           </div>
           <div className="text-xs text-foreground/60">
-            Dissolves the Open Market bucket to the community pool, refunds all open participant listings, and freezes this token forever (cannot be redeployed).
+            Dissolves the Open Market bucket to the community pool and freezes this token forever (cannot be redeployed).
           </div>
           <Button type="button" variant="destructive" onClick={handleCloseMarket} disabled={busy}>
             Close Market Permanently
