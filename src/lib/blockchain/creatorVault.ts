@@ -115,16 +115,35 @@ function tierUnlockShare(tier: number): number {
 
 /** Preview sell-back proceeds for `tokens`. */
 export function quoteSell(vault: CreatorVault | null, tokens: number) {
-  if (!vault || tokens <= 0) return { proceeds: 0, tier: 0, capped: false };
+  if (!vault || tokens <= 0) {
+    return { proceeds: 0, tier: 0, capped: false, fromReserve: 0, fromFloor: 0, source: "none" as const };
+  }
   const tier = computeTier(vault);
-  if (tier === 0) return { proceeds: 0, tier, capped: true };
   const bondingPerToken = priceAtSupply(Math.max(0, vault.circulatingSupply - tokens));
   const bondingProceeds = bondingPerToken * tokens;
-  const unlocked = vault.buybackReserve * tierUnlockShare(tier);
-  const floor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
-  const spendable = Math.max(0, Math.min(unlocked, vault.buybackReserve - floor));
-  const proceeds = round6(Math.min(bondingProceeds, spendable));
-  return { proceeds, tier, capped: proceeds < bondingProceeds };
+
+  // Ladder portion (Buyback Reserve, tier-gated, never breaching the hard floor)
+  let fromReserve = 0;
+  if (tier > 0) {
+    const unlocked = vault.buybackReserve * tierUnlockShare(tier);
+    const hardFloor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
+    const spendable = Math.max(0, Math.min(unlocked, vault.buybackReserve - hardFloor));
+    fromReserve = round6(Math.min(bondingProceeds, spendable));
+  }
+
+  // Stability Floor fallback — this is what "Redeem at Floor" used to do.
+  // It guarantees holders always have an exit, even at Tier 0.
+  let fromFloor = 0;
+  const shortfall = round6(bondingProceeds - fromReserve);
+  if (shortfall > 0 && vault.circulatingSupply > 0 && vault.stabilityFloor > 0) {
+    const floorPerToken = vault.stabilityFloor / vault.circulatingSupply;
+    fromFloor = round6(Math.min(shortfall, floorPerToken * tokens, vault.stabilityFloor));
+  }
+
+  const proceeds = round6(fromReserve + fromFloor);
+  const source: "reserve" | "floor" | "mixed" | "none" =
+    fromReserve > 0 && fromFloor > 0 ? "mixed" : fromReserve > 0 ? "reserve" : fromFloor > 0 ? "floor" : "none";
+  return { proceeds, tier, capped: proceeds < round6(bondingProceeds), fromReserve, fromFloor, source };
 }
 
 // ── Buy / Sell ───────────────────────────────────────────────────────
@@ -267,12 +286,16 @@ export async function buyCreatorTokens(params: {
   return { vault, cost };
 }
 
-/** Sell tokens back to the vault. Uses only the Buyback Reserve within the active tier. */
+/**
+ * Sell tokens back to the vault — the single exit path for every holder.
+ * Pays from the Buyback Reserve within the active ladder tier, then falls back
+ * to the Stability Floor so a Tier 0 vault never traps holders.
+ */
 export async function sellCreatorTokens(params: {
   sellerId: string;
   tokenId: string;
   tokens: number;
-}): Promise<{ vault: CreatorVault; proceeds: number }> {
+}): Promise<{ vault: CreatorVault; proceeds: number; source: string }> {
   const { sellerId, tokenId, tokens } = params;
   if (tokens <= 0) throw new Error("Token amount must be positive");
 
@@ -285,18 +308,13 @@ export async function sellCreatorTokens(params: {
     throw new Error("Insufficient tokens to sell");
   }
 
-  const { proceeds, tier } = quoteSell(vault, tokens);
-  if (tier === 0 || proceeds <= 0) {
-    throw new Error("Buyback tier is inactive — no buyback available right now");
+  const { proceeds, tier, fromReserve, fromFloor, source } = quoteSell(vault, tokens);
+  if (proceeds <= 0) {
+    throw new Error("This vault has no liquidity to buy back right now");
   }
 
-  // Deduct from reserve, respect hard floor
-  const floor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
-  if (vault.buybackReserve - proceeds < floor) {
-    throw new Error("Buyback would breach reserve floor");
-  }
-
-  vault.buybackReserve = round6(vault.buybackReserve - proceeds);
+  vault.buybackReserve = round6(Math.max(0, vault.buybackReserve - fromReserve));
+  vault.stabilityFloor = round6(Math.max(0, vault.stabilityFloor - fromFloor));
   vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
   vault.circulatingSupply = round6(Math.max(0, vault.circulatingSupply - tokens));
   vault.currentTier = computeTier(vault);
@@ -316,6 +334,9 @@ export async function sellCreatorTokens(params: {
     ticker: holding.ticker,
     tokens,
     tier,
+    fromReserve,
+    fromFloor,
+    source,
   });
 
   // Sell drains the buyback reserve — surface it on the bus as a
@@ -328,7 +349,7 @@ export async function sellCreatorTokens(params: {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
   }
 
-  return { vault, proceeds };
+  return { vault, proceeds, source };
 }
 
 /** Creator withdraws accumulated earnings to their SWARM wallet. */
@@ -368,59 +389,8 @@ export function ladderState(vault: CreatorVault | null) {
 }
 
 /**
- * Buy Back Floor — redeem tokens at the Stability Floor price. Any holder may
- * redeem when the vault's buyback ladder is inactive or as a fallback safety
- * net. Payment comes out of the Stability Floor bucket (protected liquidity).
- */
-export async function redeemAtFloor(params: {
-  holderId: string;
-  tokenId: string;
-  tokens: number;
-}): Promise<{ vault: CreatorVault; proceeds: number }> {
-  const { holderId, tokenId, tokens } = params;
-  if (tokens <= 0) throw new Error("Token amount must be positive");
-  const vault = await getCreatorVault(tokenId);
-  if (!vault) throw new Error("Vault not initialized");
-  if (vault.closed) throw new Error("This creator market has been closed.");
-  if (vault.circulatingSupply <= 0) throw new Error("No circulating supply");
-
-  const holding = await getProfileTokenHolding(holderId, tokenId);
-  if (!holding || holding.amount < tokens) throw new Error("Insufficient tokens");
-
-  // Floor price = stabilityFloor / circulatingSupply, capped by available.
-  const floorPricePerToken = vault.stabilityFloor / vault.circulatingSupply;
-  const proceeds = round6(Math.min(floorPricePerToken * tokens, vault.stabilityFloor));
-  if (proceeds <= 0) throw new Error("Floor is empty");
-
-  vault.stabilityFloor = round6(vault.stabilityFloor - proceeds);
-  vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
-  vault.circulatingSupply = round6(Math.max(0, vault.circulatingSupply - tokens));
-  await saveCreatorVault(vault);
-
-  holding.amount = round6(holding.amount - tokens);
-  holding.lastUpdated = nowIso();
-  await saveProfileTokenHolding(holding);
-
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({ to: holderId, amount: proceeds, reason: `Floor redemption ${tokens} ${holding.ticker}` });
-
-  recordVaultTx("creator_token_sell", vault.creatorUserId, holderId, proceeds, {
-    tokenId,
-    ticker: holding.ticker,
-    tokens,
-    floor: true,
-  });
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
-  }
-  return { vault, proceeds };
-}
-
-/**
- * Market Closure Protocol — dissolve the vault's Open Market bucket, refund
- * escrows for any open participant listings, freeze all trading, and mark the
- * token as closed so it cannot be redeployed.
+ * Market Closure Protocol — dissolve the vault's Open Market bucket, freeze all
+ * trading, and mark the token as closed so it cannot be redeployed.
  */
 export async function closeCreatorMarket(params: {
   creatorId: string;
@@ -432,14 +402,6 @@ export async function closeCreatorMarket(params: {
   if (!vault) throw new Error("Vault not initialized");
   if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can close the market");
   if (vault.closed) return vault;
-
-  // Refund any open participant listings first.
-  try {
-    const { refundAllListings } = await import("./participantListings");
-    await refundAllListings(tokenId);
-  } catch (err) {
-    console.warn("[CreatorVault] Listing refund failed on closure:", err);
-  }
 
   // Dissolve Open Market bucket → send remainder to community pool.
   const dissolved = round6(vault.buybackReserve);

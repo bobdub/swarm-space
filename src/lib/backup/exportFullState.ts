@@ -15,7 +15,6 @@ const BACKUP_STORES = [
   "rewardPool",
   "creatorVaults",
   "coinListings",
-  "participantListings",
   "manifests",
   "chunks",
   "meta",

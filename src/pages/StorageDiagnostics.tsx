@@ -47,7 +47,6 @@ const STORES = [
   "profileTokenHoldings",
   "creatorVaults",
   "coinListings",
-  "participantListings",
   "manifests",
   "chunks",
   "rewardPool",
