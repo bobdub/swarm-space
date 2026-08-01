@@ -286,12 +286,16 @@ export async function buyCreatorTokens(params: {
   return { vault, cost };
 }
 
-/** Sell tokens back to the vault. Uses only the Buyback Reserve within the active tier. */
+/**
+ * Sell tokens back to the vault — the single exit path for every holder.
+ * Pays from the Buyback Reserve within the active ladder tier, then falls back
+ * to the Stability Floor so a Tier 0 vault never traps holders.
+ */
 export async function sellCreatorTokens(params: {
   sellerId: string;
   tokenId: string;
   tokens: number;
-}): Promise<{ vault: CreatorVault; proceeds: number }> {
+}): Promise<{ vault: CreatorVault; proceeds: number; source: string }> {
   const { sellerId, tokenId, tokens } = params;
   if (tokens <= 0) throw new Error("Token amount must be positive");
 
@@ -304,18 +308,13 @@ export async function sellCreatorTokens(params: {
     throw new Error("Insufficient tokens to sell");
   }
 
-  const { proceeds, tier } = quoteSell(vault, tokens);
-  if (tier === 0 || proceeds <= 0) {
-    throw new Error("Buyback tier is inactive — no buyback available right now");
+  const { proceeds, tier, fromReserve, fromFloor, source } = quoteSell(vault, tokens);
+  if (proceeds <= 0) {
+    throw new Error("This vault has no liquidity to buy back right now");
   }
 
-  // Deduct from reserve, respect hard floor
-  const floor = vault.totalDeposited * CREATOR_VAULT_HARD_FLOOR;
-  if (vault.buybackReserve - proceeds < floor) {
-    throw new Error("Buyback would breach reserve floor");
-  }
-
-  vault.buybackReserve = round6(vault.buybackReserve - proceeds);
+  vault.buybackReserve = round6(Math.max(0, vault.buybackReserve - fromReserve));
+  vault.stabilityFloor = round6(Math.max(0, vault.stabilityFloor - fromFloor));
   vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
   vault.circulatingSupply = round6(Math.max(0, vault.circulatingSupply - tokens));
   vault.currentTier = computeTier(vault);
@@ -335,6 +334,9 @@ export async function sellCreatorTokens(params: {
     ticker: holding.ticker,
     tokens,
     tier,
+    fromReserve,
+    fromFloor,
+    source,
   });
 
   // Sell drains the buyback reserve — surface it on the bus as a
@@ -347,7 +349,7 @@ export async function sellCreatorTokens(params: {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
   }
 
-  return { vault, proceeds };
+  return { vault, proceeds, source };
 }
 
 /** Creator withdraws accumulated earnings to their SWARM wallet. */
