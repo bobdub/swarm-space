@@ -105,10 +105,10 @@ export function CoinDeploymentPanel() {
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Globe className="h-5 w-5 text-primary" />
-                Your Coins
+                Your Chains
               </CardTitle>
               <CardDescription>
-                Coins you've deployed — each is its own sub-chain cross-linked to SWARM
+                Chains you've deployed — each is its own sub-chain cross-linked to SWARM
               </CardDescription>
             </div>
             <Dialog open={deployOpen} onOpenChange={setDeployOpen}>
@@ -250,12 +250,12 @@ export function CoinDeploymentPanel() {
         </CardContent>
       </Card>
 
-      {/* Network Coins */}
+      {/* Network Chains */}
       {networkCoins.filter((c) => c.deployerUserId !== user.id).length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Network Coins</CardTitle>
-            <CardDescription>Coins deployed by other users on the SWARM mesh</CardDescription>
+            <CardTitle className="text-base">Network Chains</CardTitle>
+            <CardDescription>Chains deployed by other users on the SWARM mesh</CardDescription>
           </CardHeader>
           <CardContent>
             <ScrollArea className="max-h-80">
