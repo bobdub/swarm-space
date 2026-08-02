@@ -409,7 +409,7 @@ export default function Wallet() {
             <TabsTrigger value="mining" className="min-w-0">Mining</TabsTrigger>
             <TabsTrigger value="swap" className="min-w-0">Swap</TabsTrigger>
             <TabsTrigger value="creator-token" className="min-w-0">Creator</TabsTrigger>
-            <TabsTrigger value="coins" className="min-w-0">Coins</TabsTrigger>
+            <TabsTrigger value="coins" className="min-w-0">Chain</TabsTrigger>
             <TabsTrigger value="market" className="min-w-0">Market</TabsTrigger>
           </TabsList>
 
@@ -760,7 +760,7 @@ export default function Wallet() {
             </Card>
           </TabsContent>
 
-          {/* ── Coins ─────────────────────────────────────────────── */}
+          {/* ── Chain ─────────────────────────────────────────────── */}
           <TabsContent value="coins">
             <CoinDeploymentPanel />
           </TabsContent>
