@@ -103,6 +103,23 @@ export function quoteBaseAsk(currency: CoinMarketCurrency, stats: CoinMarketStat
   return round6((stats?.basePriceSwarm ?? 1) * currencyHint(currency));
 }
 
+/**
+ * Floor ask for a listing — the market floor price tier. Sellers may list at
+ * or above this value, never below it (that would be a bid, not a listing).
+ */
+export function floorAskFor(
+  currency: CoinMarketCurrency,
+  swarmAmount: number,
+  stats: CoinMarketStats | null,
+): number {
+  const perSwarm = quoteBaseAsk(currency, stats);
+  const qty = Number.isFinite(swarmAmount) && swarmAmount > 0 ? swarmAmount : 0;
+  return round6(perSwarm * qty);
+}
+
+/** Rounding slack so float noise in the UI can't trip the floor guard. */
+const FLOOR_TOLERANCE = 1e-6;
+
 export async function getCoinMarketStats(): Promise<CoinMarketStats> {
   const [pool, coins, listings] = await Promise.all([
     derivePoolFromChain().catch(() => getRewardPool()),
@@ -363,6 +380,16 @@ export async function listSwarmForSale(params: {
 
   const pool = await derivePoolFromChain().catch(() => getRewardPool());
   const tier = computeMarketTier(pool?.balance ?? 0);
+
+  // Floor guard — listings must be priced at or above the live market floor.
+  const stats = await getCoinMarketStats().catch(() => null);
+  const floor = floorAskFor(askCurrency, swarmAmount, stats);
+  if (floor > 0 && askAmount + FLOOR_TOLERANCE < floor) {
+    throw new Error(
+      `Ask is below the market floor. Minimum for ${round6(swarmAmount)} SWARM is ${floor.toFixed(6)} ${askCurrency}.`,
+    );
+  }
+
   const openBySeller = (await getListingsBySeller(sellerId)).filter((l) =>
     ["open", "reserved", "paid"].includes(l.status),
   );

@@ -19,6 +19,7 @@ import {
   computeMarketTier,
   confirmPayment,
   disputeListing,
+  floorAskFor,
   getAllListings,
   getCoinMarketStats,
   listSwarmForSale,
@@ -35,6 +36,14 @@ const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] =
   { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
   { value: "BTC",    label: "BTC — Bitcoin",  hint: "Proceeds credit your in-app BTC balance." },
   { value: "MINTME", label: "MintMe",         hint: "Proceeds credit your in-app MintMe balance." },
+];
+
+/** Floor-anchored price tiers — sellers list at or above the market floor. */
+const PRICE_TIERS: { label: string; multiplier: number }[] = [
+  { label: "Floor", multiplier: 1 },
+  { label: "+10%",  multiplier: 1.1 },
+  { label: "+25%",  multiplier: 1.25 },
+  { label: "+50%",  multiplier: 1.5 },
 ];
 
 export function CoinMarketTab() {
@@ -224,14 +233,31 @@ function ListSwarmDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [swarmAmount, setSwarmAmount] = useState("");
-  const [askAmount, setAskAmount] = useState("");
+  const [premium, setPremium] = useState<number | "custom">(1);
+  const [customAsk, setCustomAsk] = useState("");
   const [currency, setCurrency] = useState<CoinMarketCurrency>("ETH");
   const [memo, setMemo] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const suggestedAsk = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
   const parsedSwarm = Number(swarmAmount);
-  const suggestedTotal = Number.isFinite(parsedSwarm) && parsedSwarm > 0 ? suggestedAsk * parsedSwarm : suggestedAsk;
+  const validSwarm = Number.isFinite(parsedSwarm) && parsedSwarm > 0 ? parsedSwarm : 0;
+  const perSwarmFloor = useMemo(() => quoteBaseAsk(currency, marketStats), [currency, marketStats]);
+  const floorTotal = useMemo(
+    () => floorAskFor(currency, validSwarm, marketStats),
+    [currency, validSwarm, marketStats],
+  );
+
+  const askAmount = useMemo(() => {
+    if (premium === "custom") {
+      const n = Number(customAsk);
+      if (!Number.isFinite(n) || n <= 0) return 0;
+      return Math.max(n, floorTotal);
+    }
+    return Number((floorTotal * premium).toFixed(6));
+  }, [premium, customAsk, floorTotal]);
+
+  const belowFloor =
+    premium === "custom" && Number(customAsk) > 0 && Number(customAsk) < floorTotal - 1e-9;
 
   const submit = async () => {
     if (!userId) return;
@@ -240,7 +266,7 @@ function ListSwarmDialog({
       await listSwarmForSale({
         sellerId: userId,
         swarmAmount: Number(swarmAmount),
-        askAmount: Number(askAmount),
+        askAmount,
         askCurrency: currency,
         memo,
       });
@@ -248,7 +274,8 @@ function ListSwarmDialog({
       onListed();
       setOpen(false);
       setSwarmAmount("");
-      setAskAmount("");
+      setPremium(1);
+      setCustomAsk("");
       setMemo("");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to list SWARM");
@@ -285,31 +312,84 @@ function ListSwarmDialog({
               Available: {walletSwarm.toFixed(2)} SWARM. Listed SWARM moves into market escrow immediately.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Total ask price</Label>
+          <div>
+            <Label>Currency</Label>
+            <Select value={currency} onValueChange={(v) => setCurrency(v as CoinMarketCurrency)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {CURRENCIES.map((c) => (
+                  <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Price tier</Label>
+            <div className="flex flex-wrap gap-2">
+              {PRICE_TIERS.map((t) => (
+                <Button
+                  key={t.label}
+                  type="button"
+                  size="sm"
+                  variant={premium === t.multiplier ? "default" : "outline"}
+                  onClick={() => setPremium(t.multiplier)}
+                >
+                  {t.label}
+                </Button>
+              ))}
+              <Button
+                type="button"
+                size="sm"
+                variant={premium === "custom" ? "default" : "outline"}
+                onClick={() => setPremium("custom")}
+              >
+                Custom
+              </Button>
+            </div>
+            {premium === "custom" && (
               <Input
                 type="number"
-                step="0.0001"
-                min="0"
-                placeholder="0.05"
-                value={askAmount}
-                onChange={(e) => setAskAmount(e.target.value)}
+                step="0.000001"
+                min={floorTotal || 0}
+                placeholder={floorTotal ? floorTotal.toFixed(6) : "0.05"}
+                value={customAsk}
+                onChange={(e) => setCustomAsk(e.target.value)}
+                onBlur={() => {
+                  const n = Number(customAsk);
+                  if (Number.isFinite(n) && n > 0 && n < floorTotal) {
+                    setCustomAsk(floorTotal.toFixed(6));
+                  }
+                }}
               />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Dynamic guide: {suggestedTotal ? suggestedTotal.toFixed(6) : "—"} {currency} from synced pool liquidity.
-              </p>
-            </div>
-            <div>
-              <Label>Currency</Label>
-              <Select value={currency} onValueChange={(v) => setCurrency(v as CoinMarketCurrency)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map((c) => (
-                    <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            )}
+            <div className="rounded-md border bg-muted/40 p-2 text-xs space-y-0.5">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Market floor</span>
+                <span className="font-medium text-foreground">
+                  {floorTotal ? floorTotal.toFixed(6) : "—"} {currency}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Your total ask</span>
+                <span className="font-medium text-foreground">
+                  {askAmount ? askAmount.toFixed(6) : "—"} {currency}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Per SWARM</span>
+                <span className="text-foreground">
+                  {validSwarm > 0 && askAmount
+                    ? (askAmount / validSwarm).toFixed(6)
+                    : perSwarmFloor.toFixed(6)}{" "}
+                  {currency}
+                </span>
+              </div>
+              {belowFloor && (
+                <p className="pt-1 text-destructive">
+                  Listings cannot price below the floor — it will be raised to {floorTotal.toFixed(6)} {currency}.
+                </p>
+              )}
             </div>
           </div>
           <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
@@ -331,7 +411,7 @@ function ListSwarmDialog({
         <DialogFooter>
           <Button
             onClick={submit}
-            disabled={busy || !swarmAmount || Number(swarmAmount) <= 0 || Number(swarmAmount) > walletSwarm || !askAmount || Number(askAmount) <= 0}
+            disabled={busy || validSwarm <= 0 || validSwarm > walletSwarm || askAmount <= 0}
           >
             {busy ? "Listing…" : "List SWARM"}
           </Button>

@@ -15,6 +15,7 @@ import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { openDB } from '@/lib/store';
 import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
+import { VaultMediaViewerDialog } from './VaultMediaViewerDialog';
 import {
   migrateCompletedIntoVaults,
   type MigrationCandidate,
@@ -690,6 +691,15 @@ function PeerVaultsSection({
                     {/* Coin math — one row per coin, showing real fill vs 500 MiB cap */}
                     {v.coins.length > 0 && (
                       (() => {
+                        // Newest engraved entry per coin — shows what is
+                        // currently being written onto the filling coin.
+                        const latestByCoin = new Map<string, VaultIndexEntry>();
+                        for (const e of Object.values(v.index)) {
+                          const prev = latestByCoin.get(e.coinId);
+                          if (!prev || (e.storedAt || '') > (prev.storedAt || '')) {
+                            latestByCoin.set(e.coinId, e);
+                          }
+                        }
                         const rows = v.coins.map((c) => {
                           const cap = Number.isFinite(c.capacityBytes) ? c.capacityBytes : MEDIA_COIN_CAPACITY_BYTES;
                           const pct = cap > 0 ? Math.min(100, (c.fillBytes / cap) * 100) : 0;
@@ -718,7 +728,14 @@ function PeerVaultsSection({
                             : c.sealReason === 'reconcile'
                               ? 'Repaired'
                               : undefined;
-                          return { c, cap, pct, state, tone, short, done, sealNote };
+                          const fill =
+                            state === 'Failed' ? 'bg-rose-500/60'
+                            : state === 'Wrapped' ? 'bg-emerald-500/70'
+                            : state === 'Sealed' || state === 'Sealing' ? 'bg-amber-400/70'
+                            : state === 'Approaching' ? 'bg-sky-400/70'
+                            : 'bg-primary/60';
+                          const engraving = latestByCoin.get(c.coinId);
+                          return { c, cap, pct, state, tone, short, done, sealNote, fill, engraving };
                         });
                         const active = rows.filter((r) => !r.done);
                         const done = rows.filter((r) => r.done);
@@ -726,15 +743,35 @@ function PeerVaultsSection({
                         return (
                           <div className="space-y-1 pb-1">
                             {active.map((r) => (
-                              <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
-                                <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
-                                <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
-                                {r.sealNote && (
-                                  <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
+                              <div key={r.c.coinId} className="space-y-[3px]">
+                                <div className="flex items-center gap-2 text-[0.55rem]">
+                                  <span className="relative flex h-1.5 w-1.5 shrink-0">
+                                    <span className={cn('absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping', r.fill)} />
+                                    <span className={cn('relative inline-flex h-1.5 w-1.5 rounded-full', r.fill)} />
+                                  </span>
+                                  <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
+                                  <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                  {r.sealNote && (
+                                    <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
+                                  )}
+                                  <span className="text-foreground/50 shrink-0 tabular-nums">
+                                    {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
+                                  </span>
+                                </div>
+                                <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+                                  <div
+                                    className={cn('h-full rounded-full transition-[width] duration-700 ease-out', r.fill)}
+                                    style={{ width: `${Math.max(2, r.pct)}%` }}
+                                  />
+                                </div>
+                                {r.engraving && (
+                                  <div className="flex items-center gap-1 text-[0.5rem] text-foreground/40">
+                                    <span className="uppercase tracking-widest text-amber-300/70 animate-pulse">Engraving</span>
+                                    <span className="truncate font-mono">
+                                      {r.engraving.name || r.engraving.ref || 'chunk'}
+                                    </span>
+                                  </div>
                                 )}
-                                <span className="text-foreground/50 shrink-0 tabular-nums">
-                                  {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
-                                </span>
                               </div>
                             ))}
                             {done.length > 0 && (
@@ -759,15 +796,20 @@ function PeerVaultsSection({
                                 {cOpen && (
                                   <div className="border-t border-foreground/10 p-1.5 space-y-1">
                                     {done.map((r) => (
-                                      <div key={r.c.coinId} className="flex items-center gap-2 text-[0.55rem]">
-                                        <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
-                                        <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
-                                         {r.sealNote && (
-                                           <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
-                                         )}
-                                        <span className="text-foreground/50 shrink-0 tabular-nums">
-                                          {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
-                                        </span>
+                                      <div key={r.c.coinId} className="space-y-[3px]">
+                                        <div className="flex items-center gap-2 text-[0.55rem]">
+                                          <span className="font-mono text-foreground/50 truncate flex-1" title={r.c.coinId}>{r.short}</span>
+                                          <span className={cn('rounded border px-1 py-[1px] uppercase tracking-widest', r.tone)}>{r.state}</span>
+                                          {r.sealNote && (
+                                            <span className="rounded border border-sky-500/30 px-1 py-[1px] uppercase tracking-widest text-sky-300">{r.sealNote}</span>
+                                          )}
+                                          <span className="text-foreground/50 shrink-0 tabular-nums">
+                                            {formatBytes(r.c.fillBytes)} / {Number.isFinite(r.cap) ? formatBytes(r.cap) : '∞'} ({r.pct.toFixed(0)}%)
+                                          </span>
+                                        </div>
+                                        <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
+                                          <div className={cn('h-full rounded-full', r.fill)} style={{ width: '100%' }} />
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
@@ -802,9 +844,11 @@ function PeerVaultsSection({
                       <p className="text-[0.65rem] text-foreground/30">Vault is empty.</p>
                     ) : entries.length > 0 ? (
                       <div className="max-h-56 overflow-y-auto space-y-1">
-                        {entries.map(([hash, e]) => (
-                          <VaultEntryRow key={hash} hash={hash} entry={e} />
-                        ))}
+                        {entries.map(([hash, e]) => {
+                          const coin = v.coins.find((c) => c.coinId === e.coinId);
+                          const viewable = Boolean(coin && !coin.failed && (coin.sealed || coin.wrapped) && !e.pending);
+                          return <VaultEntryRow key={hash} hash={hash} entry={e} viewable={viewable} />;
+                        })}
                       </div>
                     ) : null}
                   </div>
@@ -819,16 +863,19 @@ function PeerVaultsSection({
   );
 }
 
-function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }) {
+function VaultEntryRow({ hash, entry, viewable }: { hash: string; entry: VaultIndexEntry; viewable?: boolean }) {
   const mime = entry.mime || 'unknown';
   const raw = entry.name || entry.ref || hash;
   const label = raw.length > 28 ? raw.slice(0, 28) + '…' : raw;
   const archived = entry.coinId.startsWith('archive:');
   const pending = entry.pending || archived;
-  return (
-    <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const canView = Boolean(viewable) && !pending;
+
+  const body = (
+    <>
       {mimeIcon(mime)}
-      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70" title={entry.name || hash}>
+      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70 text-left" title={entry.name || hash}>
         {label}
       </span>
       {pending && (
@@ -836,10 +883,38 @@ function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }
           {archived ? 'Archive' : 'Pending'}
         </span>
       )}
+      {canView && (
+        <span className="text-[0.5rem] uppercase tracking-widest text-emerald-300/80 border border-emerald-500/30 rounded px-1 py-[1px]">
+          View
+        </span>
+      )}
       <span className="text-[0.55rem] text-foreground/40 shrink-0">
         {formatBytes(entry.length || 0)}
       </span>
-    </div>
+    </>
+  );
+
+  if (!canView) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setViewerOpen(true)}
+        className="w-full flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1 hover:bg-foreground/[0.06] transition-colors"
+      >
+        {body}
+      </button>
+      {viewerOpen && (
+        <VaultMediaViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} hash={hash} entry={entry} />
+      )}
+    </>
   );
 }
 
