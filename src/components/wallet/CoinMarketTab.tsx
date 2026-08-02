@@ -19,6 +19,7 @@ import {
   computeMarketTier,
   confirmPayment,
   disputeListing,
+  floorAskFor,
   getAllListings,
   getCoinMarketStats,
   listSwarmForSale,
@@ -35,6 +36,14 @@ const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] =
   { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
   { value: "BTC",    label: "BTC — Bitcoin",  hint: "Proceeds credit your in-app BTC balance." },
   { value: "MINTME", label: "MintMe",         hint: "Proceeds credit your in-app MintMe balance." },
+];
+
+/** Floor-anchored price tiers — sellers list at or above the market floor. */
+const PRICE_TIERS: { label: string; multiplier: number }[] = [
+  { label: "Floor", multiplier: 1 },
+  { label: "+10%",  multiplier: 1.1 },
+  { label: "+25%",  multiplier: 1.25 },
+  { label: "+50%",  multiplier: 1.5 },
 ];
 
 export function CoinMarketTab() {
