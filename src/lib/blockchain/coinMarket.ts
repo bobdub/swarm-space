@@ -380,6 +380,16 @@ export async function listSwarmForSale(params: {
 
   const pool = await derivePoolFromChain().catch(() => getRewardPool());
   const tier = computeMarketTier(pool?.balance ?? 0);
+
+  // Floor guard — listings must be priced at or above the live market floor.
+  const stats = await getCoinMarketStats().catch(() => null);
+  const floor = floorAskFor(askCurrency, swarmAmount, stats);
+  if (floor > 0 && askAmount + FLOOR_TOLERANCE < floor) {
+    throw new Error(
+      `Ask is below the market floor. Minimum for ${round6(swarmAmount)} SWARM is ${floor.toFixed(6)} ${askCurrency}.`,
+    );
+  }
+
   const openBySeller = (await getListingsBySeller(sellerId)).filter((l) =>
     ["open", "reserved", "paid"].includes(l.status),
   );
