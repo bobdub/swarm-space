@@ -15,6 +15,7 @@ import { getSwarmMeshStandalone, type AssetSyncStats } from '@/lib/p2p/swarmMesh
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { openDB } from '@/lib/store';
 import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
+import { VaultMediaViewerDialog } from './VaultMediaViewerDialog';
 import {
   migrateCompletedIntoVaults,
   type MigrationCandidate,
