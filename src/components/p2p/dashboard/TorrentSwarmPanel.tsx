@@ -862,16 +862,19 @@ function PeerVaultsSection({
   );
 }
 
-function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }) {
+function VaultEntryRow({ hash, entry, viewable }: { hash: string; entry: VaultIndexEntry; viewable?: boolean }) {
   const mime = entry.mime || 'unknown';
   const raw = entry.name || entry.ref || hash;
   const label = raw.length > 28 ? raw.slice(0, 28) + '…' : raw;
   const archived = entry.coinId.startsWith('archive:');
   const pending = entry.pending || archived;
-  return (
-    <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const canView = Boolean(viewable) && !pending;
+
+  const body = (
+    <>
       {mimeIcon(mime)}
-      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70" title={entry.name || hash}>
+      <span className="text-[0.65rem] font-mono truncate flex-1 text-foreground/70 text-left" title={entry.name || hash}>
         {label}
       </span>
       {pending && (
@@ -879,10 +882,38 @@ function VaultEntryRow({ hash, entry }: { hash: string; entry: VaultIndexEntry }
           {archived ? 'Archive' : 'Pending'}
         </span>
       )}
+      {canView && (
+        <span className="text-[0.5rem] uppercase tracking-widest text-emerald-300/80 border border-emerald-500/30 rounded px-1 py-[1px]">
+          View
+        </span>
+      )}
       <span className="text-[0.55rem] text-foreground/40 shrink-0">
         {formatBytes(entry.length || 0)}
       </span>
-    </div>
+    </>
+  );
+
+  if (!canView) {
+    return (
+      <div className="flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1">
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setViewerOpen(true)}
+        className="w-full flex items-center gap-2 rounded border border-foreground/5 bg-foreground/[0.02] px-2 py-1 hover:bg-foreground/[0.06] transition-colors"
+      >
+        {body}
+      </button>
+      {viewerOpen && (
+        <VaultMediaViewerDialog open={viewerOpen} onOpenChange={setViewerOpen} hash={hash} entry={entry} />
+      )}
+    </>
   );
 }
 
