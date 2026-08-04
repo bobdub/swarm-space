@@ -214,6 +214,12 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
   const existing = records.get(rec.placementId);
   if (existing && existing._origin === 'local' && rec._origin === 'peer') return;
   records.set(rec.placementId, rec);
+  // Persist peer-origin GLOBAL (main-Brain lobby) placements so a reload
+  // doesn't blank the shared lobby before the next backfill sync lands.
+  // Project / live-room scopes are never persisted from peers.
+  if (rec._origin === 'peer' && scopeOf(rec) === 'global' && !opts.replay) {
+    void dbPut(rec).catch(() => { /* noop */ });
+  }
   // Replay onto the BuilderBlockEngine on hydration / peer arrival —
   // but only if this record belongs to the active universe. Otherwise
   // we'd materialize main-Brain walls inside a project hub.
@@ -235,7 +241,9 @@ export async function hydrateWorldPlacements(): Promise<void> {
     const merged = new Map<string, PlacementRecord>();
     for (const rec of await dbAll()) merged.set(rec.placementId, rec);
     for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
-    for (const rec of merged.values()) ingest({ ...rec, _origin: 'local' }, { replay: true });
+    for (const rec of merged.values()) {
+      ingest({ ...rec, _origin: rec._origin === 'peer' ? 'peer' : 'local' }, { replay: true });
+    }
   } else {
     for (const rec of records.values()) {
       if (scopeOf(rec) === activeUniverse) replayPlacement(rec, { force: true });
@@ -347,6 +355,32 @@ export function attachPlacementGossip(bridge: (rec: PlacementRecord) => void): (
 
 export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void {
   ingest({ ...rec, _origin: 'peer' });
+}
+
+/**
+ * Transport snapshot of everything standing in the MAIN BRAIN LOBBY.
+ * Only `global`-scoped records are ever included — project and live-room
+ * placements must never leave this node through the backfill path.
+ */
+export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>[] {
+  return [...records.values()]
+    .filter((rec) => scopeOf(rec) === 'global')
+    .map(({ _origin: _ignored, ...rest }) => ({ ...rest, universeKey: 'global' }));
+}
+
+/** Merge a peer's lobby snapshot. Non-global entries are discarded. */
+export function mergePlacementSnapshot(
+  incoming: Omit<PlacementRecord, '_origin'>[] | undefined | null,
+): number {
+  if (!Array.isArray(incoming)) return 0;
+  let merged = 0;
+  for (const rec of incoming.slice(0, 2000)) {
+    if (!rec?.placementId || !rec?.prefabId || !Array.isArray(rec.hitPoint)) continue;
+    if (scopeOf(rec) !== 'global') continue;
+    acceptPeerPlacement({ ...rec, universeKey: 'global' });
+    merged++;
+  }
+  return merged;
 }
 
 export function _resetWorldPlacementsForTest(): void {
