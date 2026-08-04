@@ -11,7 +11,21 @@
 import { useSyncExternalStore } from 'react';
 
 let lightsOn = true;
+let updatedAt = 0;
 const listeners = new Set<() => void>();
+
+export type BarLightsSnapshot = { on: boolean; updatedAt: number };
+
+/** Outbound gossip hook — fired only for LOCAL changes (never remote applies). */
+let gossip: ((snap: BarLightsSnapshot) => void) | null = null;
+
+export function attachBarLightsGossip(fn: (snap: BarLightsSnapshot) => void): void {
+  gossip = fn;
+}
+
+export function getBarLightsSnapshot(): BarLightsSnapshot {
+  return { on: lightsOn, updatedAt };
+}
 
 function emit() {
   listeners.forEach((l) => {
@@ -26,11 +40,30 @@ export function getBarLightsOn(): boolean {
 export function setBarLightsOn(next: boolean): void {
   if (lightsOn === next) return;
   lightsOn = next;
+  updatedAt = Date.now();
   emit();
+  if (gossip) {
+    try { gossip(getBarLightsSnapshot()); } catch { /* ignore */ }
+  }
 }
 
 export function toggleBarLights(): void {
   setBarLightsOn(!lightsOn);
+}
+
+/**
+ * Apply a peer's light state. Last-writer-wins on `updatedAt`; older or
+ * equal stamps are ignored. Never re-broadcasts (no echo loop).
+ */
+export function acceptPeerBarLights(snap: unknown): boolean {
+  const s = snap as Partial<BarLightsSnapshot> | undefined;
+  if (!s || typeof s.on !== 'boolean' || typeof s.updatedAt !== 'number') return false;
+  if (!Number.isFinite(s.updatedAt) || s.updatedAt <= updatedAt) return false;
+  updatedAt = s.updatedAt;
+  if (lightsOn === s.on) return false;
+  lightsOn = s.on;
+  emit();
+  return true;
 }
 
 function subscribe(cb: () => void) {
