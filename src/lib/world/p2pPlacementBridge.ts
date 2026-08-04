@@ -20,11 +20,19 @@ import {
   acceptPeerForgedTool,
   type ForgedToolRecord,
 } from '@/lib/brain/toolMintStore';
+import {
+  attachBarLightsGossip,
+  acceptPeerBarLights,
+  getBarLightsSnapshot,
+} from '@/lib/brain/barLightsStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const TOOL_CHANNEL = 'tools:forged';
 const SYNC_REQUEST_CHANNEL = 'world:placements:sync-request';
 const SYNC_RESPONSE_CHANNEL = 'world:placements:sync-response';
+const BARLIGHTS_CHANNEL = 'brain:barlights';
+const BARLIGHTS_SYNC_REQUEST = 'brain:barlights:sync-request';
+const BARLIGHTS_SYNC_RESPONSE = 'brain:barlights:sync-response';
 /** How often we look for peers we haven't backfilled from yet. */
 const PEER_POLL_MS = 10_000;
 
@@ -79,6 +87,10 @@ export function bootPlacementGossipBridge(): void {
     attachToolGossip((rec: ForgedToolRecord) => {
       try { mesh!.broadcast(TOOL_CHANNEL, rec); } catch { /* noop */ }
     });
+    // Bar lights are lobby-wide shared state — relay every local flip.
+    attachBarLightsGossip((snap) => {
+      try { mesh!.broadcast(BARLIGHTS_CHANNEL, snap); } catch { /* noop */ }
+    });
 
     // Inbound — funnel peer records through the same accept-plug points
     // the BroadcastChannel cross-tab path uses, so the local-protect
@@ -99,6 +111,21 @@ export function bootPlacementGossipBridge(): void {
       try { acceptPeerForgedTool(rec); } catch (err) {
         console.warn('[placementBridge] accept tool failed', err);
       }
+    });
+
+    // ── Bar lights: live gossip + newcomer backfill ─────────────────
+    mesh.onMessage(BARLIGHTS_CHANNEL, (_peerId, payload) => {
+      try { acceptPeerBarLights(payload); } catch { /* noop */ }
+    });
+    mesh.onMessage(BARLIGHTS_SYNC_REQUEST, (peerId) => {
+      try {
+        const snap = getBarLightsSnapshot();
+        if (snap.updatedAt <= 0) return; // never flipped locally — nothing authoritative to share
+        void mesh!.send(BARLIGHTS_SYNC_RESPONSE, peerId, snap);
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(BARLIGHTS_SYNC_RESPONSE, (_peerId, payload) => {
+      try { acceptPeerBarLights(payload); } catch { /* noop */ }
     });
 
     // ── Backfill: main-Brain lobby placements only ──────────────────
@@ -134,6 +161,7 @@ export function bootPlacementGossipBridge(): void {
           if (asked.has(id)) continue;
           asked.add(id);
           void mesh!.send(SYNC_REQUEST_CHANNEL, id, {});
+          void mesh!.send(BARLIGHTS_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
