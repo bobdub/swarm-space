@@ -331,20 +331,31 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     draggingRef.current = true;
+    pressStartRef.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
     writeHit(e, true);
     try { (e.target as Element | null)?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
   };
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    // Before the first drop, only pointer-down may create the ghost. After
-    // that, mouse hover or touch drag may refine it along the grid.
-    if (!cast.isPositioned && !draggingRef.current) return;
+    // Mouse: the ghost tracks hover continuously, no click needed.
+    // Touch: the ghost tracks the finger while it is down.
     if (e.pointerType !== 'mouse' && !draggingRef.current) return;
     e.stopPropagation();
-    writeHit(e, draggingRef.current);
+    writeHit(e, true);
   };
   const handlePointerUp = (e: ThreeEvent<PointerEvent>) => {
+    const start = pressStartRef.current;
     draggingRef.current = false;
+    pressStartRef.current = null;
     try { (e.target as Element | null)?.releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
+    if (!start) return;
+    const dx = e.nativeEvent.clientX - start.x;
+    const dy = e.nativeEvent.clientY - start.y;
+    // A click (not a drag) commits the placement right where the ghost is.
+    if (Math.hypot(dx, dy) <= CLICK_SLOP_PX) {
+      e.stopPropagation();
+      writeHit(e, true);
+      confirmCast();
+    }
   };
 
   return (
