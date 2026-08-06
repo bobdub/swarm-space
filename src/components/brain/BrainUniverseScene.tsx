@@ -260,10 +260,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
 
   useFrame(() => {
     // 1. Drain drag deltas into persistent yaw/pitch state.
+    const topView = getBuilderTopView();
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
-      const lim = (Math.PI / 180) * 70;
+      // Top view widens the downward clamp so the user can look straight
+      // down at the build grid.
+      const lim = (Math.PI / 180) * (topView ? 89 : 70);
       if (pitchRef.current > lim) pitchRef.current = lim;
       if (pitchRef.current < -lim) pitchRef.current = -lim;
       lookInput.yaw = 0;
