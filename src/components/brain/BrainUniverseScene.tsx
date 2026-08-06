@@ -243,6 +243,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // toward the live up so micro jitter doesn't roll the horizon.
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
+  const prevTopView = useRef(false);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -265,6 +266,11 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   useFrame(() => {
     // 1. Drain drag deltas into persistent yaw/pitch state.
     const topView = getBuilderTopView();
+    if (topView !== prevTopView.current) {
+      prevTopView.current = topView;
+      // Snap to a steep downward tilt on entering top view, level on exit.
+      pitchRef.current = topView ? -1.0 : 0;
+    }
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
