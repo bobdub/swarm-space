@@ -713,10 +713,14 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
     if (inert) return;
-    const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
+    const isInteractiveUi = (target: EventTarget | null) => {
+      const node = target instanceof Element ? target : null;
+      return !!node?.closest('button, a, input, textarea, select, [role="button"], [data-no-look="true"]');
+    };
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      if (isInteractiveUi(e.target)) return;
       active = true;
       lastX = e.clientX; lastY = e.clientY;
       setGrabbing(true);
@@ -728,12 +732,12 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
       lastX = e.clientX; lastY = e.clientY;
     };
     const onUp = () => { active = false; setGrabbing(false); };
-    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('blur', onUp);
     return () => {
-      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousedown', onDown);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('blur', onUp);
@@ -742,7 +746,9 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   return (
     <div
       ref={ref}
-      className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+      // Pointer-events stay OFF so in-Canvas placement clicks reach the
+      // AssetCaster; look-drag is driven by window listeners instead.
+      className={`pointer-events-none absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
     />
   );
 }
