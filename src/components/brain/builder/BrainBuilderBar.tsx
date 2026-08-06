@@ -92,6 +92,10 @@ export function BrainBuilderBar({
   // Plot ownership gate for the Landmarks tab.
   const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
   useEffect(() => subscribeLandPlots(setPlots), []);
+  // Overhead build camera — resets to off when the bar unmounts (build exit).
+  const [topView, setTopView] = useState(false);
+  useEffect(() => subscribeBuilderTopView(setTopView), []);
+  useEffect(() => () => setBuilderTopView(false), []);
   const ownsAnyPlot = useMemo(
     () => !!selfId && plots.some((p) => p.ownerId === selfId),
     [plots, selfId],
