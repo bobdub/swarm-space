@@ -184,28 +184,16 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     return worldHitToLocalDir(targetWorld);
   };
 
-  // Seed the ghost when a new session arms. If a hitPoint was supplied
-  // (e.g. wall edit/move starting from the existing wall position) we
-  // still need to seed `localDirRef` so the ghost actually renders —
-  // otherwise `useFrame` keeps it invisible and the user sees no ghost
-  // and no in-world confirm button.
+  // Seed the ghost when a new session arms. Both brand-new placements and
+  // edits/moves get a visible ghost immediately: new placements seed a
+  // couple of grid cells in front of the avatar so the user can slide it
+  // with the pointer and commit with a single click.
   useEffect(() => {
     if (!cast) return;
     if (cast.hitPoint) {
       localDirRef.current = worldHitToLocalDir(cast.hitPoint);
       return;
     }
-    // Existing edits/moves seed from their current hitPoint above. Brand-new
-    // placement must NOT auto-seed a ghost: that was why users saw an item
-    // floating before they clicked and why Confirm appeared too early.
-    // The invisible sphere remains armed; the first pointer-down writes the
-    // actual grid/snapped hit and flips isPositioned=true.
-    if (!cast.isPositioned) {
-      localDirRef.current = null;
-      return;
-    }
-    // Defensive fallback for any legacy cast that claims to be positioned
-    // without a hitPoint: seed near the avatar rather than the horizon.
     const pose = getEarthPose();
     const center = new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2]);
     let worldHit: Vec3 | null = null;
@@ -258,9 +246,9 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       localDirRef.current = snapped;
       worldHit = localDirToWorldHit(snapped);
     }
-    setCastHitSilent(worldHit, !!cast.isPositioned);
+    setCastHitSilent(worldHit, true);
     // Trigger one re-render so the ghost becomes visible.
-    setCast((c) => (c ? { ...c, hitPoint: worldHit, isPositioned: !!c.isPositioned } : c));
+    setCast((c) => (c ? { ...c, hitPoint: worldHit, isPositioned: true } : c));
   }, [cast, camera, selfId]);
 
   // Keep the raycast shell + ghost glued to the live Earth pose, and
