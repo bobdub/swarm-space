@@ -363,10 +363,26 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // outward normal. If the camera ever clips into the core, the bug
     // is in the body integrator (or a missing surface support band) —
     // patching it here would only mask the real failure.
-    const eyeLift = EYE_LIFT;
-    const eyeX = source[0] + upN[0] * eyeLift;
-    const eyeY = source[1] + upN[1] * eyeLift;
-    const eyeZ = source[2] + upN[2] * eyeLift;
+    // Builder "Top view": boom the eye up and back along the view forward
+    // so the avatar plus a wide patch of build grid stay in frame.
+    const eyeLift = topView ? EYE_LIFT + TOP_VIEW_UP_M : EYE_LIFT;
+    let boomX = 0, boomY = 0, boomZ = 0;
+    if (topView) {
+      const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      // Strip the radial component so the boom pulls back along the ground.
+      const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
+      let bx = viewFwd.x - upN[0] * vdot;
+      let by = viewFwd.y - upN[1] * vdot;
+      let bz = viewFwd.z - upN[2] * vdot;
+      const bn = Math.hypot(bx, by, bz) || 1;
+      bx /= bn; by /= bn; bz /= bn;
+      boomX = -bx * TOP_VIEW_BACK_M;
+      boomY = -by * TOP_VIEW_BACK_M;
+      boomZ = -bz * TOP_VIEW_BACK_M;
+    }
+    const eyeX = source[0] + upN[0] * eyeLift + boomX;
+    const eyeY = source[1] + upN[1] * eyeLift + boomY;
+    const eyeZ = source[2] + upN[2] * eyeLift + boomZ;
     camera.position.set(eyeX, eyeY, eyeZ);
     camera.up.set(upN[0], upN[1], upN[2]);
 
