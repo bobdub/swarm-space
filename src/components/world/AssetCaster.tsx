@@ -45,6 +45,8 @@ const SURFACE_CLEARANCE = 0.03;
  *  cells keeps the prefab on the first visible grid line ahead of the
  *  player instead of half-way to the horizon. */
 const SPAWN_FORWARD_M = CELL * 2;
+/** Pointer travel (px) under which a press counts as a click, not a drag. */
+const CLICK_SLOP_PX = 6;
 
 /** Intersect a ray (origin, dir) with a sphere; return the near hit or null. */
 function intersectShell(
@@ -73,6 +75,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const sphereRef = useRef<THREE.Mesh>(null);
   const ghostRef = useRef<THREE.Group>(null);
   const draggingRef = useRef(false);
+  const pressStartRef = useRef<{ x: number; y: number } | null>(null);
   // Earth-local unit direction of the ghost. Stored so the ghost sticks
   // to the rotating surface instead of drifting in world space.
   const localDirRef = useRef<Vec3 | null>(null);
@@ -184,28 +187,16 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     return worldHitToLocalDir(targetWorld);
   };
 
-  // Seed the ghost when a new session arms. If a hitPoint was supplied
-  // (e.g. wall edit/move starting from the existing wall position) we
-  // still need to seed `localDirRef` so the ghost actually renders —
-  // otherwise `useFrame` keeps it invisible and the user sees no ghost
-  // and no in-world confirm button.
+  // Seed the ghost when a new session arms. Both brand-new placements and
+  // edits/moves get a visible ghost immediately: new placements seed a
+  // couple of grid cells in front of the avatar so the user can slide it
+  // with the pointer and commit with a single click.
   useEffect(() => {
     if (!cast) return;
     if (cast.hitPoint) {
       localDirRef.current = worldHitToLocalDir(cast.hitPoint);
       return;
     }
-    // Existing edits/moves seed from their current hitPoint above. Brand-new
-    // placement must NOT auto-seed a ghost: that was why users saw an item
-    // floating before they clicked and why Confirm appeared too early.
-    // The invisible sphere remains armed; the first pointer-down writes the
-    // actual grid/snapped hit and flips isPositioned=true.
-    if (!cast.isPositioned) {
-      localDirRef.current = null;
-      return;
-    }
-    // Defensive fallback for any legacy cast that claims to be positioned
-    // without a hitPoint: seed near the avatar rather than the horizon.
     const pose = getEarthPose();
     const center = new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2]);
     let worldHit: Vec3 | null = null;
@@ -258,9 +249,9 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       localDirRef.current = snapped;
       worldHit = localDirToWorldHit(snapped);
     }
-    setCastHitSilent(worldHit, !!cast.isPositioned);
+    setCastHitSilent(worldHit, true);
     // Trigger one re-render so the ghost becomes visible.
-    setCast((c) => (c ? { ...c, hitPoint: worldHit, isPositioned: !!c.isPositioned } : c));
+    setCast((c) => (c ? { ...c, hitPoint: worldHit, isPositioned: true } : c));
   }, [cast, camera, selfId]);
 
   // Keep the raycast shell + ghost glued to the live Earth pose, and
@@ -343,20 +334,31 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
     draggingRef.current = true;
+    pressStartRef.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
     writeHit(e, true);
     try { (e.target as Element | null)?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
   };
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
-    // Before the first drop, only pointer-down may create the ghost. After
-    // that, mouse hover or touch drag may refine it along the grid.
-    if (!cast.isPositioned && !draggingRef.current) return;
+    // Mouse: the ghost tracks hover continuously, no click needed.
+    // Touch: the ghost tracks the finger while it is down.
     if (e.pointerType !== 'mouse' && !draggingRef.current) return;
     e.stopPropagation();
-    writeHit(e, draggingRef.current);
+    writeHit(e, true);
   };
   const handlePointerUp = (e: ThreeEvent<PointerEvent>) => {
+    const start = pressStartRef.current;
     draggingRef.current = false;
+    pressStartRef.current = null;
     try { (e.target as Element | null)?.releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
+    if (!start) return;
+    const dx = e.nativeEvent.clientX - start.x;
+    const dy = e.nativeEvent.clientY - start.y;
+    // A click (not a drag) commits the placement right where the ghost is.
+    if (Math.hypot(dx, dy) <= CLICK_SLOP_PX) {
+      e.stopPropagation();
+      writeHit(e, true);
+      confirmCast();
+    }
   };
 
   return (

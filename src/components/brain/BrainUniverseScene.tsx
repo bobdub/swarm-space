@@ -161,6 +161,7 @@ import {
 } from '@/lib/brain/infinityBinding';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
+import { getBuilderTopView, setBuilderTopView } from '@/lib/brain/builderCameraStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -228,6 +229,9 @@ function spawnNearSharedVillage(
  * follows the body whose position is integrated from field gradients.
  */
 function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: string }) {
+  // Builder "Top view" boom, in metres.
+  const TOP_VIEW_UP_M = 14;
+  const TOP_VIEW_BACK_M = 10;
   const { camera } = useThree();
   const physics = getBrainPhysics();
   const keys = useRef<Record<string, boolean>>({});
@@ -239,6 +243,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // toward the live up so micro jitter doesn't roll the horizon.
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
+  const prevTopView = useRef(false);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -260,10 +265,18 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
 
   useFrame(() => {
     // 1. Drain drag deltas into persistent yaw/pitch state.
+    const topView = getBuilderTopView();
+    if (topView !== prevTopView.current) {
+      prevTopView.current = topView;
+      // Snap to a steep downward tilt on entering top view, level on exit.
+      pitchRef.current = topView ? -1.0 : 0;
+    }
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
-      const lim = (Math.PI / 180) * 70;
+      // Top view widens the downward clamp so the user can look straight
+      // down at the build grid.
+      const lim = (Math.PI / 180) * (topView ? 89 : 70);
       if (pitchRef.current > lim) pitchRef.current = lim;
       if (pitchRef.current < -lim) pitchRef.current = -lim;
       lookInput.yaw = 0;
@@ -359,10 +372,26 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // outward normal. If the camera ever clips into the core, the bug
     // is in the body integrator (or a missing surface support band) —
     // patching it here would only mask the real failure.
-    const eyeLift = EYE_LIFT;
-    const eyeX = source[0] + upN[0] * eyeLift;
-    const eyeY = source[1] + upN[1] * eyeLift;
-    const eyeZ = source[2] + upN[2] * eyeLift;
+    // Builder "Top view": boom the eye up and back along the view forward
+    // so the avatar plus a wide patch of build grid stay in frame.
+    const eyeLift = topView ? EYE_LIFT + TOP_VIEW_UP_M : EYE_LIFT;
+    let boomX = 0, boomY = 0, boomZ = 0;
+    if (topView) {
+      const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      // Strip the radial component so the boom pulls back along the ground.
+      const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
+      let bx = viewFwd.x - upN[0] * vdot;
+      let by = viewFwd.y - upN[1] * vdot;
+      let bz = viewFwd.z - upN[2] * vdot;
+      const bn = Math.hypot(bx, by, bz) || 1;
+      bx /= bn; by /= bn; bz /= bn;
+      boomX = -bx * TOP_VIEW_BACK_M;
+      boomY = -by * TOP_VIEW_BACK_M;
+      boomZ = -bz * TOP_VIEW_BACK_M;
+    }
+    const eyeX = source[0] + upN[0] * eyeLift + boomX;
+    const eyeY = source[1] + upN[1] * eyeLift + boomY;
+    const eyeZ = source[2] + upN[2] * eyeLift + boomZ;
     camera.position.set(eyeX, eyeY, eyeZ);
     camera.up.set(upN[0], upN[1], upN[2]);
 
@@ -713,10 +742,14 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   const [grabbing, setGrabbing] = useState(false);
   useEffect(() => {
     if (inert) return;
-    const el = ref.current; if (!el) return;
     let lastX = 0, lastY = 0, active = false;
+    const isInteractiveUi = (target: EventTarget | null) => {
+      const node = target instanceof Element ? target : null;
+      return !!node?.closest('button, a, input, textarea, select, [role="button"], [data-no-look="true"]');
+    };
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
+      if (isInteractiveUi(e.target)) return;
       active = true;
       lastX = e.clientX; lastY = e.clientY;
       setGrabbing(true);
@@ -728,12 +761,12 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
       lastX = e.clientX; lastY = e.clientY;
     };
     const onUp = () => { active = false; setGrabbing(false); };
-    el.addEventListener('mousedown', onDown);
+    window.addEventListener('mousedown', onDown);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('blur', onUp);
     return () => {
-      el.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mousedown', onDown);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('blur', onUp);
@@ -742,7 +775,9 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   return (
     <div
       ref={ref}
-      className={`absolute inset-0 z-10 ${inert ? 'pointer-events-none' : grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+      // Pointer-events stay OFF so in-Canvas placement clicks reach the
+      // AssetCaster; look-drag is driven by window listeners instead.
+      className={`pointer-events-none absolute inset-0 z-10 ${grabbing ? 'cursor-grabbing' : 'cursor-grab'}`}
     />
   );
 }
@@ -2077,18 +2112,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Desktop look + move controls (no pointer lock).
           While plotting, re-enable joystick + look so the user can walk. */}
-      {ready && !isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
+      {ready && !isMobile && (
         <>
-          <DesktopLookOverlay inert={scenePlacementArmed} />
-          <DesktopJoystick />
+          {/* Look-drag stays live in Builder Mode so the user can pan and
+              tilt while positioning a piece. */}
+          <DesktopLookOverlay />
+          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <DesktopJoystick />}
         </>
       )}
 
       {/* Mobile controls */}
-      {isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
+      {isMobile && (
         <>
           <TouchLookOverlay inert={scenePlacementArmed} />
-          <MobileJoystick />
+          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <MobileJoystick />}
         </>
       )}
 
@@ -2134,7 +2171,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Cast-armed HUD pill — selection first, click/tap drop second,
           confirm only after a real positioned ghost exists. */}
-      {castArmed && (
+      {castArmed && pendingCast?.kind !== 'prefab' && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
           <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)]">
             <div className="flex items-center gap-2">
