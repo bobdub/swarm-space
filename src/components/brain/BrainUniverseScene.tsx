@@ -229,6 +229,9 @@ function spawnNearSharedVillage(
  * follows the body whose position is integrated from field gradients.
  */
 function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: string }) {
+  // Builder "Top view" boom, in metres.
+  const TOP_VIEW_UP_M = 14;
+  const TOP_VIEW_BACK_M = 10;
   const { camera } = useThree();
   const physics = getBrainPhysics();
   const keys = useRef<Record<string, boolean>>({});
