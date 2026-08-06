@@ -12,7 +12,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine } from 'lucide-react';
+import {
+  subscribeBuilderTopView,
+  toggleBuilderTopView,
+  setBuilderTopView,
+} from '@/lib/brain/builderCameraStore';
 import { Button } from '@/components/ui/button';
 import {
   PREFAB_SECTIONS,
@@ -263,6 +268,22 @@ export function BrainBuilderBar({
           >
             <LandPlotIcon className="h-3 w-3" aria-hidden="true" />
             <span>Plot</span>
+          </button>
+          <button
+            type="button"
+            data-testid="builder-toggle-topview"
+            onClick={toggleBuilderTopView}
+            aria-pressed={topView}
+            title="Top view — look down on your avatar and the build grid"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              topView
+                ? 'border-primary/60 bg-primary/15 text-primary'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <ArrowDownFromLine className="h-3 w-3" aria-hidden="true" />
+            <span>Top</span>
           </button>
         </div>
         <Button
