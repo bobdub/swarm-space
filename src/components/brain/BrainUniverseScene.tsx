@@ -161,6 +161,7 @@ import {
 } from '@/lib/brain/infinityBinding';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
+import { getBuilderTopView, setBuilderTopView } from '@/lib/brain/builderCameraStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
