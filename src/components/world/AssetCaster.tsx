@@ -45,6 +45,8 @@ const SURFACE_CLEARANCE = 0.03;
  *  cells keeps the prefab on the first visible grid line ahead of the
  *  player instead of half-way to the horizon. */
 const SPAWN_FORWARD_M = CELL * 2;
+/** Pointer travel (px) under which a press counts as a click, not a drag. */
+const CLICK_SLOP_PX = 6;
 
 /** Intersect a ray (origin, dir) with a sphere; return the near hit or null. */
 function intersectShell(
@@ -73,6 +75,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const sphereRef = useRef<THREE.Mesh>(null);
   const ghostRef = useRef<THREE.Group>(null);
   const draggingRef = useRef(false);
+  const pressStartRef = useRef<{ x: number; y: number } | null>(null);
   // Earth-local unit direction of the ghost. Stored so the ghost sticks
   // to the rotating surface instead of drifting in world space.
   const localDirRef = useRef<Vec3 | null>(null);
