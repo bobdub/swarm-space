@@ -2083,18 +2083,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Desktop look + move controls (no pointer lock).
           While plotting, re-enable joystick + look so the user can walk. */}
-      {ready && !isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
+      {ready && !isMobile && (
         <>
-          <DesktopLookOverlay inert={scenePlacementArmed} />
-          <DesktopJoystick />
+          {/* Look-drag stays live in Builder Mode so the user can pan and
+              tilt while positioning a piece. */}
+          <DesktopLookOverlay />
+          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <DesktopJoystick />}
         </>
       )}
 
       {/* Mobile controls */}
-      {isMobile && (!isBuilding || (isPlotting && !builder.pendingPlot)) && (
+      {isMobile && (
         <>
           <TouchLookOverlay inert={scenePlacementArmed} />
-          <MobileJoystick />
+          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <MobileJoystick />}
         </>
       )}
 
@@ -2140,7 +2142,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Cast-armed HUD pill — selection first, click/tap drop second,
           confirm only after a real positioned ghost exists. */}
-      {castArmed && (
+      {castArmed && pendingCast?.kind !== 'prefab' && (
         <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-3">
           <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border-2 border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-3 text-sm text-foreground shadow-[0_0_24px_hsla(265,70%,55%,0.45)]">
             <div className="flex items-center gap-2">
