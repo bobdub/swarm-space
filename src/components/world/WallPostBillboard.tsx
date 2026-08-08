@@ -337,13 +337,23 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
             color: '#a78bfa', fontSize: 13,
           }}>media syncing…</div>
         );
-      case 'error':
+      case 'syncing':
         return (
           <div style={{
             width: '100%', height: '100%', display: 'flex', alignItems: 'center',
             justifyContent: 'center', background: '#0b0820', borderRadius: 6,
-            color: '#fca5a5', fontSize: 13,
-          }}>media unavailable</div>
+            color: '#a78bfa', fontSize: 13, padding: 12, textAlign: 'center',
+          }}>{media.message}</div>
+        );
+      case 'error':
+        return (
+          <div
+            onClick={() => setRetryTick((n) => n + 1)}
+            style={{
+            width: '100%', height: '100%', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', background: '#0b0820', borderRadius: 6,
+            color: '#fca5a5', fontSize: 13, padding: 12, textAlign: 'center', cursor: 'pointer',
+          }}>{media.name ?? 'media unavailable'}</div>
         );
       default:
         return null;
