@@ -64,6 +64,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const [post, setPost] = useState<Post | null>(null);
   const [media, setMedia] = useState<MediaState>({ kind: 'none' });
   const [extraCount, setExtraCount] = useState(0);
+  const [retryTick, setRetryTick] = useState(0);
   const objectUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -115,17 +116,70 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
 
     setMedia({ kind: 'pending' });
     const fileId = ids[0];
-    const load = async () => {
+
+    // Peers rarely hold the manifest/chunks for someone else's wall video.
+    // Mirror the feed's FilePreview path: fetch from the mesh, then decrypt,
+    // then sweep once more if a piece landed late.
+    const resolveManifest = async (): Promise<Manifest | null> => {
+      const local = (await get('manifests', fileId)) as Manifest | undefined;
+      if (local?.chunks?.length && local.fileKey) return local;
+      const manager = tryGetP2PManager();
+      if (!manager) return local ?? null;
+      if (!cancelled) setMedia({ kind: 'syncing', message: 'fetching from peers…' });
       try {
-        const manifest = (await get('manifests', fileId)) as Manifest | undefined;
+        const remote = await manager.ensureManifest(fileId, { includeChunks: true });
+        if (remote?.chunks?.length && remote.fileKey) return remote;
+      } catch (err) {
+        console.debug('[WallPostBillboard] ensureManifest failed', err);
+      }
+      return ((await get('manifests', fileId)) as Manifest | undefined) ?? null;
+    };
+
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = async () => {
+      if (cancelled) return;
+      attempt += 1;
+      try {
+        const manifest = await resolveManifest();
+        if (cancelled) return;
         if (!manifest || !manifest.chunks?.length || !manifest.fileKey) {
-          if (!cancelled) setMedia({ kind: 'pending' });
+          scheduleRetry('waiting for the file to reach the mesh…');
           return;
         }
+
+        const pre = await ensureManifestChunks(manifest);
+        if (cancelled) return;
+        if (!pre.ok && pre.missing.length === manifest.chunks.length) {
+          scheduleRetry(
+            pre.offline
+              ? 'offline — connect to the SWARM'
+              : `waiting on ${pre.missing.length} piece(s) from peers…`,
+          );
+          return;
+        }
+
         const fileKey = await importFileKey(manifest);
-        const blob = manifest.chunks.length > 100
-          ? await progressiveDecryptToBlob(manifest)
-          : await decryptAndReassembleFile(manifest, fileKey);
+        const runDecrypt = () => (manifest.chunks.length > 100
+          ? progressiveDecryptToBlob(manifest)
+          : decryptAndReassembleFile(manifest, fileKey));
+
+        let blob: Blob;
+        try {
+          blob = await runDecrypt();
+        } catch (firstErr) {
+          console.debug('[WallPostBillboard] decrypt retry after chunk sweep', firstErr);
+          if (cancelled) return;
+          setMedia({ kind: 'syncing', message: 'fetching missing pieces…' });
+          const retryFetch = await ensureManifestChunks(manifest);
+          if (cancelled) return;
+          if (!retryFetch.ok) {
+            scheduleRetry(`waiting on ${retryFetch.missing.length} piece(s) from peers…`);
+            return;
+          }
+          blob = await runDecrypt();
+        }
         if (cancelled) return;
         revoke();
         const url = URL.createObjectURL(blob);
@@ -140,18 +194,33 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
           : 'file';
         setMedia({ kind, url, mime, name: manifest.originalName });
       } catch (err) {
-        console.debug('[WallPostBillboard] decrypt pending', err);
-        if (!cancelled) setMedia({ kind: 'pending' });
+        console.debug('[WallPostBillboard] media resolve failed', err);
+        if (!cancelled) scheduleRetry('media unavailable — tap to retry');
       }
     };
+
+    // Bounded backoff: 3 tries, then park on a tappable message.
+    function scheduleRetry(message: string) {
+      if (cancelled) return;
+      if (attempt >= 3) {
+        setMedia({ kind: 'error', name: `${message} (tap to retry)` });
+        return;
+      }
+      setMedia({ kind: 'syncing', message });
+      timer = setTimeout(() => { void load(); }, 2500 * attempt);
+    }
+
     void load();
-    const onUpdate = () => { void load(); };
+    const onUpdate = () => { attempt = 0; void load(); };
     window.addEventListener('p2p-posts-updated', onUpdate);
+    window.addEventListener('content-transfer-progress', onUpdate);
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
       window.removeEventListener('p2p-posts-updated', onUpdate);
+      window.removeEventListener('content-transfer-progress', onUpdate);
     };
-  }, [post]);
+  }, [post, retryTick]);
 
   useEffect(() => {
     return () => {
