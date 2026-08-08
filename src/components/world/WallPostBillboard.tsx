@@ -14,6 +14,8 @@ import { Html } from '@react-three/drei';
 import { get, getAll } from '@/lib/store';
 import { importFileKey, decryptAndReassembleFile, type Manifest } from '@/lib/fileEncryption';
 import { progressiveDecryptToBlob } from '@/lib/torrent/streamingDecryptor';
+import { ensureManifestChunks } from '@/lib/p2p/chunkFetch';
+import { tryGetP2PManager } from '@/lib/p2p/manager';
 import type { Post } from '@/types';
 
 interface WallPostBillboardProps {
@@ -39,6 +41,7 @@ function relTime(ts?: string): string {
 type MediaState =
   | { kind: 'none' }
   | { kind: 'pending' }
+  | { kind: 'syncing'; message: string }
   | { kind: 'locked'; reason: 'walled' | 'nsfw' }
   | { kind: 'error'; name?: string }
   | { kind: 'image' | 'video' | 'audio' | 'file'; url: string; mime: string; name?: string };
