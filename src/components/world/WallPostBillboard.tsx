@@ -127,7 +127,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       if (!manager) return local ?? null;
       if (!cancelled) setMedia({ kind: 'syncing', message: 'fetching from peers…' });
       try {
-        const remote = await manager.ensureManifest(fileId, { includeChunks: true });
+        const remote = (await manager.ensureManifest(fileId, { includeChunks: true })) as Manifest | null;
         if (remote?.chunks?.length && remote.fileKey) return remote;
       } catch (err) {
         console.debug('[WallPostBillboard] ensureManifest failed', err);
@@ -137,9 +137,11 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
 
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let busy = false;
 
     const load = async () => {
-      if (cancelled) return;
+      if (cancelled || busy) return;
+      busy = true;
       attempt += 1;
       try {
         const manifest = await resolveManifest();
@@ -196,6 +198,8 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       } catch (err) {
         console.debug('[WallPostBillboard] media resolve failed', err);
         if (!cancelled) scheduleRetry('media unavailable — tap to retry');
+      } finally {
+        busy = false;
       }
     };
 
