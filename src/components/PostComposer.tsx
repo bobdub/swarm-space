@@ -32,6 +32,8 @@ interface PostComposerProps {
   onCancel?: () => void;
   onPostCreated?: (post: Post) => void;
   defaultProjectId?: string | null;
+  /** When posting onto a wall in the Brain, links the post to that placement. */
+  wallPlacementId?: string;
   showHeader?: boolean;
   showPostHistory?: boolean;
   className?: string;
@@ -43,6 +45,7 @@ export const PostComposer = ({
   onCancel,
   onPostCreated,
   defaultProjectId,
+  wallPlacementId,
   showHeader = false,
   showPostHistory = false,
   className,
@@ -220,6 +223,7 @@ export const PostComposer = ({
         authorPeerId,
         authorBadgeSnapshots: badgeSnapshots,
         projectId: projectIdForPost,
+        ...(wallPlacementId ? { wallPlacementId } : {}),
         type: postType,
         content: content.trim(),
         manifestIds,
