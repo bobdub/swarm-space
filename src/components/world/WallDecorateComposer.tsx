@@ -11,7 +11,6 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PostComposer } from '@/components/PostComposer';
 import { decorateWall } from '@/lib/world/wallDecorations';
-import { put } from '@/lib/store';
 import { toast } from 'sonner';
 import type { Post } from '@/types';
 
@@ -41,9 +40,10 @@ export function WallDecorateComposer({
 
   const handlePostCreated = async (post: Post) => {
     try {
-      const linkedPost: Post = { ...post, wallPlacementId: placementId };
-      await put('posts', linkedPost);
-      await decorateWall(placementId, linkedPost.id);
+      // The post is already signed, stored and broadcast with
+      // `wallPlacementId` set by PostComposer — it is an ordinary feed post
+      // that also happens to be pinned here. Only the pin is written now.
+      await decorateWall(placementId, post.id);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
       }
@@ -87,6 +87,7 @@ export function WallDecorateComposer({
         <PostComposer
           autoFocus
           defaultProjectId={projectId ?? null}
+          wallPlacementId={placementId}
           onCancel={onClose}
           onPostCreated={(post) => { void handlePostCreated(post); }}
         />
