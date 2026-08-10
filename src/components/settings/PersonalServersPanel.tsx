@@ -32,7 +32,15 @@ export function PersonalServersPanel() {
     setProbingId(id);
     try {
       const result = await probePersonalServer(id, userId);
-      toast[result.ok ? 'success' : 'error'](result.ok ? 'Server healthy' : 'Probe failed');
+      if (result.ok) {
+        toast.success('Server healthy', { description: 'write · read · delete all passed' });
+      } else {
+        const failed = result.steps.find((s) => !s.ok);
+        toast.error(`Probe failed at ${failed?.step ?? 'connect'}`, {
+          description: failed?.error ?? 'No detail returned by the server.',
+          duration: 15000,
+        });
+      }
     } finally { setProbingId(null); }
   };
 
@@ -80,6 +88,25 @@ export function PersonalServersPanel() {
                   <p className="text-xs text-muted-foreground">
                     {formatBytes(s.usedBytes)} of {formatBytes(s.capBytes)}
                   </p>
+                  {s.health?.steps?.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {s.health.steps.map((st) => (
+                        <span
+                          key={st.step}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                            st.ok
+                              ? 'bg-primary/15 text-primary'
+                              : 'bg-destructive/15 text-destructive'
+                          }`}
+                        >
+                          {st.step} {st.ok ? 'ok' : 'failed'}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {s.health && !s.health.ok && s.health.error ? (
+                    <p className="mt-2 break-words text-xs text-destructive/90">{s.health.error}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-1">
                   <Button type="button" size="icon" variant="ghost" disabled={probingId === s.id}
