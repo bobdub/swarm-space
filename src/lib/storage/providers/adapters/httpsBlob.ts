@@ -15,6 +15,8 @@ export interface HttpsBlobCreds {
   token: string;
 }
 
+import { adapterFetch, describeHttpFailure } from './netError';
+
 export interface HttpsBlobHealth {
   ok: boolean;
   used?: number;
@@ -35,38 +37,38 @@ function chunkUrl(baseUrl: string, hash: string): string {
 export async function httpsBlobPut(
   baseUrl: string, creds: HttpsBlobCreds, hash: string, body: ArrayBuffer,
 ): Promise<void> {
-  const res = await fetch(chunkUrl(baseUrl, hash), {
+  const res = await adapterFetch(chunkUrl(baseUrl, hash), {
     method: 'PUT',
     headers: { ...authHeaders(creds), 'Content-Type': 'application/octet-stream' },
     body,
   });
   if (!res.ok && res.status !== 201) {
-    throw new Error(`PUT failed: ${res.status} ${res.statusText}`);
+    throw new Error(describeHttpFailure('PUT', res.status, await res.text().catch(() => res.statusText), { endpoint: baseUrl }));
   }
 }
 
 export async function httpsBlobGet(
   baseUrl: string, creds: HttpsBlobCreds, hash: string,
 ): Promise<ArrayBuffer | null> {
-  const res = await fetch(chunkUrl(baseUrl, hash), { headers: authHeaders(creds) });
+  const res = await adapterFetch(chunkUrl(baseUrl, hash), { headers: authHeaders(creds) });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GET failed: ${res.status}`);
+  if (!res.ok) throw new Error(describeHttpFailure('GET', res.status, await res.text().catch(() => ''), { endpoint: baseUrl }));
   return await res.arrayBuffer();
 }
 
 export async function httpsBlobHead(
   baseUrl: string, creds: HttpsBlobCreds, hash: string,
 ): Promise<boolean> {
-  const res = await fetch(chunkUrl(baseUrl, hash), { method: 'HEAD', headers: authHeaders(creds) });
+  const res = await adapterFetch(chunkUrl(baseUrl, hash), { method: 'HEAD', headers: authHeaders(creds) });
   return res.ok;
 }
 
 export async function httpsBlobDelete(
   baseUrl: string, creds: HttpsBlobCreds, hash: string,
 ): Promise<void> {
-  const res = await fetch(chunkUrl(baseUrl, hash), { method: 'DELETE', headers: authHeaders(creds) });
+  const res = await adapterFetch(chunkUrl(baseUrl, hash), { method: 'DELETE', headers: authHeaders(creds) });
   if (!res.ok && res.status !== 204 && res.status !== 404) {
-    throw new Error(`DELETE failed: ${res.status}`);
+    throw new Error(describeHttpFailure('DELETE', res.status, await res.text().catch(() => ''), { endpoint: baseUrl }));
   }
 }
 
@@ -74,7 +76,7 @@ export async function httpsBlobHealth(
   baseUrl: string, creds: HttpsBlobCreds,
 ): Promise<HttpsBlobHealth> {
   const base = baseUrl.replace(/\/$/, '');
-  const res = await fetch(`${base}/health`, { headers: authHeaders(creds) });
+  const res = await adapterFetch(`${base}/health`, { headers: authHeaders(creds) });
   if (!res.ok) return { ok: false };
   try { return { ok: true, ...(await res.json()) }; } catch { return { ok: true }; }
 }

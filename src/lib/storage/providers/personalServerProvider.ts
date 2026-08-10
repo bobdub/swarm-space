@@ -200,7 +200,13 @@ export async function probePersonalServer(
   }
 
   const ok = steps.every((s) => s.ok);
-  const health: PersonalServerHealth = { ok, checkedAt: Date.now() };
+  const firstFail = steps.find((s) => !s.ok);
+  const health: PersonalServerHealth = {
+    ok,
+    checkedAt: Date.now(),
+    steps,
+    ...(firstFail ? { error: `${firstFail.step}: ${firstFail.error ?? 'failed'}` } : {}),
+  };
 
   // For HTTPS blob, also pull /health
   const server = getPersonalServer(serverId);

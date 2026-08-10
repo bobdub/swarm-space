@@ -21,6 +21,8 @@ export interface PersonalServerHealth {
   usedBytes?: number;
   capBytes?: number;
   error?: string;
+  /** Per-step outcome of the last write/read/delete probe. */
+  steps?: { step: string; ok: boolean; error?: string }[];
 }
 
 export interface PersonalServer {

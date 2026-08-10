@@ -17,6 +17,8 @@ export interface S3DirectCreds {
   secretAccessKey: string;
 }
 
+import { adapterFetch, describeHttpFailure } from './netError';
+
 export interface S3DirectConfig {
   endpoint: string;   // e.g. https://<account>.r2.cloudflarestorage.com
   region: string;     // e.g. auto | us-east-1
@@ -118,12 +120,14 @@ export async function s3DirectPut(
 ): Promise<void> {
   const key = s3ChunkKey(cfg.userId, hash);
   const req = await signS3(cfg, creds, 'PUT', key, body);
-  const res = await fetch(req.url, {
+  const res = await adapterFetch(req.url, {
     method: 'PUT',
     headers: { ...req.headers, 'Content-Type': 'application/octet-stream' },
     body,
   });
-  if (!res.ok) throw new Error(`S3 PUT failed: ${res.status} ${await res.text().catch(() => '')}`);
+  if (!res.ok) {
+    throw new Error(describeHttpFailure('S3 PUT', res.status, await res.text().catch(() => ''), cfg));
+  }
 }
 
 export async function s3DirectGet(
@@ -131,9 +135,11 @@ export async function s3DirectGet(
 ): Promise<ArrayBuffer | null> {
   const key = s3ChunkKey(cfg.userId, hash);
   const req = await signS3(cfg, creds, 'GET', key, null);
-  const res = await fetch(req.url, { headers: req.headers });
+  const res = await adapterFetch(req.url, { headers: req.headers });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`S3 GET failed: ${res.status}`);
+  if (!res.ok) {
+    throw new Error(describeHttpFailure('S3 GET', res.status, await res.text().catch(() => ''), cfg));
+  }
   return await res.arrayBuffer();
 }
 
@@ -142,7 +148,7 @@ export async function s3DirectHead(
 ): Promise<boolean> {
   const key = s3ChunkKey(cfg.userId, hash);
   const req = await signS3(cfg, creds, 'HEAD', key, null);
-  const res = await fetch(req.url, { method: 'HEAD', headers: req.headers });
+  const res = await adapterFetch(req.url, { method: 'HEAD', headers: req.headers });
   return res.ok;
 }
 
@@ -151,8 +157,8 @@ export async function s3DirectDelete(
 ): Promise<void> {
   const key = s3ChunkKey(cfg.userId, hash);
   const req = await signS3(cfg, creds, 'DELETE', key, null);
-  const res = await fetch(req.url, { method: 'DELETE', headers: req.headers });
+  const res = await adapterFetch(req.url, { method: 'DELETE', headers: req.headers });
   if (!res.ok && res.status !== 204 && res.status !== 404) {
-    throw new Error(`S3 DELETE failed: ${res.status}`);
+    throw new Error(describeHttpFailure('S3 DELETE', res.status, await res.text().catch(() => ''), cfg));
   }
 }
