@@ -150,6 +150,27 @@ const PersonalServerGuidePage = () => {
                 If the probe fails, check that your CORS policy allows the app origin, that your token or keys are correct,
                 and that your bucket permissions allow PUT, GET, HEAD, and DELETE.
               </P>
+              <P className="text-muted-foreground">
+                The probe now names the exact step that failed (write, read, or delete) and shows the server's own
+                error text. The three most common causes:
+              </P>
+              <P className="text-muted-foreground">
+                <strong>1. CORS.</strong> If it says the browser could not reach your host, your server is either
+                offline for this device or is not returning CORS headers. On MinIO, allow this app's origin with the
+                methods GET, PUT, HEAD, DELETE and the headers <code className="text-xs">Authorization</code>,
+                <code className="text-xs"> x-amz-content-sha256</code>, <code className="text-xs">x-amz-date</code>,
+                <code className="text-xs"> content-type</code>. Servers on a private tailnet must be reachable from the
+                same device running the browser.
+              </P>
+              <P className="text-muted-foreground">
+                <strong>2. Region.</strong> A 403 mentioning a signature usually means the region does not match.
+                MinIO defaults to <code className="text-xs">us-east-1</code>; Cloudflare R2 uses
+                <code className="text-xs"> auto</code>.
+              </P>
+              <P className="text-muted-foreground">
+                <strong>3. Bucket.</strong> A 404 means the bucket name is wrong or has not been created yet on that
+                endpoint.
+              </P>
             </Step>
 
             <Step number={5} title="Choose your scope and capacity">
