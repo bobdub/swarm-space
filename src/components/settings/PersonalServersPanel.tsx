@@ -41,6 +41,12 @@ export function PersonalServersPanel() {
           duration: 15000,
         });
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error('Probe could not run', {
+        description: message || 'An unexpected error interrupted the probe.',
+        duration: 15000,
+      });
     } finally { setProbingId(null); }
   };
 

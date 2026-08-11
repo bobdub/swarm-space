@@ -175,19 +175,43 @@ export async function probePersonalServer(
   const random = crypto.getRandomValues(new Uint8Array(1024));
   const probeHash = 'probe-' + crypto.randomUUID();
 
+  const finishProbe = async (): Promise<{ ok: boolean; steps: { step: string; ok: boolean; error?: string }[] }> => {
+    const ok = steps.every((step) => step.ok);
+    const firstFail = steps.find((step) => !step.ok);
+    const health: PersonalServerHealth = {
+      ok,
+      checkedAt: Date.now(),
+      steps,
+      ...(firstFail ? { error: `${firstFail.step}: ${firstFail.error ?? 'failed'}` } : {}),
+    };
+
+    const server = getPersonalServer(serverId);
+    if (ok && server?.kind === 'https-blob') {
+      try {
+        const creds = await getCreds<HttpsBlobCreds>(serverId);
+        const serverHealth = await httpsBlobHealth(server.url, creds);
+        if (serverHealth.used !== undefined) health.usedBytes = serverHealth.used;
+        if (serverHealth.cap !== undefined) health.capBytes = serverHealth.cap;
+      } catch { /* optional */ }
+    }
+
+    updatePersonalServer(serverId, { health });
+    return { ok, steps };
+  };
+
   try {
     await personalServerPut(serverId, userId, probeHash, random.buffer);
     steps.push({ step: 'write', ok: true });
   } catch (e) {
     steps.push({ step: 'write', ok: false, error: (e as Error).message });
-    return { ok: false, steps };
+    return finishProbe();
   }
 
   try {
     const got = await personalServerGet(serverId, userId, probeHash, async () => true);
     const ok = !!got && got.byteLength === random.byteLength;
-    steps.push({ step: 'read', ok });
     if (!ok) throw new Error('Read mismatch');
+    steps.push({ step: 'read', ok: true });
   } catch (e) {
     steps.push({ step: 'read', ok: false, error: (e as Error).message });
   }
@@ -199,27 +223,7 @@ export async function probePersonalServer(
     steps.push({ step: 'delete', ok: false, error: (e as Error).message });
   }
 
-  const ok = steps.every((s) => s.ok);
-  const firstFail = steps.find((s) => !s.ok);
-  const health: PersonalServerHealth = {
-    ok,
-    checkedAt: Date.now(),
-    steps,
-    ...(firstFail ? { error: `${firstFail.step}: ${firstFail.error ?? 'failed'}` } : {}),
-  };
-
-  // For HTTPS blob, also pull /health
-  const server = getPersonalServer(serverId);
-  if (ok && server?.kind === 'https-blob') {
-    try {
-      const creds = await getCreds<HttpsBlobCreds>(serverId);
-      const h = await httpsBlobHealth(server.url, creds);
-      if (h.used !== undefined) health.usedBytes = h.used;
-      if (h.cap !== undefined) health.capBytes = h.cap;
-    } catch { /* optional */ }
-  }
-  updatePersonalServer(serverId, { health });
-  return { ok, steps };
+  return finishProbe();
 }
 
 // ── Redundancy seeder candidate hook ───────────────────────────────────
