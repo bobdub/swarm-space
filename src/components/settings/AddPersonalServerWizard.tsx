@@ -87,6 +87,8 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     close();
   };
 
+  const failedProbeStep = probeResult?.steps.find((probeStep) => !probeStep.ok);
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); else onOpenChange(o); }}>
       <DialogContent className="max-w-md">
@@ -180,8 +182,12 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
                 {!probeResult.ok && (
                   <Alert variant="destructive">
                     <AlertDescription className="text-xs">
-                      Probe failed. For S3/R2/B2 verify CORS allows the app origin. For HTTPS blob
-                      verify auth + CORS preflight.
+                      <span className="block font-medium">
+                        Probe failed at {failedProbeStep?.step ?? 'connect'}
+                      </span>
+                      <span className="mt-1 block break-words">
+                        {failedProbeStep?.error ?? 'No detail returned by the server.'}
+                      </span>
                     </AlertDescription>
                   </Alert>
                 )}
