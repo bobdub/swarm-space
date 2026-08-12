@@ -13,9 +13,13 @@ import {
 
 const DB_NAME = 'swarm-world-placements';
 const STORE = 'placements';
-const DB_VERSION = 1;
+const TOMB_STORE = 'tombstones';
+const DB_VERSION = 2;
 const CHANNEL_NAME = 'swarm:world:placements';
 const SNAPSHOT_KEY = 'swarm:world:placements:snapshot';
+const TOMB_SNAPSHOT_KEY = 'swarm:world:placements:tombstones';
+/** Tombstones older than this are pruned to keep storage bounded. */
+const TOMB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface PlacementRecord extends PlacedHandle {
   _origin: 'local' | 'peer';
@@ -26,12 +30,21 @@ export interface PlacementRecord extends PlacedHandle {
   universeKey?: string;
 }
 
+/** Deletion record — outlives the placement so backfill can't resurrect it. */
+export interface PlacementTombstone {
+  placementId: string;
+  universeKey: string;
+  deletedAt: number;
+}
+
 type Listener = (records: PlacementRecord[]) => void;
 const listeners = new Set<Listener>();
 const records = new Map<string, PlacementRecord>();
+const tombstones = new Map<string, PlacementTombstone>();
 let storageHydrated = false;
 let channel: BroadcastChannel | null = null;
 let gossipBridge: ((rec: PlacementRecord) => void) | null = null;
+let deleteGossipBridge: ((tomb: PlacementTombstone) => void) | null = null;
 
 /** Currently-active universe scope. Set by the scene whenever the user
  *  enters a different Brain (lobby ↔ project hub ↔ live room). */
@@ -118,14 +131,68 @@ function writeSnapshot(): void {
   }
 }
 
+function pruneTombstones(): void {
+  const cutoff = Date.now() - TOMB_TTL_MS;
+  for (const [id, tomb] of tombstones) {
+    if (tomb.deletedAt < cutoff) tombstones.delete(id);
+  }
+}
+
+function readTombSnapshot(): PlacementTombstone[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(TOMB_SNAPSHOT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (t): t is PlacementTombstone => Boolean(t?.placementId) && typeof t?.deletedAt === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeTombSnapshot(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    pruneTombstones();
+    const snap = [...tombstones.values()];
+    if (snap.length === 0) {
+      localStorage.removeItem(TOMB_SNAPSHOT_KEY);
+      return;
+    }
+    localStorage.setItem(TOMB_SNAPSHOT_KEY, JSON.stringify(snap));
+  } catch {
+    /* noop */
+  }
+}
+
+/** True when a tombstone supersedes the given record. */
+function isTombstoned(rec: { placementId: string; createdAt?: number }): boolean {
+  const tomb = tombstones.get(rec.placementId);
+  if (!tomb) return false;
+  const born = typeof rec.createdAt === 'number' ? rec.createdAt : 0;
+  return tomb.deletedAt >= born;
+}
+
 function chan(): BroadcastChannel | null {
   if (channel) return channel;
   if (typeof BroadcastChannel === 'undefined') return null;
   try { channel = new BroadcastChannel(CHANNEL_NAME); } catch { channel = null; }
   if (channel) {
     channel.onmessage = (ev) => {
-      const rec = ev?.data as PlacementRecord | undefined;
-      if (!rec || !rec.placementId) return;
+      const data = ev?.data as
+        | (PlacementRecord & { __delete?: never })
+        | { __delete: PlacementTombstone }
+        | undefined;
+      if (!data) return;
+      if ('__delete' in data && data.__delete?.placementId) {
+        applyTombstone(data.__delete, { persist: true });
+        return;
+      }
+      const rec = data as PlacementRecord;
+      if (!rec.placementId) return;
       ingest({ ...rec, _origin: 'peer' });
     };
   }
@@ -140,6 +207,7 @@ function openDb(): Promise<IDBDatabase | null> {
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'placementId' });
+      if (!db.objectStoreNames.contains(TOMB_STORE)) db.createObjectStore(TOMB_STORE, { keyPath: 'placementId' });
     };
     req.onsuccess = () => {
       const db = req.result;
@@ -190,6 +258,66 @@ async function dbAll(): Promise<PlacementRecord[]> {
   return out;
 }
 
+async function dbPutTomb(tomb: PlacementTombstone): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(TOMB_STORE, 'readwrite');
+      tx.objectStore(TOMB_STORE).put(tomb);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch { resolve(); }
+  });
+  try { db.close(); } catch { /* noop */ }
+}
+
+async function dbAllTombs(): Promise<PlacementTombstone[]> {
+  const db = await openDb();
+  if (!db) return [];
+  const out = await new Promise<PlacementTombstone[]>((resolve) => {
+    try {
+      const tx = db.transaction(TOMB_STORE, 'readonly');
+      const req = tx.objectStore(TOMB_STORE).getAll();
+      req.onsuccess = () => resolve((req.result as PlacementTombstone[]) ?? []);
+      req.onerror = () => resolve([]);
+    } catch { resolve([]); }
+  });
+  try { db.close(); } catch { /* noop */ }
+  return out;
+}
+
+/**
+ * Record a deletion and drop any live record it supersedes.
+ * Idempotent: an older tombstone never overwrites a newer one.
+ */
+function applyTombstone(
+  tomb: PlacementTombstone,
+  opts: { persist?: boolean } = {},
+): boolean {
+  if (!tomb?.placementId) return false;
+  const normalized: PlacementTombstone = {
+    placementId: tomb.placementId,
+    universeKey: tomb.universeKey || 'global',
+    deletedAt: typeof tomb.deletedAt === 'number' ? tomb.deletedAt : Date.now(),
+  };
+  const prev = tombstones.get(normalized.placementId);
+  if (prev && prev.deletedAt >= normalized.deletedAt) return false;
+  tombstones.set(normalized.placementId, normalized);
+  const existing = records.get(normalized.placementId);
+  if (existing && isTombstoned(existing)) {
+    records.delete(normalized.placementId);
+    try { getBuilderBlockEngine().removeBlock(existing.placementId, existing.prefabId); } catch { /* noop */ }
+    void dbDelete(existing.placementId).catch(() => { /* noop */ });
+    writeSnapshot();
+  }
+  writeTombSnapshot();
+  if (opts.persist) void dbPutTomb(normalized).catch(() => { /* noop */ });
+  scheduleNotify();
+  return true;
+}
+
 let notifyHandle: number | null = null;
 function scheduleNotify(): void {
   if (notifyHandle !== null) return;
@@ -211,6 +339,7 @@ function flushNotify(): void {
 }
 
 function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
+  if (isTombstoned(rec)) return;
   const existing = records.get(rec.placementId);
   if (existing && existing._origin === 'local' && rec._origin === 'peer') return;
   records.set(rec.placementId, rec);
@@ -238,10 +367,16 @@ export async function hydrateWorldPlacements(): Promise<void> {
   chan();
   if (!storageHydrated) {
     storageHydrated = true;
+    for (const tomb of [...(await dbAllTombs()), ...readTombSnapshot()]) {
+      const prev = tombstones.get(tomb.placementId);
+      if (!prev || prev.deletedAt < tomb.deletedAt) tombstones.set(tomb.placementId, tomb);
+    }
+    pruneTombstones();
     const merged = new Map<string, PlacementRecord>();
     for (const rec of await dbAll()) merged.set(rec.placementId, rec);
     for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
     for (const rec of merged.values()) {
+      if (isTombstoned(rec)) { void dbDelete(rec.placementId).catch(() => { /* noop */ }); continue; }
       ingest({ ...rec, _origin: rec._origin === 'peer' ? 'peer' : 'local' }, { replay: true });
     }
   } else {
@@ -251,6 +386,7 @@ export async function hydrateWorldPlacements(): Promise<void> {
     scheduleNotify();
   }
   writeSnapshot();
+  writeTombSnapshot();
 }
 
 export async function recordLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
@@ -329,10 +465,20 @@ export async function patchLocalPlacementMeta(
 export async function removeLocalPlacement(placementId: string): Promise<void> {
   const rec = records.get(placementId);
   if (!rec) return;
+  const tomb: PlacementTombstone = {
+    placementId,
+    universeKey: scopeOf(rec),
+    deletedAt: Date.now(),
+  };
+  tombstones.set(placementId, tomb);
   records.delete(placementId);
   writeSnapshot();
+  writeTombSnapshot();
   getBuilderBlockEngine().removeBlock(placementId, rec.prefabId);
   await dbDelete(placementId);
+  await dbPutTomb(tomb);
+  try { chan()?.postMessage({ __delete: tomb }); } catch { /* noop */ }
+  try { deleteGossipBridge?.(tomb); } catch (err) { console.warn('[worldPlacements] delete gossip error', err); }
   scheduleNotify();
 }
 
@@ -353,6 +499,24 @@ export function attachPlacementGossip(bridge: (rec: PlacementRecord) => void): (
   return () => { if (gossipBridge === bridge) gossipBridge = null; };
 }
 
+export function attachPlacementDeleteGossip(
+  bridge: (tomb: PlacementTombstone) => void,
+): () => void {
+  deleteGossipBridge = bridge;
+  return () => { if (deleteGossipBridge === bridge) deleteGossipBridge = null; };
+}
+
+/** Inbound peer deletion (mesh). */
+export function acceptPeerPlacementDelete(tomb: PlacementTombstone): void {
+  applyTombstone(tomb, { persist: true });
+}
+
+/** Transport list of deletions for the main-Brain lobby. */
+export function buildGlobalTombstoneSnapshot(): PlacementTombstone[] {
+  pruneTombstones();
+  return [...tombstones.values()].filter((t) => (t.universeKey || 'global') === 'global');
+}
+
 export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void {
   ingest({ ...rec, _origin: 'peer' });
 }
@@ -364,19 +528,28 @@ export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void
  */
 export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>[] {
   return [...records.values()]
-    .filter((rec) => scopeOf(rec) === 'global')
+    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec))
     .map(({ _origin: _ignored, ...rest }) => ({ ...rest, universeKey: 'global' }));
 }
 
 /** Merge a peer's lobby snapshot. Non-global entries are discarded. */
 export function mergePlacementSnapshot(
   incoming: Omit<PlacementRecord, '_origin'>[] | undefined | null,
+  incomingTombstones?: PlacementTombstone[] | null,
 ): number {
+  if (Array.isArray(incomingTombstones)) {
+    for (const tomb of incomingTombstones.slice(0, 2000)) {
+      if (!tomb?.placementId) continue;
+      if ((tomb.universeKey || 'global') !== 'global') continue;
+      applyTombstone(tomb, { persist: true });
+    }
+  }
   if (!Array.isArray(incoming)) return 0;
   let merged = 0;
   for (const rec of incoming.slice(0, 2000)) {
     if (!rec?.placementId || !rec?.prefabId || !Array.isArray(rec.hitPoint)) continue;
     if (scopeOf(rec) !== 'global') continue;
+    if (isTombstoned(rec)) continue;
     acceptPeerPlacement({ ...rec, universeKey: 'global' });
     merged++;
   }
@@ -385,8 +558,10 @@ export function mergePlacementSnapshot(
 
 export function _resetWorldPlacementsForTest(): void {
   records.clear();
+  tombstones.clear();
   listeners.clear();
   storageHydrated = false;
   if (channel) { try { channel.close(); } catch { /* noop */ } channel = null; }
   gossipBridge = null;
+  deleteGossipBridge = null;
 }
