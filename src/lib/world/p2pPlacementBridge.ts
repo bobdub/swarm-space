@@ -114,8 +114,6 @@ export function bootPlacementGossipBridge(): void {
       });
     });
     mesh.onMessage(TOOL_CHANNEL, (_peerId, payload) => {
-      const toolRec = payload as ForgedToolRecord | undefined;
-      void toolRec;
       const rec = payload as ForgedToolRecord | undefined;
       if (!rec || !rec.id || !rec.tool) return;
       try { acceptPeerForgedTool(rec); } catch (err) {
