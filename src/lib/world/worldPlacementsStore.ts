@@ -258,6 +258,66 @@ async function dbAll(): Promise<PlacementRecord[]> {
   return out;
 }
 
+async function dbPutTomb(tomb: PlacementTombstone): Promise<void> {
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(TOMB_STORE, 'readwrite');
+      tx.objectStore(TOMB_STORE).put(tomb);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch { resolve(); }
+  });
+  try { db.close(); } catch { /* noop */ }
+}
+
+async function dbAllTombs(): Promise<PlacementTombstone[]> {
+  const db = await openDb();
+  if (!db) return [];
+  const out = await new Promise<PlacementTombstone[]>((resolve) => {
+    try {
+      const tx = db.transaction(TOMB_STORE, 'readonly');
+      const req = tx.objectStore(TOMB_STORE).getAll();
+      req.onsuccess = () => resolve((req.result as PlacementTombstone[]) ?? []);
+      req.onerror = () => resolve([]);
+    } catch { resolve([]); }
+  });
+  try { db.close(); } catch { /* noop */ }
+  return out;
+}
+
+/**
+ * Record a deletion and drop any live record it supersedes.
+ * Idempotent: an older tombstone never overwrites a newer one.
+ */
+function applyTombstone(
+  tomb: PlacementTombstone,
+  opts: { persist?: boolean } = {},
+): boolean {
+  if (!tomb?.placementId) return false;
+  const normalized: PlacementTombstone = {
+    placementId: tomb.placementId,
+    universeKey: tomb.universeKey || 'global',
+    deletedAt: typeof tomb.deletedAt === 'number' ? tomb.deletedAt : Date.now(),
+  };
+  const prev = tombstones.get(normalized.placementId);
+  if (prev && prev.deletedAt >= normalized.deletedAt) return false;
+  tombstones.set(normalized.placementId, normalized);
+  const existing = records.get(normalized.placementId);
+  if (existing && isTombstoned(existing)) {
+    records.delete(normalized.placementId);
+    try { getBuilderBlockEngine().removeBlock(existing.placementId, existing.prefabId); } catch { /* noop */ }
+    void dbDelete(existing.placementId).catch(() => { /* noop */ });
+    writeSnapshot();
+  }
+  writeTombSnapshot();
+  if (opts.persist) void dbPutTomb(normalized).catch(() => { /* noop */ });
+  scheduleNotify();
+  return true;
+}
+
 let notifyHandle: number | null = null;
 function scheduleNotify(): void {
   if (notifyHandle !== null) return;
