@@ -465,10 +465,20 @@ export async function patchLocalPlacementMeta(
 export async function removeLocalPlacement(placementId: string): Promise<void> {
   const rec = records.get(placementId);
   if (!rec) return;
+  const tomb: PlacementTombstone = {
+    placementId,
+    universeKey: scopeOf(rec),
+    deletedAt: Date.now(),
+  };
+  tombstones.set(placementId, tomb);
   records.delete(placementId);
   writeSnapshot();
+  writeTombSnapshot();
   getBuilderBlockEngine().removeBlock(placementId, rec.prefabId);
   await dbDelete(placementId);
+  await dbPutTomb(tomb);
+  try { chan()?.postMessage({ __delete: tomb }); } catch { /* noop */ }
+  try { deleteGossipBridge?.(tomb); } catch (err) { console.warn('[worldPlacements] delete gossip error', err); }
   scheduleNotify();
 }
 
@@ -489,6 +499,24 @@ export function attachPlacementGossip(bridge: (rec: PlacementRecord) => void): (
   return () => { if (gossipBridge === bridge) gossipBridge = null; };
 }
 
+export function attachPlacementDeleteGossip(
+  bridge: (tomb: PlacementTombstone) => void,
+): () => void {
+  deleteGossipBridge = bridge;
+  return () => { if (deleteGossipBridge === bridge) deleteGossipBridge = null; };
+}
+
+/** Inbound peer deletion (mesh). */
+export function acceptPeerPlacementDelete(tomb: PlacementTombstone): void {
+  applyTombstone(tomb, { persist: true });
+}
+
+/** Transport list of deletions for the main-Brain lobby. */
+export function buildGlobalTombstoneSnapshot(): PlacementTombstone[] {
+  pruneTombstones();
+  return [...tombstones.values()].filter((t) => (t.universeKey || 'global') === 'global');
+}
+
 export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void {
   ingest({ ...rec, _origin: 'peer' });
 }
@@ -500,19 +528,28 @@ export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void
  */
 export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>[] {
   return [...records.values()]
-    .filter((rec) => scopeOf(rec) === 'global')
+    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec))
     .map(({ _origin: _ignored, ...rest }) => ({ ...rest, universeKey: 'global' }));
 }
 
 /** Merge a peer's lobby snapshot. Non-global entries are discarded. */
 export function mergePlacementSnapshot(
   incoming: Omit<PlacementRecord, '_origin'>[] | undefined | null,
+  incomingTombstones?: PlacementTombstone[] | null,
 ): number {
+  if (Array.isArray(incomingTombstones)) {
+    for (const tomb of incomingTombstones.slice(0, 2000)) {
+      if (!tomb?.placementId) continue;
+      if ((tomb.universeKey || 'global') !== 'global') continue;
+      applyTombstone(tomb, { persist: true });
+    }
+  }
   if (!Array.isArray(incoming)) return 0;
   let merged = 0;
   for (const rec of incoming.slice(0, 2000)) {
     if (!rec?.placementId || !rec?.prefabId || !Array.isArray(rec.hitPoint)) continue;
     if (scopeOf(rec) !== 'global') continue;
+    if (isTombstoned(rec)) continue;
     acceptPeerPlacement({ ...rec, universeKey: 'global' });
     merged++;
   }
@@ -521,8 +558,10 @@ export function mergePlacementSnapshot(
 
 export function _resetWorldPlacementsForTest(): void {
   records.clear();
+  tombstones.clear();
   listeners.clear();
   storageHydrated = false;
   if (channel) { try { channel.close(); } catch { /* noop */ } channel = null; }
   gossipBridge = null;
+  deleteGossipBridge = null;
 }
