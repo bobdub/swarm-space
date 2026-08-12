@@ -13,9 +13,13 @@ import {
 
 const DB_NAME = 'swarm-world-placements';
 const STORE = 'placements';
-const DB_VERSION = 1;
+const TOMB_STORE = 'tombstones';
+const DB_VERSION = 2;
 const CHANNEL_NAME = 'swarm:world:placements';
 const SNAPSHOT_KEY = 'swarm:world:placements:snapshot';
+const TOMB_SNAPSHOT_KEY = 'swarm:world:placements:tombstones';
+/** Tombstones older than this are pruned to keep storage bounded. */
+const TOMB_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface PlacementRecord extends PlacedHandle {
   _origin: 'local' | 'peer';
@@ -26,12 +30,21 @@ export interface PlacementRecord extends PlacedHandle {
   universeKey?: string;
 }
 
+/** Deletion record — outlives the placement so backfill can't resurrect it. */
+export interface PlacementTombstone {
+  placementId: string;
+  universeKey: string;
+  deletedAt: number;
+}
+
 type Listener = (records: PlacementRecord[]) => void;
 const listeners = new Set<Listener>();
 const records = new Map<string, PlacementRecord>();
+const tombstones = new Map<string, PlacementTombstone>();
 let storageHydrated = false;
 let channel: BroadcastChannel | null = null;
 let gossipBridge: ((rec: PlacementRecord) => void) | null = null;
+let deleteGossipBridge: ((tomb: PlacementTombstone) => void) | null = null;
 
 /** Currently-active universe scope. Set by the scene whenever the user
  *  enters a different Brain (lobby ↔ project hub ↔ live room). */
