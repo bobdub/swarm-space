@@ -131,14 +131,68 @@ function writeSnapshot(): void {
   }
 }
 
+function pruneTombstones(): void {
+  const cutoff = Date.now() - TOMB_TTL_MS;
+  for (const [id, tomb] of tombstones) {
+    if (tomb.deletedAt < cutoff) tombstones.delete(id);
+  }
+}
+
+function readTombSnapshot(): PlacementTombstone[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(TOMB_SNAPSHOT_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (t): t is PlacementTombstone => Boolean(t?.placementId) && typeof t?.deletedAt === 'number',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeTombSnapshot(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    pruneTombstones();
+    const snap = [...tombstones.values()];
+    if (snap.length === 0) {
+      localStorage.removeItem(TOMB_SNAPSHOT_KEY);
+      return;
+    }
+    localStorage.setItem(TOMB_SNAPSHOT_KEY, JSON.stringify(snap));
+  } catch {
+    /* noop */
+  }
+}
+
+/** True when a tombstone supersedes the given record. */
+function isTombstoned(rec: { placementId: string; createdAt?: number }): boolean {
+  const tomb = tombstones.get(rec.placementId);
+  if (!tomb) return false;
+  const born = typeof rec.createdAt === 'number' ? rec.createdAt : 0;
+  return tomb.deletedAt >= born;
+}
+
 function chan(): BroadcastChannel | null {
   if (channel) return channel;
   if (typeof BroadcastChannel === 'undefined') return null;
   try { channel = new BroadcastChannel(CHANNEL_NAME); } catch { channel = null; }
   if (channel) {
     channel.onmessage = (ev) => {
-      const rec = ev?.data as PlacementRecord | undefined;
-      if (!rec || !rec.placementId) return;
+      const data = ev?.data as
+        | (PlacementRecord & { __delete?: never })
+        | { __delete: PlacementTombstone }
+        | undefined;
+      if (!data) return;
+      if ('__delete' in data && data.__delete?.placementId) {
+        applyTombstone(data.__delete, { persist: true });
+        return;
+      }
+      const rec = data as PlacementRecord;
+      if (!rec.placementId) return;
       ingest({ ...rec, _origin: 'peer' });
     };
   }
@@ -153,6 +207,7 @@ function openDb(): Promise<IDBDatabase | null> {
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'placementId' });
+      if (!db.objectStoreNames.contains(TOMB_STORE)) db.createObjectStore(TOMB_STORE, { keyPath: 'placementId' });
     };
     req.onsuccess = () => {
       const db = req.result;
