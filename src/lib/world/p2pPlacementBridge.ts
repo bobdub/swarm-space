@@ -10,10 +10,14 @@
  */
 import {
   attachPlacementGossip,
+  attachPlacementDeleteGossip,
   acceptPeerPlacement,
+  acceptPeerPlacementDelete,
   buildGlobalPlacementSnapshot,
+  buildGlobalTombstoneSnapshot,
   mergePlacementSnapshot,
   type PlacementRecord,
+  type PlacementTombstone,
 } from '@/lib/world/worldPlacementsStore';
 import {
   attachToolGossip,
@@ -27,6 +31,7 @@ import {
 } from '@/lib/brain/barLightsStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
+const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
 const TOOL_CHANNEL = 'tools:forged';
 const SYNC_REQUEST_CHANNEL = 'world:placements:sync-request';
 const SYNC_RESPONSE_CHANNEL = 'world:placements:sync-response';
@@ -84,6 +89,9 @@ export function bootPlacementGossipBridge(): void {
     attachPlacementGossip((rec: PlacementRecord) => {
       try { mesh!.broadcast(PLACEMENT_CHANNEL, rec); } catch { /* noop */ }
     });
+    attachPlacementDeleteGossip((tomb: PlacementTombstone) => {
+      try { mesh!.broadcast(PLACEMENT_DELETE_CHANNEL, tomb); } catch { /* noop */ }
+    });
     attachToolGossip((rec: ForgedToolRecord) => {
       try { mesh!.broadcast(TOOL_CHANNEL, rec); } catch { /* noop */ }
     });
@@ -106,11 +114,24 @@ export function bootPlacementGossipBridge(): void {
       });
     });
     mesh.onMessage(TOOL_CHANNEL, (_peerId, payload) => {
+      const toolRec = payload as ForgedToolRecord | undefined;
+      void toolRec;
       const rec = payload as ForgedToolRecord | undefined;
       if (!rec || !rec.id || !rec.tool) return;
       try { acceptPeerForgedTool(rec); } catch (err) {
         console.warn('[placementBridge] accept tool failed', err);
       }
+    });
+
+    mesh.onMessage(PLACEMENT_DELETE_CHANNEL, (_peerId, payload) => {
+      const tomb = payload as PlacementTombstone | undefined;
+      if (!tomb || !tomb.placementId) return;
+      void isAcceptableScope(tomb.universeKey).then((ok) => {
+        if (!ok) return;
+        try { acceptPeerPlacementDelete(tomb); } catch (err) {
+          console.warn('[placementBridge] accept delete failed', err);
+        }
+      });
     });
 
     // ── Bar lights: live gossip + newcomer backfill ─────────────────
@@ -132,18 +153,24 @@ export function bootPlacementGossipBridge(): void {
     mesh.onMessage(SYNC_REQUEST_CHANNEL, (peerId) => {
       try {
         const snapshot = buildGlobalPlacementSnapshot();
-        if (snapshot.length === 0) return;
-        void mesh!.send(SYNC_RESPONSE_CHANNEL, peerId, { placements: snapshot });
+        const tombs = buildGlobalTombstoneSnapshot();
+        if (snapshot.length === 0 && tombs.length === 0) return;
+        void mesh!.send(SYNC_RESPONSE_CHANNEL, peerId, { placements: snapshot, tombstones: tombs });
       } catch (err) {
         console.warn('[placementBridge] sync-request failed', err);
       }
     });
 
     mesh.onMessage(SYNC_RESPONSE_CHANNEL, (_peerId, payload) => {
-      const list = (payload as { placements?: unknown })?.placements;
-      if (!Array.isArray(list)) return;
+      const body = payload as { placements?: unknown; tombstones?: unknown } | undefined;
+      const list = body?.placements;
+      const tombs = Array.isArray(body?.tombstones) ? (body!.tombstones as PlacementTombstone[]) : null;
+      if (!Array.isArray(list) && !tombs) return;
       try {
-        const n = mergePlacementSnapshot(list as PlacementRecord[]);
+        const n = mergePlacementSnapshot(
+          Array.isArray(list) ? (list as PlacementRecord[]) : [],
+          tombs,
+        );
         if (n > 0) console.log(`[placementBridge] merged ${n} lobby placement(s) from peer`);
       } catch (err) {
         console.warn('[placementBridge] merge snapshot failed', err);
