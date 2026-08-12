@@ -339,6 +339,7 @@ function flushNotify(): void {
 }
 
 function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
+  if (isTombstoned(rec)) return;
   const existing = records.get(rec.placementId);
   if (existing && existing._origin === 'local' && rec._origin === 'peer') return;
   records.set(rec.placementId, rec);
@@ -366,10 +367,16 @@ export async function hydrateWorldPlacements(): Promise<void> {
   chan();
   if (!storageHydrated) {
     storageHydrated = true;
+    for (const tomb of [...(await dbAllTombs()), ...readTombSnapshot()]) {
+      const prev = tombstones.get(tomb.placementId);
+      if (!prev || prev.deletedAt < tomb.deletedAt) tombstones.set(tomb.placementId, tomb);
+    }
+    pruneTombstones();
     const merged = new Map<string, PlacementRecord>();
     for (const rec of await dbAll()) merged.set(rec.placementId, rec);
     for (const rec of readSnapshot()) merged.set(rec.placementId, rec);
     for (const rec of merged.values()) {
+      if (isTombstoned(rec)) { void dbDelete(rec.placementId).catch(() => { /* noop */ }); continue; }
       ingest({ ...rec, _origin: rec._origin === 'peer' ? 'peer' : 'local' }, { replay: true });
     }
   } else {
@@ -379,6 +386,7 @@ export async function hydrateWorldPlacements(): Promise<void> {
     scheduleNotify();
   }
   writeSnapshot();
+  writeTombSnapshot();
 }
 
 export async function recordLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
