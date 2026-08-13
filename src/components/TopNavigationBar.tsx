@@ -44,7 +44,7 @@ export function TopNavigationBar() {
     <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
       <div
         ref={barRef}
-        className="mx-auto flex max-w-6xl items-center gap-2 md:gap-3 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-3 md:px-5 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
+        className="mx-auto flex max-w-7xl items-center gap-2 md:gap-3 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-3 md:px-5 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
       >
         {/* Mobile Menu */}
         <MobileNav />
