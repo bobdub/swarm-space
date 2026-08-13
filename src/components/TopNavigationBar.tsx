@@ -1,5 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Coins, PenSquare } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { primaryNavigationItems } from "@/components/navigationItems";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,22 @@ export function TopNavigationBar() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { balance, pending } = useCreditBalance(user?.id || null);
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  // Publish the real header height so page content always clears it,
+  // even when the bar grows taller at mid widths.
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const apply = () => {
+      const h = el.getBoundingClientRect().height;
+      if (h > 0) document.documentElement.style.setProperty("--app-header-h", `${Math.round(h)}px`);
+    };
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const handleCreateClick = () => {
     const params = new URLSearchParams();
@@ -25,23 +42,26 @@ export function TopNavigationBar() {
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 md:gap-4 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-4 md:px-6 min-h-16 md:min-h-[4.5rem] py-4 md:py-5 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto">
+      <div
+        ref={barRef}
+        className="mx-auto flex max-w-6xl items-center gap-2 md:gap-3 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-3 md:px-5 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
+      >
         {/* Mobile Menu */}
         <MobileNav />
 
         {/* Desktop Navigation Items */}
-        <div className="hidden md:flex flex-1 flex-wrap items-center justify-center gap-2 content-center">
+        <div className="hidden md:flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-1 lg:gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
-                "flex items-center gap-2 rounded-full border border-transparent px-4 lg:px-5 py-2 text-sm font-display uppercase tracking-[0.15em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
+                "flex shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 lg:px-4 py-2 text-xs lg:text-sm font-display uppercase tracking-[0.08em] lg:tracking-[0.15em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
                 location.pathname === item.path &&
                   "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
               )}
             >
-              <item.icon className="h-5 w-5 text-[hsl(174,59%,56%)]" />
+              <item.icon className="h-4 w-4 lg:h-5 lg:w-5 shrink-0 text-[hsl(174,59%,56%)]" />
               <span>{item.label}</span>
             </Link>
           ))}
