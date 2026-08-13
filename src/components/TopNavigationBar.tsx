@@ -105,7 +105,7 @@ export function TopNavigationBar() {
         </div>
 
         {/* MetaMask (always connectable) */}
-        <div className="hidden md:block flex-shrink-0">
+        <div className="hidden lg:block flex-shrink-0">
           <MetaMaskConnectButton compact />
         </div>
 
