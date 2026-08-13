@@ -111,7 +111,7 @@ export function TopNavigationBar() {
         </div>
 
         {/* App Health (UQRC-derived) */}
-        <div className="flex-shrink-0">
+        <div className="flex-shrink-0 max-w-[200px] overflow-hidden">
           <AppHealthBadge />
         </div>
       </div>
