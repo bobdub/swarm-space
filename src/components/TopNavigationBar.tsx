@@ -55,6 +55,7 @@ export function TopNavigationBar() {
             <Link
               key={item.path}
               to={item.path}
+              title={item.label}
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 lg:px-4 py-2 text-xs lg:text-sm font-display uppercase tracking-[0.08em] lg:tracking-[0.15em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
                 location.pathname === item.path &&
@@ -62,7 +63,7 @@ export function TopNavigationBar() {
               )}
             >
               <item.icon className="h-4 w-4 lg:h-5 lg:w-5 shrink-0 text-[hsl(174,59%,56%)]" />
-              <span>{item.label}</span>
+              <span className="hidden lg:inline">{item.label}</span>
             </Link>
           ))}
         </div>
