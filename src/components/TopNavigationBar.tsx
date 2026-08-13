@@ -57,7 +57,7 @@ export function TopNavigationBar() {
               to={item.path}
               title={item.label}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2.5 xl:px-4 py-2 text-xs xl:text-sm font-display uppercase tracking-[0.08em] xl:tracking-[0.15em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
+                "flex shrink-0 items-center gap-1.5 rounded-full border border-transparent px-2 xl:px-3 py-2 text-xs xl:text-sm font-display uppercase tracking-[0.06em] xl:tracking-[0.1em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
                 location.pathname === item.path &&
                   "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
               )}
