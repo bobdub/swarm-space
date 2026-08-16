@@ -41,16 +41,16 @@ export function TopNavigationBar() {
   };
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-40 px-0 pointer-events-none">
+    <header className="fixed top-0 left-0 right-0 z-40 px-2 sm:px-3 lg:px-4 pt-2 pointer-events-none">
       <div
         ref={barRef}
-        className="mx-auto flex max-w-7xl items-center gap-2 border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-3 md:px-4 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
+        className="mx-auto flex w-full max-w-7xl 2xl:max-w-[1600px] min-w-0 items-center gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-2 sm:px-3 md:px-4 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
       >
         {/* Mobile Menu */}
         <MobileNav />
 
         {/* Desktop Navigation Items */}
-        <div className="hidden md:flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="hidden md:flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-0.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {primaryNavigationItems.map((item) => (
             <Link
               key={item.path}
@@ -63,7 +63,7 @@ export function TopNavigationBar() {
               )}
             >
               <item.icon className="h-4 w-4 xl:h-5 xl:w-5 shrink-0 text-[hsl(174,59%,56%)]" />
-              <span className="hidden xl:inline">{item.label}</span>
+              <span className="hidden 2xl:inline">{item.label}</span>
             </Link>
           ))}
         </div>
@@ -75,7 +75,7 @@ export function TopNavigationBar() {
         <Button
           onClick={handleCreateClick}
           aria-label="Create a new post"
-          className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]"
+          className="flex shrink-0 items-center gap-2 rounded-full bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] px-3 sm:px-5 py-2.5 text-sm font-semibold uppercase tracking-[0.15em] shadow-[0_10px_40px_hsla(326,71%,62%,0.35)] transition-transform hover:scale-[1.02]"
         >
           <PenSquare className="h-4 w-4" />
           <span className="hidden sm:inline">Create</span>
@@ -87,7 +87,7 @@ export function TopNavigationBar() {
             variant="ghost"
             size="sm"
             onClick={() => navigate("/profile")}
-            className="hidden sm:flex items-center gap-2 h-9 px-3 text-sm font-semibold hover:bg-primary/10"
+            className="hidden sm:flex shrink-0 items-center gap-2 h-9 px-3 text-sm font-semibold hover:bg-primary/10"
             title={pending !== 0 ? `${pending > 0 ? '+' : ''}${pending} pending mesh confirmation` : undefined}
           >
             <Coins className="h-4 w-4 text-secondary" />
@@ -106,12 +106,12 @@ export function TopNavigationBar() {
         </div>
 
         {/* MetaMask (always connectable) */}
-        <div className="hidden lg:block flex-shrink-0">
+        <div className="hidden xl:block flex-shrink-0">
           <MetaMaskConnectButton compact />
         </div>
 
         {/* App Health (UQRC-derived) */}
-        <div className="flex-shrink-0 max-w-[220px] overflow-hidden whitespace-nowrap [&_*]:whitespace-nowrap">
+        <div className="hidden lg:block min-w-0 shrink overflow-hidden whitespace-nowrap [&_*]:whitespace-nowrap [&_*]:truncate">
           <AppHealthBadge />
         </div>
       </div>
