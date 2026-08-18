@@ -134,8 +134,15 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   });
   updatePersonalServer(record.serverId, { lastSyncedAt: completedAt });
 
-  // Keep signed manifest/index metadata locally; verified bulk bytes are recoverable remotely.
-  for (const ref of record.chunkRefs) await remove('chunks', ref);
+  // Keep signed manifest/index metadata locally. Evict bulk bytes only after
+  // every configured private replica for this manifest has completed.
+  const allRecords = await getAll<PersonalServerSyncRecord>('personalServerSync');
+  const manifestRecords = allRecords.filter((entry) => entry.manifestId === record.manifestId);
+  if (manifestRecords.length > 0 && manifestRecords.every((entry) => (
+    entry.id === record.id ? true : entry.status === 'complete'
+  ))) {
+    for (const ref of record.chunkRefs) await remove('chunks', ref);
+  }
 }
 
 export async function processPersonalServerSyncQueue(): Promise<void> {
@@ -186,6 +193,13 @@ export async function retryPersonalServerSync(serverId?: string): Promise<void> 
     });
   }
   await processPersonalServerSyncQueue();
+}
+
+export async function clearPersonalServerSync(serverId: string): Promise<void> {
+  const records = await getAll<PersonalServerSyncRecord>('personalServerSync');
+  for (const record of records) {
+    if (record.serverId === serverId) await remove('personalServerSync', record.id);
+  }
 }
 
 async function verifyRemoteChunk(bytes: ArrayBuffer, expectedRef: string): Promise<boolean> {

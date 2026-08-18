@@ -14,6 +14,7 @@ import {
   readPersonalServerCredentials,
   removePersonalServerCredentials,
 } from './personalServerSecrets';
+import { clearPersonalServerSync } from './personalServerSync';
 
 const LS_KEY = 'imagination.personalServers.v1';
 
@@ -92,6 +93,7 @@ export function upsertPersonalServer(server: PersonalServer): void {
 export function removePersonalServer(id: string, userId?: string): void {
   write(read().filter((s) => s.id !== id));
   if (userId) void removePersonalServerCredentials(userId, id);
+  void clearPersonalServerSync(id);
 }
 
 export function updatePersonalServer(id: string, patch: Partial<PersonalServer>): void {

@@ -17,11 +17,12 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
+  relinkServer?: import('@/lib/storage/providers/personalServerStore').PersonalServer | null;
 }
 
 type Step = 'kind' | 'config' | 'probe' | 'scope';
 
-export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
+export function AddPersonalServerWizard({ open, onOpenChange, userId, relinkServer }: Props) {
   const [step, setStep] = useState<Step>('kind');
   const [kind, setKind] = useState<PersonalServerKind>('https-blob');
   const [name, setName] = useState('');
@@ -50,11 +51,11 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     if (!urlCheck.ok) { toast.error(urlCheck.reason ?? 'Invalid URL'); return; }
     if (!name.trim()) { toast.error('Name required'); return; }
 
-    const id = newServerId();
+    const id = relinkServer?.id ?? newServerId();
     upsertPersonalServer({
-      id, name: name.trim(), kind, url: url.trim(), scope: 'private',
+      id, name: name.trim(), kind, url: url.trim(), scope: relinkServer?.scope ?? 'private',
       capBytes: capGiB * 1024 * 1024 * 1024, usedBytes: 0, paused: false,
-      createdAt: Date.now(),
+      createdAt: relinkServer?.createdAt ?? Date.now(),
       bucket: kind === 's3-compatible' ? bucket.trim() : undefined,
       region: kind === 's3-compatible' ? region.trim() : undefined,
     });
@@ -93,7 +94,7 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); else onOpenChange(o); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add personal server</DialogTitle>
+          <DialogTitle>{relinkServer ? 'Relink personal server' : 'Add personal server'}</DialogTitle>
         </DialogHeader>
 
         {step === 'kind' && (

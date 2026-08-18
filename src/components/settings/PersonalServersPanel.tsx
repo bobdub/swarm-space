@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Server, Plus, Trash2, Pause, Play, Globe, Lock, RefreshCw } from 'lucide-react';
+import { Server, Plus, Trash2, Pause, Play, Globe, Lock, RefreshCw, KeyRound, CloudUpload } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   subscribePersonalServers,
@@ -12,6 +12,8 @@ import {
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
 import { getCurrentUser } from '@/lib/auth';
+import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
+import { retryPersonalServerSync } from '@/lib/storage/providers/personalServerSync';
 
 function formatBytes(n: number): string {
   if (!n) return '0 B';
@@ -24,9 +26,21 @@ export function PersonalServersPanel() {
   const [servers, setServers] = useState<PersonalServer[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [probingId, setProbingId] = useState<string | null>(null);
+  const [relinkServer, setRelinkServer] = useState<PersonalServer | null>(null);
+  const [credentialState, setCredentialState] = useState<Record<string, boolean>>({});
   const userId = getCurrentUser()?.id ?? '';
 
   useEffect(() => subscribePersonalServers(setServers), []);
+  useEffect(() => {
+    let active = true;
+    void Promise.all(servers.map(async (server) => [
+      server.id,
+      await hasPersonalServerCredentials(userId, server.id),
+    ] as const)).then((entries) => {
+      if (active) setCredentialState(Object.fromEntries(entries));
+    });
+    return () => { active = false; };
+  }, [servers, userId]);
 
   const handleProbe = async (id: string) => {
     setProbingId(id);
@@ -54,6 +68,11 @@ export function PersonalServersPanel() {
     if (!confirm('Remove this server? Stored ciphertext on the server itself is not deleted.')) return;
     removePersonalServer(id, userId);
     toast.success('Server removed');
+  };
+
+  const openRelink = (server: PersonalServer) => {
+    setRelinkServer(server);
+    setWizardOpen(true);
   };
 
   return (
@@ -84,7 +103,7 @@ export function PersonalServersPanel() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`h-2 w-2 rounded-full ${s.health?.ok ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                    <span className={`h-2 w-2 rounded-full ${s.health?.ok && credentialState[s.id] ? 'bg-primary' : 'bg-muted-foreground'}`} />
                     <span className="font-semibold truncate">{s.name}</span>
                     {s.scope === 'public-pin'
                       ? <span className="inline-flex items-center gap-1 text-xs text-accent"><Globe className="h-3 w-3" />Public pin</span>
@@ -93,6 +112,17 @@ export function PersonalServersPanel() {
                   <p className="text-xs text-muted-foreground truncate">{s.kind} · {s.url}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatBytes(s.usedBytes)} of {formatBytes(s.capBytes)}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {s.paused
+                      ? 'Paused'
+                      : !credentialState[s.id]
+                        ? 'Relink required'
+                        : (s.pendingItems ?? 0) > 0
+                          ? `${s.pendingItems} item${s.pendingItems === 1 ? '' : 's'} queued`
+                          : s.lastSyncedAt
+                            ? `Connected · synced ${new Date(s.lastSyncedAt).toLocaleString()}`
+                            : 'Connected'}
                   </p>
                   {s.health?.steps?.length ? (
                     <div className="mt-2 flex flex-wrap gap-1">
@@ -115,6 +145,17 @@ export function PersonalServersPanel() {
                   ) : null}
                 </div>
                 <div className="flex flex-col gap-1">
+                  {!credentialState[s.id] ? (
+                    <Button type="button" size="icon" variant="ghost"
+                      onClick={() => openRelink(s)} title="Relink credentials">
+                      <KeyRound className="h-3 w-3" />
+                    </Button>
+                  ) : (
+                    <Button type="button" size="icon" variant="ghost"
+                      onClick={() => { void retryPersonalServerSync(s.id); }} title="Sync now">
+                      <CloudUpload className="h-3 w-3" />
+                    </Button>
+                  )}
                   <Button type="button" size="icon" variant="ghost" disabled={probingId === s.id}
                     onClick={() => handleProbe(s.id)} title="Re-probe">
                     <RefreshCw className={`h-3 w-3 ${probingId === s.id ? 'animate-spin' : ''}`} />
@@ -135,7 +176,16 @@ export function PersonalServersPanel() {
         </div>
       )}
 
-      <AddPersonalServerWizard open={wizardOpen} onOpenChange={setWizardOpen} userId={userId} />
+      <AddPersonalServerWizard
+        key={relinkServer?.id ?? 'new'}
+        open={wizardOpen}
+        onOpenChange={(open) => {
+          setWizardOpen(open);
+          if (!open) setRelinkServer(null);
+        }}
+        userId={userId}
+        relinkServer={relinkServer}
+      />
     </Card>
   );
 }
