@@ -2,6 +2,7 @@ import { put, get, getAll, openDB } from "./store";
 import { signManifest } from "./p2p/replication";
 import { shouldUseAdaptiveChunking, adaptiveChunkAndEncrypt } from "./torrent/adaptiveChunker";
 import { getCurrentUser } from "./auth";
+import { enqueueManifestForPersonalServers, fetchChunkFromPersonalServers } from './storage/providers/personalServerSync';
 // Utility functions for ArrayBuffer/Base64 conversion
 function arrayBufferToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);
@@ -289,6 +290,7 @@ export async function chunkAndEncryptFile(
   
   const signedManifest = await signManifest(manifest as import("@/lib/store").Manifest);
   await put("manifests", signedManifest);
+  void enqueueManifestForPersonalServers(signedManifest);
   return signedManifest as Manifest;
 }
 
@@ -302,7 +304,8 @@ export async function decryptAndReassembleFile(
   
   for (let i = 0; i < manifest.chunks.length; i++) {
     const ref = manifest.chunks[i];
-    const chunk = await get("chunks", ref) as Chunk;
+    const chunk = (await get("chunks", ref) as Chunk | undefined)
+      ?? await fetchChunkFromPersonalServers(ref) as Chunk | null;
     
     if (!chunk) {
       throw new Error(`Chunk ${ref} not found`);

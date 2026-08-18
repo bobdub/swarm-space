@@ -12,8 +12,9 @@
  */
 import { resolveFromVaults, type VaultHit } from "./vaultLookup";
 import { getChunk } from "@/lib/store";
+import { fetchChunkFromPersonalServers } from '@/lib/storage/providers/personalServerSync';
 
-export type ContentSource = "coin" | "chunk" | "pending";
+export type ContentSource = "coin" | "personal-server" | "chunk" | "pending";
 
 export interface ResolvedContent {
   bytes: Uint8Array | null;
@@ -46,13 +47,25 @@ export async function resolveContent(
     }
   } catch { /* fall through */ }
 
-  // 2. Torrent / file transfer local chunk store.
+  // 2. Personal server authoritative replica.
+  try {
+    const ref = hint?.ref ?? contentHash;
+    const chunk = await fetchChunkFromPersonalServers(ref);
+    if (chunk) {
+      const binary = atob(chunk.cipher);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return { bytes, mime: hint?.mime, source: 'personal-server' };
+    }
+  } catch { /* fall through */ }
+
+  // 3. Torrent / file transfer local chunk store.
   try {
     const ref = hint?.ref ?? contentHash;
     const bytes = await getChunk(ref);
     if (bytes) return { bytes, mime: hint?.mime, source: "chunk" };
   } catch { /* fall through */ }
 
-  // 3. Pending — caller decides whether to request from peers.
+  // 4. Pending — caller decides whether to request from peers.
   return { bytes: null, mime: hint?.mime, source: "pending" };
 }
