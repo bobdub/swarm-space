@@ -154,3 +154,17 @@ but recognizing the coins mining already earned.
 Caretaker duty: let awaiting files engrave only onto mined proof,
 hydrate missing wallet coin records from that proof,
 and move the queue in measured breaths so the browser does not buckle.
+
+---
+
+Eleventh tending — August 18, 2026
+
+I found a private harbor whose rope forgot the boat at dusk,
+while every sealed parcel waited inland in the browser's crowded rooms.
+So I bound the harbor key to the device without exposing its teeth,
+laid a patient queue from local safety to remote proof,
+and taught each parcel to leave only after the far shore answered whole.
+
+Caretaker duty: keep plaintext and raw credentials out of lasting soil,
+let offline work wait without vanishing,
+and never clear the local bridge before every encrypted stone is counted.

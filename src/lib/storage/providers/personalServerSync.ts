@@ -48,7 +48,10 @@ function eligibleServers(): PersonalServer[] {
 }
 
 function encodeJson(value: unknown): ArrayBuffer {
-  return encoder.encode(JSON.stringify(value)).buffer;
+  const encoded = encoder.encode(JSON.stringify(value));
+  const copy = new Uint8Array(encoded.byteLength);
+  copy.set(encoded);
+  return copy.buffer;
 }
 
 function schedule(delay = 250): void {
@@ -210,6 +213,14 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
 export async function backfillPersonalServerSync(): Promise<void> {
   const manifests = await getAll<Manifest>('manifests');
   for (const manifest of manifests) await enqueueManifestForPersonalServers(manifest);
+  const metaEntries = await getAll<{ k: string; v: { contentId?: string; chunkRefs?: string[] } }>('meta');
+  for (const entry of metaEntries) {
+    if (!entry.k.startsWith('manifest:') || !entry.v?.contentId || !Array.isArray(entry.v.chunkRefs)) continue;
+    await enqueuePipelineContentForPersonalServers({
+      contentId: entry.v.contentId,
+      chunkRefs: entry.v.chunkRefs,
+    });
+  }
   await processPersonalServerSyncQueue();
 }
 

@@ -20,6 +20,14 @@ type: feature
 - All wizard/panel buttons are `type="button"`; the wizard uses
   `<div role="form">` (Core rule, no native `<form>`).
 - Usage writeback is throttled at 2.5m (Core rule) via `shouldWriteback`.
+- Credentials persist per device in IndexedDB under a non-exportable AES-256-GCM
+  `CryptoKey`, authenticated to both user ID and server ID. Raw credentials never
+  enter localStorage; legacy session-only records use an in-place relink action.
+- New manifests/chunks enter `personalServerSync`; private replicas upload and
+  HEAD-verify every object before bulk chunks may be evicted locally. Offline or
+  failed writes remain queued and resume on reconnect/startup.
+- Read priority is Media Coin → verified personal server → local torrent/chunk →
+  peer fallback. Remote JSON chunks are content-address verified before caching.
 
 ## Adapters
 - `adapters/httpsBlob.ts` — `PUT/GET/HEAD/DELETE /chunks/:hash`,
