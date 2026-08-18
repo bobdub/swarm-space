@@ -1,14 +1,17 @@
 /**
  * Personal Server Store — metadata about user-linked storage servers.
  *
- * NOTE: Credentials (bearer tokens, S3 secrets) NEVER land here. They live
- * only in the In-Memory Vault (src/lib/crypto/memoryVault.ts). What we keep
- * on disk is non-secret metadata + a sealed credential blob produced by the
- * vault. A relink prompt is expected after a fresh tab open if the vault
- * key was lost (Brave / private mode behaviour).
+ * NOTE: Credentials (bearer tokens, S3 secrets) NEVER land here. They are
+ * encrypted in IndexedDB with a browser-bound, non-exportable device key.
+ * This store keeps only non-secret metadata and legacy sealed blobs.
  */
 
-import { vault, type SealedValue } from '@/lib/crypto/memoryVault';
+import { type SealedValue } from '@/lib/crypto/memoryVault';
+import {
+  persistPersonalServerCredentials,
+  readPersonalServerCredentials,
+  removePersonalServerCredentials,
+} from './personalServerSecrets';
 
 const LS_KEY = 'imagination.personalServers.v1';
 
@@ -36,13 +39,15 @@ export interface PersonalServer {
   paused: boolean;
   createdAt: number;
   health?: PersonalServerHealth;
-  /** Sealed credentials blob (vault-encrypted JSON). Lost on tab close. */
+  /** Legacy session-only credential blob. New records use IndexedDB. */
   sealedCreds?: SealedValue;
   /** Per-server allow/deny list of content hashes (local only). */
   denyHashes?: string[];
   /** S3-only fields (non-secret). */
   bucket?: string;
   region?: string;
+  lastSyncedAt?: number;
+  pendingItems?: number;
 }
 
 function read(): PersonalServer[] {
@@ -82,8 +87,10 @@ export function upsertPersonalServer(server: PersonalServer): void {
   write(list);
 }
 
-export function removePersonalServer(id: string): void {
+export function removePersonalServer(id: string, userId?: string): void {
   write(read().filter((s) => s.id !== id));
+  if (userId) void removePersonalServerCredentials(userId, id);
+  void import('./personalServerSync').then((sync) => sync.clearPersonalServerSync(id));
 }
 
 export function updatePersonalServer(id: string, patch: Partial<PersonalServer>): void {
@@ -98,23 +105,18 @@ export function updatePersonalServer(id: string, patch: Partial<PersonalServer>)
 export async function sealServerCredentials(
   id: string,
   credentials: Record<string, string>,
+  userId: string,
 ): Promise<void> {
-  const sealed = await vault.seal(JSON.stringify(credentials));
-  updatePersonalServer(id, { sealedCreds: sealed });
+  await persistPersonalServerCredentials(userId, id, credentials);
+  updatePersonalServer(id, { sealedCreds: undefined });
 }
 
 /** Returns null if vault was reset (tab close) — caller must prompt relink. */
 export async function unsealServerCredentials(
   id: string,
+  userId: string,
 ): Promise<Record<string, string> | null> {
-  const server = getPersonalServer(id);
-  if (!server?.sealedCreds) return null;
-  try {
-    const plain = await vault.unseal(server.sealedCreds);
-    return JSON.parse(plain);
-  } catch {
-    return null;
-  }
+  return readPersonalServerCredentials(userId, id);
 }
 
 export function newServerId(): string {

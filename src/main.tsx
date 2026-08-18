@@ -88,3 +88,11 @@ scheduleIdle(() => {
     .then((m) => m.startReconnectSync())
     .catch((err) => console.warn('[main] media coin reconnect sync failed', err));
 });
+
+// ── Personal server sync — resumes durable encrypted uploads, backfills
+// existing manifests, and reconnects with the browser-bound device key.
+scheduleIdle(() => {
+  import('./lib/storage/providers/personalServerSync')
+    .then((m) => m.startPersonalServerSync())
+    .catch((err) => console.warn('[main] personal server sync failed', err));
+});

@@ -9,6 +9,7 @@ import { signManifest } from '@/lib/p2p/replication';
 import { getStressMonitor } from './stressMonitor';
 import { getFieldHealthMultiplier } from '@/lib/uqrc/healthBridge';
 import type { Chunk, Manifest } from '@/lib/fileEncryption';
+import { enqueueManifestForPersonalServers } from '@/lib/storage/providers/personalServerSync';
 
 const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
 const DEFAULT_CHUNK_SIZE = 1_048_576; // 1 MiB
@@ -188,6 +189,7 @@ export async function adaptiveChunkAndEncrypt(
 
   const signed = await signManifest(manifest as import('@/lib/store').Manifest);
   await put('manifests', signed);
+  void enqueueManifestForPersonalServers(signed);
 
   console.log(
     `[AdaptiveChunker] Encrypted ${file.name} (${(totalSize / 1024 / 1024).toFixed(1)}MB) → ${chunkRefs.length} chunks`

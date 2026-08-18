@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,11 +17,12 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
+  relinkServer?: import('@/lib/storage/providers/personalServerStore').PersonalServer | null;
 }
 
 type Step = 'kind' | 'config' | 'probe' | 'scope';
 
-export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
+export function AddPersonalServerWizard({ open, onOpenChange, userId, relinkServer }: Props) {
   const [step, setStep] = useState<Step>('kind');
   const [kind, setKind] = useState<PersonalServerKind>('https-blob');
   const [name, setName] = useState('');
@@ -37,6 +38,18 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<{ ok: boolean; steps: { step: string; ok: boolean; error?: string }[] } | null>(null);
 
+  useEffect(() => {
+    if (!open || !relinkServer) return;
+    setStep('config');
+    setKind(relinkServer.kind);
+    setName(relinkServer.name);
+    setUrl(relinkServer.url);
+    setBucket(relinkServer.bucket ?? '');
+    setRegion(relinkServer.region ?? 'auto');
+    setScope(relinkServer.scope);
+    setCapGiB(Math.max(1, Math.round(relinkServer.capBytes / (1024 * 1024 * 1024))));
+  }, [open, relinkServer]);
+
   const reset = () => {
     setStep('kind'); setKind('https-blob'); setName(''); setUrl(''); setToken('');
     setBucket(''); setRegion('auto'); setAccessKey(''); setSecretKey('');
@@ -50,18 +63,18 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     if (!urlCheck.ok) { toast.error(urlCheck.reason ?? 'Invalid URL'); return; }
     if (!name.trim()) { toast.error('Name required'); return; }
 
-    const id = newServerId();
+    const id = relinkServer?.id ?? newServerId();
     upsertPersonalServer({
-      id, name: name.trim(), kind, url: url.trim(), scope: 'private',
+      id, name: name.trim(), kind, url: url.trim(), scope: relinkServer?.scope ?? 'private',
       capBytes: capGiB * 1024 * 1024 * 1024, usedBytes: 0, paused: false,
-      createdAt: Date.now(),
+      createdAt: relinkServer?.createdAt ?? Date.now(),
       bucket: kind === 's3-compatible' ? bucket.trim() : undefined,
       region: kind === 's3-compatible' ? region.trim() : undefined,
     });
     const creds = kind === 'https-blob'
       ? { token: token.trim() }
       : { accessKeyId: accessKey.trim(), secretAccessKey: secretKey.trim() };
-    await sealServerCredentials(id, creds);
+    await sealServerCredentials(id, creds, userId);
     setPendingId(id);
     setStep('probe');
     setProbing(true);
@@ -93,7 +106,7 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     <Dialog open={open} onOpenChange={(o) => { if (!o) close(); else onOpenChange(o); }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add personal server</DialogTitle>
+          <DialogTitle>{relinkServer ? 'Relink personal server' : 'Add personal server'}</DialogTitle>
         </DialogHeader>
 
         {step === 'kind' && (
@@ -151,7 +164,7 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
             )}
             <Alert>
               <AlertDescription className="text-xs">
-                Credentials are sealed in the in-memory vault and lost on tab close — relink to reuse.
+                Credentials are encrypted to this browser and reconnect automatically on this device.
               </AlertDescription>
             </Alert>
             <div className="flex gap-2">
