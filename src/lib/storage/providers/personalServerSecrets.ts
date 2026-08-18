@@ -33,6 +33,12 @@ function fromBase64(value: string): Uint8Array {
   return bytes;
 }
 
+function asArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
 function credentialId(userId: string, serverId: string): string {
   return `credential:${userId}:${serverId}`;
 }
@@ -62,7 +68,7 @@ export async function persistPersonalServerCredentials(
   if (!userId) throw new Error('Sign in before linking a personal server.');
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv, additionalData: additionalData(userId, serverId) },
+    { name: 'AES-GCM', iv: asArrayBuffer(iv), additionalData: asArrayBuffer(additionalData(userId, serverId)) },
     await getDeviceKey(),
     encoder.encode(JSON.stringify(credentials)),
   );
@@ -86,11 +92,11 @@ export async function readPersonalServerCredentials(
     const plaintext = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
-        iv: fromBase64(record.iv),
-        additionalData: additionalData(userId, serverId),
+        iv: asArrayBuffer(fromBase64(record.iv)),
+        additionalData: asArrayBuffer(additionalData(userId, serverId)),
       },
       await getDeviceKey(),
-      fromBase64(record.ciphertext),
+      asArrayBuffer(fromBase64(record.ciphertext)),
     );
     const parsed: unknown = JSON.parse(decoder.decode(plaintext));
     return parsed && typeof parsed === 'object' ? parsed as Record<string, string> : null;

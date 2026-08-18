@@ -52,7 +52,7 @@ export function PersonalServersPanel() {
 
   const handleRemove = (id: string) => {
     if (!confirm('Remove this server? Stored ciphertext on the server itself is not deleted.')) return;
-    removePersonalServer(id);
+    removePersonalServer(id, userId);
     toast.success('Server removed');
   };
 

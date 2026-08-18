@@ -61,7 +61,7 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
     const creds = kind === 'https-blob'
       ? { token: token.trim() }
       : { accessKeyId: accessKey.trim(), secretAccessKey: secretKey.trim() };
-    await sealServerCredentials(id, creds);
+    await sealServerCredentials(id, creds, userId);
     setPendingId(id);
     setStep('probe');
     setProbing(true);
@@ -151,7 +151,7 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId }: Props) {
             )}
             <Alert>
               <AlertDescription className="text-xs">
-                Credentials are sealed in the in-memory vault and lost on tab close — relink to reuse.
+                Credentials are encrypted to this browser and reconnect automatically on this device.
               </AlertDescription>
             </Alert>
             <div className="flex gap-2">
