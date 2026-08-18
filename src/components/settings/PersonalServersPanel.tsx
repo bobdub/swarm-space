@@ -75,6 +75,17 @@ export function PersonalServersPanel() {
     setWizardOpen(true);
   };
 
+  const handleSyncNow = async (server: PersonalServer) => {
+    try {
+      await retryPersonalServerSync(server.id);
+      toast.success('Personal server sync checked');
+    } catch (error) {
+      toast.error('Sync could not start', {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   return (
     <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
       <div className="flex items-start justify-between mb-4">
@@ -152,7 +163,7 @@ export function PersonalServersPanel() {
                     </Button>
                   ) : (
                     <Button type="button" size="icon" variant="ghost"
-                      onClick={() => { void retryPersonalServerSync(s.id); }} title="Sync now">
+                      onClick={() => { void handleSyncNow(s); }} title="Sync now">
                       <CloudUpload className="h-3 w-3" />
                     </Button>
                   )}

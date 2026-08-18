@@ -176,7 +176,14 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   if (manifestRecords.length > 0 && manifestRecords.every((entry) => (
     entry.id === record.id ? true : entry.status === 'complete'
   ))) {
-    for (const ref of record.chunkRefs) await remove('chunks', ref);
+    for (const ref of record.chunkRefs) {
+      const neededByPendingManifest = allRecords.some((entry) => (
+        entry.manifestId !== record.manifestId
+        && entry.status !== 'complete'
+        && entry.chunkRefs.includes(ref)
+      ));
+      if (!neededByPendingManifest) await remove('chunks', ref);
+    }
   }
 }
 
