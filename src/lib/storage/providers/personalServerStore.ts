@@ -8,7 +8,12 @@
  * key was lost (Brave / private mode behaviour).
  */
 
-import { vault, type SealedValue } from '@/lib/crypto/memoryVault';
+import { type SealedValue } from '@/lib/crypto/memoryVault';
+import {
+  persistPersonalServerCredentials,
+  readPersonalServerCredentials,
+  removePersonalServerCredentials,
+} from './personalServerSecrets';
 
 const LS_KEY = 'imagination.personalServers.v1';
 
@@ -43,6 +48,8 @@ export interface PersonalServer {
   /** S3-only fields (non-secret). */
   bucket?: string;
   region?: string;
+  lastSyncedAt?: number;
+  pendingItems?: number;
 }
 
 function read(): PersonalServer[] {
@@ -82,8 +89,9 @@ export function upsertPersonalServer(server: PersonalServer): void {
   write(list);
 }
 
-export function removePersonalServer(id: string): void {
+export function removePersonalServer(id: string, userId?: string): void {
   write(read().filter((s) => s.id !== id));
+  if (userId) void removePersonalServerCredentials(userId, id);
 }
 
 export function updatePersonalServer(id: string, patch: Partial<PersonalServer>): void {
@@ -98,23 +106,18 @@ export function updatePersonalServer(id: string, patch: Partial<PersonalServer>)
 export async function sealServerCredentials(
   id: string,
   credentials: Record<string, string>,
+  userId: string,
 ): Promise<void> {
-  const sealed = await vault.seal(JSON.stringify(credentials));
-  updatePersonalServer(id, { sealedCreds: sealed });
+  await persistPersonalServerCredentials(userId, id, credentials);
+  updatePersonalServer(id, { sealedCreds: undefined });
 }
 
 /** Returns null if vault was reset (tab close) — caller must prompt relink. */
 export async function unsealServerCredentials(
   id: string,
+  userId: string,
 ): Promise<Record<string, string> | null> {
-  const server = getPersonalServer(id);
-  if (!server?.sealedCreds) return null;
-  try {
-    const plain = await vault.unseal(server.sealedCreds);
-    return JSON.parse(plain);
-  } catch {
-    return null;
-  }
+  return readPersonalServerCredentials(userId, id);
 }
 
 export function newServerId(): string {

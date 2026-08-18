@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 26;
+const DB_VERSION = 27;
 
 
 export interface Chunk {
@@ -84,6 +84,14 @@ export async function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("meta")) {
         db.createObjectStore("meta", { keyPath: "k" });
+      }
+      if (!db.objectStoreNames.contains("personalServerSecrets")) {
+        db.createObjectStore("personalServerSecrets", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("personalServerSync")) {
+        const syncStore = db.createObjectStore("personalServerSync", { keyPath: "id" });
+        syncStore.createIndex("status", "status", { unique: false });
+        syncStore.createIndex("nextAttemptAt", "nextAttemptAt", { unique: false });
       }
       if (!db.objectStoreNames.contains("posts")) {
         db.createObjectStore("posts", { keyPath: "id" });

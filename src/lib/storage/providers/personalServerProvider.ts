@@ -56,8 +56,8 @@ function assertWritable(server: PersonalServer, byteSize: number): void {
   }
 }
 
-async function getCreds<T>(serverId: string): Promise<T> {
-  const creds = await unsealServerCredentials(serverId);
+async function getCreds<T>(serverId: string, userId: string): Promise<T> {
+  const creds = await unsealServerCredentials(serverId, userId);
   if (!creds) {
     spikeHealth('storage', `personal-server.creds-missing:${serverId}`, 0.9);
     throw new Error('Server credentials missing — please relink this server.');
@@ -87,10 +87,10 @@ export const personalServerPut = withHealth(
     assertWritable(server, body.byteLength);
 
     if (server.kind === 'https-blob') {
-      const creds = await getCreds<HttpsBlobCreds>(serverId);
+      const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
       await httpsBlobPut(server.url, creds, hash, body);
     } else {
-      const creds = await getCreds<S3DirectCreds>(serverId);
+      const creds = await getCreds<S3DirectCreds>(serverId, userId);
       await s3DirectPut(s3ConfigFor(server, userId), creds, hash, body);
     }
 
@@ -119,10 +119,10 @@ export const personalServerGet = withHealth(
 
     let bytes: ArrayBuffer | null;
     if (server.kind === 'https-blob') {
-      const creds = await getCreds<HttpsBlobCreds>(serverId);
+      const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
       bytes = await httpsBlobGet(server.url, creds, hash);
     } else {
-      const creds = await getCreds<S3DirectCreds>(serverId);
+      const creds = await getCreds<S3DirectCreds>(serverId, userId);
       bytes = await s3DirectGet(s3ConfigFor(server, userId), creds, hash);
     }
     if (!bytes) return null;
@@ -145,10 +145,10 @@ export const personalServerDelete = withHealth(
     const server = getPersonalServer(serverId);
     if (!server) throw new Error('Unknown personal server.');
     if (server.kind === 'https-blob') {
-      const creds = await getCreds<HttpsBlobCreds>(serverId);
+      const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
       await httpsBlobDelete(server.url, creds, hash);
     } else {
-      const creds = await getCreds<S3DirectCreds>(serverId);
+      const creds = await getCreds<S3DirectCreds>(serverId, userId);
       await s3DirectDelete(s3ConfigFor(server, userId), creds, hash);
     }
   },
@@ -160,10 +160,10 @@ export async function personalServerHead(
   const server = getPersonalServer(serverId);
   if (!server) return false;
   if (server.kind === 'https-blob') {
-    const creds = await getCreds<HttpsBlobCreds>(serverId);
+    const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
     return httpsBlobHead(server.url, creds, hash);
   }
-  const creds = await getCreds<S3DirectCreds>(serverId);
+  const creds = await getCreds<S3DirectCreds>(serverId, userId);
   return s3DirectHead(s3ConfigFor(server, userId), creds, hash);
 }
 
@@ -188,7 +188,7 @@ export async function probePersonalServer(
     const server = getPersonalServer(serverId);
     if (ok && server?.kind === 'https-blob') {
       try {
-        const creds = await getCreds<HttpsBlobCreds>(serverId);
+        const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
         const serverHealth = await httpsBlobHealth(server.url, creds);
         if (serverHealth.used !== undefined) health.usedBytes = serverHealth.used;
         if (serverHealth.cap !== undefined) health.capBytes = serverHealth.cap;
