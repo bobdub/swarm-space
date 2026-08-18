@@ -18,6 +18,10 @@
 
 import { sha256Async } from "../blockchain/crypto";
 import { put, get } from "../store";
+import {
+  enqueuePipelineContentForPersonalServers,
+  fetchChunkFromPersonalServers,
+} from '../storage/providers/personalServerSync';
 
 // ── Self-contained crypto helpers (zero shared imports) ─────────────
 
@@ -242,6 +246,7 @@ export async function runContentPipeline(input: PipelineInput): Promise<Pipeline
     put("meta", { k: `manifest:${contentId}`, v: manifest }),
     ...chunks.map(c => put("chunks", { ...c, ref: c.ref })),
   ]);
+  void enqueuePipelineContentForPersonalServers(manifest);
 
   return { manifest, chunks };
 }
@@ -262,7 +267,10 @@ export async function readContentFromPipeline(
 
   // 2. Load chunks
   const chunkEntries = await Promise.all(
-    manifest.chunkRefs.map(ref => get<EncryptedChunk>("chunks", ref))
+    manifest.chunkRefs.map(async (ref) => (
+      await get<EncryptedChunk>('chunks', ref)
+      ?? await fetchChunkFromPersonalServers<EncryptedChunk>(ref)
+    ))
   );
 
   const sorted = chunkEntries

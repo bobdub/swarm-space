@@ -20,6 +20,7 @@ export interface PersonalServerSyncRecord {
   serverId: string;
   userId: string;
   manifestId: string;
+  manifestStore: 'manifests' | 'meta';
   chunkRefs: string[];
   status: 'pending' | 'syncing' | 'complete' | 'failed';
   attempts: number;
@@ -78,6 +79,7 @@ export async function enqueueManifestForPersonalServers(manifest: Manifest): Pro
       serverId: server.id,
       userId,
       manifestId: manifest.fileId,
+      manifestStore: 'manifests',
       chunkRefs: [...manifest.chunks],
       status: 'pending',
       attempts: existing?.attempts ?? 0,
@@ -90,8 +92,38 @@ export async function enqueueManifestForPersonalServers(manifest: Manifest): Pro
   schedule();
 }
 
+export async function enqueuePipelineContentForPersonalServers(
+  manifest: { contentId: string; chunkRefs: string[] },
+): Promise<void> {
+  const userId = getCurrentUser()?.id;
+  if (!userId) return;
+  const now = Date.now();
+  for (const server of eligibleServers()) {
+    const id = syncId(server.id, manifest.contentId);
+    const existing = await get<PersonalServerSyncRecord>('personalServerSync', id);
+    if (existing?.status === 'complete') continue;
+    await put<PersonalServerSyncRecord>('personalServerSync', {
+      id,
+      serverId: server.id,
+      userId,
+      manifestId: manifest.contentId,
+      manifestStore: 'meta',
+      chunkRefs: [...manifest.chunkRefs],
+      status: 'pending',
+      attempts: existing?.attempts ?? 0,
+      nextAttemptAt: now,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+  await updatePendingCounts();
+  schedule();
+}
+
 async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
-  const manifest = await get<Manifest>('manifests', record.manifestId);
+  const manifest = record.manifestStore === 'meta'
+    ? (await get<{ k: string; v: unknown }>('meta', manifestKey(record.manifestId)))?.v
+    : await get<Manifest>('manifests', record.manifestId);
   if (!manifest) throw new Error(`Manifest ${record.manifestId} is no longer available locally.`);
 
   await put<PersonalServerSyncRecord>('personalServerSync', {
@@ -102,7 +134,7 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
 
   for (const ref of record.chunkRefs) {
     if (await personalServerHead(record.serverId, record.userId, ref)) continue;
-    const chunk = await get<Chunk>('chunks', ref);
+    const chunk = await get<Record<string, unknown>>('chunks', ref);
     if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
     await personalServerPut(record.serverId, record.userId, ref, encodeJson(chunk));
   }
@@ -204,24 +236,32 @@ export async function clearPersonalServerSync(serverId: string): Promise<void> {
 
 async function verifyRemoteChunk(bytes: ArrayBuffer, expectedRef: string): Promise<boolean> {
   try {
-    const chunk = JSON.parse(decoder.decode(bytes)) as Chunk;
-    if (chunk.ref !== expectedRef || typeof chunk.cipher !== 'string' || !Number.isInteger(chunk.seq)) {
-      return false;
-    }
-    const digest = await crypto.subtle.digest(
-      'SHA-256',
-      encoder.encode(chunk.cipher + chunk.seq),
-    );
+    const chunk = JSON.parse(decoder.decode(bytes)) as Chunk & {
+      index?: number;
+      ciphertext?: string;
+      contentId?: string;
+    };
+    if (chunk.ref !== expectedRef) return false;
+    const hashInput = typeof chunk.cipher === 'string' && Number.isInteger(chunk.seq)
+      ? chunk.cipher + chunk.seq
+      : typeof chunk.ciphertext === 'string' && typeof chunk.contentId === 'string' && Number.isInteger(chunk.index)
+        ? `${chunk.contentId}:${chunk.index}:${chunk.ciphertext}`
+        : null;
+    if (!hashInput) return false;
+    const encoded = encoder.encode(hashInput);
+    const source = new Uint8Array(encoded.byteLength);
+    source.set(encoded);
+    const digest = await crypto.subtle.digest('SHA-256', source.buffer);
     const hex = Array.from(new Uint8Array(digest))
       .map((value) => value.toString(16).padStart(2, '0'))
       .join('');
-    return expectedRef === `chunk-${hex}`;
+    return expectedRef === `chunk-${hex}` || expectedRef === `pc-${hex.slice(0, 32)}`;
   } catch {
     return false;
   }
 }
 
-export async function fetchChunkFromPersonalServers(ref: string): Promise<Chunk | null> {
+export async function fetchChunkFromPersonalServers<T extends { ref: string } = Chunk>(ref: string): Promise<T | null> {
   const userId = getCurrentUser()?.id;
   if (!userId) return null;
   for (const server of eligibleServers()) {
@@ -233,7 +273,7 @@ export async function fetchChunkFromPersonalServers(ref: string): Promise<Chunk 
         (candidate) => verifyRemoteChunk(candidate, ref),
       );
       if (!bytes) continue;
-      const chunk = JSON.parse(decoder.decode(bytes)) as Chunk;
+      const chunk = JSON.parse(decoder.decode(bytes)) as T;
       await put('chunks', chunk);
       return chunk;
     } catch { /* try the next server */ }
