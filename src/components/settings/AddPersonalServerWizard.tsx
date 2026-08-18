@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +37,18 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId, relinkServ
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [probing, setProbing] = useState(false);
   const [probeResult, setProbeResult] = useState<{ ok: boolean; steps: { step: string; ok: boolean; error?: string }[] } | null>(null);
+
+  useEffect(() => {
+    if (!open || !relinkServer) return;
+    setStep('config');
+    setKind(relinkServer.kind);
+    setName(relinkServer.name);
+    setUrl(relinkServer.url);
+    setBucket(relinkServer.bucket ?? '');
+    setRegion(relinkServer.region ?? 'auto');
+    setScope(relinkServer.scope);
+    setCapGiB(Math.max(1, Math.round(relinkServer.capBytes / (1024 * 1024 * 1024))));
+  }, [open, relinkServer]);
 
   const reset = () => {
     setStep('kind'); setKind('https-blob'); setName(''); setUrl(''); setToken('');

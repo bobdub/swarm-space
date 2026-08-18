@@ -1,11 +1,9 @@
 /**
  * Personal Server Store — metadata about user-linked storage servers.
  *
- * NOTE: Credentials (bearer tokens, S3 secrets) NEVER land here. They live
- * only in the In-Memory Vault (src/lib/crypto/memoryVault.ts). What we keep
- * on disk is non-secret metadata + a sealed credential blob produced by the
- * vault. A relink prompt is expected after a fresh tab open if the vault
- * key was lost (Brave / private mode behaviour).
+ * NOTE: Credentials (bearer tokens, S3 secrets) NEVER land here. They are
+ * encrypted in IndexedDB with a browser-bound, non-exportable device key.
+ * This store keeps only non-secret metadata and legacy sealed blobs.
  */
 
 import { type SealedValue } from '@/lib/crypto/memoryVault';
@@ -14,7 +12,6 @@ import {
   readPersonalServerCredentials,
   removePersonalServerCredentials,
 } from './personalServerSecrets';
-import { clearPersonalServerSync } from './personalServerSync';
 
 const LS_KEY = 'imagination.personalServers.v1';
 
@@ -42,7 +39,7 @@ export interface PersonalServer {
   paused: boolean;
   createdAt: number;
   health?: PersonalServerHealth;
-  /** Sealed credentials blob (vault-encrypted JSON). Lost on tab close. */
+  /** Legacy session-only credential blob. New records use IndexedDB. */
   sealedCreds?: SealedValue;
   /** Per-server allow/deny list of content hashes (local only). */
   denyHashes?: string[];
@@ -93,7 +90,7 @@ export function upsertPersonalServer(server: PersonalServer): void {
 export function removePersonalServer(id: string, userId?: string): void {
   write(read().filter((s) => s.id !== id));
   if (userId) void removePersonalServerCredentials(userId, id);
-  void clearPersonalServerSync(id);
+  void import('./personalServerSync').then((sync) => sync.clearPersonalServerSync(id));
 }
 
 export function updatePersonalServer(id: string, patch: Partial<PersonalServer>): void {
