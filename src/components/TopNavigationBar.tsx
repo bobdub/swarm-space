@@ -12,8 +12,8 @@ import { MetaMaskConnectButton } from "./wallet/MetaMaskConnectButton";
 
 
 export function TopNavigationBar() {
-  const location = useLocation();
   const navigate = useNavigate();
+
   const { user } = useAuth();
   const { balance, pending } = useCreditBalance(user?.id || null);
   const barRef = useRef<HTMLDivElement | null>(null);
