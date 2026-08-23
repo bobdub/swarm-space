@@ -26,10 +26,11 @@ import { useEffect } from "react";
 
 interface Props {
   compact?: boolean;
+  iconOnly?: boolean;
   className?: string;
 }
 
-export function MetaMaskConnectButton({ compact = false, className }: Props) {
+export function MetaMaskConnectButton({ compact = false, iconOnly = false, className }: Props) {
   const { available, address, chainId, busy, connect, disconnect } = useMetaMask();
 
   useEffect(() => {
@@ -38,16 +39,20 @@ export function MetaMaskConnectButton({ compact = false, className }: Props) {
     if (me?.id) linkExternalEvmAddress(me.id, address);
   }, [address]);
 
+  const small = compact || iconOnly;
+
   if (!available) {
     return (
       <Button
-        variant="outline"
-        size={compact ? "sm" : "default"}
+        variant={iconOnly ? "ghost" : "outline"}
+        size={iconOnly ? "icon" : small ? "sm" : "default"}
         className={className}
+        aria-label="Install MetaMask"
+        title="Install MetaMask"
         onClick={() => window.open("https://metamask.io/download/", "_blank", "noreferrer")}
       >
-        <Link2 className="mr-2 h-4 w-4" />
-        {compact ? "Install MetaMask" : "Install MetaMask"}
+        <Link2 className={iconOnly ? "h-4 w-4" : "mr-2 h-4 w-4"} />
+        {!iconOnly && "Install MetaMask"}
       </Button>
     );
   }
@@ -55,29 +60,44 @@ export function MetaMaskConnectButton({ compact = false, className }: Props) {
   if (!address) {
     return (
       <Button
-        size={compact ? "sm" : "default"}
+        variant={iconOnly ? "ghost" : "default"}
+        size={iconOnly ? "icon" : small ? "sm" : "default"}
         className={className}
+        aria-label="Connect MetaMask"
+        title={busy ? "Connecting…" : "Connect MetaMask"}
         onClick={async () => {
           await connect();
         }}
         disabled={busy}
       >
-        <Link2 className="mr-2 h-4 w-4" />
-        {busy ? "Connecting…" : "Connect MetaMask"}
+        <Link2 className={iconOnly ? "h-4 w-4" : "mr-2 h-4 w-4"} />
+        {!iconOnly && (busy ? "Connecting…" : "Connect MetaMask")}
       </Button>
     );
   }
 
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size={compact ? "sm" : "default"} className={className}>
-          <Link2 className="mr-2 h-4 w-4" />
-          <span className="tabular-nums">{shortAddr(address)}</span>
-          <Badge variant="secondary" className="ml-2 text-[9px]">
-            {chainLabel(chainId)}
-          </Badge>
+        <Button
+          variant={iconOnly ? "ghost" : "outline"}
+          size={iconOnly ? "icon" : small ? "sm" : "default"}
+          className={className}
+          aria-label={`Wallet ${shortAddr(address)}`}
+          title={`${shortAddr(address)} · ${chainLabel(chainId)}`}
+        >
+          <Link2 className={iconOnly ? "h-4 w-4 text-secondary" : "mr-2 h-4 w-4"} />
+          {!iconOnly && (
+            <>
+              <span className="tabular-nums">{shortAddr(address)}</span>
+              <Badge variant="secondary" className="ml-2 text-[9px]">
+                {chainLabel(chainId)}
+              </Badge>
+            </>
+          )}
         </Button>
+
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel className="text-xs">

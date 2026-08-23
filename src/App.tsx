@@ -32,7 +32,6 @@ import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
 import { AuthGuard } from "@/components/auth/AuthGuard";
-import { EnterBrainButton } from "@/components/brain/EnterBrainButton";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWithRetry";
 
@@ -212,7 +211,6 @@ function AppContent() {
       <FloatingLiveDock />
       <LiveRoomVoiceHost />
       <PersistentAudioLayer />
-      <EnterBrainButton />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
         open={pendingJoinRoomId !== null}
