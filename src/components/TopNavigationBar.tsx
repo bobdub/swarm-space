@@ -46,30 +46,10 @@ export function TopNavigationBar() {
         ref={barRef}
         className="mx-auto flex w-full max-w-7xl 2xl:max-w-[1600px] min-w-0 items-center gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,6%,0.82)] px-2 sm:px-3 md:px-4 min-h-16 md:min-h-[4.5rem] py-3 md:py-4 shadow-[0_0_55px_hsla(326,71%,62%,0.28)] backdrop-blur-xl pointer-events-auto"
       >
-        {/* Mobile Menu */}
+        {/* Expand menu — all navigation lives here */}
         <MobileNav />
 
-        {/* Desktop Navigation Items */}
-        <div className="hidden md:flex min-w-0 flex-1 flex-nowrap items-center justify-center gap-0.5 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {primaryNavigationItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              title={item.label}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 xl:gap-2 rounded-full border border-transparent px-2 xl:px-2.5 py-2 text-xs xl:text-sm font-display uppercase tracking-[0.06em] xl:tracking-[0.1em] text-foreground/70 transition-all duration-200 hover:border-[hsla(326,71%,62%,0.32)] hover:bg-[hsla(245,70%,12%,0.78)] hover:text-foreground whitespace-nowrap",
-                location.pathname === item.path &&
-                  "border-[hsla(326,71%,62%,0.4)] bg-gradient-to-r from-[hsla(326,71%,62%,0.55)] to-[hsla(174,59%,56%,0.5)] text-foreground shadow-[0_0_40px_hsla(174,59%,56%,0.35)]"
-              )}
-            >
-              <item.icon className="h-4 w-4 xl:h-5 xl:w-5 shrink-0 text-[hsl(174,59%,56%)]" />
-              <span className="hidden 2xl:inline">{item.label}</span>
-            </Link>
-          ))}
-        </div>
-
-        {/* Spacer for mobile */}
-        <div className="flex-1 md:hidden" />
+        <div className="flex-1" />
 
         {/* Create Post Button */}
         <Button
@@ -100,15 +80,29 @@ export function TopNavigationBar() {
           </Button>
         )}
 
+        {/* Alerts */}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate("/notifications")}
+          aria-label="Alerts"
+          title="Alerts"
+          className="relative shrink-0 hover:bg-primary/10"
+        >
+          <Bell className="h-4 w-4 text-secondary" />
+          <NotificationBadge />
+        </Button>
+
         {/* P2P Status */}
         <div className="flex-shrink-0">
           <P2PStatusIndicator />
         </div>
 
-        {/* MetaMask (always connectable) */}
-        <div className="hidden xl:block flex-shrink-0">
-          <MetaMaskConnectButton compact />
+        {/* Wallet connect (MetaMask) */}
+        <div className="flex-shrink-0">
+          <MetaMaskConnectButton iconOnly />
         </div>
+
 
         {/* App Health (UQRC-derived) */}
         <div className="hidden lg:block min-w-0 shrink overflow-hidden whitespace-nowrap [&_*]:whitespace-nowrap [&_*]:truncate">
