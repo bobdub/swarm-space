@@ -1,4 +1,4 @@
-import { Compass, Bell, Settings, Wallet, User, Server } from "lucide-react";
+import { Compass, Brain, Settings, Wallet, User, Server, Bell } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavigationItem {
@@ -7,13 +7,13 @@ export interface NavigationItem {
   path: string;
 }
 
+/** Expand-menu order: Explore → Brain → Settings → Node → Wallet */
 export const primaryNavigationItems: NavigationItem[] = [
   { icon: Compass, label: "Explore", path: "/explore" },
+  { icon: Brain, label: "Brain", path: "/brain" },
+  { icon: Settings, label: "Settings", path: "/settings" },
   { icon: Server, label: "Node", path: "/node-dashboard" },
   { icon: Wallet, label: "Wallet", path: "/wallet" },
-  { icon: User, label: "Profile", path: "/profile" },
-  { icon: Bell, label: "Alerts", path: "/notifications" },
-  { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 /** Bottom bar items for mobile — most-used subset */
@@ -23,3 +23,10 @@ export const mobileBottomBarItems: NavigationItem[] = [
   { icon: Wallet, label: "Wallet", path: "/wallet" },
   { icon: User, label: "Profile", path: "/profile" },
 ];
+
+/** Kept for surfaces that still reference the alerts destination directly. */
+export const alertsNavigationItem: NavigationItem = {
+  icon: Bell,
+  label: "Alerts",
+  path: "/notifications",
+};
