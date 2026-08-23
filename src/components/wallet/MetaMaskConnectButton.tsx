@@ -80,13 +80,24 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size={compact ? "sm" : "default"} className={className}>
-          <Link2 className="mr-2 h-4 w-4" />
-          <span className="tabular-nums">{shortAddr(address)}</span>
-          <Badge variant="secondary" className="ml-2 text-[9px]">
-            {chainLabel(chainId)}
-          </Badge>
+        <Button
+          variant={iconOnly ? "ghost" : "outline"}
+          size={iconOnly ? "icon" : small ? "sm" : "default"}
+          className={className}
+          aria-label={`Wallet ${shortAddr(address)}`}
+          title={`${shortAddr(address)} · ${chainLabel(chainId)}`}
+        >
+          <Link2 className={iconOnly ? "h-4 w-4 text-secondary" : "mr-2 h-4 w-4"} />
+          {!iconOnly && (
+            <>
+              <span className="tabular-nums">{shortAddr(address)}</span>
+              <Badge variant="secondary" className="ml-2 text-[9px]">
+                {chainLabel(chainId)}
+              </Badge>
+            </>
+          )}
         </Button>
+
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel className="text-xs">
