@@ -1,15 +1,15 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Coins, PenSquare } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Bell, Coins, PenSquare } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { primaryNavigationItems } from "@/components/navigationItems";
-import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { MobileNav } from "./MobileNav";
 import { AppHealthBadge } from "./AppHealthBadge";
+import { NotificationBadge } from "./NotificationBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { MetaMaskConnectButton } from "./wallet/MetaMaskConnectButton";
+
 
 export function TopNavigationBar() {
   const location = useLocation();
