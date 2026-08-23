@@ -355,7 +355,7 @@ const Explore = () => {
         <header className="flex flex-col gap-4 text-center sm:flex-row sm:items-center sm:justify-between sm:text-left">
           <h1 className="text-3xl font-bold font-display uppercase tracking-wider">Explore</h1>
           <div className="flex items-center gap-2">
-            <CreateProjectModal onProjectCreated={() => void loadProjects(filters)} />
+
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="outline" size="icon" className="border-[hsla(174,59%,56%,0.2)]">
