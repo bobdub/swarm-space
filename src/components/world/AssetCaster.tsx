@@ -32,12 +32,16 @@ import {
   getPendingCast,
   subscribeCast,
   setCastHitSilent,
+  setCastUpOffset,
   updateCastHit,
   rotateCast,
   confirmCast,
   clearPendingCast,
   type PendingCast,
 } from '@/lib/world/assetCaster';
+import { listPlacements } from '@/lib/world/worldPlacementsStore';
+import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
+import { getBuilderTopView } from '@/lib/brain/builderCameraStore';
 
 const RAYCAST_RADIUS = EARTH_RADIUS + 1.2;
 const SURFACE_CLEARANCE = 0.03;
@@ -47,6 +51,14 @@ const SURFACE_CLEARANCE = 0.03;
 const SPAWN_FORWARD_M = CELL * 2;
 /** Pointer travel (px) under which a press counts as a click, not a drag. */
 const CLICK_SLOP_PX = 6;
+/** Extra fraction of a cell the pointer must travel past a boundary before
+ *  the ghost hops to the next cell. Kills the jitter/jetting between cells. */
+const CELL_HYSTERESIS = 0.22;
+/** Per-frame easing toward the snapped target (lower = slower glide). */
+const GHOST_EASE = 0.18;
+const GHOST_EASE_TOP = 0.1;
+/** Radius (m) inside which a neighbouring placement magnetises the ghost. */
+const MAGNET_RADIUS_M = CELL * 1.2;
 
 /** Intersect a ray (origin, dir) with a sphere; return the near hit or null. */
 function intersectShell(
@@ -79,6 +91,13 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   // Earth-local unit direction of the ghost. Stored so the ghost sticks
   // to the rotating surface instead of drifting in world space.
   const localDirRef = useRef<Vec3 | null>(null);
+  /** Snapped destination the displayed ghost eases toward. */
+  const targetDirRef = useRef<Vec3 | null>(null);
+  /** Last committed lattice cell — powers boundary hysteresis. */
+  const lastCellRef = useRef<{ ix: number; iz: number } | null>(null);
+  /** Manual stack level override (null = auto-stack). */
+  const manualLevelRef = useRef<number | null>(null);
+  const [stackUp, setStackUp] = useState(0);
   const [cast, setCast] = useState<PendingCast | null>(() => getPendingCast());
   const freeBuildRef = useRef<boolean>(false);
 
@@ -93,7 +112,13 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
 
   useEffect(() => subscribeCast((next) => {
     setCast(next);
-    if (!next) localDirRef.current = null;
+    if (!next) {
+      localDirRef.current = null;
+      targetDirRef.current = null;
+      lastCellRef.current = null;
+      manualLevelRef.current = null;
+      setStackUp(0);
+    }
   }), []);
 
   // Convert a world-space hit on the shell into an Earth-local unit dir.
@@ -139,7 +164,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
    *  This keeps the ghost near the avatar; the old global-tangent
    *  reconstruction could jump the asset back toward the grid origin. */
   const snapLocalDirToGrid = (localDir: Vec3): Vec3 => {
-    if (freeBuildRef.current) return localDir;
+    if (freeBuildRef.current) return magnetiseFreeDir(localDir);
     const pose = getEarthPose();
     const centerN = localBodyNormal() ?? localDir;
     const centerR = surfaceRadiusFor(centerN);
@@ -177,14 +202,101 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       offX = centerPos[0] * ref.right[0] + centerPos[1] * ref.right[1] + centerPos[2] * ref.right[2];
       offZ = centerPos[0] * ref.forward[0] + centerPos[1] * ref.forward[1] + centerPos[2] * ref.forward[2];
     } catch { /* fall back to local centred grid */ }
-    const qx = Math.round((x + offX) / CELL) * CELL - offX;
-    const qz = Math.round((z + offZ) / CELL) * CELL - offZ;
+    // Boundary hysteresis: only hop cells once the pointer has crossed a
+    // little past the midline, so the ghost stops flickering between two
+    // neighbours when the cursor sits on a grid line.
+    const rawIx = (x + offX) / CELL;
+    const rawIz = (z + offZ) / CELL;
+    const prev = lastCellRef.current;
+    let ix = Math.round(rawIx);
+    let iz = Math.round(rawIz);
+    if (prev) {
+      if (Math.abs(rawIx - prev.ix) < 0.5 + CELL_HYSTERESIS) ix = prev.ix;
+      if (Math.abs(rawIz - prev.iz) < 0.5 + CELL_HYSTERESIS) iz = prev.iz;
+    }
+    lastCellRef.current = { ix, iz };
+    const qx = ix * CELL - offX;
+    const qz = iz * CELL - offZ;
     const targetWorld: Vec3 = [
       pose.center[0] + centerWD[0] + rx * qx + fx * qz,
       pose.center[1] + centerWD[1] + ry * qx + fy * qz,
       pose.center[2] + centerWD[2] + rz * qx + fz * qz,
     ];
     return worldHitToLocalDir(targetWorld);
+  };
+
+  /** Global tangent coordinates (metres) of an Earth-local unit dir,
+   *  measured against the shared lattice anchor frame. */
+  const tangentOf = (localDir: Vec3): { tx: number; tz: number } | null => {
+    try {
+      const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
+      const r = surfaceRadiusFor(localDir);
+      const p: Vec3 = [localDir[0] * r, localDir[1] * r, localDir[2] * r];
+      return {
+        tx: p[0] * ref.right[0] + p[1] * ref.right[1] + p[2] * ref.right[2],
+        tz: p[0] * ref.forward[0] + p[1] * ref.forward[1] + p[2] * ref.forward[2],
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Free Build: keep continuous sub-cell movement, but pull gently toward
+   * the lattice when a neighbouring placement is close, so pieces still
+   * seat cleanly against foundations and owned-plot edges.
+   */
+  const magnetiseFreeDir = (localDir: Vec3): Vec3 => {
+    const here = tangentOf(localDir);
+    if (!here) return localDir;
+    let best: { tx: number; tz: number; d: number } | null = null;
+    for (const rec of listPlacements()) {
+      const nd = worldHitToLocalDir(rec.hitPoint);
+      const t = tangentOf(nd);
+      if (!t) continue;
+      const d = Math.hypot(t.tx - here.tx, t.tz - here.tz);
+      if (d > 0.05 && d < MAGNET_RADIUS_M && (!best || d < best.d)) best = { ...t, d };
+    }
+    if (!best) return localDir;
+    // Snap onto the neighbour's own lattice line, weighted by proximity.
+    const pull = 1 - best.d / MAGNET_RADIUS_M;
+    const latX = best.tx + Math.round((here.tx - best.tx) / CELL) * CELL;
+    const latZ = best.tz + Math.round((here.tz - best.tz) / CELL) * CELL;
+    const tx = here.tx + (latX - here.tx) * pull;
+    const tz = here.tz + (latZ - here.tz) * pull;
+    try {
+      const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
+      const r = surfaceRadiusFor(localDir);
+      const up: Vec3 = [
+        localDir[0] * r - (here.tx * ref.right[0] + here.tz * ref.forward[0]),
+        localDir[1] * r - (here.tx * ref.right[1] + here.tz * ref.forward[1]),
+        localDir[2] * r - (here.tx * ref.right[2] + here.tz * ref.forward[2]),
+      ];
+      const px = up[0] + tx * ref.right[0] + tz * ref.forward[0];
+      const py = up[1] + tx * ref.right[1] + tz * ref.forward[1];
+      const pz = up[2] + tx * ref.right[2] + tz * ref.forward[2];
+      const n = Math.hypot(px, py, pz) || 1;
+      return [px / n, py / n, pz / n];
+    } catch {
+      return localDir;
+    }
+  };
+
+  /** Tallest existing stack top (m) in the ghost's current cell. */
+  const autoStackHeight = (localDir: Vec3): number => {
+    const here = tangentOf(localDir);
+    if (!here) return 0;
+    let top = 0;
+    for (const rec of listPlacements()) {
+      const prefab = getPrefab(rec.prefabId);
+      if (!prefab) continue;
+      const t = tangentOf(worldHitToLocalDir(rec.hitPoint));
+      if (!t) continue;
+      if (Math.abs(t.tx - here.tx) > CELL * 0.5) continue;
+      if (Math.abs(t.tz - here.tz) > CELL * 0.5) continue;
+      top = Math.max(top, (rec.upOffset ?? 0) + prefab.height);
+    }
+    return top;
   };
 
   // Seed the ghost when a new session arms. Both brand-new placements and
@@ -194,7 +306,9 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   useEffect(() => {
     if (!cast) return;
     if (cast.hitPoint) {
-      localDirRef.current = worldHitToLocalDir(cast.hitPoint);
+      const seeded = worldHitToLocalDir(cast.hitPoint);
+      localDirRef.current = seeded;
+      targetDirRef.current = seeded;
       return;
     }
     const pose = getEarthPose();
@@ -236,6 +350,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       const localDir: Vec3 = [ax / ar, ay / ar, az / ar];
       const snapped = snapLocalDirToGrid(localDir);
       localDirRef.current = snapped;
+      targetDirRef.current = snapped;
       worldHit = localDirToWorldHit(snapped);
     } else {
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
@@ -247,6 +362,7 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       }
       const snapped = snapLocalDirToGrid(worldHitToLocalDir([hit.x, hit.y, hit.z]));
       localDirRef.current = snapped;
+      targetDirRef.current = snapped;
       worldHit = localDirToWorldHit(snapped);
     }
     setCastHitSilent(worldHit, true);
@@ -263,12 +379,24 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       sphereRef.current.visible = !!cast;
     }
     if (ghostRef.current) {
+      // Ease the displayed ghost toward the snapped target so it glides
+      // across cells instead of teleporting.
+      const tgt = targetDirRef.current;
+      if (tgt) {
+        const cur = localDirRef.current ?? tgt;
+        const k = getBuilderTopView() ? GHOST_EASE_TOP : GHOST_EASE;
+        const nx = cur[0] + (tgt[0] - cur[0]) * k;
+        const ny = cur[1] + (tgt[1] - cur[1]) * k;
+        const nz = cur[2] + (tgt[2] - cur[2]) * k;
+        const n = Math.hypot(nx, ny, nz) || 1;
+        localDirRef.current = [nx / n, ny / n, nz / n];
+      }
       const ld = localDirRef.current;
       ghostRef.current.visible = !!ld && !!cast;
       if (ld && cast) {
         // Re-apply current spin to keep ghost glued to the surface.
         const wd = quatRotate(pose.spinQuat, ld);
-        const radius = surfaceRadiusFor(ld);
+        const radius = surfaceRadiusFor(ld) + (cast.upOffset ?? 0);
         const wx = pose.center[0] + wd[0] * radius;
         const wy = pose.center[1] + wd[1] * radius;
         const wz = pose.center[2] + wd[2] * radius;
@@ -327,9 +455,15 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
   const writeHit = (e: ThreeEvent<PointerEvent>, isPositioned: boolean) => {
     const rawHit: Vec3 = [e.point.x, e.point.y, e.point.z];
     const snapped = snapLocalDirToGrid(worldHitToLocalDir(rawHit));
-    const worldHit = localDirToWorldHit(snapped);
-    localDirRef.current = snapped;
-    updateCastHit(worldHit, isPositioned);
+    targetDirRef.current = snapped;
+    if (!localDirRef.current) localDirRef.current = snapped;
+    // Auto-lift onto whatever already occupies this cell, unless the user
+    // has taken manual control of the stack level.
+    const auto = autoStackHeight(snapped);
+    const up = manualLevelRef.current ?? auto;
+    setStackUp(up);
+    setCastUpOffset(up);
+    updateCastHit(localDirToWorldHit(snapped), isPositioned);
   };
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
