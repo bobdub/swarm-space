@@ -97,6 +97,7 @@ function replayPlacement(rec: PlacementRecord, opts: { force?: boolean } = {}): 
       localForward: rec.localForward,
       localRight: rec.localRight,
       yaw: rec.yaw,
+      upOffset: rec.upOffset ?? 0,
       placementId: rec.placementId,
     });
   } catch (err) {
@@ -357,6 +358,7 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
     const changed = !existing
       || existing.prefabId !== rec.prefabId
       || existing.yaw !== rec.yaw
+      || (existing.upOffset ?? 0) !== (rec.upOffset ?? 0)
       || existing.hitPoint.some((value, index) => Math.abs(value - rec.hitPoint[index]) > 0.001);
     replayPlacement(rec, { force: opts.replay || changed });
   }
@@ -419,6 +421,7 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
     actorId: handle.actorId,
     placedAtPoseTime: handle.placedAtPoseTime,
     yaw: handle.yaw,
+    upOffset: handle.upOffset ?? 0,
     placementId: handle.placementId,
   });
   const rec: PlacementRecord = {

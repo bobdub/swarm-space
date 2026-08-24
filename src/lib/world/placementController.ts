@@ -25,6 +25,8 @@ export interface PlaceAtHitInput {
   prefabId: string;     // catalog id (built-in or minted)
   actorId: string;      // local peer id
   yaw?: number;
+  /** Vertical stack offset (m) above the local surface. */
+  upOffset?: number;
   /** Stable id; if omitted, derived from prefab + grid-snapped hit. */
   placementId?: string;
   /** Shared-epoch Earth pose time when the placement was authored. */
@@ -82,6 +84,7 @@ export interface PlacedHandle {
   localForward?: Vec3;
   localRight?: Vec3;
   yaw: number;
+  upOffset?: number;
   createdAt: number;
 }
 
@@ -118,6 +121,7 @@ export function placePrefabAtHit(input: PlaceAtHitInput): PlacedHandle | null {
     anchorPeerId: anchorId,
     rightOffset: 0,
     forwardOffset: 0,
+    upOffset: input.upOffset ?? 0,
     yaw: input.yaw ?? 0,
     mass: prefab.mass,
     basin: prefab.basin,
@@ -145,6 +149,7 @@ export function placePrefabAtHit(input: PlaceAtHitInput): PlacedHandle | null {
     localForward: frame.forward,
     localRight: frame.right,
     yaw: input.yaw ?? 0,
+    upOffset: input.upOffset ?? 0,
     createdAt: Date.now(),
   };
 }
