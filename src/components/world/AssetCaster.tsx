@@ -536,6 +536,29 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
           >
             <button type="button" onClick={() => rotateCast(-Math.PI / 12)} style={btnStyle}>⟲</button>
             <button type="button" onClick={() => rotateCast(Math.PI / 12)} style={btnStyle}>⟳</button>
+            <button
+              type="button"
+              title="Stack up"
+              onClick={() => {
+                const next = (manualLevelRef.current ?? stackUp) + Y_STEP;
+                manualLevelRef.current = next;
+                setStackUp(next);
+                setCastUpOffset(next);
+              }}
+              style={btnStyle}
+            >▲</button>
+            <button
+              type="button"
+              title="Stack down"
+              onClick={() => {
+                const next = Math.max(0, (manualLevelRef.current ?? stackUp) - Y_STEP);
+                manualLevelRef.current = next === 0 ? null : next;
+                setStackUp(next);
+                setCastUpOffset(next);
+              }}
+              style={btnStyle}
+            >▼</button>
+
             <button type="button" onClick={() => clearPendingCast()} style={{ ...btnStyle, color: '#fda4af' }}>✕</button>
             <button type="button" onClick={() => confirmCast()} style={{ ...btnStyle, background: 'hsl(265,80%,55%)', color: 'white' }}>✓</button>
           </div>
