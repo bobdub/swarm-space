@@ -1763,7 +1763,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       },
       hitPoint: record.hitPoint,
       yaw: record.yaw,
-      onConfirm: async (hit, yaw) => {
+      upOffset: record.upOffset ?? 0,
+      onConfirm: async (hit, yaw, _payload, upOffset) => {
         // Plot gate — refuse to move into someone else's plot.
         try {
           const pose = getEarthPose();
@@ -1786,6 +1787,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           ...record,
           hitPoint: hit,
           yaw,
+          upOffset: upOffset ?? record.upOffset ?? 0,
         };
         await updateLocalPlacement(updated);
         editingPlacementRef.current = null;
@@ -1843,7 +1845,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         color: prefab.color,
       },
       hitPoint: null,
-      onConfirm: async (hit, yaw) => {
+      onConfirm: async (hit, yaw, _payload, upOffset) => {
         // Land Plot gate — refuse to place inside someone else's plot.
         try {
           const pose = getEarthPose();
@@ -1867,6 +1869,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           prefabId: id,
           actorId: selfId,
           yaw,
+          upOffset: upOffset ?? 0,
         });
         if (handle) {
           await recordLocalPlacement(handle);
