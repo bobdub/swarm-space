@@ -26,7 +26,7 @@ import {
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
-import { CELL, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
+import { CELL, Y_STEP, WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { BUILDER_MODE_EVENT, type BuilderModeEventDetail } from '@/lib/brain/useBrainBuilder';
 import {
   getPendingCast,
