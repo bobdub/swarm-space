@@ -401,9 +401,12 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
         const wy = pose.center[1] + wd[1] * radius;
         const wz = pose.center[2] + wd[2] * radius;
         ghostRef.current.position.set(wx, wy, wz);
-        // Keep the registry's hitPoint in sync so Confirm commits at the
-        // visible location (silent — no React re-render storm).
-        setCastHitSilent([wx, wy, wz], !!cast.isPositioned);
+        // Keep the registry's hitPoint in sync with the SNAPPED target
+        // (ground level, no stack offset) so Confirm commits on the exact
+        // lattice cell even while the visual ghost is still gliding.
+        const commitDir = targetDirRef.current ?? ld;
+        setCastHitSilent(localDirToWorldHit(commitDir), !!cast.isPositioned);
+
         const up = new THREE.Vector3(wd[0], wd[1], wd[2]).normalize();
         // Build a basis where +Y is the surface normal.
         const m = new THREE.Matrix4();
