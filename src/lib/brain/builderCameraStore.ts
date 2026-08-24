@@ -30,3 +30,13 @@ export function subscribeBuilderTopView(listener: Listener): () => void {
   try { listener(topView); } catch { /* noop */ }
   return () => { listeners.delete(listener); };
 }
+
+/**
+ * Look-sensitivity multiplier. Top view is a precision placement mode,
+ * so drag-to-look is damped hard — the camera creeps instead of jetting.
+ */
+export const TOP_VIEW_LOOK_SCALE = 0.3;
+
+export function getBuilderLookScale(): number {
+  return topView ? TOP_VIEW_LOOK_SCALE : 1;
+}

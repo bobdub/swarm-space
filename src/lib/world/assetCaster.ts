@@ -32,8 +32,10 @@ export interface PendingCast {
   isPositioned: boolean;
   /** Yaw rotation (radians) around the surface normal. */
   yaw: number;
+  /** Vertical stack offset (m) above the local surface. */
+  upOffset: number;
   /** Commit handler — runs when the user presses Confirm. */
-  onConfirm: (hitPoint: Vec3, yaw: number, payload: unknown) => void;
+  onConfirm: (hitPoint: Vec3, yaw: number, payload: unknown, upOffset: number) => void;
   /** Optional discard handler — runs when the user presses Cancel. */
   onCancel?: () => void;
 }
@@ -48,9 +50,22 @@ export function getPendingCast(): PendingCast | null {
 }
 
 export function setPendingCast(
-  cast: Omit<PendingCast, 'yaw' | 'isPositioned'> & { yaw?: number; isPositioned?: boolean } | null,
+  cast:
+    | (Omit<PendingCast, 'yaw' | 'isPositioned' | 'upOffset'> & {
+        yaw?: number;
+        isPositioned?: boolean;
+        upOffset?: number;
+      })
+    | null,
 ): void {
-  pending = cast ? { yaw: 0, ...cast, isPositioned: cast.isPositioned ?? !!cast.hitPoint } : null;
+  pending = cast
+    ? {
+        yaw: 0,
+        upOffset: 0,
+        ...cast,
+        isPositioned: cast.isPositioned ?? !!cast.hitPoint,
+      }
+    : null;
   for (const l of listeners) {
     try { l(pending); } catch { /* listener crash isolated */ }
   }
@@ -97,17 +112,35 @@ export function rotateCast(delta: number): void {
   }
 }
 
+/** Set the ghost's vertical stack offset (m). Notifies listeners. */
+export function setCastUpOffset(up: number): void {
+  if (!pending) return;
+  const next = Math.max(0, up);
+  if (Math.abs((pending.upOffset ?? 0) - next) < 1e-4) return;
+  pending = { ...pending, upOffset: next };
+  for (const l of listeners) {
+    try { l(pending); } catch { /* noop */ }
+  }
+}
+
+/** Same as `setCastUpOffset` but without a React notify (frame loop use). */
+export function setCastUpOffsetSilent(up: number): void {
+  if (!pending) return;
+  pending.upOffset = Math.max(0, up);
+}
+
 /** Commit the placement at the current dropped hitPoint. No-op if not positioned. */
 export function confirmCast(): void {
   const cur = pending;
   if (!cur || !cur.hitPoint || !cur.isPositioned) return;
   const hit = cur.hitPoint;
   const yaw = cur.yaw ?? 0;
+  const upOffset = cur.upOffset ?? 0;
   pending = null;
   for (const l of listeners) {
     try { l(null); } catch { /* noop */ }
   }
-  try { cur.onConfirm(hit, yaw, cur.payload); } catch (err) { console.warn('[cast] onConfirm threw', err); }
+  try { cur.onConfirm(hit, yaw, cur.payload, upOffset); } catch (err) { console.warn('[cast] onConfirm threw', err); }
 }
 
 export function subscribeCast(listener: Listener): () => void {
