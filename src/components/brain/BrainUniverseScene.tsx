@@ -161,7 +161,7 @@ import {
 } from '@/lib/brain/infinityBinding';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
-import { getBuilderTopView, setBuilderTopView } from '@/lib/brain/builderCameraStore';
+import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -244,6 +244,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
   const prevTopView = useRef(false);
+  // Eased 0..1 blend into the overhead boom so entering/leaving Top view
+  // glides instead of snapping the whole world.
+  const boomBlend = useRef(0);
+  const pitchTarget = useRef(0);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -268,9 +272,15 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const topView = getBuilderTopView();
     if (topView !== prevTopView.current) {
       prevTopView.current = topView;
-      // Snap to a steep downward tilt on entering top view, level on exit.
-      pitchRef.current = topView ? -1.0 : 0;
+      // Ease toward a steep downward tilt on entering top view, level on exit.
+      pitchTarget.current = topView ? -1.0 : 0;
     }
+    // Glide pitch toward the mode target, then let drag deltas adjust it.
+    if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
+      pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
+    }
+    boomBlend.current += ((topView ? 1 : 0) - boomBlend.current) * 0.1;
+    if (boomBlend.current < 0.001) boomBlend.current = 0;
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
@@ -374,9 +384,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // patching it here would only mask the real failure.
     // Builder "Top view": boom the eye up and back along the view forward
     // so the avatar plus a wide patch of build grid stay in frame.
-    const eyeLift = topView ? EYE_LIFT + TOP_VIEW_UP_M : EYE_LIFT;
+    const boomAmt = boomBlend.current;
+    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt;
     let boomX = 0, boomY = 0, boomZ = 0;
-    if (topView) {
+    if (boomAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       // Strip the radial component so the boom pulls back along the ground.
       const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
@@ -385,9 +396,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       let bz = viewFwd.z - upN[2] * vdot;
       const bn = Math.hypot(bx, by, bz) || 1;
       bx /= bn; by /= bn; bz /= bn;
-      boomX = -bx * TOP_VIEW_BACK_M;
-      boomY = -by * TOP_VIEW_BACK_M;
-      boomZ = -bz * TOP_VIEW_BACK_M;
+      boomX = -bx * TOP_VIEW_BACK_M * boomAmt;
+      boomY = -by * TOP_VIEW_BACK_M * boomAmt;
+      boomZ = -bz * TOP_VIEW_BACK_M * boomAmt;
     }
     const eyeX = source[0] + upN[0] * eyeLift + boomX;
     const eyeY = source[1] + upN[1] * eyeLift + boomY;
@@ -716,8 +727,9 @@ function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
     const onMove = (e: TouchEvent) => {
       if (!active) return;
       const t = e.touches[0]; if (!t) return;
-      lookInput.yaw += (t.clientX - lastX) * 0.005;
-      lookInput.pitch += (t.clientY - lastY) * 0.005;
+      const s = 0.005 * getBuilderLookScale();
+      lookInput.yaw += (t.clientX - lastX) * s;
+      lookInput.pitch += (t.clientY - lastY) * s;
       lastX = t.clientX; lastY = t.clientY;
     };
     const onEnd = () => { active = false; };
@@ -756,8 +768,9 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
     };
     const onMove = (e: MouseEvent) => {
       if (!active) return;
-      lookInput.yaw += (e.clientX - lastX) * 0.005;
-      lookInput.pitch += (e.clientY - lastY) * 0.005;
+      const s = 0.005 * getBuilderLookScale();
+      lookInput.yaw += (e.clientX - lastX) * s;
+      lookInput.pitch += (e.clientY - lastY) * s;
       lastX = e.clientX; lastY = e.clientY;
     };
     const onUp = () => { active = false; setGrabbing(false); };
