@@ -51,3 +51,9 @@ existing `loadPieces` / `savePieces` path.
 hover `PlacedBlockEditChip` (Move / Rotate ±π/2 / Delete / Snap).
 
 See `docs/BRAIN_UNIVERSE.md` § Brain Builder Bar.
+## Top-down precision building (v3)
+- Top view damps drag-look to 30% (`getBuilderLookScale` in `builderCameraStore.ts`); the boom + pitch ease in/out instead of snapping.
+- Ghost eases toward the snapped target each frame with cell-boundary hysteresis (0.22 cell) so it glides instead of jetting; commits use the exact snapped target, not the eased visual.
+- Desktop: hover moves the ghost, a click (< 6 px travel) places it.
+- Vertical stacking: `upOffset` flows cast -> `placePrefabAtHit` -> `BuilderBlockEngine` -> `PlacementRecord` (persisted + gossiped). Ghost auto-lifts onto whatever occupies the cell; ▲/▼ chip buttons take manual control in `Y_STEP` increments.
+- Free Build keeps continuous movement but magnetises toward neighbouring placements within 1.2 cells (proximity-weighted lattice pull).
