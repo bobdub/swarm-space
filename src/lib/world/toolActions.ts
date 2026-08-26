@@ -12,7 +12,6 @@ import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { emitImpactFx, emitSwingFx, type ImpactMaterial } from '@/lib/world/swingFxBus';
 import {
   carveCell,
-  getCarvedDepth,
   shellAtDepth,
   DIG_STEP_M,
 } from '@/lib/world/carvedCellsStore';
