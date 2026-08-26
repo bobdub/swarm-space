@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
@@ -152,7 +151,7 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
         }}
       >
         <sphereGeometry args={[radius, 96, 64]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.BackSide} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {selected && (
         <group position={selected.point}>
