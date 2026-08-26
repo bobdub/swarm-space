@@ -158,7 +158,16 @@ async function applyImpactToBlock(params: {
     actorId: selfId,
   });
 
-  emitTargetImpact(point, up, toolPrefab.color, probe.intensity, swing.cut ? 'cut' : 'resist', swing.cut);
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'cut' : 'resist',
+    swing.cut,
+    materialForKind(blockKind),
+  );
+
 
   if (!swing.cut) {
     toast.message(toolPrefab.label, {
