@@ -53,7 +53,7 @@ export function emitSwingFx(fx: Omit<SwingFx, 'id' | 'startedAt' | 'durationMs'>
     id: nextId++,
     variant: fx.variant,
     startedAt: performance.now(),
-    durationMs: fx.durationMs ?? 320,
+    durationMs: fx.durationMs ?? 620,
     point: fx.point,
     up: fx.up,
     color: fx.color,
@@ -76,7 +76,7 @@ export function emitImpactFx(fx: Omit<SwingFx, 'id' | 'startedAt' | 'durationMs'
   return emitSwingFx({
     ...fx,
     variant: 'impact',
-    durationMs: fx.durationMs ?? 760,
+    durationMs: fx.durationMs ?? 1100,
   });
 }
 

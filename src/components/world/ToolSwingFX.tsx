@@ -48,13 +48,13 @@ interface MaterialStyle {
 }
 
 const MATERIAL_STYLES: Record<ImpactMaterial, MaterialStyle> = {
-  wood:  { colors: ['#a9762f', '#6b4f2a'], count: 14, spread: 2.4, rise: 2.6, gravity: 7.5, size: 0.09, shape: 'chip' },
-  stone: { colors: ['#d9dee8', '#8b8f99'], count: 12, spread: 3.2, rise: 2.2, gravity: 9.0, size: 0.06, shape: 'spark' },
-  soil:  { colors: ['#7b5a34', '#4a3520'], count: 16, spread: 1.8, rise: 2.9, gravity: 8.5, size: 0.11, shape: 'clod' },
-  flora: { colors: ['#f7a8d8', '#7bd88f'], count: 10, spread: 1.1, rise: 1.6, gravity: 1.4, size: 0.08, shape: 'petal' },
-  water: { colors: ['#8fd4ff', '#3f8fd0'], count: 18, spread: 2.0, rise: 3.0, gravity: 8.0, size: 0.07, shape: 'drop' },
-  lava:  { colors: ['#ffb347', '#ff4d1a'], count: 14, spread: 2.2, rise: 3.4, gravity: 6.0, size: 0.09, shape: 'spark' },
-  air:   { colors: ['#ffffff', '#c8d4ff'], count: 5,  spread: 1.2, rise: 1.0, gravity: 1.0, size: 0.05, shape: 'drop' },
+  wood:  { colors: ['#a9762f', '#6b4f2a'], count: 19, spread: 3.36, rise: 2.6, gravity: 7.5, size: 0.18, shape: 'chip' },
+  stone: { colors: ['#d9dee8', '#8b8f99'], count: 16, spread: 4.48, rise: 2.2, gravity: 9.0, size: 0.12, shape: 'spark' },
+  soil:  { colors: ['#7b5a34', '#4a3520'], count: 22, spread: 2.52, rise: 2.9, gravity: 8.5, size: 0.22, shape: 'clod' },
+  flora: { colors: ['#f7a8d8', '#7bd88f'], count: 14, spread: 1.54, rise: 1.6, gravity: 1.4, size: 0.16, shape: 'petal' },
+  water: { colors: ['#8fd4ff', '#3f8fd0'], count: 25, spread: 2.8, rise: 3.0, gravity: 8.0, size: 0.14, shape: 'drop' },
+  lava:  { colors: ['#ffb347', '#ff4d1a'], count: 19, spread: 3.08, rise: 3.4, gravity: 6.0, size: 0.18, shape: 'spark' },
+  air:   { colors: ['#ffffff', '#c8d4ff'], count: 5,  spread: 1.2, rise: 1.0, gravity: 1.0, size: 0.1, shape: 'drop' },
 };
 
 function SwingArc({ fx }: { fx: SwingFx }) {

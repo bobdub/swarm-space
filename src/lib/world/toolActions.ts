@@ -78,7 +78,7 @@ function resolveSwingProbe(point: Vec3, up: Vec3, color: string, toolMass: numbe
     point,
     up,
     color,
-    radius: Math.max(0.42, Math.cbrt(toolMass) * 0.72),
+    radius: Math.max(1.1, Math.cbrt(toolMass) * 1.8),
     intensity: probe.intensity,
   });
   return probe;
@@ -97,7 +97,7 @@ function emitTargetImpact(
     point,
     up,
     color,
-    radius: Math.max(0.28, 0.24 + intensity * 1.4),
+    radius: Math.max(0.75, 0.7 + intensity * 3.2),
     intensity,
     label,
     success,
