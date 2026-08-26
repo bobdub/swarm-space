@@ -10,8 +10,8 @@ The eye sits at `bodyPos + up × EYE_LIFT` (0.75 m above body centre). `HeldTool
 **The swing FX are the same size as a dinner plate and last 320 ms.**
 `resolveSwingProbe` emits a ring of radius `max(0.42, ∛mass × 0.72)` ≈ 0.4–0.8 m, impact rings 0.28–0.5 m, for 320/760 ms, at the target point. On a 360 px phone at eye height that is a few pixels of thin translucent line. The particle burst sizes (0.06–0.11 m) are smaller still.
 
-**Clouds are pinned to the village and take ~45 s to appear.**
-`tickWeather` spawns clouds only around `getEarthLocalSiteFrame('swarm-shared-village')`, 60–280 m out. Humidity starts at 0.35 and gains ≥0.02/s, so the first cloud needs ~33 s of the Brain scene being mounted, then ~14 s more of charge before it rains. If you are anywhere but the village, or left and re-entered, you see empty sky.
+**Clouds are placed by a site anchor, which is not UQRC.**
+`tickWeather` calls `getEarthLocalSiteFrame('swarm-shared-village')` and spawns clouds at a random arc 60–280 m from it, with `Math.random()` headings and a scalar global `humidity`. That is a hand-placed simulation sitting beside the field, not a trace of it — exactly the thing the `/brain` rule forbids. It is also why the sky is empty: nothing spawns where you are, and the first cloud needs ~33 s of humidity accumulation plus ~14 s of charge.
 
 **Digging needs a dig-capable tool on bare ground.** An axe resolves `chop`, which `actionMatchesTarget` only accepts for shells n=1–2, and only bare dry ground resolves to a `shell` target at all. Everything else silently returns a `surface` target, so no pit, no `cell-carved`, no `CarvedCellsLayer` geometry.
 
@@ -27,10 +27,17 @@ The eye sits at `bodyPos + up × EYE_LIFT` (0.75 m above body centre). `HeldTool
 - Scale the particle bursts to match (size ×2, spread ×1.4) and add a short-lived scorch/notch decal at the hit point so evidence persists a couple of seconds.
 - Emit an FX even on a rejected swing (dull/wrong-tool) so a miss is still visible feedback rather than silence.
 
-### 3. Weather where the player actually is
-- Spawn clouds around the **local player's** Earth-local normal (falling back to the village anchor when no body exists), keeping the 1 Hz tick and `MAX_CLOUDS` cap.
-- Seed the sky on start: begin with one already-charged cloud so the effect exists within a second of entering the Brain instead of 45 s later.
-- Increase cloud radius/puff count so a storm reads clearly at 120 m altitude on a phone screen.
+### 3. Weather as a field observable — no anchors, no random placement
+
+Rewrite `weather.ts` so cloud state is *read out of the operator field*, never authored:
+
+- **Humidity becomes a field quantity, not a global scalar.** Evaporation writes into the field: sun-lit ocean/shore cells call `injectAt` on the reward/context axes with an amplitude set by `sunDot × waterFraction`. The atmosphere no longer has a private counter — the moisture *is* `u`.
+- **Condensation nucleates at field extrema.** Each 1 Hz tick samples the field over the lit hemisphere and forms a cloud where the sampled scalar exceeds its neighbourhood *and* `‖∇∇S(u)‖` marks a local entropy-curvature well — the minimum-curvature selection the engine already uses for language (`selectByMinCurvature`). Clouds appear wherever the field says condensation is cheapest, which may be over ocean, over the volcano, or nowhere.
+- **Drift is the gradient, not `Math.random()`.** A cloud's per-tick motion is `Σ_μ 𝒟_μ u` projected onto the local tangent plane; heading jitter is removed entirely. Charge integrates the sampled amplitude; rain begins when the well deepens past closure and ends when the gradient flattens.
+- **Rain is the back-reaction.** Precipitation subtracts from the field at the cloud site and adds wetness to the ground cell, so `weatherCurvatureBoost` and the harder-to-dig soil are consequences of the same `u`, not a parallel bookkeeping.
+- **Visibility follows from physics, not from seeding.** Because evaporation injects wherever the player actually is (the lit ocean under them is a real source), storms form near the player without any anchor. Cloud radius/puff count scale with the sampled well depth so a strong basin reads clearly on a phone screen.
+
+Conformance: no constants outside the operator, no writes to `field.axes`, bounded by the existing `FIELD3D_BOUND` clamp. `WEATHER_ANCHOR_ID` is deleted.
 
 ### 4. Make digging reachable
 - Allow `dig` and `chop` on n≤2 shells (axe can break sod), and resolve `shell` targets for any bare ground under the reticle, not just dry ground.
