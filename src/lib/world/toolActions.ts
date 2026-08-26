@@ -5,7 +5,7 @@ import { getToolAny } from '@/lib/brain/toolCatalog';
 import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
-import type { Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, type Vec3 } from '@/lib/brain/earth';
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
