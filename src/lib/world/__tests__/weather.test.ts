@@ -36,9 +36,9 @@ describe('weather as a field observable', () => {
     expect(snap.clouds.length).toBeGreaterThan(0);
 
     const field = getBrainPhysics().getField();
-    for (const axis of field.axes) {
-      for (let i = 0; i < axis.u.length; i++) {
-        expect(Math.abs(axis.u[i])).toBeLessThanOrEqual(FIELD3D_BOUND + 1e-6);
+    for (const u of field.axes) {
+      for (let i = 0; i < u.length; i++) {
+        expect(Math.abs(u[i])).toBeLessThanOrEqual(FIELD3D_BOUND + 1e-6);
       }
     }
   });

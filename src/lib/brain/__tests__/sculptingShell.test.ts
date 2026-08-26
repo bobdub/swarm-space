@@ -5,6 +5,7 @@ import { getToolAny } from '../toolCatalog';
 
 const axe = getToolAny('tool_axe_stone')!;
 const grass = EARTH_SHELLS.find((s) => s.n <= 1)!;
+const gated = EARTH_SHELLS.find((s) => s.n <= 2 && s.sharpnessThreshold > 0)!;
 const lava = EARTH_SHELLS.find((s) => s.id.startsWith('lava'));
 
 describe('applyImpact — shell branch', () => {
@@ -23,7 +24,7 @@ describe('applyImpact — shell branch', () => {
       tool: axe,
       sharpness: 0,
       swingEnergy: 12,
-      target: { kind: 'shell', shell: grass, rFrac: 1, cellKey: 'c:0:0' },
+      target: { kind: 'shell', shell: gated, rFrac: 1, cellKey: 'c:0:0' },
     });
     expect(res.cut).toBe(false);
     expect(res.reason).toBe('sharpness_below_threshold');
