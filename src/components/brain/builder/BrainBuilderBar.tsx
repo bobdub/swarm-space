@@ -413,7 +413,7 @@ export function BrainBuilderBar({
                 onSelect={() => {
                   if (getToolAny(p.id)) {
                     selectPrefab(null);
-                    equipCatalogTool(p.id, selfActorId);
+                    equipCatalogTool(p.id, selfId ?? "local");
                     return;
                   }
                   selectPrefab(selectedPrefabId === p.id ? null : p.id);
