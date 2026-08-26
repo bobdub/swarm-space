@@ -2,14 +2,23 @@ import { toast } from 'sonner';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getToolAny } from '@/lib/brain/toolCatalog';
-import { applyImpact } from '@/lib/brain/sculpting';
+import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
 import type { Vec3 } from '@/lib/brain/earth';
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { emitImpactFx, emitSwingFx } from '@/lib/world/swingFxBus';
+import { emitImpactFx, emitSwingFx, type ImpactMaterial } from '@/lib/world/swingFxBus';
+import {
+  carveCell,
+  getCarvedDepth,
+  shellAtDepth,
+  DIG_STEP_M,
+} from '@/lib/world/carvedCellsStore';
+import { setToolTarget } from '@/lib/world/toolTargetStore';
+import { weatherCurvatureBoost } from '@/lib/world/weather';
+
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
