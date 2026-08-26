@@ -58,7 +58,7 @@ export function WorldToolTargetsLayer() {
       {blocks.map((block) => (
         <NatureTarget key={block.bodyId} block={block} selected={target?.kind === 'nature' && target.blockId === block.bodyId} />
       ))}
-      <SurfaceTarget selected={target?.kind === 'surface' ? target : null} />
+      <SurfaceTarget selected={target?.kind === 'surface' || target?.kind === 'shell' ? target : null} />
     </>
   );
 }
