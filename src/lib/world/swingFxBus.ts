@@ -61,7 +61,9 @@ export function emitSwingFx(fx: Omit<SwingFx, 'id' | 'startedAt' | 'durationMs'>
     intensity: fx.intensity,
     label: fx.label,
     success: fx.success,
+    material: fx.material,
   };
+
   for (const fn of listeners) {
     try { fn(ev); } catch (err) { console.warn('[swingFx] listener', err); }
   }
