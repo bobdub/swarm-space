@@ -34,11 +34,14 @@ export interface SwingFx {
   label?: string;
   /** Optional outcome bit so impact markers can read as success/failure. */
   success?: boolean;
+  /** Material struck — selects the particle burst style. */
+  material?: ImpactMaterial;
   /** Wall-clock ms when the swing started. */
   startedAt: number;
   /** Animation lifetime ms. */
   durationMs: number;
 }
+
 
 let nextId = 1;
 const listeners = new Set<(fx: SwingFx) => void>();
