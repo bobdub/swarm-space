@@ -71,8 +71,8 @@ export function HeldToolMesh({ selfId }: Props) {
     // i.e. permanently off-screen.
     const bob = Math.sin(performance.now() / 900) * 0.03;
     const OUT = 0.78;   // forward from the eye
-    const SIDE = 0.30;  // to the right hand
-    const DROP = 0.26 - bob;  // below eye line
+    const SIDE = 0.16;  // to the right hand (portrait fov is narrow)
+    const DROP = 0.30 - bob;  // below eye line
     g.position.set(
       body.pos[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
       body.pos[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
