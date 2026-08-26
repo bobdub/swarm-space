@@ -6,6 +6,13 @@ import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/t
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import {
+  digCellKeyFor,
+  getCarvedDepth,
+  hydrateCarvedCells,
+  shellAtDepth,
+} from '@/lib/world/carvedCellsStore';
+
 
 function colliderFor(kind: string): [number, number, number] {
   switch (kind) {
