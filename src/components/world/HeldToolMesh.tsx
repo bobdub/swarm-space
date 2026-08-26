@@ -14,6 +14,7 @@ import { getHeldTool, subscribeHeldTool, type HeldTool } from '@/lib/world/heldT
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { EYE_LIFT } from '@/lib/brain/earth';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
@@ -99,7 +100,7 @@ export function HeldToolMesh({ selfId }: Props) {
 
   return (
     <group ref={groupRef}>
-      <group ref={pivotRef}>
+      <group ref={pivotRef} scale={1.6}>
         {/* Handle */}
         <mesh position={[0, -dims.handle / 2, 0]} castShadow>
           <cylinderGeometry args={[0.035, 0.042, dims.handle, 8]} />
@@ -108,7 +109,13 @@ export function HeldToolMesh({ selfId }: Props) {
         {/* Head */}
         <mesh position={[0, 0.04, 0]} castShadow>
           <boxGeometry args={[dims.head * 1.6, dims.head, dims.head * 0.45]} />
-          <meshStandardMaterial color={headColor} roughness={0.35} metalness={0.55} />
+          <meshStandardMaterial
+            color={headColor}
+            roughness={0.35}
+            metalness={0.55}
+            emissive={headColor}
+            emissiveIntensity={0.18}
+          />
         </mesh>
         {/* Binding */}
         <mesh position={[0, -0.08, 0]}>
