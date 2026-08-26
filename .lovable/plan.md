@@ -1,49 +1,51 @@
-# Why the Brain effects are invisible — and what to change
+# Brain effects are rendering — they are just outside your view
 
-I ran the engine checks against the current tree rather than assuming the last turn landed.
+I re-checked the code with the assumption that you did hold an axe and swing it. The layers are all mounted in `BrainUniverseScene.tsx:2056-2059` and `nature/NatureLayer.tsx`, the build is clean, and 214 tests pass. The problem is geometry and thresholds, not wiring.
 
-## What is actually true right now
+## What the numbers say
 
-- Build is clean (`build OK`), and every new layer **is** mounted: `CarvedCellsLayer`, `WeatherLayer`, `HeldToolMesh` in `BrainUniverseScene.tsx:2057-2059`, `VolcanoLavaPool` in `nature/NatureLayer.tsx:245`.
-- `scripts/uqrc-check.mjs` reports no contradictions from the new modules; the top stress files are all pre-existing (`lab.bus.ts`, `galaxy.ts`, `feed.ts`).
-- Test suite: 214 passing, 1 real failure (`mediaCoin` needs `URL.createObjectURL` in jsdom), 4 files unresolvable because they import `bun:test` under vitest. All pre-existing, none touch the new code.
+**The axe is below the camera frustum.**
+The eye sits at `bodyPos + up × EYE_LIFT` (0.75 m above body centre). `HeldToolMesh` puts the tool at body centre `+0.55 m` forward, `−0.25 m` down, `+0.42 m` right. Relative to the eye that is ~1.0 m below and 0.55 m ahead — about 61° below the horizon, while the camera is a 60° fov (30° half-angle) looking at the horizon. The tool renders every frame and is never on screen unless you stare at your feet.
 
-So nothing is broken — the effects are **gated behind a door almost nobody opens**.
+**The swing FX are the same size as a dinner plate and last 320 ms.**
+`resolveSwingProbe` emits a ring of radius `max(0.42, ∛mass × 0.72)` ≈ 0.4–0.8 m, impact rings 0.28–0.5 m, for 320/760 ms, at the target point. On a 360 px phone at eye height that is a few pixels of thin translucent line. The particle burst sizes (0.06–0.11 m) are smaller still.
 
-## The five real defects
+**Clouds are pinned to the village and take ~45 s to appear.**
+`tickWeather` spawns clouds only around `getEarthLocalSiteFrame('swarm-shared-village')`, 60–280 m out. Humidity starts at 0.35 and gains ≥0.02/s, so the first cloud needs ~33 s of the Brain scene being mounted, then ~14 s more of charge before it rains. If you are anywhere but the village, or left and re-entered, you see empty sky.
 
-1. **No tool can ever be in hand.** `setHeldTool` is called from exactly one place: picking a placed tool back up in `UserPlacementsLayer`. A player must forge in the Lab → mint → place in the world → walk over → pick up before any tool mesh, swing FX, or dig exists. `heldToolStore` is also pure in-memory, so a refresh silently empties the hand.
-2. **Digging is unreachable without that tool**, so the Earth shells still cannot be verified — the original complaint is untouched in practice.
-3. **Weather is village-local and slow.** Clouds only spawn within 60–280 m of the `swarm-shared-village` anchor, capped at 5, and the loop only ticks while the Brain scene is mounted. Humidity starts at 0.35 and gains ~0.02/s off dry land, so first cloud is ~30 s away and invisible anywhere else on the planet.
-4. **Digs are private.** `carvedCellsStore` persists to `localStorage` only — no gossip through `p2pPlacementBridge`, so a pit one peer digs does not exist for anyone else, contradicting the shared-world rule.
-5. **No conformance coverage.** There are no tests for `weather.ts`, `carvedCellsStore.ts`, or the `shell` branch of `applyImpact`, so the UQRC coupling (rain → curvature → harder cutting) is unverified.
+**Digging needs a dig-capable tool on bare ground.** An axe resolves `chop`, which `actionMatchesTarget` only accepts for shells n=1–2, and only bare dry ground resolves to a `shell` target at all. Everything else silently returns a `surface` target, so no pit, no `cell-carved`, no `CarvedCellsLayer` geometry.
 
 ## Changes
 
-### 1. Give every player a starting tool
-- Seed the hand on first Brain entry with a `tool_shovel_stone` (and make the Lab's forge output auto-equip). No physics change — it writes only `heldToolStore`.
-- Persist the held prefab id in `localStorage` so a refresh restores the hand; the source placement record stays optional (a seeded tool has none, dropping just re-places it).
-- `HeldToolHUD` gains an explicit tool picker for the stone knife / axe / shovel so switching action kinds needs no world round-trip.
+### 1. Put the tool in frame
+- Reposition `HeldToolMesh` relative to the **eye**, not the body centre: roughly `eye + forward 0.62 + right 0.34 − up 0.34`, and scale it up ~1.6× so it reads like a first-person held item.
+- Add a mild idle bob and keep the existing swing pivot animation.
+- Verify with a Brain screenshot at default pitch that the axe head is visible in the lower-right of the viewport before calling it done.
 
-### 2. Make digging discoverable
-- Show the shell label + depth on the ground reticle whenever a dig-capable tool is held, so the player sees "Grass (n=1)" before swinging.
-- Keep `applyImpact` untouched — it already answers shells correctly; only the affordance changes.
+### 2. Make impacts unmistakable
+- Raise swing/impact ring radii ~2.5× and lifetime to ~600/1100 ms, add a bright expanding shockwave disc on a successful cut.
+- Scale the particle bursts to match (size ×2, spread ×1.4) and add a short-lived scorch/notch decal at the hit point so evidence persists a couple of seconds.
+- Emit an FX even on a rejected swing (dull/wrong-tool) so a miss is still visible feedback rather than silence.
 
-### 3. Weather that follows the player
-- Anchor cloud spawning to the local player's Earth-local normal instead of the fixed village frame, keeping the same 1 Hz tick and the same `MAX_CLOUDS` cap.
-- Raise starting humidity and evaporation floor so the first cloud arrives in a few seconds, and keep the drift/charge maths exactly as-is.
-- Weather keeps running via the existing `WeatherLayer` mount; no new timers.
+### 3. Weather where the player actually is
+- Spawn clouds around the **local player's** Earth-local normal (falling back to the village anchor when no body exists), keeping the 1 Hz tick and `MAX_CLOUDS` cap.
+- Seed the sky on start: begin with one already-charged cloud so the effect exists within a second of entering the Brain instead of 45 s later.
+- Increase cloud radius/puff count so a storm reads clearly at 120 m altitude on a phone screen.
 
-### 4. Share carved cells
-- Broadcast `cell-carved` through the existing `p2pPlacementBridge` gossip path (last-writer-wins on `updatedAt`), and apply inbound carves via `carveCell`'s quantised key. Same pattern as world placements, no new transport.
+### 4. Make digging reachable
+- Allow `dig` and `chop` on n≤2 shells (axe can break sod), and resolve `shell` targets for any bare ground under the reticle, not just dry ground.
+- Show the shell name and depth on the ground reticle when a tool is held, so you can see "Grass (n=1) · 0.0 m" before swinging and watch it change as the pit deepens.
+- Deepen the first cut visually: `DIG_STEP_M` per swing with pit walls banded by shell colour, as already implemented in `CarvedCellsLayer`.
 
-### 5. Conformance tests
-- `weather.test.ts` — evaporation → condensation → rain sequence, and that a raining tick raises the field's commutator norm without breaching `FIELD3D_BOUND`.
-- `carvedCells.test.ts` — cell key stability under Earth spin, monotonic depth, `DIG_MAX_DEPTH_M` floor.
-- Extend the sculpting test with the shell branch: lava rejection, sharpness threshold, and that `weatherCurvatureBoost` raises resistance.
+### 5. A visible lava floor check
+- Confirm `VolcanoLavaPool` renders at the crater radius with a screenshot; if it sits below the displaced crater floor, raise it to the sampled surface lift like the other surface layers do.
+
+### 6. Verification, not assumption
+- Drive the Brain with Playwright at your viewport (360×565), equip a tool, swing, and capture screenshots for: tool in hand, impact burst, a dug pit, and a cloud. Nothing gets reported as fixed without a frame showing it.
+- Add tests for the weather state machine (evaporate → condense → rain → curvature injection stays inside `FIELD3D_BOUND`) and the shell branch of `applyImpact`.
 
 ## Technical notes
 
-- No new constants enter the physics operator; weather still perturbs the field only through `injectAt`, per the `/brain` gradient-only rule.
-- Held-tool persistence stores an id, never a physics body — no divergence between peers.
-- Existing pre-turn failures (`bun:test` files, `mediaCoin` blob URL) are out of scope unless you want them folded in.
+- All changes are placement, scale, threshold, and gating — no new forces, no writes to `field.axes`, so the `/brain` gradient-only rule holds.
+- Weather still perturbs the field only through `injectAt`.
+- Carved cells keep their existing throttled `localStorage` persistence; sharing digs across peers is a separate follow-up.
