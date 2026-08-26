@@ -4,8 +4,20 @@
  * Canvas-side <ToolSwingFX/> subscribes to render a brief arc at the
  * swing point. Pure UI seam; no physics state lives here.
  */
+
+/** Material struck by the swing — drives the particle burst style. */
+export type ImpactMaterial =
+  | 'wood'
+  | 'stone'
+  | 'soil'
+  | 'flora'
+  | 'water'
+  | 'lava'
+  | 'air';
+
 export interface SwingFx {
   id: number;
+
   /** Visual mode — broad swing arc or a target impact marker. */
   variant: 'swing' | 'impact';
   /** World-space swing point (in front of the user). */
