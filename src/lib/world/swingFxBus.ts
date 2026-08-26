@@ -4,8 +4,20 @@
  * Canvas-side <ToolSwingFX/> subscribes to render a brief arc at the
  * swing point. Pure UI seam; no physics state lives here.
  */
+
+/** Material struck by the swing — drives the particle burst style. */
+export type ImpactMaterial =
+  | 'wood'
+  | 'stone'
+  | 'soil'
+  | 'flora'
+  | 'water'
+  | 'lava'
+  | 'air';
+
 export interface SwingFx {
   id: number;
+
   /** Visual mode — broad swing arc or a target impact marker. */
   variant: 'swing' | 'impact';
   /** World-space swing point (in front of the user). */
@@ -22,11 +34,14 @@ export interface SwingFx {
   label?: string;
   /** Optional outcome bit so impact markers can read as success/failure. */
   success?: boolean;
+  /** Material struck — selects the particle burst style. */
+  material?: ImpactMaterial;
   /** Wall-clock ms when the swing started. */
   startedAt: number;
   /** Animation lifetime ms. */
   durationMs: number;
 }
+
 
 let nextId = 1;
 const listeners = new Set<(fx: SwingFx) => void>();
@@ -46,7 +61,9 @@ export function emitSwingFx(fx: Omit<SwingFx, 'id' | 'startedAt' | 'durationMs'>
     intensity: fx.intensity,
     label: fx.label,
     success: fx.success,
+    material: fx.material,
   };
+
   for (const fn of listeners) {
     try { fn(ev); } catch (err) { console.warn('[swingFx] listener', err); }
   }

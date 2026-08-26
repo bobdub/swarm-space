@@ -6,6 +6,13 @@ import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/t
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import {
+  digCellKeyFor,
+  getCarvedDepth,
+  hydrateCarvedCells,
+  shellAtDepth,
+} from '@/lib/world/carvedCellsStore';
+
 
 function colliderFor(kind: string): [number, number, number] {
   switch (kind) {
@@ -51,7 +58,7 @@ export function WorldToolTargetsLayer() {
       {blocks.map((block) => (
         <NatureTarget key={block.bodyId} block={block} selected={target?.kind === 'nature' && target.blockId === block.bodyId} />
       ))}
-      <SurfaceTarget selected={target?.kind === 'surface' ? target : null} />
+      <SurfaceTarget selected={target?.kind === 'surface' || target?.kind === 'shell' ? target : null} />
     </>
   );
 }
@@ -91,7 +98,7 @@ function NatureTarget({ block, selected }: { block: BuilderBlock; selected: bool
   );
 }
 
-function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'surface' }> | null }) {
+function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'surface' | 'shell' }> | null }) {
   const pose = getEarthPose();
   const radius = 150.05;
 
@@ -108,13 +115,32 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
           const r = Math.hypot(dx, dy, dz) || 1;
           const local = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
           const surfaceClass = sampleSurfaceClass(local);
-          const surfaceKind = surfaceClass === 'ocean' || surfaceClass === 'shore' ? 'water' : 'ground';
+          const isWater = surfaceClass === 'ocean' || surfaceClass === 'shore';
+          if (isWater) {
+            setToolTarget({
+              kind: 'surface',
+              id: `surface:water:${hit.map((v) => v.toFixed(2)).join(':')}`,
+              label: 'Water surface',
+              surfaceKind: 'water',
+              point: hit,
+            });
+            return;
+          }
+          // Dry ground resolves all the way down to an Earth shell so the
+          // sculpting predicate can answer "what am I digging through?".
+          hydrateCarvedCells();
+          const cellKey = digCellKeyFor(local);
+          const depth = getCarvedDepth(cellKey);
+          const shell = shellAtDepth(depth);
           setToolTarget({
-            kind: 'surface',
-            id: `surface:${surfaceKind}:${hit.map((v) => v.toFixed(2)).join(':')}`,
-            label: surfaceKind === 'water' ? 'Water surface' : 'Ground',
-            surfaceKind,
+            kind: 'shell',
+            id: `shell:${cellKey}`,
+            label: shell ? `${shell.label} (n=${shell.n})` : 'Ground',
             point: hit,
+            localNormal: local,
+            cellKey,
+            depth,
+            shellId: shell?.id ?? 'grass',
           });
         }}
       >
@@ -123,12 +149,13 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
       </mesh>
       {selected && (
         <mesh position={selected.point}>
-          <sphereGeometry args={[selected.surfaceKind === 'water' ? 0.42 : 0.3, 18, 18]} />
+          <sphereGeometry args={[selected.kind === 'surface' ? 0.42 : 0.3, 18, 18]} />
           <meshBasicMaterial color="white" wireframe transparent opacity={0.45} depthWrite={false} />
         </mesh>
       )}
     </group>
   );
 }
+
 
 export default WorldToolTargetsLayer;

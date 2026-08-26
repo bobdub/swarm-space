@@ -12,6 +12,7 @@ import {
   SHARED_VOLCANO_ANCHOR_ID,
 } from '@/lib/brain/volcanoOrgan';
 import { EARTH_RADIUS, getEarthPose, quatRotate } from '@/lib/brain/earth';
+import { VolcanoLavaPool } from '@/components/brain/VolcanoLavaPool';
 
 /**
  * Phase 2 — NatureLayer
@@ -240,6 +241,8 @@ function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string 
   const craterR = organ.craterRadius;
   return (
     <group ref={groupRef}>
+      {/* Molten crater floor — pressure-reactive crust. */}
+      <VolcanoLavaPool radius={craterR * 0.95} />
       {/* Glowing vent — sits inside the crater bowl. */}
       <mesh position={[0, 0.4, 0]}>
         <sphereGeometry args={[craterR * 0.55, 16, 12]} />
@@ -249,7 +252,7 @@ function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string 
           emissiveIntensity={1.4}
         />
       </mesh>
-      <pointLight position={[0, 1.2, 0]} intensity={8} distance={organ.baseRadius * 3} color="hsl(18, 95%, 55%)" />
+
       {/* Lazy ash plume — translucent cone stack. */}
       {[0, 1, 2].map((i) => (
         <mesh key={`plume-${i}`} position={[0, 2.5 + i * 2.4, 0]}>

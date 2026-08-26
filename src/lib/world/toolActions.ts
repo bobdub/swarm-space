@@ -2,14 +2,22 @@ import { toast } from 'sonner';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getToolAny } from '@/lib/brain/toolCatalog';
-import { applyImpact } from '@/lib/brain/sculpting';
+import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
-import type { Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, type Vec3 } from '@/lib/brain/earth';
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { emitImpactFx, emitSwingFx } from '@/lib/world/swingFxBus';
+import { emitImpactFx, emitSwingFx, type ImpactMaterial } from '@/lib/world/swingFxBus';
+import {
+  carveCell,
+  shellAtDepth,
+  DIG_STEP_M,
+} from '@/lib/world/carvedCellsStore';
+import { setToolTarget } from '@/lib/world/toolTargetStore';
+import { weatherCurvatureBoost } from '@/lib/world/weather';
+
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
 
@@ -38,6 +46,24 @@ function bondTermForKind(kind: string): number {
   return 0.55;
 }
 
+/** Which particle burst a struck thing produces. */
+function materialForKind(kind: string): ImpactMaterial {
+  if (/tree|wood|trunk|log|root|plank|door/.test(kind)) return 'wood';
+  if (/stone|rock|mountain|foundation|brick|wall/.test(kind)) return 'stone';
+  if (/flower|grass|leaf|hive|bee/.test(kind)) return 'flora';
+  if (/water|fish|pond|ocean/.test(kind)) return 'water';
+  if (/lava|magma/.test(kind)) return 'lava';
+  return 'soil';
+}
+
+function materialForShell(shellId: string): ImpactMaterial {
+  if (shellId.startsWith('lava')) return 'lava';
+  if (/aquifer/.test(shellId)) return 'water';
+  if (/grass/.test(shellId)) return 'flora';
+  if (/bedrock|obsidian|diamond|gold|platinum|mineral|coal/.test(shellId)) return 'stone';
+  return 'soil';
+}
+
 function isSurfaceGatherable(point: Vec3): boolean {
   const r = Math.hypot(point[0], point[1], point[2]) || 1;
   const localNormal: Vec3 = [point[0] / r, point[1] / r, point[2] / r];
@@ -58,7 +84,15 @@ function resolveSwingProbe(point: Vec3, up: Vec3, color: string, toolMass: numbe
   return probe;
 }
 
-function emitTargetImpact(point: Vec3, up: Vec3, color: string, intensity: number, label: string, success: boolean) {
+function emitTargetImpact(
+  point: Vec3,
+  up: Vec3,
+  color: string,
+  intensity: number,
+  label: string,
+  success: boolean,
+  material: ImpactMaterial = 'air',
+) {
   emitImpactFx({
     point,
     up,
@@ -67,8 +101,10 @@ function emitTargetImpact(point: Vec3, up: Vec3, color: string, intensity: numbe
     intensity,
     label,
     success,
+    material,
   });
 }
+
 
 function pointInFrontOfSelf(selfId: string | undefined, reach: number): { point: Vec3; up: Vec3 } | null {
   if (!selfId) return null;
@@ -121,7 +157,16 @@ async function applyImpactToBlock(params: {
     actorId: selfId,
   });
 
-  emitTargetImpact(point, up, toolPrefab.color, probe.intensity, swing.cut ? 'cut' : 'resist', swing.cut);
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'cut' : 'resist',
+    swing.cut,
+    materialForKind(blockKind),
+  );
+
 
   if (!swing.cut) {
     toast.message(toolPrefab.label, {
@@ -172,7 +217,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     const up = unitFrom(target.point);
     const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
-    emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok);
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
       toast.message(prefab.label, { description: 'No gatherable water at this impact point.' });
       return false;
@@ -181,12 +226,16 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return true;
   }
 
+  if (target.kind === 'shell') return digShell(toolPrefabId, target, selfId);
+
+
+
   if (verb === 'gather' && (target.natureKind === 'flower' || target.natureKind === 'grass' || target.natureKind === 'fish' || target.natureKind === 'water')) {
     const body = getBrainPhysics().getBody(target.blockId);
     const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
     const up = unitFrom(point);
     const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
-    emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true);
+    emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true, materialForKind(target.natureKind));
     getBuilderBlockEngine().removeBlock(target.blockId);
     toast.success(prefab.label, { description: `Collected ${labelForKind(target.natureKind).toLowerCase()}.` });
     return true;
@@ -203,6 +252,100 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     selfId,
   });
 }
+
+/**
+ * Dig one step into the Earth shells at a ground cell.
+ *
+ * Goes through the SAME `applyImpact` predicate as every other cut, so
+ * shell density / bond / local curvature (now including weather load)
+ * decide whether the spade bites. A successful cut deepens the pit and
+ * publishes `cell-carved` for the renderer + persistence layers.
+ */
+async function digShell(
+  toolPrefabId: string,
+  target: Extract<ToolTarget, { kind: 'shell' }>,
+  selfId?: string,
+): Promise<boolean> {
+  const prefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  if (!prefab) return false;
+
+  const up = unitFrom(target.point);
+  const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'miss', false, 'soil');
+    toast.message(prefab.label, { description: 'This tool cannot break ground.' });
+    return false;
+  }
+
+  const shell = shellAtDepth(target.depth);
+  if (!shell) {
+    toast.message(prefab.label, { description: 'The ground here will not yield further.' });
+    return false;
+  }
+
+  const material = materialForShell(shell.id);
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    // Storms load the field: digging in rain is measurably harder.
+    curvatureLoad: probe.curvatureLoad + weatherCurvatureBoost(target.localNormal),
+    target: {
+      kind: 'shell',
+      shell,
+      rFrac: 1 - target.depth / EARTH_RADIUS,
+      cellKey: target.cellKey,
+    },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    target.point,
+    up,
+    prefab.color,
+    probe.intensity,
+    swing.cut ? shell.label : (swing.reason === 'sharpness_below_threshold' ? 'too dull' : 'resist'),
+    swing.cut,
+    material,
+  );
+
+  if (!swing.cut) {
+    const why = swing.reason === 'lava_burns_tool'
+      ? 'Lava burns the tool — it cannot be cut.'
+      : swing.reason === 'sharpness_below_threshold'
+        ? `${shell.label} needs a sharper edge (≥ ${shell.sharpnessThreshold.toFixed(2)}).`
+        : swing.reason === 'wrong_action_kind'
+          ? `${prefab.label} is the wrong tool for ${shell.label}.`
+          : `${shell.label} resisted (${swing.effectiveCut.toFixed(2)}).`;
+    toast.message(prefab.label, { description: why });
+    return true;
+  }
+
+  const carved = carveCell(target.localNormal, DIG_STEP_M * Math.min(2, swing.effectiveCut));
+  if (!carved) {
+    toast.message(prefab.label, { description: 'This pit has reached its floor.' });
+    return true;
+  }
+
+  emitCellCarved({ cellKey: carved.cellKey, shellId: carved.shellId, swing });
+
+  const floor = shellAtDepth(carved.depth);
+  toast.success(`Dug through ${shell.label}`, {
+    description: `Depth ${carved.depth.toFixed(1)} m · now standing on ${floor?.label ?? 'bedrock'} (n=${floor?.n ?? shell.n}).`,
+  });
+
+  // Keep the target live so repeated swings deepen the same pit.
+  setToolTarget({
+    ...target,
+    depth: carved.depth,
+    shellId: carved.shellId,
+    label: `${floor?.label ?? 'Bedrock'} (n=${floor?.n ?? shell.n})`,
+  });
+  return true;
+}
+
+
 
 export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
   const prefab = getPrefab(toolPrefabId);
