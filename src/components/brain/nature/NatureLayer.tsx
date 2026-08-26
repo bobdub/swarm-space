@@ -12,6 +12,7 @@ import {
   SHARED_VOLCANO_ANCHOR_ID,
 } from '@/lib/brain/volcanoOrgan';
 import { EARTH_RADIUS, getEarthPose, quatRotate } from '@/lib/brain/earth';
+import { VolcanoLavaPool } from '@/components/brain/VolcanoLavaPool';
 
 /**
  * Phase 2 — NatureLayer

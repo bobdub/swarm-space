@@ -54,6 +54,9 @@ import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
 import { HeldToolHUD } from '@/components/world/HeldToolHUD';
 import { WorldToolTargetsLayer } from '@/components/world/WorldToolTargetsLayer';
 import { ToolSwingFX } from '@/components/world/ToolSwingFX';
+import { CarvedCellsLayer } from '@/components/world/CarvedCellsLayer';
+import { HeldToolMesh } from '@/components/world/HeldToolMesh';
+import { WeatherLayer } from '@/components/world/WeatherLayer';
 import {
   setPendingCast,
   clearPendingCast,
@@ -2051,6 +2054,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <AssetCaster selfId={selfId || undefined} />
         <WorldToolTargetsLayer />
         <ToolSwingFX />
+        <CarvedCellsLayer />
+        <WeatherLayer />
+        <HeldToolMesh selfId={selfId || undefined} />
         <UserPlacementsLayer
           selectedPlacementId={builder.selectedBlockId}
           onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
