@@ -218,7 +218,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     const up = unitFrom(target.point);
     const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
-    emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok);
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
       toast.message(prefab.label, { description: 'No gatherable water at this impact point.' });
       return false;
@@ -226,6 +226,10 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     toast.success(prefab.label, { description: 'Collected water.' });
     return true;
   }
+
+  if (target.kind === 'shell') return digShell(toolPrefabId, target, selfId);
+
+
 
   if (verb === 'gather' && (target.natureKind === 'flower' || target.natureKind === 'grass' || target.natureKind === 'fish' || target.natureKind === 'water')) {
     const body = getBrainPhysics().getBody(target.blockId);
