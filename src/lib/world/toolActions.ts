@@ -236,7 +236,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
     const up = unitFrom(point);
     const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
-    emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true);
+    emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true, materialForKind(target.natureKind));
     getBuilderBlockEngine().removeBlock(target.blockId);
     toast.success(prefab.label, { description: `Collected ${labelForKind(target.natureKind).toLowerCase()}.` });
     return true;
