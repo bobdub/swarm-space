@@ -63,8 +63,8 @@ function actionMatchesTarget(action: Tool['actionKind'], target: ImpactTarget): 
   if (target.kind === 'block') return true; // any tool can damage a block (gated by sharpness)
   // Shell targets: dig for n=1 surfaces, chop for fibrous (rare in shells), whittle for harder.
   const n = target.shell.n;
-  if (action === 'dig') return n <= 1;
-  if (action === 'chop') return n === 1 || n === 2;
+  if (action === 'dig') return n <= 2;
+  if (action === 'chop') return n <= 2;
   if (action === 'whittle') return true;
   return false;
 }

@@ -14,6 +14,7 @@ import { getHeldTool, subscribeHeldTool, type HeldTool } from '@/lib/world/heldT
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { EYE_LIFT } from '@/lib/brain/earth';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
@@ -37,8 +38,12 @@ export function HeldToolMesh({ selfId }: Props) {
 
   const dims = useMemo(() => {
     const mass = tool?.mass ?? 1;
-    const handle = Math.max(0.35, Math.min(1.1, 0.4 + mass * 0.06));
-    return { handle, head: Math.max(0.12, Math.min(0.34, 0.12 + mass * 0.02)) };
+    // First-person held scale: the tool sits ~0.6 m from the eye, so it
+    // needs to read at arm's length rather than at world scale.
+    // Held at ~0.8 m from the eye: a 1.5 m handle filled a third of the
+    // screen. Keep it reading as a tool, not a billboard.
+    const handle = Math.max(0.28, Math.min(0.52, 0.24 + mass * 0.03));
+    return { handle, head: Math.max(0.09, Math.min(0.17, 0.08 + mass * 0.012)) };
   }, [tool]);
 
   useFrame(() => {
@@ -61,13 +66,17 @@ export function HeldToolMesh({ selfId }: Props) {
     const rz = fwd[0] * up[1] - fwd[1] * up[0];
     const rLen = Math.hypot(rx, ry, rz) || 1;
 
-    const OUT = 0.55;   // forward from the chest
-    const SIDE = 0.42;  // to the right hand
-    const DROP = 0.25;  // below eye line
+    // Anchor on the EYE (bodyPos + up × EYE_LIFT), not the body centre —
+    // anchoring on the chest put the tool ~61° below a 60° fov frustum,
+    // i.e. permanently off-screen.
+    const bob = Math.sin(performance.now() / 900) * 0.03;
+    const OUT = 0.78;   // forward from the eye
+    const SIDE = 0.16;  // to the right hand (portrait fov is narrow)
+    const DROP = 0.30 - bob;  // below eye line
     g.position.set(
-      body.pos[0] + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
-      body.pos[1] + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
-      body.pos[2] + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
+      body.pos[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
+      body.pos[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
+      body.pos[2] + up[2] * EYE_LIFT + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
     );
 
     const m = new THREE.Matrix4().makeBasis(
@@ -76,6 +85,7 @@ export function HeldToolMesh({ selfId }: Props) {
       new THREE.Vector3(fwd[0], fwd[1], fwd[2]).multiplyScalar(-1),
     );
     g.quaternion.setFromRotationMatrix(m);
+
 
     // Swing animation — quick forward chop, eased return.
     const p = pivotRef.current;
@@ -92,16 +102,22 @@ export function HeldToolMesh({ selfId }: Props) {
 
   return (
     <group ref={groupRef}>
-      <group ref={pivotRef}>
+      <group ref={pivotRef} scale={1.15}>
         {/* Handle */}
         <mesh position={[0, -dims.handle / 2, 0]} castShadow>
-          <cylinderGeometry args={[0.035, 0.042, dims.handle, 8]} />
+          <cylinderGeometry args={[0.022, 0.027, dims.handle, 8]} />
           <meshStandardMaterial color="#6b4f2a" roughness={0.9} />
         </mesh>
         {/* Head */}
         <mesh position={[0, 0.04, 0]} castShadow>
           <boxGeometry args={[dims.head * 1.6, dims.head, dims.head * 0.45]} />
-          <meshStandardMaterial color={headColor} roughness={0.35} metalness={0.55} />
+          <meshStandardMaterial
+            color={headColor}
+            roughness={0.35}
+            metalness={0.55}
+            emissive={headColor}
+            emissiveIntensity={0.18}
+          />
         </mesh>
         {/* Binding */}
         <mesh position={[0, -0.08, 0]}>

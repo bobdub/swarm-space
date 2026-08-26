@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { getHeldTool, subscribeHeldTool } from '@/lib/world/heldToolStore';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
-import { getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import {
   digCellKeyFor,
   getCarvedDepth,
@@ -100,7 +101,10 @@ function NatureTarget({ block, selected }: { block: BuilderBlock; selected: bool
 
 function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'surface' | 'shell' }> | null }) {
   const pose = getEarthPose();
-  const radius = 150.05;
+  // The pick shell must sit ON the planet. It used to be a hard-coded
+  // 150 m sphere — a pre-WORLD_SCALE leftover buried 1 550 m inside the
+  // Earth, so ground clicks never resolved and digging was unreachable.
+  const radius = EARTH_RADIUS + 0.05;
 
   return (
     <group>
@@ -126,7 +130,7 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
             });
             return;
           }
-          // Dry ground resolves all the way down to an Earth shell so the
+          // Bare ground resolves all the way down to an Earth shell so the
           // sculpting predicate can answer "what am I digging through?".
           hydrateCarvedCells();
           const cellKey = digCellKeyFor(local);
@@ -135,7 +139,9 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
           setToolTarget({
             kind: 'shell',
             id: `shell:${cellKey}`,
-            label: shell ? `${shell.label} (n=${shell.n})` : 'Ground',
+            label: shell
+              ? `${shell.label} (n=${shell.n}) · ${depth.toFixed(1)} m`
+              : `Ground · ${depth.toFixed(1)} m`,
             point: hit,
             localNormal: local,
             cellKey,
@@ -144,18 +150,26 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
           });
         }}
       >
-        <sphereGeometry args={[radius, 48, 32]} />
+        <sphereGeometry args={[radius, 96, 64]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
       {selected && (
-        <mesh position={selected.point}>
-          <sphereGeometry args={[selected.kind === 'surface' ? 0.42 : 0.3, 18, 18]} />
-          <meshBasicMaterial color="white" wireframe transparent opacity={0.45} depthWrite={false} />
-        </mesh>
+        <group position={selected.point}>
+          <mesh>
+            <sphereGeometry args={[selected.kind === 'surface' ? 0.42 : 0.35, 18, 18]} />
+            <meshBasicMaterial color="white" wireframe transparent opacity={0.55} depthWrite={false} />
+          </mesh>
+          <Html center distanceFactor={18} zIndexRange={[3, 0]}>
+            <div className="pointer-events-none whitespace-nowrap rounded bg-background/80 px-1.5 py-0.5 text-[10px] font-medium text-foreground shadow">
+              {selected.label}
+            </div>
+          </Html>
+        </group>
       )}
     </group>
   );
 }
+
 
 
 export default WorldToolTargetsLayer;
