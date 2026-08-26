@@ -47,6 +47,24 @@ function bondTermForKind(kind: string): number {
   return 0.55;
 }
 
+/** Which particle burst a struck thing produces. */
+function materialForKind(kind: string): ImpactMaterial {
+  if (/tree|wood|trunk|log|root|plank|door/.test(kind)) return 'wood';
+  if (/stone|rock|mountain|foundation|brick|wall/.test(kind)) return 'stone';
+  if (/flower|grass|leaf|hive|bee/.test(kind)) return 'flora';
+  if (/water|fish|pond|ocean/.test(kind)) return 'water';
+  if (/lava|magma/.test(kind)) return 'lava';
+  return 'soil';
+}
+
+function materialForShell(shellId: string): ImpactMaterial {
+  if (shellId.startsWith('lava')) return 'lava';
+  if (/aquifer/.test(shellId)) return 'water';
+  if (/grass/.test(shellId)) return 'flora';
+  if (/bedrock|obsidian|diamond|gold|platinum|mineral|coal/.test(shellId)) return 'stone';
+  return 'soil';
+}
+
 function isSurfaceGatherable(point: Vec3): boolean {
   const r = Math.hypot(point[0], point[1], point[2]) || 1;
   const localNormal: Vec3 = [point[0] / r, point[1] / r, point[2] / r];
@@ -67,7 +85,15 @@ function resolveSwingProbe(point: Vec3, up: Vec3, color: string, toolMass: numbe
   return probe;
 }
 
-function emitTargetImpact(point: Vec3, up: Vec3, color: string, intensity: number, label: string, success: boolean) {
+function emitTargetImpact(
+  point: Vec3,
+  up: Vec3,
+  color: string,
+  intensity: number,
+  label: string,
+  success: boolean,
+  material: ImpactMaterial = 'air',
+) {
   emitImpactFx({
     point,
     up,
@@ -76,8 +102,10 @@ function emitTargetImpact(point: Vec3, up: Vec3, color: string, intensity: numbe
     intensity,
     label,
     success,
+    material,
   });
 }
+
 
 function pointInFrontOfSelf(selfId: string | undefined, reach: number): { point: Vec3; up: Vec3 } | null {
   if (!selfId) return null;
