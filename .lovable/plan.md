@@ -10,8 +10,8 @@ The eye sits at `bodyPos + up × EYE_LIFT` (0.75 m above body centre). `HeldTool
 **The swing FX are the same size as a dinner plate and last 320 ms.**
 `resolveSwingProbe` emits a ring of radius `max(0.42, ∛mass × 0.72)` ≈ 0.4–0.8 m, impact rings 0.28–0.5 m, for 320/760 ms, at the target point. On a 360 px phone at eye height that is a few pixels of thin translucent line. The particle burst sizes (0.06–0.11 m) are smaller still.
 
-**Clouds are pinned to the village and take ~45 s to appear.**
-`tickWeather` spawns clouds only around `getEarthLocalSiteFrame('swarm-shared-village')`, 60–280 m out. Humidity starts at 0.35 and gains ≥0.02/s, so the first cloud needs ~33 s of the Brain scene being mounted, then ~14 s more of charge before it rains. If you are anywhere but the village, or left and re-entered, you see empty sky.
+**Clouds are placed by a site anchor, which is not UQRC.**
+`tickWeather` calls `getEarthLocalSiteFrame('swarm-shared-village')` and spawns clouds at a random arc 60–280 m from it, with `Math.random()` headings and a scalar global `humidity`. That is a hand-placed simulation sitting beside the field, not a trace of it — exactly the thing the `/brain` rule forbids. It is also why the sky is empty: nothing spawns where you are, and the first cloud needs ~33 s of humidity accumulation plus ~14 s of charge.
 
 **Digging needs a dig-capable tool on bare ground.** An axe resolves `chop`, which `actionMatchesTarget` only accepts for shells n=1–2, and only bare dry ground resolves to a `shell` target at all. Everything else silently returns a `surface` target, so no pit, no `cell-carved`, no `CarvedCellsLayer` geometry.
 
