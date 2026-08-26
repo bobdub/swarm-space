@@ -40,8 +40,10 @@ export function HeldToolMesh({ selfId }: Props) {
     const mass = tool?.mass ?? 1;
     // First-person held scale: the tool sits ~0.6 m from the eye, so it
     // needs to read at arm's length rather than at world scale.
-    const handle = Math.max(0.55, Math.min(1.5, 0.6 + mass * 0.08));
-    return { handle, head: Math.max(0.2, Math.min(0.5, 0.2 + mass * 0.03)) };
+    // Held at ~0.8 m from the eye: a 1.5 m handle filled a third of the
+    // screen. Keep it reading as a tool, not a billboard.
+    const handle = Math.max(0.28, Math.min(0.52, 0.24 + mass * 0.03));
+    return { handle, head: Math.max(0.09, Math.min(0.17, 0.08 + mass * 0.012)) };
   }, [tool]);
 
   useFrame(() => {
@@ -68,9 +70,9 @@ export function HeldToolMesh({ selfId }: Props) {
     // anchoring on the chest put the tool ~61° below a 60° fov frustum,
     // i.e. permanently off-screen.
     const bob = Math.sin(performance.now() / 900) * 0.03;
-    const OUT = 0.62;   // forward from the eye
-    const SIDE = 0.34;  // to the right hand
-    const DROP = 0.34 - bob;  // below eye line
+    const OUT = 0.78;   // forward from the eye
+    const SIDE = 0.30;  // to the right hand
+    const DROP = 0.26 - bob;  // below eye line
     g.position.set(
       body.pos[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
       body.pos[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
@@ -100,10 +102,10 @@ export function HeldToolMesh({ selfId }: Props) {
 
   return (
     <group ref={groupRef}>
-      <group ref={pivotRef} scale={1.6}>
+      <group ref={pivotRef} scale={1.15}>
         {/* Handle */}
         <mesh position={[0, -dims.handle / 2, 0]} castShadow>
-          <cylinderGeometry args={[0.035, 0.042, dims.handle, 8]} />
+          <cylinderGeometry args={[0.022, 0.027, dims.handle, 8]} />
           <meshStandardMaterial color="#6b4f2a" roughness={0.9} />
         </mesh>
         {/* Head */}
