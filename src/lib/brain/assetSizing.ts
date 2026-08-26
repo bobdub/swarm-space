@@ -21,6 +21,8 @@ export interface SizeInputs {
   mass?: number;
   /** Optional explicit hint (e.g. nature seeds set this). */
   natureHint?: boolean;
+  /** Explicit hint that the asset is a holdable tool, regardless of size. */
+  toolHint?: boolean;
 }
 
 /** Glyph + label for HUD badges. */
@@ -33,6 +35,7 @@ export const SIZE_TIER_META: Record<SizeTier, { label: string; glyph: string }> 
 
 export function classifySize(s: SizeInputs): SizeTier {
   if (s.natureHint) return 'nature';
+  if (s.toolHint) return 'tool';
   const longest = Math.max(s.width, s.depth, s.height);
   const volume = s.width * s.depth * s.height;
   const mass = s.mass ?? Number.POSITIVE_INFINITY;

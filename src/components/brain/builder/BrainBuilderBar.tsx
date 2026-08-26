@@ -37,6 +37,36 @@ import {
   type LandPlot,
 } from '@/lib/world/landPlots';
 import { LANDMARK_CATALOG, type LandmarkPrefab } from '@/lib/world/landmarkCatalog';
+import { getToolAny } from '@/lib/brain/toolCatalog';
+import { setHeldTool } from '@/lib/world/heldToolStore';
+import { getEarthPose } from '@/lib/brain/earth';
+import { poseTimeFromCreatedAt } from '@/lib/world/placementController';
+import type { PlacementRecord } from '@/lib/world/worldPlacementsStore';
+
+/**
+ * Equipping straight from the bar. Catalog tools (knife / axe / shovel)
+ * used to behave like blocks: tapping the tile armed a placement ghost,
+ * so a player who "picked up a tool" never saw anything in hand. A tool
+ * tile now goes directly into the hand slot with a synthetic source
+ * record, so dropping it still lands a real placement in the world.
+ */
+function equipCatalogTool(prefabId: string, actorId: string): void {
+  const now = Date.now();
+  const source: PlacementRecord = {
+    placementId: `equip-${prefabId}-${now}`,
+    anchorId: 'earth',
+    prefabId,
+    actorId,
+    hitPoint: [0, 0, 0],
+    placedAtPoseTime: poseTimeFromCreatedAt(now),
+    localNormal: [0, 1, 0],
+    yaw: 0,
+    createdAt: now,
+    _origin: 'local',
+  };
+  void getEarthPose();
+  setHeldTool({ prefabId, source });
+}
 
 /** Virtual section id — not present in PREFAB_SECTIONS. */
 const LAB_SECTION = 'lab' as const;
@@ -380,7 +410,14 @@ export function BrainBuilderBar({
                 key={p.id}
                 prefab={p}
                 selected={selectedPrefabId === p.id}
-                onSelect={() => selectPrefab(selectedPrefabId === p.id ? null : p.id)}
+                onSelect={() => {
+                  if (getToolAny(p.id)) {
+                    selectPrefab(null);
+                    equipCatalogTool(p.id, selfActorId);
+                    return;
+                  }
+                  selectPrefab(selectedPrefabId === p.id ? null : p.id);
+                }}
               />
             ))}
             {items.length === 0 && (
@@ -491,6 +528,9 @@ function PrefabTile({
     width: prefab.width, depth: prefab.depth, height: prefab.height,
     mass: prefab.mass,
     natureHint: prefab.sectionId === 'consumables' ? false : undefined,
+    // A catalog tool is holdable by definition — a 0.95 m shovel is still
+    // a tool, so the size heuristic must not demote it to a block.
+    toolHint: Boolean(getToolAny(prefab.id)),
   });
   const tierMeta = SIZE_TIER_META[tier];
   const tooltip = [
