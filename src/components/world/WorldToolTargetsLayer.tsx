@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
+import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { getHeldTool, subscribeHeldTool } from '@/lib/world/heldToolStore';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
-import { getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import {
   digCellKeyFor,
   getCarvedDepth,
