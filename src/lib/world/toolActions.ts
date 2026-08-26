@@ -254,6 +254,100 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   });
 }
 
+/**
+ * Dig one step into the Earth shells at a ground cell.
+ *
+ * Goes through the SAME `applyImpact` predicate as every other cut, so
+ * shell density / bond / local curvature (now including weather load)
+ * decide whether the spade bites. A successful cut deepens the pit and
+ * publishes `cell-carved` for the renderer + persistence layers.
+ */
+async function digShell(
+  toolPrefabId: string,
+  target: Extract<ToolTarget, { kind: 'shell' }>,
+  selfId?: string,
+): Promise<boolean> {
+  const prefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  if (!prefab) return false;
+
+  const up = unitFrom(target.point);
+  const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'miss', false, 'soil');
+    toast.message(prefab.label, { description: 'This tool cannot break ground.' });
+    return false;
+  }
+
+  const shell = shellAtDepth(target.depth);
+  if (!shell) {
+    toast.message(prefab.label, { description: 'The ground here will not yield further.' });
+    return false;
+  }
+
+  const material = materialForShell(shell.id);
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    // Storms load the field: digging in rain is measurably harder.
+    curvatureLoad: probe.curvatureLoad + weatherCurvatureBoost(target.localNormal),
+    target: {
+      kind: 'shell',
+      shell,
+      rFrac: 1 - target.depth / EARTH_RADIUS,
+      cellKey: target.cellKey,
+    },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    target.point,
+    up,
+    prefab.color,
+    probe.intensity,
+    swing.cut ? shell.label : (swing.reason === 'sharpness_below_threshold' ? 'too dull' : 'resist'),
+    swing.cut,
+    material,
+  );
+
+  if (!swing.cut) {
+    const why = swing.reason === 'lava_burns_tool'
+      ? 'Lava burns the tool — it cannot be cut.'
+      : swing.reason === 'sharpness_below_threshold'
+        ? `${shell.label} needs a sharper edge (≥ ${shell.sharpnessThreshold.toFixed(2)}).`
+        : swing.reason === 'wrong_action_kind'
+          ? `${prefab.label} is the wrong tool for ${shell.label}.`
+          : `${shell.label} resisted (${swing.effectiveCut.toFixed(2)}).`;
+    toast.message(prefab.label, { description: why });
+    return true;
+  }
+
+  const carved = carveCell(target.localNormal, DIG_STEP_M * Math.min(2, swing.effectiveCut));
+  if (!carved) {
+    toast.message(prefab.label, { description: 'This pit has reached its floor.' });
+    return true;
+  }
+
+  emitCellCarved({ cellKey: carved.cellKey, shellId: carved.shellId, swing });
+
+  const floor = shellAtDepth(carved.depth);
+  toast.success(`Dug through ${shell.label}`, {
+    description: `Depth ${carved.depth.toFixed(1)} m · now standing on ${floor?.label ?? 'bedrock'} (n=${floor?.n ?? shell.n}).`,
+  });
+
+  // Keep the target live so repeated swings deepen the same pit.
+  setToolTarget({
+    ...target,
+    depth: carved.depth,
+    shellId: carved.shellId,
+    label: `${floor?.label ?? 'Bedrock'} (n=${floor?.n ?? shell.n})`,
+  });
+  return true;
+}
+
+
+
 export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
   const prefab = getPrefab(toolPrefabId);
   if (!prefab) return false;
