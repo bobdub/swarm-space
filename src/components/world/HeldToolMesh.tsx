@@ -37,8 +37,10 @@ export function HeldToolMesh({ selfId }: Props) {
 
   const dims = useMemo(() => {
     const mass = tool?.mass ?? 1;
-    const handle = Math.max(0.35, Math.min(1.1, 0.4 + mass * 0.06));
-    return { handle, head: Math.max(0.12, Math.min(0.34, 0.12 + mass * 0.02)) };
+    // First-person held scale: the tool sits ~0.6 m from the eye, so it
+    // needs to read at arm's length rather than at world scale.
+    const handle = Math.max(0.55, Math.min(1.5, 0.6 + mass * 0.08));
+    return { handle, head: Math.max(0.2, Math.min(0.5, 0.2 + mass * 0.03)) };
   }, [tool]);
 
   useFrame(() => {
@@ -61,13 +63,17 @@ export function HeldToolMesh({ selfId }: Props) {
     const rz = fwd[0] * up[1] - fwd[1] * up[0];
     const rLen = Math.hypot(rx, ry, rz) || 1;
 
-    const OUT = 0.55;   // forward from the chest
-    const SIDE = 0.42;  // to the right hand
-    const DROP = 0.25;  // below eye line
+    // Anchor on the EYE (bodyPos + up × EYE_LIFT), not the body centre —
+    // anchoring on the chest put the tool ~61° below a 60° fov frustum,
+    // i.e. permanently off-screen.
+    const bob = Math.sin(performance.now() / 900) * 0.03;
+    const OUT = 0.62;   // forward from the eye
+    const SIDE = 0.34;  // to the right hand
+    const DROP = 0.34 - bob;  // below eye line
     g.position.set(
-      body.pos[0] + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
-      body.pos[1] + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
-      body.pos[2] + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
+      body.pos[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
+      body.pos[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
+      body.pos[2] + up[2] * EYE_LIFT + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
     );
 
     const m = new THREE.Matrix4().makeBasis(
@@ -76,6 +82,7 @@ export function HeldToolMesh({ selfId }: Props) {
       new THREE.Vector3(fwd[0], fwd[1], fwd[2]).multiplyScalar(-1),
     );
     g.quaternion.setFromRotationMatrix(m);
+
 
     // Swing animation — quick forward chop, eased return.
     const p = pivotRef.current;
