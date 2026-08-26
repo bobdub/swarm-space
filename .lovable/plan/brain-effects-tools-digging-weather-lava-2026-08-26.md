@@ -2,6 +2,10 @@
 
 Six gaps, all confirmed in the current code. Each is fixed in its own module so nothing else in the Brain destabilises.
 
+&nbsp;
+
+ **Must use UQRC math, engine, and logic for each stage** 
+
 ## What is actually missing today
 
 - `emitCellCarved` in `src/lib/brain/sculpting.ts` has **no emitters and no subscribers** — carving a planet shell never happens and is never drawn.
