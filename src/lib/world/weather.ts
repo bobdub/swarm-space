@@ -33,7 +33,7 @@ import {
 } from '@/lib/brain/earth';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getBrainPhysics, worldToLattice } from '@/lib/brain/uqrcPhysics';
-import { curvatureAt, gradient3D, sample3D } from '@/lib/uqrc/field3D';
+import { curvatureAt, gradient3D, sample3D, type Field3D } from '@/lib/uqrc/field3D';
 import { digCellKeyFor } from '@/lib/world/carvedCellsStore';
 
 /** Field axis carrying atmospheric moisture. */
@@ -306,7 +306,7 @@ export function _resetWeatherForTest(): void {
 // ────────────────────────────────────────────────────────────────────────
 
 function sampleField(
-  field: { N: number } & Parameters<typeof curvatureAt>[0],
+  field: Field3D,
   world: Vec3,
 ): { moisture: number; curvature: number; gradient: Vec3 } {
   const N = field.N;
