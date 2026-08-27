@@ -1,9 +1,9 @@
-import { describe, it } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { UqrcPhysics, PHYSICS_HZ } from '../uqrcPhysics';
 import { spawnOnEarth, getEarthPose, setEarthPoseTime, BODY_SHELL_RADIUS, endEarthFrame, beginEarthFrame } from '../earth';
 
-describe('jitter probe (frame pose advances with real time)', () => {
-  it('compares altitude jitter: raw world pos vs Earth-local remap', () => {
+describe('ground jitter: body stays in register with the rendered Earth', () => {
+  it('Earth-local render track cuts altitude jerk vs raw world position', () => {
     const p = new UqrcPhysics();
     setEarthPoseTime(0);
     const pose0 = getEarthPose();
@@ -32,8 +32,13 @@ describe('jitter probe (frame pose advances with real time)', () => {
       if (f > 150) { rawAlt.push(raw); locAlt.push(loc); }
     }
     const jerk = (a: number[]) => { let m=0; for (let i=2;i<a.length;i++) m=Math.max(m, Math.abs((a[i]-a[i-1])-(a[i-1]-a[i-2]))); return m; };
-    console.log('max frame-to-frame altitude jerk raw   =', (jerk(rawAlt)*1000).toFixed(2), 'mm');
-    console.log('max frame-to-frame altitude jerk local =', (jerk(locAlt)*1000).toFixed(2), 'mm');
+    const rawJerk = jerk(rawAlt);
+    const locJerk = jerk(locAlt);
+    // Raw world sampling reads the body at the LAST TICK's Earth pose while
+    // the ground is drawn at THIS FRAME's pose — the orbital offset shows up
+    // as vertical shake. The local remap must be materially quieter.
+    expect(locJerk).toBeLessThan(rawJerk * 0.6);
+    expect(locJerk).toBeLessThan(0.1);
     endEarthFrame(); setEarthPoseTime(null);
   });
 });
