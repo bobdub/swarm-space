@@ -2,6 +2,7 @@ import { get, getAll, put, remove, type Chunk, type Manifest } from '@/lib/store
 import { getCurrentUser } from '@/lib/auth';
 import {
   listPersonalServers,
+  subscribePersonalServers,
   updatePersonalServer,
   type PersonalServer,
 } from './personalServerStore';
@@ -14,10 +15,21 @@ import {
   publicMirrorGet,
 } from './personalServerProvider';
 import { listKnownMirrors } from './personalServerMirrors';
+import { hasPersonalServerCredentials } from './personalServerSecrets';
+import {
+  buildReplicaBatches,
+  buildReplicaIndex,
+  clearRecordState,
+  markBatchUploaded,
+  selectChangedBatches,
+} from './personalServerRecords';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const MAX_ATTEMPTS = 8;
+
+const log = (...args: unknown[]) => console.log('[PersonalServerSync]', ...args);
+const warn = (...args: unknown[]) => console.warn('[PersonalServerSync]', ...args);
 
 export interface PersonalServerSyncRecord {
   id: string;
@@ -34,6 +46,56 @@ export interface PersonalServerSyncRecord {
   error?: string;
 }
 
+export interface PersonalServerDiagnostics {
+  serverId: string;
+  lastRunAt?: number;
+  lastObjectKey?: string;
+  lastError?: string;
+  objectsWritten: number;
+  recordsWritten: number;
+  recordsSkipped: number;
+  queued: number;
+  failed: number;
+  state: 'idle' | 'syncing' | 'relink-required' | 'paused' | 'error';
+}
+
+const diagnostics = new Map<string, PersonalServerDiagnostics>();
+const diagListeners = new Set<(d: PersonalServerDiagnostics[]) => void>();
+
+function diag(serverId: string): PersonalServerDiagnostics {
+  let entry = diagnostics.get(serverId);
+  if (!entry) {
+    entry = {
+      serverId, objectsWritten: 0, recordsWritten: 0, recordsSkipped: 0,
+      queued: 0, failed: 0, state: 'idle',
+    };
+    diagnostics.set(serverId, entry);
+  }
+  return entry;
+}
+
+function emitDiagnostics(): void {
+  const snapshot = Array.from(diagnostics.values()).map((d) => ({ ...d }));
+  for (const fn of diagListeners) { try { fn(snapshot); } catch { /* ignore */ } }
+}
+
+function patchDiag(serverId: string, patch: Partial<PersonalServerDiagnostics>): void {
+  Object.assign(diag(serverId), patch);
+  emitDiagnostics();
+}
+
+export function getPersonalServerDiagnostics(): PersonalServerDiagnostics[] {
+  return Array.from(diagnostics.values()).map((d) => ({ ...d }));
+}
+
+export function subscribePersonalServerDiagnostics(
+  fn: (d: PersonalServerDiagnostics[]) => void,
+): () => void {
+  diagListeners.add(fn);
+  try { fn(getPersonalServerDiagnostics()); } catch { /* ignore */ }
+  return () => { diagListeners.delete(fn); };
+}
+
 let running = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -45,9 +107,14 @@ function syncId(serverId: string, manifestId: string): string {
   return `${serverId}:${manifestId}`;
 }
 
+/**
+ * Every linked, non-paused server with room left receives the owner's own
+ * replica — including `public-pin` servers, which previously received
+ * nothing at all with no message saying so.
+ */
 function eligibleServers(): PersonalServer[] {
   return listPersonalServers().filter(
-    (server) => server.scope === 'private' && !server.paused && server.usedBytes < server.capBytes,
+    (server) => !server.paused && server.usedBytes < server.capBytes,
   );
 }
 
@@ -66,12 +133,16 @@ function schedule(delay = 250): void {
 async function updatePendingCounts(): Promise<void> {
   const records = await getAll<PersonalServerSyncRecord>('personalServerSync');
   for (const server of listPersonalServers()) {
-    const pendingItems = records.filter(
-      (record) => record.serverId === server.id && record.status !== 'complete',
-    ).length;
+    const mine = records.filter((record) => record.serverId === server.id);
+    const pendingItems = mine.filter((record) => record.status !== 'complete').length;
     updatePersonalServer(server.id, { pendingItems });
+    patchDiag(server.id, {
+      queued: pendingItems,
+      failed: mine.filter((record) => record.status === 'failed').length,
+    });
   }
 }
+
 
 export async function enqueueManifestForPersonalServers(manifest: Manifest): Promise<void> {
   const userId = getCurrentUser()?.id;
