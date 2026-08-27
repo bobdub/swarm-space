@@ -455,15 +455,18 @@ function EarthPoseTicker() {
   // ticker exists only to keep pose-driven visuals live. A previous call
   // to `updateLavaMantlePin` here raced the physics tick and produced a
   // second unsynchronised pin re-stamp path — visible as surface tremor.
+  // `beginEarthFrame` re-pins the shared per-frame pose so the camera,
+  // the ground and every world layer agree on where Earth is this frame.
   useFrame(() => {
     try {
-      void getEarthPose();
+      beginEarthFrame();
     } catch {
       /* best-effort */
     }
   });
   return null;
 }
+
 
 /**
  * Per-frame binding loop: writes Infinity's basin into pinTemplate from the
