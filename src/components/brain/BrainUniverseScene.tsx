@@ -246,6 +246,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // toward the live up so micro jitter doesn't roll the horizon.
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
+  /** Scratch buffer for the interpolated body position (no per-frame alloc). */
+  const renderPos = useRef<[number, number, number]>([0, 0, 0]);
+
   const prevTopView = useRef(false);
   // Eased 0..1 blend into the overhead boom so entering/leaving Top view
   // glides instead of snapping the whole world.
