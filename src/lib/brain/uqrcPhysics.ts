@@ -577,13 +577,21 @@ export class UqrcPhysics {
 
       // 1b. Snapshot pre-step positions so renderers can interpolate
       //     between fixed steps (visual only — never read by the sim).
+      //     The Earth-local copy is what renderers actually lerp: it is
+      //     immune to the orbital translation that happens between this
+      //     tick and the frame that draws it.
       for (const b of this.bodies.values()) {
         if (b.prevPos) {
           b.prevPos[0] = b.pos[0]; b.prevPos[1] = b.pos[1]; b.prevPos[2] = b.pos[2];
         } else {
           b.prevPos = [b.pos[0], b.pos[1], b.pos[2]];
         }
+        if (b.local) {
+          b.prevLocal = b.prevLocal ?? [0, 0, 0];
+          b.prevLocal[0] = b.local[0]; b.prevLocal[1] = b.local[1]; b.prevLocal[2] = b.local[2];
+        }
       }
+
 
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
