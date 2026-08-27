@@ -335,10 +335,46 @@ export function getEarthPoseAt(seconds: number): EarthPose {
   return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase };
 }
 
-/** Live Earth pose (center + spin) at the current pose time. */
+/**
+ * Frame-scoped pose cache.
+ *
+ * Every renderer used to call `getEarthPose()` inside its own `useFrame`,
+ * each re-reading `Date.now()`. Earth's centre translates along its orbit
+ * at ~2.6 m/s, so consumers that sampled milliseconds apart placed the
+ * ground, the avatar and the camera at slightly different Earth positions
+ * — a per-frame offset that reads as the ground jumping.
+ *
+ * `beginEarthFrame()` is called once per animation frame (by the scene's
+ * pose ticker, at a negative render priority) and pins the pose for the
+ * rest of that frame. Physics keeps its own tick-time pose; it never uses
+ * the frame cache.
+ */
+let _frameSeq = 0;
+let _framePose: EarthPose | null = null;
+
+/** Pin the shared pose for this animation frame. Returns the pinned pose. */
+export function beginEarthFrame(): EarthPose {
+  _frameSeq++;
+  _framePose = getEarthPoseAt(getEarthPoseTime());
+  return _framePose;
+}
+
+/** Drop the frame pin (unmount / tests) so callers fall back to live time. */
+export function endEarthFrame(): void {
+  _framePose = null;
+}
+
+/** Monotonic frame counter — lets consumers memoise per frame. */
+export function getEarthFrameSeq(): number {
+  return _frameSeq;
+}
+
+/** Live Earth pose (center + spin) — frame-pinned when inside a render frame. */
 export function getEarthPose(): EarthPose {
+  if (_framePose) return _framePose;
   return getEarthPoseAt(getEarthPoseTime());
 }
+
 
 // ── Shell projection helpers ────────────────────────────────────────
 //
