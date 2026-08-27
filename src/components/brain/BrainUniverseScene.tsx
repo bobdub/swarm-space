@@ -113,6 +113,8 @@ import {
   BODY_CENTER_HEIGHT,
   radiusFromEarth,
   getEarthPose,
+  beginEarthFrame,
+
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
