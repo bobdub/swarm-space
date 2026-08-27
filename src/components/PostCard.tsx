@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
@@ -832,6 +832,82 @@ export function PostCard({ post }: PostCardProps) {
   const canBlockUser = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const hasDownloadableMedia = useMemo(() => {
+    const fromHints = mediaHints.some(
+      (hint) => hint.mime.startsWith("image/") || hint.mime.startsWith("video/"),
+    );
+    if (fromHints) return true;
+    return attachments.some(
+      (attachment) =>
+        !attachment.decryptError &&
+        (attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/")),
+    );
+  }, [mediaHints, attachments]);
+
+  const handleDownloadMedia = useCallback(async () => {
+    if (isDownloading) return;
+    setIsDownloading(true);
+    try {
+      // Ensure every manifest has been decrypted before reading the cache
+      const coveredIds = new Set(attachments.map((attachment) => attachment.manifestId));
+      const needsLoad = (post.manifestIds ?? []).some((id) => !coveredIds.has(id));
+      if (needsLoad) {
+        await loadFiles();
+      }
+
+      const downloadable = (post.manifestIds ?? [])
+        .map((id) => decryptedCache.current.get(id))
+        .filter(
+          (attachment): attachment is DecryptedAttachment =>
+            Boolean(attachment) &&
+            !attachment!.decryptError &&
+            Boolean(attachment!.url) &&
+            (attachment!.mime.startsWith("image/") || attachment!.mime.startsWith("video/")),
+        );
+
+      if (downloadable.length === 0) {
+        toast({
+          title: "Download failed",
+          description: "Media is still syncing — try again shortly.",
+        });
+        return;
+      }
+
+      for (let i = 0; i < downloadable.length; i++) {
+        const attachment = downloadable[i];
+        const fallbackExt = attachment.mime.split("/")[1]?.split(";")[0] || "bin";
+        const filename =
+          attachment.originalName && attachment.originalName !== "Attachment"
+            ? attachment.originalName
+            : `swarm-media-${i + 1}.${fallbackExt}`;
+        const anchor = document.createElement("a");
+        anchor.href = attachment.url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        // Small delay so browsers don't drop multiple sequential downloads
+        if (i < downloadable.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+
+      toast({
+        title: downloadable.length > 1 ? `Downloaded ${downloadable.length} files` : "Download started",
+      });
+    } catch (error) {
+      console.error("Failed to download media:", error);
+      toast({
+        title: "Download failed",
+        description: "Media is still syncing — try again shortly.",
+      });
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [isDownloading, attachments, post.manifestIds, loadFiles, toast]);
+
   const handleExtractPayments = async () => {
     if (!currentUser || !isAuthor) return;
     setIsExtracting(true);
@@ -986,7 +1062,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost) && (
+              {(isAuthor || canBlockUser || canHidePost || hasDownloadableMedia) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -998,6 +1074,18 @@ export function PostCard({ post }: PostCardProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
+                    {hasDownloadableMedia && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleDownloadMedia();
+                        }}
+                        disabled={isDownloading}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        {isDownloading ? "Downloading…" : "Download Media"}
+                      </DropdownMenuItem>
+                    )}
                     {isAuthor && (
                       <>
                         <DropdownMenuItem
