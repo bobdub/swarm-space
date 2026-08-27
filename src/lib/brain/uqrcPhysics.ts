@@ -90,7 +90,19 @@ export interface Body {
   mass: number;        // injection amplitude scaler
   trust: number;       // 0..1, used for visual + injection scale
   meta?: Record<string, unknown>;
+  /** Position at the START of the current fixed step. Written by the
+   *  integrator, read only by `getBodyRenderPos` for visual smoothing —
+   *  never by collision, tools or world mutation. */
+  prevPos?: [number, number, number];
+  /** Earth-local (co-rotating) position at the START and END of the
+   *  current fixed step. Renderers interpolate in THIS frame and remap
+   *  through the frame's Earth pose, so the body can never fall out of
+   *  register with the ground while Earth translates along its orbit. */
+  prevLocal?: [number, number, number];
+  local?: [number, number, number];
+
 }
+
 
 export interface Intent {
   fwd: number;
@@ -114,6 +126,9 @@ export interface Intent {
 export const WORLD_SIZE = 60 * 212.5;    // 12 750 m
 export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
+/** Max fixed steps run in one drive() pass — bounds catch-up after a stall. */
+export const MAX_CATCHUP_STEPS = 4;
+
 
 const dt = 1 / PHYSICS_HZ;
 /** ν Δu coupling on the body integrator (informational viscosity). */
@@ -211,6 +226,15 @@ export class UqrcPhysics {
   private bodies = new Map<string, Body>();
   private intent = new Map<string, Intent>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** rAF handle for the display-locked step pump. */
+  private raf: number | null = null;
+  /** Leftover real time (seconds) not yet consumed by a fixed step. */
+  private accumulator = 0;
+  /** Wall-clock ms of the last drive() call. */
+  private lastDriveMs = 0;
+  /** Wall-clock ms attributed to the most recent fixed step (interpolation origin). */
+  private lastStepAtMs = 0;
+
   private listeners = new Set<() => void>();
   private lastQ = 0;
   private restored = false;
@@ -237,15 +261,104 @@ export class UqrcPhysics {
     initLavaMantle(this.field);
   }
 
+  /**
+   * Fixed-step simulation, phase-locked to the display.
+   *
+   * A naked `setInterval(tick, 16.7)` is not aligned with the compositor:
+   * some animation frames saw two ticks, others none, and because the
+   * camera reads body positions straight from the sim that beat showed up
+   * as the ground bouncing. We now accumulate real elapsed time and run
+   * whole `dt` steps from `requestAnimationFrame`, capping the catch-up so
+   * a stalled tab can't spiral. Hidden tabs (no rAF) fall back to the
+   * interval so the world keeps evolving in the background.
+   */
   start(): void {
-    if (this.timer || typeof window === 'undefined') return;
-    const intervalMs = 1000 / PHYSICS_HZ;
-    this.timer = setInterval(() => this.tick(), intervalMs);
+    if (typeof window === 'undefined') return;
+    if (this.raf !== null || this.timer) return;
+    this.accumulator = 0;
+    this.lastDriveMs = performance.now();
+    const pump = (nowMs: number) => {
+      this.raf = requestAnimationFrame(pump);
+      this.drive(nowMs);
+    };
+    this.raf = requestAnimationFrame(pump);
+    // Background safety net: when the tab is hidden rAF stops firing, so
+    // a slow interval keeps the accumulator draining.
+    this.timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+      this.drive(performance.now());
+    }, 100);
   }
 
   stop(): void {
+    if (this.raf !== null) { cancelAnimationFrame(this.raf); this.raf = null; }
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
   }
+
+  /** Drain real elapsed time into whole fixed steps. */
+  private drive(nowMs: number): void {
+    const elapsed = Math.max(0, (nowMs - this.lastDriveMs) / 1000);
+    this.lastDriveMs = nowMs;
+    // Ignore absurd gaps (tab restore, debugger pause) instead of
+    // replaying minutes of simulation in one frame.
+    this.accumulator = Math.min(this.accumulator + elapsed, dt * MAX_CATCHUP_STEPS);
+    let steps = 0;
+    while (this.accumulator >= dt && steps < MAX_CATCHUP_STEPS) {
+      this.accumulator -= dt;
+      this.lastStepAtMs = nowMs - this.accumulator * 1000;
+      this.tick();
+      steps++;
+    }
+  }
+
+  /**
+   * Visually smoothed body position for renderers.
+   *
+   * The sim advances in fixed steps; frames land between them. Lerping
+   * `prevPos → pos` by the fractional step alpha removes the sampling
+   * stutter without touching the integrator. Physics-authoritative
+   * consumers (collision, tools, world mutation) must keep using
+   * `getBody().pos`.
+   */
+  getBodyRenderPos(
+    id: string,
+    nowMs: number = typeof performance !== 'undefined' ? performance.now() : 0,
+    out?: [number, number, number],
+  ): [number, number, number] | undefined {
+    const b = this.bodies.get(id);
+    if (!b) return undefined;
+    const target = out ?? ([0, 0, 0] as [number, number, number]);
+    const prev = b.prevPos;
+    if (!prev) {
+      target[0] = b.pos[0]; target[1] = b.pos[1]; target[2] = b.pos[2];
+      return target;
+    }
+    const alphaRaw = (nowMs - this.lastStepAtMs) / (dt * 1000);
+    const a = alphaRaw < 0 ? 0 : alphaRaw > 1 ? 1 : alphaRaw;
+    // Prefer the Earth-local track. Interpolating in world space would
+    // leave the body at the Earth pose of the last TICK while the ground
+    // is drawn at the pose of THIS FRAME; Earth's centre translates along
+    // its orbit at ~2.6 m/s, so that offset re-appeared every frame as a
+    // few centimetres of vertical shake. Remapping the local track through
+    // the frame pose keeps body and ground in permanent register.
+    if (b.local && b.prevLocal) {
+      const pose = getEarthPose();
+      const lx = b.prevLocal[0] + (b.local[0] - b.prevLocal[0]) * a;
+      const ly = b.prevLocal[1] + (b.local[1] - b.prevLocal[1]) * a;
+      const lz = b.prevLocal[2] + (b.local[2] - b.prevLocal[2]) * a;
+      const w = quatRotate(pose.spinQuat, [lx, ly, lz]);
+      target[0] = pose.center[0] + w[0];
+      target[1] = pose.center[1] + w[1];
+      target[2] = pose.center[2] + w[2];
+      return target;
+    }
+    target[0] = prev[0] + (b.pos[0] - prev[0]) * a;
+    target[1] = prev[1] + (b.pos[1] - prev[1]) * a;
+    target[2] = prev[2] + (b.pos[2] - prev[2]) * a;
+    return target;
+  }
+
+
 
   addBody(b: Body): void {
     this.bodies.set(b.id, b);
@@ -462,8 +575,27 @@ export class UqrcPhysics {
       const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
+      // 1b. Snapshot pre-step positions so renderers can interpolate
+      //     between fixed steps (visual only — never read by the sim).
+      //     The Earth-local copy is what renderers actually lerp: it is
+      //     immune to the orbital translation that happens between this
+      //     tick and the frame that draws it.
+      for (const b of this.bodies.values()) {
+        if (b.prevPos) {
+          b.prevPos[0] = b.pos[0]; b.prevPos[1] = b.pos[1]; b.prevPos[2] = b.pos[2];
+        } else {
+          b.prevPos = [b.pos[0], b.pos[1], b.pos[2]];
+        }
+        if (b.local) {
+          b.prevLocal = b.prevLocal ?? [0, 0, 0];
+          b.prevLocal[0] = b.local[0]; b.prevLocal[1] = b.local[1]; b.prevLocal[2] = b.local[2];
+        }
+      }
+
+
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
+
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
@@ -748,18 +880,18 @@ export class UqrcPhysics {
               b.vel[1] = vRad * uy + ty * k;
               b.vel[2] = vRad * uz + tz * k;
             }
-            // Idle radial settle. When the user isn't pushing intent and
-            // the body sits within 1 m of the basin minimum, aggressively
-            // damp residual radial velocity. The sampled mantle gradient
-            // has a 1 m dead-band so vRad is exactly the noise that was
-            // showing up as the visible "altitude shake" (-4.6m ↔ -4.4m
-            // sawtooth in the debug HUD). With intent present, leave
-            // vRad alone so the player can still jump / fall.
-            if (intentMag < 0.05) {
-                // Local terrain elevation raises the dead-band so idle
-                // standing on a volcano slope settles to the slope, not
-                // to the spherical baseline shell (which would phase the
-                // body through the visible cone).
+            // Radial settle. Within the settle band the residual radial
+            // velocity is the sampled-gradient noise that showed up as the
+            // visible "altitude shake". It was previously damped ONLY when
+            // idle, so the wobble was worst exactly while walking. Now the
+            // settle always runs inside the band; intent scales the damping
+            // DOWN (never off) so jumping / falling still respond, but the
+            // walking body no longer carries free vertical velocity.
+            {
+                // Local terrain elevation raises the dead-band so standing
+                // on a volcano slope settles to the slope, not to the
+                // spherical baseline shell (which would phase the body
+                // through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
                 const landMask = sampleTerrainDryMask(organ, localN);
@@ -771,16 +903,21 @@ export class UqrcPhysics {
                 const targetShell = BODY_SHELL_RADIUS + elevation;
                 const dr = rMag - targetShell;
               if (Math.abs(dr) < 1.0) {
-                // Critical-damping toward zero radial velocity, plus a
-                // tiny spring back to the basin radius.
-                const vRadDamp = vRad * 0.85;
-                const springAcc = -dr * 4.0;
+                // Idle → strong damping (0.85 retained → 0.15 kept).
+                // Full intent → gentle damping so the player keeps
+                // authority over vertical motion.
+                const moving = Math.min(1, intentMag);
+                const damp = 0.15 + 0.55 * moving;      // 0.15 idle → 0.70 moving
+                const spring = 4.0 * (1 - 0.5 * moving); // 4.0 idle → 2.0 moving
+                const vRadDamp = vRad * damp;
+                const springAcc = -dr * spring;
                 const newVRad = vRadDamp + springAcc * dt;
                 b.vel[0] = newVRad * ux + tx;
                 b.vel[1] = newVRad * uy + ty;
                 b.vel[2] = newVRad * uz + tz;
               }
             }
+
           }
         }
 
@@ -808,6 +945,25 @@ export class UqrcPhysics {
       }
 
       this.lastPose = pose;
+
+      // 1c. Post-step Earth-local track (visual only). Renderers lerp
+      //     `prevLocal → local` and remap through the CURRENT frame pose,
+      //     so bodies stay welded to the ground between fixed steps.
+      for (const b of this.bodies.values()) {
+        const rel: [number, number, number] = [
+          b.pos[0] - pose.center[0],
+          b.pos[1] - pose.center[1],
+          b.pos[2] - pose.center[2],
+        ];
+        const loc = quatRotate(pose.invSpinQuat, rel);
+        if (b.local) {
+          b.local[0] = loc[0]; b.local[1] = loc[1]; b.local[2] = loc[2];
+        } else {
+          b.local = [loc[0], loc[1], loc[2]];
+          b.prevLocal = [loc[0], loc[1], loc[2]];
+        }
+      }
+
 
       // ── Core escape: if a humanoid sits inside EARTH_CORE_RADIUS for
       //    > CORE_ESCAPE_DWELL_S seconds, fire the rescue hook so the

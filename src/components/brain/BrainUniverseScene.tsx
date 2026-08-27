@@ -113,6 +113,8 @@ import {
   BODY_CENTER_HEIGHT,
   radiusFromEarth,
   getEarthPose,
+  beginEarthFrame,
+
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
@@ -246,6 +248,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // toward the live up so micro jitter doesn't roll the horizon.
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
+  /** Scratch buffer for the interpolated body position (no per-frame alloc). */
+  const renderPos = useRef<[number, number, number]>([0, 0, 0]);
+
   const prevTopView = useRef(false);
   // Eased 0..1 blend into the overhead boom so entering/leaving Top view
   // glides instead of snapping the whole world.
@@ -301,7 +306,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const body = physics.getBody(selfId);
     // Physics owns body grounding — the camera rig is a read-only consumer.
     // (Removed render-layer body.pos mutation that was fighting the sim.)
-    const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
+    // Read the INTERPOLATED pose: the sim advances in fixed steps and this
+    // frame lands between two of them, so sampling `body.pos` raw aliased
+    // the step cadence into visible vertical jitter of the ground.
+    const source = body
+      ? (physics.getBodyRenderPos(selfId, performance.now(), renderPos.current) ?? body.pos)
+      : spawnNearSharedVillage(fallbackId, pose);
+
     // Use the SHARED village's live site frame instead of recomputing a
     // basis from `source` every frame. The site frame is frozen in
     // Earth-local coords and only rotated by the smooth spin quaternion,
@@ -455,15 +466,18 @@ function EarthPoseTicker() {
   // ticker exists only to keep pose-driven visuals live. A previous call
   // to `updateLavaMantlePin` here raced the physics tick and produced a
   // second unsynchronised pin re-stamp path — visible as surface tremor.
+  // `beginEarthFrame` re-pins the shared per-frame pose so the camera,
+  // the ground and every world layer agree on where Earth is this frame.
   useFrame(() => {
     try {
-      void getEarthPose();
+      beginEarthFrame();
     } catch {
       /* best-effort */
     }
   });
   return null;
 }
+
 
 /**
  * Per-frame binding loop: writes Infinity's basin into pinTemplate from the

@@ -45,6 +45,13 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
   const targetPos = useRef(new THREE.Vector3(position[0], position[1], position[2]));
   const targetQuat = useRef(new THREE.Quaternion());
   const seeded = useRef(false);
+  /** Target and smoothed position kept RELATIVE to Earth's centre. Earth
+   *  translates along its orbit at ~2.6 m/s, so a world-space target
+   *  computed once per presence update would slide against the ground
+   *  every frame — the peer would appear to skate and bob. Everything is
+   *  smoothed Earth-relative and remapped through the frame pose. */
+  const targetRel = useRef(new THREE.Vector3());
+  const smoothRel = useRef(new THREE.Vector3());
 
   // Refresh target whenever the prop changes.
   useMemo(() => {
@@ -99,19 +106,30 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(up[0], up[1], up[2]),
     );
+    targetRel.current.set(
+      targetPos.current.x - pose.center[0],
+      targetPos.current.y - pose.center[1],
+      targetPos.current.z - pose.center[2],
+    );
   }, [position, isStale]);
 
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
+    const center = getEarthPose().center;
     if (!seeded.current) {
-      g.position.copy(targetPos.current);
+      smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;
-      return;
+    } else {
+      smoothRel.current.lerp(targetRel.current, 0.18);
+      g.quaternion.slerp(targetQuat.current, 0.18);
     }
-    g.position.lerp(targetPos.current, 0.18);
-    g.quaternion.slerp(targetQuat.current, 0.18);
+    g.position.set(
+      center[0] + smoothRel.current.x,
+      center[1] + smoothRel.current.y,
+      center[2] + smoothRel.current.z,
+    );
   });
 
   // Spawn-coherence fix: physics anchors the body at its center of mass
