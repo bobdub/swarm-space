@@ -9,7 +9,11 @@ import {
   personalServerGet,
   personalServerHead,
   personalServerPut,
+  personalServerPutPublic,
+  personalServerPublicHead,
+  publicMirrorGet,
 } from './personalServerProvider';
+import { listKnownMirrors } from './personalServerMirrors';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -135,11 +139,31 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
     updatedAt: Date.now(),
   });
 
+  const server = listPersonalServers().find((entry) => entry.id === record.serverId);
+  const mirrorPublicly = !!server?.sharePublic;
+
   for (const ref of record.chunkRefs) {
-    if (await personalServerHead(record.serverId, record.userId, ref)) continue;
-    const chunk = await get<Record<string, unknown>>('chunks', ref);
-    if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
-    await personalServerPut(record.serverId, record.userId, ref, encodeJson(chunk));
+    const alreadyPrivate = await personalServerHead(record.serverId, record.userId, ref);
+    let payload: ArrayBuffer | null = null;
+    if (!alreadyPrivate) {
+      const chunk = await get<Record<string, unknown>>('chunks', ref);
+      if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
+      payload = encodeJson(chunk);
+      await personalServerPut(record.serverId, record.userId, ref, payload);
+    }
+    if (!mirrorPublicly) continue;
+    try {
+      if (await personalServerPublicHead(record.serverId, record.userId, ref)) continue;
+      if (!payload) {
+        const chunk = await get<Record<string, unknown>>('chunks', ref);
+        if (!chunk) continue;
+        payload = encodeJson(chunk);
+      }
+      await personalServerPutPublic(record.serverId, record.userId, ref, payload);
+    } catch (error) {
+      // Mirroring is best-effort; the private replica is the source of truth.
+      console.warn('[PersonalServerSync] Public mirror write skipped:', error);
+    }
   }
 
   const remoteManifestKey = manifestKey(record.manifestId);
@@ -295,6 +319,30 @@ export async function fetchChunkFromPersonalServers<T extends { ref: string } = 
       await put('chunks', chunk);
       return chunk;
     } catch { /* try the next server */ }
+  }
+  return await fetchChunkFromPublicMirrors<T>(ref);
+}
+
+/**
+ * Credential-free fallback: pull a shared chunk from any advertised mirror.
+ * Works for peers who have no account on the server at all — bytes must
+ * still pass the same hash/signature gate before they are cached.
+ */
+export async function fetchChunkFromPublicMirrors<T extends { ref: string } = Chunk>(
+  ref: string,
+): Promise<T | null> {
+  for (const mirror of listKnownMirrors()) {
+    try {
+      const bytes = await publicMirrorGet(
+        mirror,
+        ref,
+        (candidate) => verifyRemoteChunk(candidate, ref),
+      );
+      if (!bytes) continue;
+      const chunk = JSON.parse(decoder.decode(bytes)) as T;
+      await put('chunks', chunk);
+      return chunk;
+    } catch { /* try the next mirror */ }
   }
   return null;
 }
