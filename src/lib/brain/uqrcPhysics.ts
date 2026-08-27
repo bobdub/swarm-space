@@ -94,6 +94,13 @@ export interface Body {
    *  integrator, read only by `getBodyRenderPos` for visual smoothing —
    *  never by collision, tools or world mutation. */
   prevPos?: [number, number, number];
+  /** Earth-local (co-rotating) position at the START and END of the
+   *  current fixed step. Renderers interpolate in THIS frame and remap
+   *  through the frame's Earth pose, so the body can never fall out of
+   *  register with the ground while Earth translates along its orbit. */
+  prevLocal?: [number, number, number];
+  local?: [number, number, number];
+
 }
 
 
