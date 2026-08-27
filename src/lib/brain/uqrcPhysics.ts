@@ -946,6 +946,25 @@ export class UqrcPhysics {
 
       this.lastPose = pose;
 
+      // 1c. Post-step Earth-local track (visual only). Renderers lerp
+      //     `prevLocal → local` and remap through the CURRENT frame pose,
+      //     so bodies stay welded to the ground between fixed steps.
+      for (const b of this.bodies.values()) {
+        const rel: [number, number, number] = [
+          b.pos[0] - pose.center[0],
+          b.pos[1] - pose.center[1],
+          b.pos[2] - pose.center[2],
+        ];
+        const loc = quatRotate(pose.invSpinQuat, rel);
+        if (b.local) {
+          b.local[0] = loc[0]; b.local[1] = loc[1]; b.local[2] = loc[2];
+        } else {
+          b.local = [loc[0], loc[1], loc[2]];
+          b.prevLocal = [loc[0], loc[1], loc[2]];
+        }
+      }
+
+
       // ── Core escape: if a humanoid sits inside EARTH_CORE_RADIUS for
       //    > CORE_ESCAPE_DWELL_S seconds, fire the rescue hook so the
       //    scene can respawn them at the shared village. Pure observer
