@@ -301,7 +301,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const body = physics.getBody(selfId);
     // Physics owns body grounding — the camera rig is a read-only consumer.
     // (Removed render-layer body.pos mutation that was fighting the sim.)
-    const source = body?.pos ?? spawnNearSharedVillage(fallbackId, pose);
+    // Read the INTERPOLATED pose: the sim advances in fixed steps and this
+    // frame lands between two of them, so sampling `body.pos` raw aliased
+    // the step cadence into visible vertical jitter of the ground.
+    const source = body
+      ? (physics.getBodyRenderPos(selfId, performance.now(), renderPos.current) ?? body.pos)
+      : spawnNearSharedVillage(fallbackId, pose);
+
     // Use the SHARED village's live site frame instead of recomputing a
     // basis from `source` every frame. The site frame is frozen in
     // Earth-local coords and only rotated by the smooth spin quaternion,
