@@ -395,7 +395,19 @@ export async function backfillPersonalServerSync(): Promise<void> {
   await processPersonalServerSyncQueue();
 }
 
-export async function retryPersonalServerSync(serverId?: string): Promise<void> {
+export interface SyncRunResult {
+  objectsWritten: number;
+  recordsWritten: number;
+  recordsSkipped: number;
+  queued: number;
+  error?: string;
+}
+
+export async function retryPersonalServerSync(serverId?: string): Promise<SyncRunResult> {
+  const before = serverId ? diag(serverId) : undefined;
+  const baseObjects = before?.objectsWritten ?? 0;
+  const baseRecords = before?.recordsWritten ?? 0;
+
   const records = await getAll<PersonalServerSyncRecord>('personalServerSync');
   for (const record of records) {
     if (record.status === 'complete' || (serverId && record.serverId !== serverId)) continue;
@@ -407,6 +419,28 @@ export async function retryPersonalServerSync(serverId?: string): Promise<void> 
     });
   }
   await processPersonalServerSyncQueue();
+
+  const after = serverId
+    ? diag(serverId)
+    : getPersonalServerDiagnostics().reduce<PersonalServerDiagnostics>((acc, d) => ({
+      ...acc,
+      objectsWritten: acc.objectsWritten + d.objectsWritten,
+      recordsWritten: acc.recordsWritten + d.recordsWritten,
+      recordsSkipped: acc.recordsSkipped + d.recordsSkipped,
+      queued: acc.queued + d.queued,
+      lastError: acc.lastError ?? d.lastError,
+    }), {
+      serverId: '*', objectsWritten: 0, recordsWritten: 0, recordsSkipped: 0,
+      queued: 0, failed: 0, state: 'idle',
+    });
+
+  return {
+    objectsWritten: after.objectsWritten - (serverId ? baseObjects : 0),
+    recordsWritten: after.recordsWritten - (serverId ? baseRecords : 0),
+    recordsSkipped: after.recordsSkipped,
+    queued: after.queued,
+    error: after.lastError,
+  };
 }
 
 export async function clearPersonalServerSync(serverId: string): Promise<void> {
@@ -414,7 +448,11 @@ export async function clearPersonalServerSync(serverId: string): Promise<void> {
   for (const record of records) {
     if (record.serverId === serverId) await remove('personalServerSync', record.id);
   }
+  await clearRecordState(serverId);
+  diagnostics.delete(serverId);
+  emitDiagnostics();
 }
+
 
 async function verifyRemoteChunk(bytes: ArrayBuffer, expectedRef: string): Promise<boolean> {
   try {
