@@ -87,15 +87,26 @@ export function PersonalServersPanel() {
   };
 
   const handleSyncNow = async (server: PersonalServer) => {
+    setSyncingId(server.id);
     try {
-      await retryPersonalServerSync(server.id);
-      toast.success('Personal server sync checked');
+      const result = await retryPersonalServerSync(server.id);
+      if (result.error) {
+        toast.error('Sync hit an error', { description: result.error, duration: 20000 });
+      } else {
+        toast.success('Sync run finished', {
+          description: `${result.objectsWritten} media object(s) · ${result.recordsWritten} record batch(es) written`
+            + ` · ${result.recordsSkipped} unchanged · ${result.queued} still queued`,
+          duration: 12000,
+        });
+      }
     } catch (error) {
       toast.error('Sync could not start', {
         description: error instanceof Error ? error.message : String(error),
+        duration: 20000,
       });
-    }
+    } finally { setSyncingId(null); }
   };
+
 
   return (
     <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
