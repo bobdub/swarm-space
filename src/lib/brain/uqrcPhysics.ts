@@ -550,8 +550,19 @@ export class UqrcPhysics {
       const omegaY = (2 * Math.PI) / EARTH_SPIN_PERIOD; // matches EARTH_SPIN_PERIOD; informational only
       void omegaY;
 
+      // 1b. Snapshot pre-step positions so renderers can interpolate
+      //     between fixed steps (visual only — never read by the sim).
+      for (const b of this.bodies.values()) {
+        if (b.prevPos) {
+          b.prevPos[0] = b.pos[0]; b.prevPos[1] = b.pos[1]; b.prevPos[2] = b.pos[2];
+        } else {
+          b.prevPos = [b.pos[0], b.pos[1], b.pos[2]];
+        }
+      }
+
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
+
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
