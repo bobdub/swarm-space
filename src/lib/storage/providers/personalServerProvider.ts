@@ -82,6 +82,23 @@ function s3ConfigFor(server: PersonalServer, userId: string): S3DirectConfig {
 
 // ── PUT ────────────────────────────────────────────────────────────────
 
+/**
+ * Bytes written since the last throttled writeback. Without this the 2.5m
+ * writeback throttle silently dropped every write in between, so the panel
+ * reported far less stored than the server actually held.
+ */
+const pendingUsage = new Map<string, number>();
+
+function accrueUsage(serverId: string, bytes: number, current: number): void {
+  const pending = (pendingUsage.get(serverId) ?? 0) + bytes;
+  if (!shouldWriteback(serverId)) {
+    pendingUsage.set(serverId, pending);
+    return;
+  }
+  pendingUsage.delete(serverId);
+  updatePersonalServer(serverId, { usedBytes: current + pending });
+}
+
 export const personalServerPut = withHealth(
   'storage', 'personal-server.put',
   async (serverId: string, userId: string, hash: string, body: ArrayBuffer): Promise<void> => {
@@ -97,11 +114,10 @@ export const personalServerPut = withHealth(
       await s3DirectPut(s3ConfigFor(server, userId), creds, hash, body);
     }
 
-    if (shouldWriteback(serverId)) {
-      updatePersonalServer(serverId, { usedBytes: server.usedBytes + body.byteLength });
-    }
+    accrueUsage(serverId, body.byteLength, server.usedBytes);
   },
 );
+
 
 // ── GET (signature-gated) ──────────────────────────────────────────────
 
