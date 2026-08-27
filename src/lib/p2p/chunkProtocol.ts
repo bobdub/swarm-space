@@ -492,7 +492,7 @@ export class ChunkProtocol {
           type: 'manifest_data',
           requestId: message.requestId,
           hash: outgoingManifest.fileId,
-          manifest: outgoingManifest
+          manifest: attachMirrorHints(outgoingManifest as unknown as Record<string, unknown>) as unknown as Manifest
         });
         this.recordTransfer({
           direction: 'upload',
