@@ -335,11 +335,29 @@ export class UqrcPhysics {
     }
     const alphaRaw = (nowMs - this.lastStepAtMs) / (dt * 1000);
     const a = alphaRaw < 0 ? 0 : alphaRaw > 1 ? 1 : alphaRaw;
+    // Prefer the Earth-local track. Interpolating in world space would
+    // leave the body at the Earth pose of the last TICK while the ground
+    // is drawn at the pose of THIS FRAME; Earth's centre translates along
+    // its orbit at ~2.6 m/s, so that offset re-appeared every frame as a
+    // few centimetres of vertical shake. Remapping the local track through
+    // the frame pose keeps body and ground in permanent register.
+    if (b.local && b.prevLocal) {
+      const pose = getEarthPose();
+      const lx = b.prevLocal[0] + (b.local[0] - b.prevLocal[0]) * a;
+      const ly = b.prevLocal[1] + (b.local[1] - b.prevLocal[1]) * a;
+      const lz = b.prevLocal[2] + (b.local[2] - b.prevLocal[2]) * a;
+      const w = quatRotate(pose.spinQuat, [lx, ly, lz]);
+      target[0] = pose.center[0] + w[0];
+      target[1] = pose.center[1] + w[1];
+      target[2] = pose.center[2] + w[2];
+      return target;
+    }
     target[0] = prev[0] + (b.pos[0] - prev[0]) * a;
     target[1] = prev[1] + (b.pos[1] - prev[1]) * a;
     target[2] = prev[2] + (b.pos[2] - prev[2]) * a;
     return target;
   }
+
 
 
   addBody(b: Body): void {
