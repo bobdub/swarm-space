@@ -344,13 +344,15 @@ export function getEarthPoseAt(seconds: number): EarthPose {
  * ground, the avatar and the camera at slightly different Earth positions
  * — a per-frame offset that reads as the ground jumping.
  *
- * `beginEarthFrame()` is called once per animation frame (by the scene's
- * pose ticker, at a negative render priority) and pins the pose for the
- * rest of that frame. Physics keeps its own tick-time pose; it never uses
- * the frame cache.
+ * The cache is self-pinning: the first call in an animation frame computes
+ * the pose and schedules its own invalidation on the next frame, so every
+ * consumer in that frame — camera, Earth mesh, weather, pits, physics —
+ * shares one pose without depending on component mount order. Outside a
+ * browser (tests, SSR) it degrades to the live derivation.
  */
 let _frameSeq = 0;
 let _framePose: EarthPose | null = null;
+let _frameRaf: number | null = null;
 
 /** Pin the shared pose for this animation frame. Returns the pinned pose. */
 export function beginEarthFrame(): EarthPose {
@@ -362,6 +364,10 @@ export function beginEarthFrame(): EarthPose {
 /** Drop the frame pin (unmount / tests) so callers fall back to live time. */
 export function endEarthFrame(): void {
   _framePose = null;
+  if (_frameRaf !== null && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(_frameRaf);
+  }
+  _frameRaf = null;
 }
 
 /** Monotonic frame counter — lets consumers memoise per frame. */
@@ -369,11 +375,21 @@ export function getEarthFrameSeq(): number {
   return _frameSeq;
 }
 
-/** Live Earth pose (center + spin) — frame-pinned when inside a render frame. */
+/** Live Earth pose (center + spin) — frame-pinned inside a render frame. */
 export function getEarthPose(): EarthPose {
   if (_framePose) return _framePose;
-  return getEarthPoseAt(getEarthPoseTime());
+  const pose = getEarthPoseAt(getEarthPoseTime());
+  if (typeof requestAnimationFrame === 'function' && _poseTimeOverride === null) {
+    _frameSeq++;
+    _framePose = pose;
+    _frameRaf = requestAnimationFrame(() => {
+      _framePose = null;
+      _frameRaf = null;
+    });
+  }
+  return pose;
 }
+
 
 
 // ── Shell projection helpers ────────────────────────────────────────
