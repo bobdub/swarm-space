@@ -32,6 +32,21 @@ type: feature
   failed writes remain queued and resume on reconnect/startup.
 - Read priority is Media Coin → verified personal server → local torrent/chunk →
   peer fallback. Remote JSON chunks are content-address verified before caching.
+- Media chunks are NOT the whole replica. `personalServerRecords.ts` replicates
+  the whole device: IndexedDB stores (posts, projects, users, comments, tasks,
+  milestones, notifications, entanglements, connections, replicas, manifests,
+  blockchain, tokenBalances, nfts, credit*, achievementProgress, miningSessions,
+  meta) plus app localStorage state, batched, encrypted with a browser-bound
+  AES-256-GCM replica key, keyed deterministically so updates overwrite and
+  unchanged batches are skipped by plaintext digest.
+- Every non-paused server (private AND public-pin) receives the owner's record
+  replica. Sync re-drives on identity appearing, on any server-list change, on
+  `online`, and every 60s.
+- `getPersonalServerDiagnostics()/subscribePersonalServerDiagnostics()` expose
+  state, objectsWritten, recordsWritten, recordsSkipped, queued, failed,
+  lastObjectKey and the verbatim server error; the Personal Servers panel shows
+  them under "Storage sync" with Sync now / Test write. Never replace a server
+  error string with a generic message.
 
 ## Adapters
 - `adapters/httpsBlob.ts` — `PUT/GET/HEAD/DELETE /chunks/:hash`,
