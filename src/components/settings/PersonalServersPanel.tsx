@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Server, Plus, Trash2, Pause, Play, Globe, Lock, RefreshCw, KeyRound, CloudUpload } from 'lucide-react';
+import { Server, Plus, Trash2, Pause, Play, Globe, Lock, RefreshCw, KeyRound, CloudUpload, Share2 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import {
   subscribePersonalServers,
   removePersonalServer,
   updatePersonalServer,
+  isLocalServerUrl,
   type PersonalServer,
 } from '@/lib/storage/providers/personalServerStore';
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
@@ -154,6 +156,44 @@ export function PersonalServersPanel() {
                   {s.health && !s.health.ok && s.health.error ? (
                     <p className="mt-2 break-words text-xs text-destructive/90">{s.health.error}</p>
                   ) : null}
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-border/40 bg-background/40 p-2">
+                    <Share2 className="mt-0.5 h-3 w-3 text-accent" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium">Share project content from this server</span>
+                        <Switch
+                          checked={!!s.sharePublic}
+                          onCheckedChange={(checked) => {
+                            updatePersonalServer(s.id, { sharePublic: checked });
+                            toast.success(checked ? 'Public mirror enabled' : 'Public mirror disabled');
+                          }}
+                        />
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Mirrors encrypted chunks under a credential-free prefix so other users can
+                        download your project media. Ciphertext only — keys never leave this device.
+                        {' '}Mirrored: {formatBytes(s.publicBytes ?? 0)}.
+                      </p>
+                      {isLocalServerUrl(s.url) ? (
+                        <p className="mt-1 text-[11px] text-amber-400/90">
+                          This is a local address, so other users outside your network cannot reach it.
+                          Expose it over public HTTPS (tunnel or reverse proxy) to serve peers.
+                        </p>
+                      ) : null}
+                      {s.sharePublic ? (
+                        <Button type="button" size="sm" variant="ghost"
+                          className="mt-1 h-6 px-2 text-[11px] text-destructive"
+                          onClick={() => {
+                            updatePersonalServer(s.id, { sharePublic: false, publicBytes: 0 });
+                            toast.success('Sharing stopped', {
+                              description: 'Delete the imagination/public/ prefix on the server to purge mirrored bytes.',
+                            });
+                          }}>
+                          Stop sharing &amp; purge
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1">
                   {!credentialState[s.id] ? (
