@@ -847,18 +847,18 @@ export class UqrcPhysics {
               b.vel[1] = vRad * uy + ty * k;
               b.vel[2] = vRad * uz + tz * k;
             }
-            // Idle radial settle. When the user isn't pushing intent and
-            // the body sits within 1 m of the basin minimum, aggressively
-            // damp residual radial velocity. The sampled mantle gradient
-            // has a 1 m dead-band so vRad is exactly the noise that was
-            // showing up as the visible "altitude shake" (-4.6m ↔ -4.4m
-            // sawtooth in the debug HUD). With intent present, leave
-            // vRad alone so the player can still jump / fall.
-            if (intentMag < 0.05) {
-                // Local terrain elevation raises the dead-band so idle
-                // standing on a volcano slope settles to the slope, not
-                // to the spherical baseline shell (which would phase the
-                // body through the visible cone).
+            // Radial settle. Within the settle band the residual radial
+            // velocity is the sampled-gradient noise that showed up as the
+            // visible "altitude shake". It was previously damped ONLY when
+            // idle, so the wobble was worst exactly while walking. Now the
+            // settle always runs inside the band; intent scales the damping
+            // DOWN (never off) so jumping / falling still respond, but the
+            // walking body no longer carries free vertical velocity.
+            {
+                // Local terrain elevation raises the dead-band so standing
+                // on a volcano slope settles to the slope, not to the
+                // spherical baseline shell (which would phase the body
+                // through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
                 const landMask = sampleTerrainDryMask(organ, localN);
@@ -870,16 +870,21 @@ export class UqrcPhysics {
                 const targetShell = BODY_SHELL_RADIUS + elevation;
                 const dr = rMag - targetShell;
               if (Math.abs(dr) < 1.0) {
-                // Critical-damping toward zero radial velocity, plus a
-                // tiny spring back to the basin radius.
-                const vRadDamp = vRad * 0.85;
-                const springAcc = -dr * 4.0;
+                // Idle → strong damping (0.85 retained → 0.15 kept).
+                // Full intent → gentle damping so the player keeps
+                // authority over vertical motion.
+                const moving = Math.min(1, intentMag);
+                const damp = 0.15 + 0.55 * moving;      // 0.15 idle → 0.70 moving
+                const spring = 4.0 * (1 - 0.5 * moving); // 4.0 idle → 2.0 moving
+                const vRadDamp = vRad * damp;
+                const springAcc = -dr * spring;
                 const newVRad = vRadDamp + springAcc * dt;
                 b.vel[0] = newVRad * ux + tx;
                 b.vel[1] = newVRad * uy + ty;
                 b.vel[2] = newVRad * uz + tz;
               }
             }
+
           }
         }
 
