@@ -1062,7 +1062,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost) && (
+              {(isAuthor || canBlockUser || canHidePost || hasDownloadableMedia) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1074,6 +1074,18 @@ export function PostCard({ post }: PostCardProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
+                    {hasDownloadableMedia && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleDownloadMedia();
+                        }}
+                        disabled={isDownloading}
+                      >
+                        <Download className="mr-2 h-4 w-4" />
+                        {isDownloading ? "Downloading…" : "Download Media"}
+                      </DropdownMenuItem>
+                    )}
                     {isAuthor && (
                       <>
                         <DropdownMenuItem
