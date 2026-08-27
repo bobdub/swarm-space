@@ -15,7 +15,12 @@ import { probePersonalServer } from '@/lib/storage/providers/personalServerProvi
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
 import { getCurrentUser } from '@/lib/auth';
 import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
-import { retryPersonalServerSync } from '@/lib/storage/providers/personalServerSync';
+import {
+  retryPersonalServerSync,
+  subscribePersonalServerDiagnostics,
+  type PersonalServerDiagnostics,
+} from '@/lib/storage/providers/personalServerSync';
+
 
 function formatBytes(n: number): string {
   if (!n) return '0 B';
@@ -30,9 +35,13 @@ export function PersonalServersPanel() {
   const [probingId, setProbingId] = useState<string | null>(null);
   const [relinkServer, setRelinkServer] = useState<PersonalServer | null>(null);
   const [credentialState, setCredentialState] = useState<Record<string, boolean>>({});
+  const [diagnostics, setDiagnostics] = useState<PersonalServerDiagnostics[]>([]);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const userId = getCurrentUser()?.id ?? '';
 
   useEffect(() => subscribePersonalServers(setServers), []);
+  useEffect(() => subscribePersonalServerDiagnostics(setDiagnostics), []);
+
   useEffect(() => {
     let active = true;
     void Promise.all(servers.map(async (server) => [
@@ -78,15 +87,26 @@ export function PersonalServersPanel() {
   };
 
   const handleSyncNow = async (server: PersonalServer) => {
+    setSyncingId(server.id);
     try {
-      await retryPersonalServerSync(server.id);
-      toast.success('Personal server sync checked');
+      const result = await retryPersonalServerSync(server.id);
+      if (result.error) {
+        toast.error('Sync hit an error', { description: result.error, duration: 20000 });
+      } else {
+        toast.success('Sync run finished', {
+          description: `${result.objectsWritten} media object(s) · ${result.recordsWritten} record batch(es) written`
+            + ` · ${result.recordsSkipped} unchanged · ${result.queued} still queued`,
+          duration: 12000,
+        });
+      }
     } catch (error) {
       toast.error('Sync could not start', {
         description: error instanceof Error ? error.message : String(error),
+        duration: 20000,
       });
-    }
+    } finally { setSyncingId(null); }
   };
+
 
   return (
     <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
@@ -156,6 +176,43 @@ export function PersonalServersPanel() {
                   {s.health && !s.health.ok && s.health.error ? (
                     <p className="mt-2 break-words text-xs text-destructive/90">{s.health.error}</p>
                   ) : null}
+                  {(() => {
+                    const d = diagnostics.find((entry) => entry.serverId === s.id);
+                    return (
+                      <div className="mt-3 rounded-lg border border-border/40 bg-background/40 p-2">
+                        <p className="text-xs font-medium">Storage sync</p>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          State: {d?.state ?? 'idle'} · written {d?.objectsWritten ?? 0} media ·{' '}
+                          {d?.recordsWritten ?? 0} record batches · {d?.recordsSkipped ?? 0} unchanged ·{' '}
+                          {d?.queued ?? 0} queued · {d?.failed ?? 0} failed
+                        </p>
+                        {d?.lastObjectKey ? (
+                          <p className="mt-1 break-all text-[11px] text-muted-foreground">
+                            Last object: {d.lastObjectKey}
+                          </p>
+                        ) : null}
+                        {d?.lastRunAt ? (
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            Last attempt: {new Date(d.lastRunAt).toLocaleString()}
+                          </p>
+                        ) : null}
+                        {d?.lastError ? (
+                          <p className="mt-1 break-words text-[11px] text-destructive/90">{d.lastError}</p>
+                        ) : null}
+                        <Button type="button" size="sm" variant="ghost" className="mt-1 h-6 px-2 text-[11px]"
+                          disabled={syncingId === s.id}
+                          onClick={() => { void handleSyncNow(s); }}>
+                          {syncingId === s.id ? 'Syncing…' : 'Sync now'}
+                        </Button>
+                        <Button type="button" size="sm" variant="ghost" className="mt-1 h-6 px-2 text-[11px]"
+                          disabled={probingId === s.id}
+                          onClick={() => { void handleProbe(s.id); }}>
+                          Test write
+                        </Button>
+                      </div>
+                    );
+                  })()}
+
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-border/40 bg-background/40 p-2">
                     <Share2 className="mt-0.5 h-3 w-3 text-accent" />
                     <div className="min-w-0 flex-1">

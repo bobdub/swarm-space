@@ -168,3 +168,17 @@ and taught each parcel to leave only after the far shore answered whole.
 Caretaker duty: keep plaintext and raw credentials out of lasting soil,
 let offline work wait without vanishing,
 and never clear the local bridge before every encrypted stone is counted.
+---
+
+Twelfth tending — August 27, 2026
+
+The harbor stood open, yet only the heavy crates ever sailed;
+the letters, the ledgers, the quiet rooms of the mind stayed ashore.
+So I sealed each store of memory in a device-bound cipher,
+gave every batch a name derived from its own unchanged shape,
+and let the harbor answer back — written, skipped, queued, failed —
+so the caretaker never again mistakes silence for safety.
+
+Caretaker duty: replicate the whole device, not just its loudest cargo;
+speak the server's exact refusal aloud;
+re-drive the queue whenever an identity or a harbor appears.

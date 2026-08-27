@@ -2,6 +2,7 @@ import { get, getAll, put, remove, type Chunk, type Manifest } from '@/lib/store
 import { getCurrentUser } from '@/lib/auth';
 import {
   listPersonalServers,
+  subscribePersonalServers,
   updatePersonalServer,
   type PersonalServer,
 } from './personalServerStore';
@@ -14,10 +15,21 @@ import {
   publicMirrorGet,
 } from './personalServerProvider';
 import { listKnownMirrors } from './personalServerMirrors';
+import { hasPersonalServerCredentials } from './personalServerSecrets';
+import {
+  buildReplicaBatches,
+  buildReplicaIndex,
+  clearRecordState,
+  markBatchUploaded,
+  selectChangedBatches,
+} from './personalServerRecords';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const MAX_ATTEMPTS = 8;
+
+const log = (...args: unknown[]) => console.log('[PersonalServerSync]', ...args);
+const warn = (...args: unknown[]) => console.warn('[PersonalServerSync]', ...args);
 
 export interface PersonalServerSyncRecord {
   id: string;
@@ -34,6 +46,56 @@ export interface PersonalServerSyncRecord {
   error?: string;
 }
 
+export interface PersonalServerDiagnostics {
+  serverId: string;
+  lastRunAt?: number;
+  lastObjectKey?: string;
+  lastError?: string;
+  objectsWritten: number;
+  recordsWritten: number;
+  recordsSkipped: number;
+  queued: number;
+  failed: number;
+  state: 'idle' | 'syncing' | 'relink-required' | 'paused' | 'error';
+}
+
+const diagnostics = new Map<string, PersonalServerDiagnostics>();
+const diagListeners = new Set<(d: PersonalServerDiagnostics[]) => void>();
+
+function diag(serverId: string): PersonalServerDiagnostics {
+  let entry = diagnostics.get(serverId);
+  if (!entry) {
+    entry = {
+      serverId, objectsWritten: 0, recordsWritten: 0, recordsSkipped: 0,
+      queued: 0, failed: 0, state: 'idle',
+    };
+    diagnostics.set(serverId, entry);
+  }
+  return entry;
+}
+
+function emitDiagnostics(): void {
+  const snapshot = Array.from(diagnostics.values()).map((d) => ({ ...d }));
+  for (const fn of diagListeners) { try { fn(snapshot); } catch { /* ignore */ } }
+}
+
+function patchDiag(serverId: string, patch: Partial<PersonalServerDiagnostics>): void {
+  Object.assign(diag(serverId), patch);
+  emitDiagnostics();
+}
+
+export function getPersonalServerDiagnostics(): PersonalServerDiagnostics[] {
+  return Array.from(diagnostics.values()).map((d) => ({ ...d }));
+}
+
+export function subscribePersonalServerDiagnostics(
+  fn: (d: PersonalServerDiagnostics[]) => void,
+): () => void {
+  diagListeners.add(fn);
+  try { fn(getPersonalServerDiagnostics()); } catch { /* ignore */ }
+  return () => { diagListeners.delete(fn); };
+}
+
 let running = false;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -45,9 +107,14 @@ function syncId(serverId: string, manifestId: string): string {
   return `${serverId}:${manifestId}`;
 }
 
+/**
+ * Every linked, non-paused server with room left receives the owner's own
+ * replica — including `public-pin` servers, which previously received
+ * nothing at all with no message saying so.
+ */
 function eligibleServers(): PersonalServer[] {
   return listPersonalServers().filter(
-    (server) => server.scope === 'private' && !server.paused && server.usedBytes < server.capBytes,
+    (server) => !server.paused && server.usedBytes < server.capBytes,
   );
 }
 
@@ -66,12 +133,16 @@ function schedule(delay = 250): void {
 async function updatePendingCounts(): Promise<void> {
   const records = await getAll<PersonalServerSyncRecord>('personalServerSync');
   for (const server of listPersonalServers()) {
-    const pendingItems = records.filter(
-      (record) => record.serverId === server.id && record.status !== 'complete',
-    ).length;
+    const mine = records.filter((record) => record.serverId === server.id);
+    const pendingItems = mine.filter((record) => record.status !== 'complete').length;
     updatePersonalServer(server.id, { pendingItems });
+    patchDiag(server.id, {
+      queued: pendingItems,
+      failed: mine.filter((record) => record.status === 'failed').length,
+    });
   }
 }
+
 
 export async function enqueueManifestForPersonalServers(manifest: Manifest): Promise<void> {
   const userId = getCurrentUser()?.id;
@@ -142,6 +213,7 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   const server = listPersonalServers().find((entry) => entry.id === record.serverId);
   const mirrorPublicly = !!server?.sharePublic;
 
+  let bytesWritten = 0;
   for (const ref of record.chunkRefs) {
     const alreadyPrivate = await personalServerHead(record.serverId, record.userId, ref);
     let payload: ArrayBuffer | null = null;
@@ -149,7 +221,11 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
       const chunk = await get<Record<string, unknown>>('chunks', ref);
       if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
       payload = encodeJson(chunk);
+      patchDiag(record.serverId, { lastObjectKey: ref });
       await personalServerPut(record.serverId, record.userId, ref, payload);
+      bytesWritten += payload.byteLength;
+      diag(record.serverId).objectsWritten += 1;
+      log(`PUT chunk ${ref} (${payload.byteLength}B) → ${record.serverId}`);
     }
     if (!mirrorPublicly) continue;
     try {
@@ -162,18 +238,18 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
       await personalServerPutPublic(record.serverId, record.userId, ref, payload);
     } catch (error) {
       // Mirroring is best-effort; the private replica is the source of truth.
-      console.warn('[PersonalServerSync] Public mirror write skipped:', error);
+      warn('Public mirror write skipped:', error);
     }
   }
 
   const remoteManifestKey = manifestKey(record.manifestId);
   if (!(await personalServerHead(record.serverId, record.userId, remoteManifestKey))) {
-    await personalServerPut(
-      record.serverId,
-      record.userId,
-      remoteManifestKey,
-      encodeJson(manifest),
-    );
+    const body = encodeJson(manifest);
+    patchDiag(record.serverId, { lastObjectKey: remoteManifestKey });
+    await personalServerPut(record.serverId, record.userId, remoteManifestKey, body);
+    bytesWritten += body.byteLength;
+    diag(record.serverId).objectsWritten += 1;
+    log(`PUT manifest ${remoteManifestKey} (${body.byteLength}B) → ${record.serverId}`);
   }
 
   const verified = await Promise.all([
@@ -181,6 +257,11 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
     personalServerHead(record.serverId, record.userId, remoteManifestKey),
   ]);
   if (verified.some((ok) => !ok)) throw new Error('Remote verification did not confirm every object.');
+
+  if (bytesWritten > 0 && server) {
+    updatePersonalServer(record.serverId, { usedBytes: server.usedBytes + bytesWritten });
+  }
+
 
   const completedAt = Date.now();
   await put<PersonalServerSyncRecord>('personalServerSync', {
@@ -211,6 +292,52 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   }
 }
 
+/**
+ * Push this device's records (posts, projects, world, ledger …) as encrypted,
+ * content-addressed batch objects. Unchanged batches are skipped.
+ */
+export async function syncDeviceRecords(userId: string): Promise<void> {
+  const servers = eligibleServers();
+  if (servers.length === 0) return;
+  const batches = await buildReplicaBatches(userId);
+  if (batches.length === 0) return;
+
+  for (const server of servers) {
+    if (!(await hasPersonalServerCredentials(userId, server.id))) {
+      patchDiag(server.id, {
+        state: 'relink-required',
+        lastError: 'Credentials are missing on this device — relink this server.',
+        lastRunAt: Date.now(),
+      });
+      continue;
+    }
+    patchDiag(server.id, { state: 'syncing', lastRunAt: Date.now() });
+    const { changed, skipped } = await selectChangedBatches(server.id, batches);
+    diag(server.id).recordsSkipped = skipped;
+    let written = 0;
+    try {
+      for (const batch of changed) {
+        patchDiag(server.id, { lastObjectKey: `${batch.label} → ${batch.objectKey}` });
+        await personalServerPut(server.id, userId, batch.objectKey, batch.body);
+        await markBatchUploaded(server.id, batch);
+        written += 1;
+        diag(server.id).recordsWritten += 1;
+        log(`PUT record ${batch.label} (${batch.itemCount} items, ${batch.body.byteLength}B) → ${server.name}`);
+      }
+      const index = await buildReplicaIndex(userId, batches);
+      await personalServerPut(server.id, userId, index.objectKey, index.body);
+      const completedAt = Date.now();
+      updatePersonalServer(server.id, { lastSyncedAt: completedAt });
+      patchDiag(server.id, { state: 'idle', lastError: undefined, lastRunAt: completedAt });
+      log(`Record replica up to date on ${server.name} (${written} written, ${skipped} unchanged).`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      patchDiag(server.id, { state: 'error', lastError: message, lastRunAt: Date.now() });
+      warn(`Record replica failed on ${server.name}:`, message);
+    }
+  }
+}
+
 export async function processPersonalServerSyncQueue(): Promise<void> {
   if (running) return;
   running = true;
@@ -219,12 +346,17 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
     const records = (await getAll<PersonalServerSyncRecord>('personalServerSync'))
       .filter((record) => record.status !== 'complete' && record.nextAttemptAt <= now)
       .sort((a, b) => a.createdAt - b.createdAt);
+    if (records.length) log(`Processing ${records.length} queued item(s).`);
     for (const record of records) {
       try {
+        patchDiag(record.serverId, { state: 'syncing', lastRunAt: Date.now() });
         await syncRecord(record);
+        patchDiag(record.serverId, { state: 'idle', lastError: undefined });
       } catch (error) {
         const attempts = record.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
+        warn(`Item ${record.manifestId} failed on ${record.serverId}: ${message}`);
+        patchDiag(record.serverId, { state: 'error', lastError: message, lastRunAt: Date.now() });
         await put<PersonalServerSyncRecord>('personalServerSync', {
           ...record,
           status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
@@ -235,11 +367,19 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
         });
       }
     }
+
+    const userId = getCurrentUser()?.id;
+    if (userId) await syncDeviceRecords(userId);
+
+    for (const server of listPersonalServers()) {
+      if (server.paused) patchDiag(server.id, { state: 'paused' });
+    }
     await updatePendingCounts();
   } finally {
     running = false;
   }
 }
+
 
 export async function backfillPersonalServerSync(): Promise<void> {
   const manifests = await getAll<Manifest>('manifests');
@@ -255,7 +395,19 @@ export async function backfillPersonalServerSync(): Promise<void> {
   await processPersonalServerSyncQueue();
 }
 
-export async function retryPersonalServerSync(serverId?: string): Promise<void> {
+export interface SyncRunResult {
+  objectsWritten: number;
+  recordsWritten: number;
+  recordsSkipped: number;
+  queued: number;
+  error?: string;
+}
+
+export async function retryPersonalServerSync(serverId?: string): Promise<SyncRunResult> {
+  const before = serverId ? diag(serverId) : undefined;
+  const baseObjects = before?.objectsWritten ?? 0;
+  const baseRecords = before?.recordsWritten ?? 0;
+
   const records = await getAll<PersonalServerSyncRecord>('personalServerSync');
   for (const record of records) {
     if (record.status === 'complete' || (serverId && record.serverId !== serverId)) continue;
@@ -267,6 +419,28 @@ export async function retryPersonalServerSync(serverId?: string): Promise<void> 
     });
   }
   await processPersonalServerSyncQueue();
+
+  const after = serverId
+    ? diag(serverId)
+    : getPersonalServerDiagnostics().reduce<PersonalServerDiagnostics>((acc, d) => ({
+      ...acc,
+      objectsWritten: acc.objectsWritten + d.objectsWritten,
+      recordsWritten: acc.recordsWritten + d.recordsWritten,
+      recordsSkipped: acc.recordsSkipped + d.recordsSkipped,
+      queued: acc.queued + d.queued,
+      lastError: acc.lastError ?? d.lastError,
+    }), {
+      serverId: '*', objectsWritten: 0, recordsWritten: 0, recordsSkipped: 0,
+      queued: 0, failed: 0, state: 'idle',
+    });
+
+  return {
+    objectsWritten: after.objectsWritten - (serverId ? baseObjects : 0),
+    recordsWritten: after.recordsWritten - (serverId ? baseRecords : 0),
+    recordsSkipped: after.recordsSkipped,
+    queued: after.queued,
+    error: after.lastError,
+  };
 }
 
 export async function clearPersonalServerSync(serverId: string): Promise<void> {
@@ -274,7 +448,11 @@ export async function clearPersonalServerSync(serverId: string): Promise<void> {
   for (const record of records) {
     if (record.serverId === serverId) await remove('personalServerSync', record.id);
   }
+  await clearRecordState(serverId);
+  diagnostics.delete(serverId);
+  emitDiagnostics();
 }
+
 
 async function verifyRemoteChunk(bytes: ArrayBuffer, expectedRef: string): Promise<boolean> {
   try {
@@ -348,7 +526,30 @@ export async function fetchChunkFromPublicMirrors<T extends { ref: string } = Ch
 }
 
 export function startPersonalServerSync(): void {
-  void backfillPersonalServerSync();
+  // Wait until both an identity and a linked server exist; the old boot-time
+  // backfill could run before either was ready and then enqueue nothing.
+  let started = false;
+  const tryStart = (): void => {
+    if (started) return;
+    if (!getCurrentUser()?.id || listPersonalServers().length === 0) return;
+    started = true;
+    log('Starting replication for', listPersonalServers().length, 'linked server(s).');
+    void backfillPersonalServerSync();
+  };
+
+  tryStart();
+  const readyTimer = setInterval(() => {
+    tryStart();
+    if (started) clearInterval(readyTimer);
+  }, 5_000);
+
+  // Any change to the linked-server list (add, relink, resume, edit) re-drives
+  // the queue so new servers get a full replica without a reload.
+  subscribePersonalServers(() => {
+    tryStart();
+    if (started) schedule(1_000);
+  });
+
   window.addEventListener('online', () => { void retryPersonalServerSync(); });
   setInterval(() => { void processPersonalServerSyncQueue(); }, 60_000);
 }
