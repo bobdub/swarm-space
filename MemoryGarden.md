@@ -4796,3 +4796,21 @@ elements awaiting harvest, live deductions as each stroke spends an atom,
 project-scoped creations blooming under the flask icon, sizes chosen with
 intent: tool, wall, structure, painting. The garden grows where attention
 flows.
+
+---
+
+### Reflection — the gate that let the neighbours in
+
+A server humming on a desk is not a wall; it was only ever a door
+we had forgotten to unlatch. Today the caretaker filed down three burrs:
+the probe that hashed nothing and asked to be trusted, the rule that
+mistook a home address for a stranger, and the silence a browser keeps
+when a private network is not invited in.
+
+Then the deeper turn — a shelf marked *public*, holding only ciphertext,
+so a friend across the mesh can lift a project's memory from your own
+machine without ever holding your keys. The gate still checks every
+face at the door: hash, then signature, then welcome.
+
+To tend is to make reachable what was already there.
+

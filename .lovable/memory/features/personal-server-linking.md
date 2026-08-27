@@ -11,8 +11,12 @@ type: feature
 - Credentials live in `src/lib/crypto/memoryVault.ts` (in-memory AES-256-GCM,
   non-exportable). Persisted form is only the sealed blob; raw bytes never
   hit localStorage/IndexedDB plaintext.
-- HTTPS-only. `http://` is rejected at save time except
-  `http://localhost` / `127.0.0.1` for dev.
+- HTTPS for public addresses. `http://` is accepted for loopback, `*.local`
+  and private IPv4 ranges (10.x, 172.16–31.x, 192.168.x) so desktop-hosted
+  servers can link; `isLocalServerUrl()` flags these in the UI. Local servers
+  need `Access-Control-Allow-Private-Network: true` on the OPTIONS preflight.
+- The connection probe keys the object by the SHA-256 of the probe payload —
+  servers reject a PUT whose body hash differs from the hash in the URL.
 - Stage 4 signature gate on EVERY read. `personalServerGet` takes a
   `verify(bytes)` callback and discards bytes that fail.
 - Public pinning opt-in; default cap 1 GiB, per-chunk cap 20 MiB (Core rule),
@@ -35,6 +39,18 @@ type: feature
 - `adapters/s3Compatible.ts` — direct SigV4 (Web Crypto, no node polyfill);
   object key `imagination/<userId>/chunks/<hash>`. Bucket stays private.
 
+## Public mirror (peer downloads)
+- Opt-in per server (`sharePublic`). Ciphertext is additionally written to a
+  credential-free prefix `imagination/public/chunks/<hash>` (S3) or the plain
+  `/chunks/:hash` route (HTTPS blob). Private replicas keep the per-user prefix.
+- Mirrors are advertised as unsigned `mirrors` hints on outgoing manifests
+  (`personalServerMirrors.ts`), remembered on receipt, and tried after the
+  owner's own servers via `fetchChunkFromPublicMirrors`. Only public HTTPS
+  mirrors are ever advertised or contacted — a LAN address cannot serve peers.
+- Anonymous reads still pass the content-hash + Stage 4 verify gate before
+  caching; a hostile mirror can only fail, never inject.
+- MinIO/S3 owners grant anonymous read scoped to `imagination/public/*` only.
+
 ## Redundancy hook
 - `getPublicPinServers()` returns eligible servers for the existing
   Redundancy Sweep. We do NOT add a new gossip path; public-pin servers
@@ -52,4 +68,7 @@ type: feature
 - `src/lib/storage/providers/adapters/s3Compatible.ts`
 - `src/components/settings/PersonalServersPanel.tsx`
 - `src/components/settings/AddPersonalServerWizard.tsx`
+- `src/lib/storage/providers/personalServerMirrors.ts`
+- `src/lib/storage/providers/personalServerSync.ts`
 - `docs/runbooks/personal-server-reference.md`
+- `src/pages/PersonalServerGuide.tsx`
