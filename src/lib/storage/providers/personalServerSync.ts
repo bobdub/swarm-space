@@ -292,6 +292,52 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   }
 }
 
+/**
+ * Push this device's records (posts, projects, world, ledger …) as encrypted,
+ * content-addressed batch objects. Unchanged batches are skipped.
+ */
+export async function syncDeviceRecords(userId: string): Promise<void> {
+  const servers = eligibleServers();
+  if (servers.length === 0) return;
+  const batches = await buildReplicaBatches(userId);
+  if (batches.length === 0) return;
+
+  for (const server of servers) {
+    if (!(await hasPersonalServerCredentials(userId, server.id))) {
+      patchDiag(server.id, {
+        state: 'relink-required',
+        lastError: 'Credentials are missing on this device — relink this server.',
+        lastRunAt: Date.now(),
+      });
+      continue;
+    }
+    patchDiag(server.id, { state: 'syncing', lastRunAt: Date.now() });
+    const { changed, skipped } = await selectChangedBatches(server.id, batches);
+    diag(server.id).recordsSkipped = skipped;
+    let written = 0;
+    try {
+      for (const batch of changed) {
+        patchDiag(server.id, { lastObjectKey: `${batch.label} → ${batch.objectKey}` });
+        await personalServerPut(server.id, userId, batch.objectKey, batch.body);
+        await markBatchUploaded(server.id, batch);
+        written += 1;
+        diag(server.id).recordsWritten += 1;
+        log(`PUT record ${batch.label} (${batch.itemCount} items, ${batch.body.byteLength}B) → ${server.name}`);
+      }
+      const index = await buildReplicaIndex(userId, batches);
+      await personalServerPut(server.id, userId, index.objectKey, index.body);
+      const completedAt = Date.now();
+      updatePersonalServer(server.id, { lastSyncedAt: completedAt });
+      patchDiag(server.id, { state: 'idle', lastError: undefined, lastRunAt: completedAt });
+      log(`Record replica up to date on ${server.name} (${written} written, ${skipped} unchanged).`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      patchDiag(server.id, { state: 'error', lastError: message, lastRunAt: Date.now() });
+      warn(`Record replica failed on ${server.name}:`, message);
+    }
+  }
+}
+
 export async function processPersonalServerSyncQueue(): Promise<void> {
   if (running) return;
   running = true;
@@ -300,12 +346,17 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
     const records = (await getAll<PersonalServerSyncRecord>('personalServerSync'))
       .filter((record) => record.status !== 'complete' && record.nextAttemptAt <= now)
       .sort((a, b) => a.createdAt - b.createdAt);
+    if (records.length) log(`Processing ${records.length} queued item(s).`);
     for (const record of records) {
       try {
+        patchDiag(record.serverId, { state: 'syncing', lastRunAt: Date.now() });
         await syncRecord(record);
+        patchDiag(record.serverId, { state: 'idle', lastError: undefined });
       } catch (error) {
         const attempts = record.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
+        warn(`Item ${record.manifestId} failed on ${record.serverId}: ${message}`);
+        patchDiag(record.serverId, { state: 'error', lastError: message, lastRunAt: Date.now() });
         await put<PersonalServerSyncRecord>('personalServerSync', {
           ...record,
           status: attempts >= MAX_ATTEMPTS ? 'failed' : 'pending',
@@ -316,11 +367,19 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
         });
       }
     }
+
+    const userId = getCurrentUser()?.id;
+    if (userId) await syncDeviceRecords(userId);
+
+    for (const server of listPersonalServers()) {
+      if (server.paused) patchDiag(server.id, { state: 'paused' });
+    }
     await updatePendingCounts();
   } finally {
     running = false;
   }
 }
+
 
 export async function backfillPersonalServerSync(): Promise<void> {
   const manifests = await getAll<Manifest>('manifests');
