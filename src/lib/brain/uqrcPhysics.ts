@@ -90,7 +90,12 @@ export interface Body {
   mass: number;        // injection amplitude scaler
   trust: number;       // 0..1, used for visual + injection scale
   meta?: Record<string, unknown>;
+  /** Position at the START of the current fixed step. Written by the
+   *  integrator, read only by `getBodyRenderPos` for visual smoothing —
+   *  never by collision, tools or world mutation. */
+  prevPos?: [number, number, number];
 }
+
 
 export interface Intent {
   fwd: number;
