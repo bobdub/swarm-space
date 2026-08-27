@@ -216,6 +216,15 @@ export class UqrcPhysics {
   private bodies = new Map<string, Body>();
   private intent = new Map<string, Intent>();
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** rAF handle for the display-locked step pump. */
+  private raf: number | null = null;
+  /** Leftover real time (seconds) not yet consumed by a fixed step. */
+  private accumulator = 0;
+  /** Wall-clock ms of the last drive() call. */
+  private lastDriveMs = 0;
+  /** Wall-clock ms attributed to the most recent fixed step (interpolation origin). */
+  private lastStepAtMs = 0;
+
   private listeners = new Set<() => void>();
   private lastQ = 0;
   private restored = false;
