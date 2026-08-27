@@ -35,9 +35,13 @@ export function PersonalServersPanel() {
   const [probingId, setProbingId] = useState<string | null>(null);
   const [relinkServer, setRelinkServer] = useState<PersonalServer | null>(null);
   const [credentialState, setCredentialState] = useState<Record<string, boolean>>({});
+  const [diagnostics, setDiagnostics] = useState<PersonalServerDiagnostics[]>([]);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
   const userId = getCurrentUser()?.id ?? '';
 
   useEffect(() => subscribePersonalServers(setServers), []);
+  useEffect(() => subscribePersonalServerDiagnostics(setDiagnostics), []);
+
   useEffect(() => {
     let active = true;
     void Promise.all(servers.map(async (server) => [
