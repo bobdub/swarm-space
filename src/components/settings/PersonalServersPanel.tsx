@@ -15,7 +15,12 @@ import { probePersonalServer } from '@/lib/storage/providers/personalServerProvi
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
 import { getCurrentUser } from '@/lib/auth';
 import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
-import { retryPersonalServerSync } from '@/lib/storage/providers/personalServerSync';
+import {
+  retryPersonalServerSync,
+  subscribePersonalServerDiagnostics,
+  type PersonalServerDiagnostics,
+} from '@/lib/storage/providers/personalServerSync';
+
 
 function formatBytes(n: number): string {
   if (!n) return '0 B';
