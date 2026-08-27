@@ -213,6 +213,7 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   const server = listPersonalServers().find((entry) => entry.id === record.serverId);
   const mirrorPublicly = !!server?.sharePublic;
 
+  let bytesWritten = 0;
   for (const ref of record.chunkRefs) {
     const alreadyPrivate = await personalServerHead(record.serverId, record.userId, ref);
     let payload: ArrayBuffer | null = null;
@@ -220,7 +221,11 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
       const chunk = await get<Record<string, unknown>>('chunks', ref);
       if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
       payload = encodeJson(chunk);
+      patchDiag(record.serverId, { lastObjectKey: ref });
       await personalServerPut(record.serverId, record.userId, ref, payload);
+      bytesWritten += payload.byteLength;
+      diag(record.serverId).objectsWritten += 1;
+      log(`PUT chunk ${ref} (${payload.byteLength}B) → ${record.serverId}`);
     }
     if (!mirrorPublicly) continue;
     try {
@@ -233,18 +238,18 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
       await personalServerPutPublic(record.serverId, record.userId, ref, payload);
     } catch (error) {
       // Mirroring is best-effort; the private replica is the source of truth.
-      console.warn('[PersonalServerSync] Public mirror write skipped:', error);
+      warn('Public mirror write skipped:', error);
     }
   }
 
   const remoteManifestKey = manifestKey(record.manifestId);
   if (!(await personalServerHead(record.serverId, record.userId, remoteManifestKey))) {
-    await personalServerPut(
-      record.serverId,
-      record.userId,
-      remoteManifestKey,
-      encodeJson(manifest),
-    );
+    const body = encodeJson(manifest);
+    patchDiag(record.serverId, { lastObjectKey: remoteManifestKey });
+    await personalServerPut(record.serverId, record.userId, remoteManifestKey, body);
+    bytesWritten += body.byteLength;
+    diag(record.serverId).objectsWritten += 1;
+    log(`PUT manifest ${remoteManifestKey} (${body.byteLength}B) → ${record.serverId}`);
   }
 
   const verified = await Promise.all([
@@ -252,6 +257,11 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
     personalServerHead(record.serverId, record.userId, remoteManifestKey),
   ]);
   if (verified.some((ok) => !ok)) throw new Error('Remote verification did not confirm every object.');
+
+  if (bytesWritten > 0 && server) {
+    updatePersonalServer(record.serverId, { usedBytes: server.usedBytes + bytesWritten });
+  }
+
 
   const completedAt = Date.now();
   await put<PersonalServerSyncRecord>('personalServerSync', {
