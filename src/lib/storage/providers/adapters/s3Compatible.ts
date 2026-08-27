@@ -30,6 +30,20 @@ export function s3ChunkKey(userId: string, hash: string): string {
   return `imagination/${userId}/chunks/${hash}`;
 }
 
+/**
+ * Credential-free mirror prefix. Objects here are ciphertext only and are
+ * readable by anyone the bucket owner has granted anonymous read to.
+ */
+export function s3PublicChunkKey(hash: string): string {
+  return `imagination/public/chunks/${hash}`;
+}
+
+export function s3PublicChunkUrl(endpoint: string, bucket: string, hash: string): string {
+  const base = endpoint.replace(/\/$/, '');
+  const key = s3PublicChunkKey(hash).split('/').map(encodeURIComponent).join('/');
+  return `${base}/${encodeURIComponent(bucket)}/${key}`;
+}
+
 // ─── SigV4 helpers (Web Crypto, no deps) ──────────────────────────────
 
 const enc = new TextEncoder();
@@ -161,4 +175,48 @@ export async function s3DirectDelete(
   if (!res.ok && res.status !== 204 && res.status !== 404) {
     throw new Error(describeHttpFailure('S3 DELETE', res.status, await res.text().catch(() => ''), cfg));
   }
+}
+
+// ─── Public mirror (credential-free) ──────────────────────────────────
+
+export async function s3PublicPut(
+  cfg: S3DirectConfig, creds: S3DirectCreds, hash: string, body: ArrayBuffer,
+): Promise<void> {
+  const req = await signS3(cfg, creds, 'PUT', s3PublicChunkKey(hash), body);
+  const res = await adapterFetch(req.url, {
+    method: 'PUT',
+    headers: { ...req.headers, 'Content-Type': 'application/octet-stream' },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(describeHttpFailure('S3 public PUT', res.status, await res.text().catch(() => ''), cfg));
+  }
+}
+
+export async function s3PublicHead(
+  cfg: S3DirectConfig, creds: S3DirectCreds, hash: string,
+): Promise<boolean> {
+  const req = await signS3(cfg, creds, 'HEAD', s3PublicChunkKey(hash), null);
+  const res = await adapterFetch(req.url, { method: 'HEAD', headers: req.headers });
+  return res.ok;
+}
+
+export async function s3PublicDelete(
+  cfg: S3DirectConfig, creds: S3DirectCreds, hash: string,
+): Promise<void> {
+  const req = await signS3(cfg, creds, 'DELETE', s3PublicChunkKey(hash), null);
+  const res = await adapterFetch(req.url, { method: 'DELETE', headers: req.headers });
+  if (!res.ok && res.status !== 204 && res.status !== 404) {
+    throw new Error(describeHttpFailure('S3 public DELETE', res.status, await res.text().catch(() => ''), cfg));
+  }
+}
+
+/** Anonymous read — no credentials, no signing. Bytes stay untrusted. */
+export async function s3AnonymousGet(
+  endpoint: string, bucket: string, hash: string,
+): Promise<ArrayBuffer | null> {
+  const res = await adapterFetch(s3PublicChunkUrl(endpoint, bucket, hash));
+  if (res.status === 404 || res.status === 403) return null;
+  if (!res.ok) return null;
+  return await res.arrayBuffer();
 }
