@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  newServerId, upsertPersonalServer, sealServerCredentials, isUrlAcceptable,
+  newServerId, upsertPersonalServer, sealServerCredentials, isUrlAcceptable, isLocalServerUrl,
   getPersonalServer, updatePersonalServer,
   type PersonalServerKind, type PersonalServerScope,
 } from '@/lib/storage/providers/personalServerStore';
@@ -134,6 +134,13 @@ export function AddPersonalServerWizard({ open, onOpenChange, userId, relinkServ
               <Label>{kind === 'https-blob' ? 'HTTPS URL' : 'S3 endpoint'}</Label>
               <Input value={url} onChange={(e) => setUrl(e.target.value)}
                 placeholder={kind === 'https-blob' ? 'https://store.example.com' : 'https://<account>.r2.cloudflarestorage.com'} />
+              {url && isLocalServerUrl(url) ? (
+                <p className="text-[11px] text-amber-400/90">
+                  Local address detected. This works from this device/network only — other users
+                  will not reach it. Your server must also answer the browser's private-network
+                  preflight with <code>Access-Control-Allow-Private-Network: true</code>.
+                </p>
+              ) : null}
             </div>
             {kind === 'https-blob' ? (
               <div className="space-y-1">

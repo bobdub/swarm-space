@@ -11,6 +11,33 @@ function hostOf(url: string): string {
   try { return new URL(url).host; } catch { return url; }
 }
 
+/** True for loopback, *.local and private IPv4 ranges — i.e. a desktop server. */
+export function isLocalHostname(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local')) return true;
+  if (h === '::1' || h === '0.0.0.0') return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  if (a === 127 || a === 10) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 169 && b === 254) return true;
+  return false;
+}
+
+function localHint(url: string): string {
+  try {
+    const u = new URL(url);
+    if (!isLocalHostname(u.hostname)) return '';
+    return ` This looks like a server on your own machine or network (${u.host}). Check that: ` +
+      `the server process is actually running; the port matches; your OS firewall allows it; ` +
+      `and the server answers the browser's private-network preflight with ` +
+      `"Access-Control-Allow-Private-Network: true" on OPTIONS (Chrome/Edge require it when an ` +
+      `HTTPS page calls a local address).`;
+  } catch { return ''; }
+}
+
 export async function adapterFetch(url: string, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
@@ -19,7 +46,8 @@ export async function adapterFetch(url: string, init?: RequestInit): Promise<Res
     throw new Error(
       `Browser could not reach ${host}. The server may be offline/unreachable from this device, ` +
       `or it is blocking this app via CORS. Allow origin ${typeof location !== 'undefined' ? location.origin : 'this app'} ` +
-      `for GET, PUT, HEAD, DELETE and the Authorization / x-amz-* headers. (${(e as Error).message})`,
+      `for GET, PUT, HEAD, DELETE and the Authorization / x-amz-* headers.${localHint(url)} ` +
+      `(${(e as Error).message})`,
     );
   }
 }

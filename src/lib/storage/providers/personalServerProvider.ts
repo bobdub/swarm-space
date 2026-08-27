@@ -18,6 +18,7 @@ import {
   unsealServerCredentials,
   updatePersonalServer,
   isUrlAcceptable,
+  isLocalServerUrl,
   MAX_CHUNK_BYTES,
   type PersonalServer,
   type PersonalServerHealth,
@@ -28,8 +29,10 @@ import {
 } from './adapters/httpsBlob';
 import {
   s3DirectPut, s3DirectGet, s3DirectHead, s3DirectDelete,
+  s3PublicPut, s3PublicHead, s3PublicDelete, s3AnonymousGet,
   type S3DirectConfig, type S3DirectCreds,
 } from './adapters/s3Compatible';
+import { httpsBlobAnonymousGet } from './adapters/httpsBlob';
 import { withHealth, spikeHealth } from '@/lib/uqrc/withHealth';
 
 // ── throttle (2.5m Core rule) for usage / health writeback ─────────────
@@ -167,13 +170,23 @@ export async function personalServerHead(
   return s3DirectHead(s3ConfigFor(server, userId), creds, hash);
 }
 
-/** Run a write+read+delete probe with a 1 KiB random payload. */
+async function sha256Hex(body: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', body);
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Run a write+read+delete probe with a 1 KiB random payload.
+ * The object key is the SHA-256 of the payload, matching the server
+ * contract (servers reject a PUT whose body hash != the hash in the URL).
+ */
 export async function probePersonalServer(
   serverId: string, userId: string,
 ): Promise<{ ok: boolean; steps: { step: string; ok: boolean; error?: string }[] }> {
   const steps: { step: string; ok: boolean; error?: string }[] = [];
   const random = crypto.getRandomValues(new Uint8Array(1024));
-  const probeHash = 'probe-' + crypto.randomUUID();
+  const probeBody = random.buffer.slice(0) as ArrayBuffer;
+  const probeHash = await sha256Hex(probeBody);
 
   const finishProbe = async (): Promise<{ ok: boolean; steps: { step: string; ok: boolean; error?: string }[] }> => {
     const ok = steps.every((step) => step.ok);
@@ -200,7 +213,7 @@ export async function probePersonalServer(
   };
 
   try {
-    await personalServerPut(serverId, userId, probeHash, random.buffer);
+    await personalServerPut(serverId, userId, probeHash, probeBody);
     steps.push({ step: 'write', ok: true });
   } catch (e) {
     steps.push({ step: 'write', ok: false, error: (e as Error).message });
@@ -209,7 +222,7 @@ export async function probePersonalServer(
 
   try {
     const got = await personalServerGet(serverId, userId, probeHash, async () => true);
-    const ok = !!got && got.byteLength === random.byteLength;
+    const ok = !!got && got.byteLength === probeBody.byteLength;
     if (!ok) throw new Error('Read mismatch');
     steps.push({ step: 'read', ok: true });
   } catch (e) {
@@ -249,4 +262,96 @@ export async function denyAndPurgeChunk(
     deny.add(hash);
     updatePersonalServer(server.id, { denyHashes: Array.from(deny) });
   }
+}
+
+// ── Public mirror (peer downloads) ─────────────────────────────────────
+
+export interface PublicMirror {
+  kind: PersonalServer['kind'];
+  /** Base endpoint (S3 endpoint or HTTPS-blob base URL). */
+  url: string;
+  /** S3 bucket, when kind === 's3-compatible'. */
+  bucket?: string;
+}
+
+/** Mirrors on this device that are advertised to peers. */
+export function listPublicMirrors(): PublicMirror[] {
+  return listPersonalServers()
+    .filter((s) => s.sharePublic && !s.paused && !isLocalServerUrl(s.url))
+    .map((s) => ({ kind: s.kind, url: s.url, bucket: s.bucket }));
+}
+
+/** Write ciphertext to the credential-free mirror prefix. */
+export async function personalServerPutPublic(
+  serverId: string, userId: string, hash: string, body: ArrayBuffer,
+): Promise<void> {
+  const server = getPersonalServer(serverId);
+  if (!server || !server.sharePublic) return;
+  assertWritable(server, body.byteLength);
+  const cap = server.publicCapBytes ?? server.capBytes;
+  if ((server.publicBytes ?? 0) + body.byteLength > cap) {
+    throw new Error(`Public mirror cap reached on "${server.name}".`);
+  }
+  if (server.kind === 'https-blob') {
+    // The HTTPS-blob contract already serves /chunks/:hash; the owner opts
+    // into anonymous GET on the server side.
+    const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
+    await httpsBlobPut(server.url, creds, hash, body);
+  } else {
+    const creds = await getCreds<S3DirectCreds>(serverId, userId);
+    await s3PublicPut(s3ConfigFor(server, userId), creds, hash, body);
+  }
+  updatePersonalServer(serverId, { publicBytes: (server.publicBytes ?? 0) + body.byteLength });
+}
+
+export async function personalServerPublicHead(
+  serverId: string, userId: string, hash: string,
+): Promise<boolean> {
+  const server = getPersonalServer(serverId);
+  if (!server || !server.sharePublic) return false;
+  if (server.kind === 'https-blob') {
+    const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
+    return httpsBlobHead(server.url, creds, hash);
+  }
+  const creds = await getCreds<S3DirectCreds>(serverId, userId);
+  return s3PublicHead(s3ConfigFor(server, userId), creds, hash);
+}
+
+/** Owner control: stop sharing and delete a mirrored object. */
+export async function personalServerPublicDelete(
+  serverId: string, userId: string, hash: string,
+): Promise<void> {
+  const server = getPersonalServer(serverId);
+  if (!server) return;
+  if (server.kind === 'https-blob') {
+    const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
+    await httpsBlobDelete(server.url, creds, hash);
+  } else {
+    const creds = await getCreds<S3DirectCreds>(serverId, userId);
+    await s3PublicDelete(s3ConfigFor(server, userId), creds, hash);
+  }
+}
+
+/**
+ * Credential-free read from someone else's advertised mirror. Bytes are
+ * untrusted until `verify` (content hash + Stage 4 signature) passes.
+ */
+export async function publicMirrorGet(
+  mirror: PublicMirror,
+  hash: string,
+  verify: (bytes: ArrayBuffer) => Promise<boolean>,
+): Promise<ArrayBuffer | null> {
+  let bytes: ArrayBuffer | null = null;
+  try {
+    bytes = mirror.kind === 's3-compatible' && mirror.bucket
+      ? await s3AnonymousGet(mirror.url, mirror.bucket, hash)
+      : await httpsBlobAnonymousGet(mirror.url, hash);
+  } catch { return null; }
+  if (!bytes) return null;
+  if (!(await verify(bytes))) {
+    spikeHealth('storage', 'personal-server.mirror-bad-chunk', 1.0);
+    console.warn('[PersonalServer] Mirror bytes failed verification — rejected.');
+    return null;
+  }
+  return bytes;
 }

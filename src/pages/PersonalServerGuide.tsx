@@ -191,7 +191,36 @@ const PersonalServerGuidePage = () => {
                 app. The server list and metadata are preserved; just tap the server and re-enter the token or keys.
               </Callout>
             </Step>
+
+            <Step number={7} title="Running the server on your own desktop">
+              <P>
+                A server on your own machine works over plain <code>http://</code> — use{' '}
+                <code>http://localhost:7777</code> on that machine, or its LAN address such as{' '}
+                <code>http://192.168.1.20:7777</code> from another device at home. Allow the port through
+                your firewall. Chrome and Edge also require your server to answer the preflight with{' '}
+                <code>Access-Control-Allow-Private-Network: true</code>, otherwise the connection test
+                fails with an unhelpful "could not reach" error.
+              </P>
+              <Callout icon={HelpCircle} title="Local addresses only reach you">
+                A LAN address cannot be reached by other people. For access away from home — and to let
+                other users download your shared content — expose the server over public HTTPS with a
+                tunnel or reverse proxy.
+              </Callout>
+            </Step>
+
+            <Step number={8} title="Let other users download your project content">
+              <P>
+                Turn on <strong>Share project content from this server</strong> in the Personal Servers
+                panel. Encrypted chunks are then mirrored under a credential-free prefix
+                (<code>imagination/public/chunks/…</code>) and your server is advertised to peers, so they
+                can download your project media straight from it. Only ciphertext is exposed; keys never
+                leave your device, and every downloaded byte is hash- and signature-checked before it is
+                shown. For MinIO or S3, grant anonymous read to <code>imagination/public/*</code> only, and
+                add your app origin to the bucket CORS rule.
+              </P>
+            </Step>
           </div>
+
 
           <div className="space-y-4">
             <div className="flex items-center gap-3">
