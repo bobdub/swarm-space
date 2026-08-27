@@ -119,6 +119,9 @@ export interface Intent {
 export const WORLD_SIZE = 60 * 212.5;    // 12 750 m
 export const PHYSICS_HZ = 60;
 export const FIELD_TICKS_PER_PHYSICS = 1;
+/** Max fixed steps run in one drive() pass — bounds catch-up after a stall. */
+export const MAX_CATCHUP_STEPS = 4;
+
 
 const dt = 1 / PHYSICS_HZ;
 /** ν Δu coupling on the body integrator (informational viscosity). */
