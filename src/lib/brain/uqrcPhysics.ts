@@ -242,15 +242,86 @@ export class UqrcPhysics {
     initLavaMantle(this.field);
   }
 
+  /**
+   * Fixed-step simulation, phase-locked to the display.
+   *
+   * A naked `setInterval(tick, 16.7)` is not aligned with the compositor:
+   * some animation frames saw two ticks, others none, and because the
+   * camera reads body positions straight from the sim that beat showed up
+   * as the ground bouncing. We now accumulate real elapsed time and run
+   * whole `dt` steps from `requestAnimationFrame`, capping the catch-up so
+   * a stalled tab can't spiral. Hidden tabs (no rAF) fall back to the
+   * interval so the world keeps evolving in the background.
+   */
   start(): void {
-    if (this.timer || typeof window === 'undefined') return;
-    const intervalMs = 1000 / PHYSICS_HZ;
-    this.timer = setInterval(() => this.tick(), intervalMs);
+    if (typeof window === 'undefined') return;
+    if (this.raf !== null || this.timer) return;
+    this.accumulator = 0;
+    this.lastDriveMs = performance.now();
+    const pump = (nowMs: number) => {
+      this.raf = requestAnimationFrame(pump);
+      this.drive(nowMs);
+    };
+    this.raf = requestAnimationFrame(pump);
+    // Background safety net: when the tab is hidden rAF stops firing, so
+    // a slow interval keeps the accumulator draining.
+    this.timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+      this.drive(performance.now());
+    }, 100);
   }
 
   stop(): void {
+    if (this.raf !== null) { cancelAnimationFrame(this.raf); this.raf = null; }
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
   }
+
+  /** Drain real elapsed time into whole fixed steps. */
+  private drive(nowMs: number): void {
+    const elapsed = Math.max(0, (nowMs - this.lastDriveMs) / 1000);
+    this.lastDriveMs = nowMs;
+    // Ignore absurd gaps (tab restore, debugger pause) instead of
+    // replaying minutes of simulation in one frame.
+    this.accumulator = Math.min(this.accumulator + elapsed, dt * MAX_CATCHUP_STEPS);
+    let steps = 0;
+    while (this.accumulator >= dt && steps < MAX_CATCHUP_STEPS) {
+      this.accumulator -= dt;
+      this.lastStepAtMs = nowMs - this.accumulator * 1000;
+      this.tick();
+      steps++;
+    }
+  }
+
+  /**
+   * Visually smoothed body position for renderers.
+   *
+   * The sim advances in fixed steps; frames land between them. Lerping
+   * `prevPos → pos` by the fractional step alpha removes the sampling
+   * stutter without touching the integrator. Physics-authoritative
+   * consumers (collision, tools, world mutation) must keep using
+   * `getBody().pos`.
+   */
+  getBodyRenderPos(
+    id: string,
+    nowMs: number = typeof performance !== 'undefined' ? performance.now() : 0,
+    out?: [number, number, number],
+  ): [number, number, number] | undefined {
+    const b = this.bodies.get(id);
+    if (!b) return undefined;
+    const target = out ?? ([0, 0, 0] as [number, number, number]);
+    const prev = b.prevPos;
+    if (!prev) {
+      target[0] = b.pos[0]; target[1] = b.pos[1]; target[2] = b.pos[2];
+      return target;
+    }
+    const alphaRaw = (nowMs - this.lastStepAtMs) / (dt * 1000);
+    const a = alphaRaw < 0 ? 0 : alphaRaw > 1 ? 1 : alphaRaw;
+    target[0] = prev[0] + (b.pos[0] - prev[0]) * a;
+    target[1] = prev[1] + (b.pos[1] - prev[1]) * a;
+    target[2] = prev[2] + (b.pos[2] - prev[2]) * a;
+    return target;
+  }
+
 
   addBody(b: Body): void {
     this.bodies.set(b.id, b);
