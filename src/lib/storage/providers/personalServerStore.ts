@@ -7,6 +7,7 @@
  */
 
 import { type SealedValue } from '@/lib/crypto/memoryVault';
+import { isLocalHostname } from './adapters/netError';
 import {
   persistPersonalServerCredentials,
   readPersonalServerCredentials,
@@ -48,6 +49,12 @@ export interface PersonalServer {
   region?: string;
   lastSyncedAt?: number;
   pendingItems?: number;
+  /** Mirror encrypted project content under a credential-free public prefix. */
+  sharePublic?: boolean;
+  /** Bytes written to the public mirror prefix (local estimate). */
+  publicBytes?: number;
+  /** Cap for the public mirror prefix. */
+  publicCapBytes?: number;
 }
 
 function read(): PersonalServer[] {
@@ -123,18 +130,29 @@ export function newServerId(): string {
   return `psv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** HTTPS-only with localhost dev exemption. */
+/**
+ * HTTPS everywhere on the public internet; plain HTTP is allowed only for
+ * addresses that cannot leave your own machine or LAN (loopback, *.local,
+ * private IPv4 ranges) — which is where a desktop-hosted server lives.
+ */
 export function isUrlAcceptable(url: string): { ok: boolean; reason?: string } {
   try {
     const u = new URL(url);
     if (u.protocol === 'https:') return { ok: true };
-    if (u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')) {
-      return { ok: true };
-    }
-    return { ok: false, reason: 'HTTPS is required (only http://localhost is allowed for dev).' };
+    if (u.protocol === 'http:' && isLocalHostname(u.hostname)) return { ok: true };
+    return {
+      ok: false,
+      reason: 'HTTPS is required for public addresses. Plain http:// works only for '
+        + 'localhost, *.local, or a private LAN address (10.x, 172.16–31.x, 192.168.x).',
+    };
   } catch {
     return { ok: false, reason: 'Invalid URL.' };
   }
+}
+
+/** True when the URL points at this device or the local network. */
+export function isLocalServerUrl(url: string): boolean {
+  try { return isLocalHostname(new URL(url).hostname); } catch { return false; }
 }
 
 export const DEFAULT_SERVER_CAP_BYTES = 1024 * 1024 * 1024; // 1 GiB

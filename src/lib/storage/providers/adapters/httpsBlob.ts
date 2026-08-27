@@ -80,3 +80,18 @@ export async function httpsBlobHealth(
   if (!res.ok) return { ok: false };
   try { return { ok: true, ...(await res.json()) }; } catch { return { ok: true }; }
 }
+
+// ─── Public mirror (credential-free) ──────────────────────────────────
+
+export function httpsBlobPublicChunkUrl(baseUrl: string, hash: string): string {
+  return chunkUrl(baseUrl, hash);
+}
+
+/** Anonymous read of a shared chunk. Bytes are verified by the caller. */
+export async function httpsBlobAnonymousGet(
+  baseUrl: string, hash: string,
+): Promise<ArrayBuffer | null> {
+  const res = await adapterFetch(chunkUrl(baseUrl, hash));
+  if (!res.ok) return null;
+  return await res.arrayBuffer();
+}
