@@ -526,7 +526,30 @@ export async function fetchChunkFromPublicMirrors<T extends { ref: string } = Ch
 }
 
 export function startPersonalServerSync(): void {
-  void backfillPersonalServerSync();
+  // Wait until both an identity and a linked server exist; the old boot-time
+  // backfill could run before either was ready and then enqueue nothing.
+  let started = false;
+  const tryStart = (): void => {
+    if (started) return;
+    if (!getCurrentUser()?.id || listPersonalServers().length === 0) return;
+    started = true;
+    log('Starting replication for', listPersonalServers().length, 'linked server(s).');
+    void backfillPersonalServerSync();
+  };
+
+  tryStart();
+  const readyTimer = setInterval(() => {
+    tryStart();
+    if (started) clearInterval(readyTimer);
+  }, 5_000);
+
+  // Any change to the linked-server list (add, relink, resume, edit) re-drives
+  // the queue so new servers get a full replica without a reload.
+  subscribePersonalServers(() => {
+    tryStart();
+    if (started) schedule(1_000);
+  });
+
   window.addEventListener('online', () => { void retryPersonalServerSync(); });
   setInterval(() => { void processPersonalServerSyncQueue(); }, 60_000);
 }
