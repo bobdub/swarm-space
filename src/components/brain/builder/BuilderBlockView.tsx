@@ -7,8 +7,8 @@ import {
   getEarthLocalSiteFrame,
   earthLocalToWorld,
 } from '@/lib/brain/earth';
-import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+import { getBuilderBlockEngine, blockWorldPos, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+
 
 /**
  * BuilderBlockView — display-only renderer over a BuilderBlock.
