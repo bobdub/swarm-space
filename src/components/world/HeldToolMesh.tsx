@@ -79,10 +79,11 @@ export function HeldToolMesh({ selfId }: Props) {
     const SIDE = 0.16;  // to the right hand (portrait fov is narrow)
     const DROP = 0.30 - bob;  // below eye line
     g.position.set(
-      body.pos[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
-      body.pos[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
-      body.pos[2] + up[2] * EYE_LIFT + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
+      bp[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
+      bp[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
+      bp[2] + up[2] * EYE_LIFT + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
     );
+
 
     const m = new THREE.Matrix4().makeBasis(
       new THREE.Vector3(rx / rLen, ry / rLen, rz / rLen),
