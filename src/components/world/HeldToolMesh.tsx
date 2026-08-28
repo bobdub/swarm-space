@@ -51,6 +51,10 @@ export function HeldToolMesh({ selfId }: Props) {
     if (!g || !selfId) return;
     const physics = getBrainPhysics();
     const body = physics.getBody(selfId);
+    // Read the SAME interpolated position the camera rig is built from —
+    // sampling the raw tick stamp made the tool swim sideways in view.
+    const bp = physics.getBodyRenderPos(selfId) ?? body?.pos;
+
     const intent = physics.getIntent(selfId);
     const basis = intent?.basis;
     if (!body || !basis?.forward || !basis?.up) {
