@@ -20,8 +20,11 @@ import { getBuilderBlockEngine, blockWorldPos, type BuilderBlock } from '@/lib/b
  *     at that live world position. The basin (a co-moving region of
  *     local geometry) is what holds the block on the surface — there is
  *     no single-cell pin and no shell projection here.
- *   - This view subscribes by `bodyId`, reads `body.pos` every frame,
- *     and only computes an orthonormal basis for orientation. It must
+ *   - This view subscribes by `bodyId`, recomputes the block's world
+ *     transform each FRAME with `blockWorldPos` (same function the tick
+ *     uses, evaluated at the frame-pinned Earth pose), and only derives
+ *     an orthonormal basis for orientation. It must
+
  *     never mutate `field.axes`, `body.pos`, or pin templates.
  */
 export function BuilderBlockView({
