@@ -57,10 +57,11 @@ export function HeldToolMesh({ selfId }: Props) {
 
     const intent = physics.getIntent(selfId);
     const basis = intent?.basis;
-    if (!body || !basis?.forward || !basis?.up) {
+    if (!body || !bp || !basis?.forward || !basis?.up) {
       g.visible = false;
       return;
     }
+
     g.visible = true;
     const fwd = basis.forward;
     const up = basis.up;
