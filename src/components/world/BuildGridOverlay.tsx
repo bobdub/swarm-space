@@ -159,11 +159,15 @@ export function BuildGridOverlay({
 
     if (body) {
       // 1. Body world pos → Earth-local displacement → unit normal.
+      //    Interpolated read so the visible grid rides with the smoothed
+      //    camera instead of stepping at the physics tick rate.
+      const bp = physics.getBodyRenderPos(selfId!) ?? body.pos;
       const disp: [number, number, number] = [
-        body.pos[0] - pose.center[0],
-        body.pos[1] - pose.center[1],
-        body.pos[2] - pose.center[2],
+        bp[0] - pose.center[0],
+        bp[1] - pose.center[1],
+        bp[2] - pose.center[2],
       ];
+
       const local = worldDisplacementToEarthLocal(disp, pose);
       const rN = Math.hypot(local[0], local[1], local[2]) || 1;
       const n: [number, number, number] = [local[0] / rN, local[1] / rN, local[2] / rN];
