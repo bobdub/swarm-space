@@ -150,11 +150,15 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     const physics = getBrainPhysics();
     const body = selfId ? physics.getBody(selfId) : undefined;
     if (!body) return null;
+    // Interpolated read: the ghost is a visual, so it must sit in the
+    // same frame as the camera and ground, not at the last tick stamp.
+    const bp = (selfId ? physics.getBodyRenderPos(selfId) : undefined) ?? body.pos;
     const disp: [number, number, number] = [
-      body.pos[0] - pose.center[0],
-      body.pos[1] - pose.center[1],
-      body.pos[2] - pose.center[2],
+      bp[0] - pose.center[0],
+      bp[1] - pose.center[1],
+      bp[2] - pose.center[2],
     ];
+
     const local = worldDisplacementToEarthLocal(disp, pose);
     const rN = Math.hypot(local[0], local[1], local[2]) || 1;
     return [local[0] / rN, local[1] / rN, local[2] / rN];

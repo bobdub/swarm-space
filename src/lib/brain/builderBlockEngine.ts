@@ -59,8 +59,25 @@ export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
 
 type Listener = (event: { type: 'place' | 'remove' | 'upgrade'; block: BuilderBlock }) => void;
 
+/**
+ * World transform of a block for the CURRENT Earth pose.
+ *
+ * Pure function of the block's cached Earth-local site frame and the
+ * pose, so it can be evaluated either by the tick (to stamp the body and
+ * its support basin) or by a renderer (to draw the block at exactly the
+ * pose the ground is drawn at this frame). Renderers must prefer the
+ * render-time evaluation: the tick stamp can be up to one frame old, and
+ * Earth's centre slides ~2.6 m/s along its orbit, which showed up as
+ * objects jittering sideways against a smoothly interpolated camera.
+ */
+export function blockWorldPos(spec: Required<Pick<BuilderBlockSpec,
+  'anchorPeerId' | 'rightOffset' | 'forwardOffset' | 'upOffset'>>): [number, number, number] {
+  return computeWorldPos(spec);
+}
+
 function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
   'anchorPeerId' | 'rightOffset' | 'forwardOffset' | 'upOffset'>>): [number, number, number] {
+
   const pose = getEarthPose();
   const lf = getEarthLocalSiteFrame(spec.anchorPeerId);
   const localPos: [number, number, number] = [

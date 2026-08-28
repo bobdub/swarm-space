@@ -7,8 +7,8 @@ import {
   getEarthLocalSiteFrame,
   earthLocalToWorld,
 } from '@/lib/brain/earth';
-import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+import { getBuilderBlockEngine, blockWorldPos, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+
 
 /**
  * BuilderBlockView — display-only renderer over a BuilderBlock.
@@ -20,8 +20,11 @@ import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlo
  *     at that live world position. The basin (a co-moving region of
  *     local geometry) is what holds the block on the surface — there is
  *     no single-cell pin and no shell projection here.
- *   - This view subscribes by `bodyId`, reads `body.pos` every frame,
- *     and only computes an orthonormal basis for orientation. It must
+ *   - This view subscribes by `bodyId`, recomputes the block's world
+ *     transform each FRAME with `blockWorldPos` (same function the tick
+ *     uses, evaluated at the frame-pinned Earth pose), and only derives
+ *     an orthonormal basis for orientation. It must
+
  *     never mutate `field.axes`, `body.pos`, or pin templates.
  */
 export function BuilderBlockView({
@@ -47,20 +50,20 @@ export function BuilderBlockView({
 
   useFrame(() => {
     if (!groupRef.current || !block) return;
-    const physics = getBrainPhysics();
-    const body = physics.getBody(block.bodyId);
-    if (!body) return;
     const pose = getEarthPose();
-    const dx = body.pos[0] - pose.center[0];
-    const dy = body.pos[1] - pose.center[1];
-    const dz = body.pos[2] - pose.center[2];
+    // Render is read-only, and it reads the pose of THIS FRAME. The
+    // engine's per-tick stamp of `body.pos` still owns the support basin
+    // and every gameplay query; drawing from that stamp instead left the
+    // block one frame behind the ground (~4 cm of orbital translation),
+    // which read as objects jittering side to side.
+    const worldPos = blockWorldPos(block);
+    const dx = worldPos[0] - pose.center[0];
+    const dy = worldPos[1] - pose.center[1];
+    const dz = worldPos[2] - pose.center[2];
     const r = Math.hypot(dx, dy, dz) || 1;
-    // Render is read-only. The block's volumetric support basin (written
-    // and re-stamped by builderBlockEngine each tick at the live
-    // Earth-derived world position) is what holds it on the surface.
     void FEET_SHELL_RADIUS;
-    const worldPos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
     const up: [number, number, number] = [dx / r, dy / r, dz / r];
+
     const lf = getEarthLocalSiteFrame(block.anchorPeerId);
     const fwdW = earthLocalToWorld(lf.forward, pose);
     const rgtW = earthLocalToWorld(lf.right, pose);

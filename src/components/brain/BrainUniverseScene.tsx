@@ -552,7 +552,11 @@ function BodyLayer({
         groupRef.current.add(mesh);
         meshes.current.set(b.id, mesh);
       }
-      mesh.position.set(b.pos[0], b.kind === 'piece' ? 1 : 0, b.pos[2]);
+      // Frame-interpolated read: drawing from the raw tick stamp put
+      // these meshes one step behind the smoothed camera (lateral jitter).
+      const rp = physics.getBodyRenderPos(b.id) ?? b.pos;
+      mesh.position.set(rp[0], b.kind === 'piece' ? 1 : 0, rp[2]);
+
     }
     // Remove stale
     for (const [id, mesh] of meshes.current.entries()) {
