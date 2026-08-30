@@ -378,7 +378,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       </mesh>
       <Html
         transform
-        occlude
+        occlude="blending"
         position={[0, 0, 0.01]}
         scale={htmlScale}
         zIndexRange={[10, 0]}
