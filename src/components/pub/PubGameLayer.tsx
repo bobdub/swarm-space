@@ -13,6 +13,14 @@ import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
 import { isSeated, leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
+import { SeatDebugOverlay } from '@/components/pub/SeatDebugOverlay';
+import {
+  isOverheadView,
+  isSeatDebugOn,
+  subscribeSpectator,
+  toggleOverheadView,
+  toggleSeatDebug,
+} from '@/lib/pub/spectatorCameraStore';
 
 export function PubGameLayer({
   selfId,
@@ -29,6 +37,12 @@ export function PubGameLayer({
   const near = useNearbyInteractable(selfId, openTableId);
 
   const nearTableId = near?.anchor.tableId ?? null;
+
+  // Camera-only QA modes: overhead spectator view + seat debug read-out.
+  const [, forceSpec] = useState(0);
+  useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
+  const overhead = isOverheadView();
+  const debugOn = isSeatDebugOn();
 
   // Let the mesh bridge know who we are so peer intents can be routed
   // to whichever table we happen to be hosting.
@@ -79,6 +93,35 @@ export function PubGameLayer({
 
   return (
     <>
+      {debugOn && <SeatDebugOverlay tableId={openTableId ?? nearTableId} />}
+
+      <div className="pointer-events-auto fixed left-3 bottom-40 z-40 flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={toggleOverheadView}
+          aria-pressed={overhead}
+          className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            overhead
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-primary/50 bg-[hsla(265,70%,8%,0.85)] text-foreground'
+          }`}
+        >
+          Overhead view
+        </button>
+        <button
+          type="button"
+          onClick={toggleSeatDebug}
+          aria-pressed={debugOn}
+          className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+            debugOn
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'border-primary/50 bg-[hsla(265,70%,8%,0.85)] text-foreground'
+          }`}
+        >
+          Seat debug
+        </button>
+      </div>
+
       {!openTableId && near && (
         <div className="pointer-events-none fixed inset-x-0 bottom-40 z-40 flex justify-center px-3">
           <button

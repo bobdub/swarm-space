@@ -21,6 +21,13 @@ interface Props {
   avatarId?: string;
   /** Brain physics version reported by the remote peer. Undefined = pre-versioning (v0). */
   peerPv?: number;
+  /**
+   * Seat-locked: `position` is the authoritative stool transform resolved
+   * from the shared table state, not a broadcast body. Rendered verbatim
+   * and snapped, so a seated peer can never flash an intermediate
+   * standing pose while presence catches up.
+   */
+  pinned?: boolean;
 }
 
 /**
@@ -29,14 +36,15 @@ interface Props {
  * Earth pose so the avatar's "up" matches the surface normal at its
  * position rather than the world Y axis.
  */
-export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: Props) {
+export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pinned }: Props) {
   const def = useMemo(() => getAvatarById(avatarId), [avatarId]);
   const color = useMemo(() => `hsl(${Math.floor((trust * 200) % 360)}, 70%, 60%)`, [trust]);
   // Version gate: a peer running an older physics protocol may report an
   // altitude our integrator no longer trusts (e.g. they fall through the
   // updated mantle clamp). Pin them to the structural shell so they
   // *visually* stand on the planet skin instead of beneath it.
-  const isStale = typeof peerPv === 'number' ? peerPv < BRAIN_PHYSICS_VERSION : true;
+  const isStale = pinned ? false : (typeof peerPv === 'number' ? peerPv < BRAIN_PHYSICS_VERSION : true);
+
 
   // Smoothed position + orientation. Presence updates land at ~1 Hz which
   // looks like teleport hops if applied directly; we lerp toward the latest
@@ -56,7 +64,11 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
   // Refresh target whenever the prop changes.
   useMemo(() => {
     const pose = getEarthPose();
-    if (isStale) {
+    if (pinned) {
+      // Seat lock: the stool transform is already exact in this scene.
+      targetPos.current.set(position[0], position[1], position[2]);
+    } else if (isStale) {
+
       // Reproject onto the structural shell (skin radius from Earth centre).
       const dx = position[0] - pose.center[0];
       const dy = position[1] - pose.center[1];
@@ -117,13 +129,15 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
       targetPos.current.y - pose.center[1],
       targetPos.current.z - pose.center[2],
     );
-  }, [position, isStale]);
+  }, [position, isStale, pinned]);
 
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
     const center = getEarthPose().center;
-    if (!seeded.current) {
+    if (!seeded.current || pinned) {
+      // Seat-locked peers snap: no intermediate standing pose is ever
+      // shown while the smoother catches up to the stool.
       smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;

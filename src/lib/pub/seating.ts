@@ -10,6 +10,7 @@ import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { getEarthPose, worldDisplacementToEarthLocal } from '@/lib/brain/earth';
 import { pubSeatWorldPos } from '@/lib/world/pubAnchors';
 import { sitDown, standUp } from './seatStore';
+import { seatLockFor } from './seatLock';
 
 /** Hard-place a body, keeping the interpolation tracks in register. */
 export function teleportBody(id: string, world: [number, number, number]): boolean {
@@ -46,6 +47,13 @@ function enforcePin() {
   if (intent && (Math.abs(intent.fwd) > 0.2 || Math.abs(intent.right) > 0.2)) {
     leaveSeat();
     return;
+  }
+  // Re-resolve the authoritative index every tick: if a neighbour stands
+  // up the shared seat list reorders, and the local pin must follow it so
+  // remote seat locks and the local body never disagree.
+  const lock = seatLockFor(pin.selfId);
+  if (lock && lock.tableId === pin.tableId && lock.index !== pin.index) {
+    pin = { ...pin, index: lock.index };
   }
   const target = pubSeatWorldPos(pin.tableId, pin.index);
   if (target) {
