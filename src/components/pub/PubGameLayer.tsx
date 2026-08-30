@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
-import { leaveSeat } from '@/lib/pub/seating';
+import { isSeated, leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 
 export function PubGameLayer({
@@ -51,6 +51,10 @@ export function PubGameLayer({
   useEffect(() => {
     if (!openTableId) return;
     if (nearTableId === openTableId) return;
+    // A pinned stool is stronger evidence than a sampled proximity result.
+    // The next proximity update after deliberate movement sees the released
+    // seat and starts the normal walk-away grace period.
+    if (isSeated()) return;
     const timer = window.setTimeout(() => close(), 10_000);
     return () => window.clearTimeout(timer);
   }, [openTableId, nearTableId, close]);

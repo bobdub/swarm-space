@@ -29,16 +29,15 @@ export function teleportBody(id: string, world: [number, number, number]): boole
 }
 
 /**
- * While seated the body is PINNED to the stool every frame. Without the
+ * While seated the body is PINNED to the stool after every physics tick. Without the
  * pin the support basin and residual velocity slide the avatar off the
  * stool within a second or two, dropping the view under the tabletop.
  * Any movement intent releases the pin so the player can just walk away.
  */
 let pin: { tableId: string; index: number; selfId: string } | null = null;
-let raf = 0;
+let unsubscribePin: (() => void) | null = null;
 
-function pinLoop() {
-  raf = 0;
+function enforcePin() {
   if (!pin) return;
   const physics = getBrainPhysics();
   const intent = physics.getIntent(pin.selfId);
@@ -53,7 +52,6 @@ function pinLoop() {
     teleportBody(pin.selfId, target);
     physics.setIntent(pin.selfId, { fwd: 0, right: 0, yaw: intent?.yaw ?? 0, basis: intent?.basis });
   }
-  raf = requestAnimationFrame(pinLoop);
 }
 
 /**
@@ -68,7 +66,10 @@ export function takeSeatAt(tableId: string, index: number, selfId: string): bool
   sitDown(0.45, -0.35);
   if (placed) {
     pin = { tableId, index, selfId };
-    if (!raf && typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(pinLoop);
+    // Run in the physics clock, after each integration step. An independent
+    // requestAnimationFrame loop raced catch-up ticks and briefly exposed a
+    // displaced body to the camera and presence broadcaster.
+    if (!unsubscribePin) unsubscribePin = getBrainPhysics().subscribe(enforcePin);
   }
   return placed;
 }
@@ -79,7 +80,10 @@ export function isSeated(): boolean {
 
 export function leaveSeat(): void {
   pin = null;
-  if (raf) { cancelAnimationFrame(raf); raf = 0; }
+  if (unsubscribePin) {
+    unsubscribePin();
+    unsubscribePin = null;
+  }
   standUp();
 }
 
