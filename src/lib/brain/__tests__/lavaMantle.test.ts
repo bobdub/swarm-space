@@ -55,9 +55,10 @@ describe('lavaMantle', () => {
 
 describe('lavaMantle — surface temporal stability', () => {
   it('applies inward restoring force above the basin and outward below it', async () => {
-    const { BODY_SHELL_RADIUS } = await import('../earth');
+    const { BODY_SHELL_RADIUS, EARTH_RADIUS } = await import('../earth');
     expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS)).toBeCloseTo(0, 5);
     expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS + 60)).toBeLessThan(0);
+    expect(sampleMantleRadialAcceleration(EARTH_RADIUS * 1.2)).toBeLessThan(0);
     expect(sampleMantleRadialAcceleration(BODY_SHELL_RADIUS - 60)).toBeGreaterThan(0);
   });
 
