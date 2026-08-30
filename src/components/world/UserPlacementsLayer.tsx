@@ -132,6 +132,7 @@ export function UserPlacementsLayer({
                       <Html
                         position={[0, prefab.height + 0.7, 0]}
                         center
+                        occlude
                         distanceFactor={8}
                         zIndexRange={[100, 0]}
                         style={{ pointerEvents: 'auto', userSelect: 'none' }}
