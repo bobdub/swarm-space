@@ -12,7 +12,7 @@
  * is per-id.
  */
 
-export type BarInteractionId = 'sit' | 'order' | 'darts' | 'pool' | 'jukebox';
+export type BarInteractionId = 'sit' | 'order' | 'darts' | 'cards' | 'pool' | 'jukebox';
 
 export interface BarInteraction {
   id: BarInteractionId;
