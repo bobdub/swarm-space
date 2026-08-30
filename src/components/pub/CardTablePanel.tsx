@@ -10,12 +10,14 @@
 import { useEffect } from 'react';
 import { X } from 'lucide-react';
 import {
+  getTable,
   joinTable,
   leaveTable,
   tableHost,
   usePubTable,
 } from '@/lib/pub/gameTableStore';
 import { takeSeatAt, leaveSeat } from '@/lib/pub/seating';
+import { seatIndexOf } from '@/lib/pub/seatLock';
 import { PubStakePanel } from '@/components/pub/PubStakePanel';
 
 export function CardTablePanel({
@@ -39,8 +41,10 @@ export function CardTablePanel({
   const takeSeat = () => {
     joinTable({ tableId, game: 'holdem', peerId: selfId, username });
     // Seat index = position in the (deterministic, shared) seat list, so
-    // every peer places every player on the same stool.
-    const next = table.seats.length;
+    // every peer places every player on the same stool. Read it back from
+    // the store after joining rather than guessing, so the local pin and
+    // every remote seat lock resolve to the SAME stool.
+    const next = Math.max(0, seatIndexOf(getTable(tableId, 'holdem'), selfId));
     takeSeatAt(tableId, next, selfId);
   };
 
