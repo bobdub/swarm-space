@@ -128,6 +128,10 @@ export function bootPlacementGossipBridge(): void {
     attachPubIntentGossip((intent: PubIntent) => {
       try { mesh!.broadcast(PUBTABLE_INTENT_CHANNEL, intent); } catch { /* noop */ }
     });
+    attachDrinkGossip((evt: DrinkEvent) => {
+      try { mesh!.broadcast(PUBDRINK_CHANNEL, evt); } catch { /* noop */ }
+    });
+
 
     // Inbound — funnel peer records through the same accept-plug points
     // the BroadcastChannel cross-tab path uses, so the local-protect
