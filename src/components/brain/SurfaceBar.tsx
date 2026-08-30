@@ -6,7 +6,7 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
-import { registerPubAnchor } from '@/lib/world/pubAnchors';
+import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -293,9 +293,21 @@ export function SurfaceBar({
         bodyId: cards.bodyId,
         tableId: `pub:cards:${id}`,
       }));
+      // Stools around the card table become claimable seats.
+      furniture
+        .filter((f) => f.blockId.includes(':stool-cards-'))
+        .forEach((stool, index) => {
+          cleanups.push(registerPubSeatAnchor({
+            tableId: `pub:cards:${id}`,
+            index,
+            bodyId: stool.bodyId,
+            height: (stool.meta?.height as number) ?? 0.85,
+          }));
+        });
     }
     return () => { cleanups.forEach((fn) => fn()); };
   }, [furniture, id]);
+
 
   // Wall sign — mounted on the inside of the north wall, behind the counter.
   const signBlockId = `${id}:sign:${anchorPeerId}`;

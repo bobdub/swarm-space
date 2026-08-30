@@ -74,3 +74,59 @@ export function findNearbyAnchor(pos: [number, number, number] | null): NearbyAn
   return best;
 }
 
+
+// ── Seat anchors ────────────────────────────────────────────────────
+// Physical stools bound to a table. Sitting teleports the avatar onto
+// the stool body so every peer sees them at the table.
+
+export interface PubSeatAnchor {
+  tableId: string;
+  /** Stable seat index around the table. */
+  index: number;
+  /** BuilderBlock bodyId of the stool. */
+  bodyId: string;
+  /** Stool height in metres (used to lift the avatar onto the seat). */
+  height: number;
+}
+
+const seatAnchors = new Map<string, PubSeatAnchor>();
+
+function seatKey(tableId: string, index: number) {
+  return `${tableId}#${index}`;
+}
+
+export function registerPubSeatAnchor(seat: PubSeatAnchor): () => void {
+  const key = seatKey(seat.tableId, seat.index);
+  seatAnchors.set(key, seat);
+  return () => { seatAnchors.delete(key); };
+}
+
+export function listPubSeatAnchors(tableId: string): PubSeatAnchor[] {
+  return [...seatAnchors.values()]
+    .filter((s) => s.tableId === tableId)
+    .sort((a, b) => a.index - b.index);
+}
+
+/** Live world position of the seating surface of a stool, or null. */
+export function pubSeatWorldPos(
+  tableId: string,
+  index: number,
+): [number, number, number] | null {
+  const seats = listPubSeatAnchors(tableId);
+  if (seats.length === 0) return null;
+  const seat = seats[((index % seats.length) + seats.length) % seats.length];
+  const block = getBuilderBlockEngine().getBlock(seat.bodyId);
+  if (!block) return null;
+  const wp = blockWorldPos(block);
+  const pose = getEarthPose();
+  const ux = wp[0] - pose.center[0];
+  const uy = wp[1] - pose.center[1];
+  const uz = wp[2] - pose.center[2];
+  const len = Math.hypot(ux, uy, uz) || 1;
+  const lift = seat.height / 2 + 0.9; // stool top + torso centre
+  return [
+    wp[0] + (ux / len) * lift,
+    wp[1] + (uy / len) * lift,
+    wp[2] + (uz / len) * lift,
+  ];
+}

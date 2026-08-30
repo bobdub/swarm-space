@@ -15,7 +15,7 @@ import {
   tableHost,
   usePubTable,
 } from '@/lib/pub/gameTableStore';
-import { sitDown, standUp } from '@/lib/pub/seatStore';
+import { takeSeatAt, leaveSeat } from '@/lib/pub/seating';
 
 export function CardTablePanel({
   tableId,
@@ -33,16 +33,19 @@ export function CardTablePanel({
   const host = tableHost(table);
 
   // Standing back up is guaranteed even if the panel unmounts abruptly.
-  useEffect(() => () => { standUp(); }, []);
+  useEffect(() => () => { leaveSeat(); }, []);
 
   const takeSeat = () => {
     joinTable({ tableId, game: 'holdem', peerId: selfId, username });
-    sitDown(0.35, -0.5);
+    // Seat index = position in the (deterministic, shared) seat list, so
+    // every peer places every player on the same stool.
+    const next = table.seats.length;
+    takeSeatAt(tableId, next, selfId);
   };
 
   const stand = () => {
     leaveTable(tableId, selfId);
-    standUp();
+    leaveSeat();
   };
 
   return (
