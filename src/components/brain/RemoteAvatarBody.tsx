@@ -129,13 +129,15 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       targetPos.current.y - pose.center[1],
       targetPos.current.z - pose.center[2],
     );
-  }, [position, isStale]);
+  }, [position, isStale, pinned]);
 
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
     const center = getEarthPose().center;
-    if (!seeded.current) {
+    if (!seeded.current || pinned) {
+      // Seat-locked peers snap: no intermediate standing pose is ever
+      // shown while the smoother catches up to the stool.
       smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;
