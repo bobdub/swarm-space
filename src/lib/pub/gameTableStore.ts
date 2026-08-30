@@ -97,11 +97,15 @@ function blankTable(tableId: string, game: PubGameId): PubTable {
     game,
     seats: [],
     stake: 0,
+    agreed: [],
+    funded: [],
+    settled: false,
     seq: 0,
     updatedAt: 0,
     state: createDartsState([]),
   };
 }
+
 
 export function getTable(tableId: string, game: PubGameId = 'darts'): PubTable {
   const found = tables.get(tableId);
