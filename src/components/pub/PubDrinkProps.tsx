@@ -4,7 +4,7 @@
  */
 
 import { useFrame } from '@react-three/fiber';
-import { useMemo, useRef } from 'react';
+import { useRef } from 'react';
 import type { Group } from 'three';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { getEarthPose } from '@/lib/brain/earth';
@@ -52,7 +52,7 @@ function Glass({ peerId }: { peerId: string }) {
 export function PubDrinkProps() {
   // Re-renders whenever a drink lands; the list itself is TTL-pruned.
   useDrinks();
-  const holders = useMemo(() => activeDrinkHolders(), []);
+  const holders = activeDrinkHolders();
   return (
     <>
       {holders.map((h) => (
