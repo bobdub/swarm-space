@@ -168,6 +168,7 @@ import {
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
+import { getSeatPose } from '@/lib/pub/seatStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
