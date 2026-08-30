@@ -64,7 +64,11 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
   // Refresh target whenever the prop changes.
   useMemo(() => {
     const pose = getEarthPose();
-    if (isStale) {
+    if (pinned) {
+      // Seat lock: the stool transform is already exact in this scene.
+      targetPos.current.set(position[0], position[1], position[2]);
+    } else if (isStale) {
+
       // Reproject onto the structural shell (skin radius from Earth centre).
       const dx = position[0] - pose.center[0];
       const dy = position[1] - pose.center[1];
