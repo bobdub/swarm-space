@@ -48,6 +48,16 @@ const tables = new Map<string, PubTable>();
 const listeners = new Set<() => void>();
 let version = 0;
 
+let localPeerId = '';
+
+/** The scene tells the store who we are so the mesh bridge can route intents. */
+export function setLocalPeerId(id: string): void {
+  localPeerId = id || '';
+}
+export function getLocalPeerId(): string {
+  return localPeerId;
+}
+
 let tableGossip: ((table: PubTable) => void) | null = null;
 let intentGossip: ((intent: PubIntent) => void) | null = null;
 
@@ -196,7 +206,7 @@ export function acceptPeerTable(payload: unknown): boolean {
 }
 
 /** Inbound peer intent — ignored unless we are this table's host. */
-export function acceptPeerIntent(payload: unknown, selfPeerId: string): boolean {
+export function acceptPeerIntent(payload: unknown, selfPeerId: string = localPeerId): boolean {
   const rec = payload as (Partial<PubIntent> & { tableId?: string }) | undefined;
   if (!rec || typeof rec.tableId !== 'string' || typeof rec.type !== 'string') return false;
   const table = tables.get(rec.tableId);
