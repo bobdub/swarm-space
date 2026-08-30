@@ -10,7 +10,11 @@ SurfaceBar, press E, and play. No separate game screen.
 - Anchors: `src/lib/world/pubAnchors.ts` registers interactables by their
   BuilderBlock bodyId; tags come from `src/lib/world/barInteractions.ts`.
 - Proximity: `useNearbyInteractable` polls at 5 Hz; `PubGameLayer` renders one
-  contextual prompt and the game panel. Q or walking away 10 s frees the seat.
+  contextual prompt and the game panel. While open, proximity remains scoped
+  to that game's own anchor. Q or deliberately walking away 10 s frees the seat.
+- Player presence: idle surface avatars must remain stationary. UQRC terrain
+  support may move them radially but never tangentially without player input;
+  seated players remain pinned through controller dead-zone noise.
 - Table state: `src/lib/pub/gameTableStore.ts`. Host = earliest-joined seat.
   Host runs the reducer, broadcasts the table (`pub:table`, LWW on `seq`);
   others send intents (`pub:table:intent`). Backfill via sync-request/response.

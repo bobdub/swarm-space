@@ -23,8 +23,10 @@ export function PubGameLayer({
   username: string;
   mobile?: boolean;
 }) {
-  const near = useNearbyInteractable(selfId);
   const [openTableId, setOpenTableId] = useState<string | null>(null);
+  // While playing, stay locked to the active game's anchor instead of
+  // allowing neighbouring furniture to replace the proximity result.
+  const near = useNearbyInteractable(selfId, openTableId);
 
   const nearTableId = near?.anchor.tableId ?? null;
 
@@ -44,7 +46,8 @@ export function PubGameLayer({
     });
   }, [selfId]);
 
-  // Walking away closes the panel and frees the seat — no stuck tables.
+  // Deliberately walking away closes the panel and frees the seat. Idle
+  // physics drift can no longer switch this check to a neighbouring game.
   useEffect(() => {
     if (!openTableId) return;
     if (nearTableId === openTableId) return;

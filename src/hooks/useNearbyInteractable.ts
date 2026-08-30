@@ -12,7 +12,10 @@ import { findNearbyAnchor, type NearbyAnchor } from '@/lib/world/pubAnchors';
 
 const POLL_MS = 200;
 
-export function useNearbyInteractable(selfId: string | null): NearbyAnchor | null {
+export function useNearbyInteractable(
+  selfId: string | null,
+  tableId?: string | null,
+): NearbyAnchor | null {
   const [near, setNear] = useState<NearbyAnchor | null>(null);
 
   useEffect(() => {
@@ -33,7 +36,7 @@ export function useNearbyInteractable(selfId: string | null): NearbyAnchor | nul
         }
         const pos = (physics.getBodyRenderPos(selfId, performance.now()) ?? body.pos) as
           [number, number, number];
-        const hit = findNearbyAnchor(pos);
+        const hit = findNearbyAnchor(pos, tableId);
         setNear((prev) => {
           if (!hit && !prev) return prev;
           if (hit && prev && prev.anchor.key === hit.anchor.key) return prev;
@@ -50,7 +53,7 @@ export function useNearbyInteractable(selfId: string | null): NearbyAnchor | nul
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selfId]);
+  }, [selfId, tableId]);
 
   return near;
 }

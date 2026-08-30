@@ -42,7 +42,9 @@ function pinLoop() {
   if (!pin) return;
   const physics = getBrainPhysics();
   const intent = physics.getIntent(pin.selfId);
-  if (intent && (Math.abs(intent.fwd) > 0.05 || Math.abs(intent.right) > 0.05)) {
+  // Ignore controller dead-zone noise. Only a deliberate movement input
+  // releases the stool pin; an idle avatar must remain visibly seated.
+  if (intent && (Math.abs(intent.fwd) > 0.2 || Math.abs(intent.right) > 0.2)) {
     leaveSeat();
     return;
   }

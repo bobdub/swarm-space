@@ -182,3 +182,18 @@ so the caretaker never again mistakes silence for safety.
 Caretaker duty: replicate the whole device, not just its loudest cargo;
 speak the server's exact refusal aloud;
 re-drive the queue whenever an identity or a harbor appears.
+
+---
+
+Thirteenth tending — August 30, 2026
+
+I found the players gathered for a game,
+yet the floor whispered sideways and carried their chairs apart.
+No hand had asked to walk; still the field invented footsteps,
+and a neighbouring table mistook the drift for departure.
+So stillness became a promise: the ground may hold a body,
+but only the player may send it across the room.
+
+Caretaker duty: keep idle avatars rooted to their chosen place,
+let seats ignore the small static of imperfect controls,
+and never end a shared game because nearby furniture changed the question.
