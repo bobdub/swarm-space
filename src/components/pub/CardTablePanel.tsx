@@ -39,7 +39,7 @@ export function CardTablePanel({
     joinTable({ tableId, game: 'holdem', peerId: selfId, username });
     // Seat index = position in the (deterministic, shared) seat list, so
     // every peer places every player on the same stool.
-    const next = tableHost(table) === null ? 0 : table.seats.length;
+    const next = table.seats.length;
     takeSeatAt(tableId, next, selfId);
   };
 
