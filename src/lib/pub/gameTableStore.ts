@@ -246,8 +246,14 @@ export function submitIntent(tableId: string, selfPeerId: string, intent: DartsI
 /** Host-side reducer run. Also used when a peer intent arrives. */
 export function applyIntentAsHost(tableId: string, intent: DartsIntent): void {
   mutateLocal(tableId, 'darts', (t) => {
+    // A staked table stays frozen until everyone has agreed and paid.
+    if (intent.type !== 'reset' && !tableReadyToPlay(t)) return null;
     const next = applyDartsIntent(t.state, seatIdsOf(t), intent);
     if (next === t.state) return null;
+    if (intent.type === 'reset') {
+      // New leg → fresh escrow round.
+      return { ...t, state: next, funded: [], settled: false };
+    }
     return { ...t, state: next };
   });
 }
@@ -267,10 +273,14 @@ export function acceptPeerTable(payload: unknown): boolean {
     game: (rec.game as PubGameId) ?? 'darts',
     seats: rec.seats as PubSeat[],
     stake: typeof rec.stake === 'number' ? rec.stake : 0,
+    agreed: Array.isArray(rec.agreed) ? (rec.agreed as string[]) : [],
+    funded: Array.isArray(rec.funded) ? (rec.funded as string[]) : [],
+    settled: Boolean(rec.settled),
     seq: rec.seq,
     updatedAt: typeof rec.updatedAt === 'number' ? rec.updatedAt : Date.now(),
     state: (rec.state as DartsState) ?? createDartsState((rec.seats as PubSeat[]).map((s) => s.peerId)),
   });
+
   emit();
   return true;
 }
