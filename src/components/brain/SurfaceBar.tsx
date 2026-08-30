@@ -275,14 +275,26 @@ export function SurfaceBar({
   // register their live BuilderBlock body and the proximity hook does
   // the rest. Tags match src/lib/world/barInteractions.ts.
   useEffect(() => {
+    const cleanups: Array<() => void> = [];
     const dart = furniture.find((f) => f.kind === 'darts-board');
-    if (!dart) return;
-    return registerPubAnchor({
-      key: dart.bodyId,
-      tag: 'darts-board',
-      bodyId: dart.bodyId,
-      tableId: `pub:darts:${id}`,
-    });
+    if (dart) {
+      cleanups.push(registerPubAnchor({
+        key: dart.bodyId,
+        tag: 'darts-board',
+        bodyId: dart.bodyId,
+        tableId: `pub:darts:${id}`,
+      }));
+    }
+    const cards = furniture.find((f) => f.kind === 'card-table');
+    if (cards) {
+      cleanups.push(registerPubAnchor({
+        key: cards.bodyId,
+        tag: 'card-table',
+        bodyId: cards.bodyId,
+        tableId: `pub:cards:${id}`,
+      }));
+    }
+    return () => { cleanups.forEach((fn) => fn()); };
   }, [furniture, id]);
 
   // Wall sign — mounted on the inside of the north wall, behind the counter.
