@@ -170,6 +170,12 @@ import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
 import { getSeatPose } from '@/lib/pub/seatStore';
+import { seatedTransform } from '@/lib/pub/seatLock';
+import {
+  isOverheadView,
+  SPECTATOR_BACK_M,
+  SPECTATOR_UP_M,
+} from '@/lib/pub/spectatorCameraStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -262,6 +268,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // Seated eye offset, eased so sitting/standing glides.
   const seatLift = useRef(0);
   const prevSeatNonce = useRef(0);
+  // Overhead spectator blend (pub QA view): booms the eye up and back
+  // without touching the body, so seating and physics are unaffected.
+  const specBlend = useRef(0);
+  const prevSpec = useRef(false);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -296,6 +306,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       if (!topView) pitchTarget.current = seat.pitch ?? 0;
     }
     seatLift.current += (seat.lift - seatLift.current) * 0.12;
+    const overhead = isOverheadView();
+    if (overhead !== prevSpec.current) {
+      prevSpec.current = overhead;
+      pitchTarget.current = overhead ? -1.1 : (seat.pitch ?? 0);
+    }
+    specBlend.current += ((overhead ? 1 : 0) - specBlend.current) * 0.1;
+    if (specBlend.current < 0.001) specBlend.current = 0;
     // Glide pitch toward the mode target, then let drag deltas adjust it.
     if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
       pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
@@ -412,9 +429,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Builder "Top view": boom the eye up and back along the view forward
     // so the avatar plus a wide patch of build grid stay in frame.
     const boomAmt = boomBlend.current;
-    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt + seatLift.current;
+    const specAmt = specBlend.current;
+    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt + SPECTATOR_UP_M * specAmt + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
-    if (boomAmt > 0) {
+    if (boomAmt > 0 || specAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       // Strip the radial component so the boom pulls back along the ground.
       const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
@@ -423,9 +441,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       let bz = viewFwd.z - upN[2] * vdot;
       const bn = Math.hypot(bx, by, bz) || 1;
       bx /= bn; by /= bn; bz /= bn;
-      boomX = -bx * TOP_VIEW_BACK_M * boomAmt;
-      boomY = -by * TOP_VIEW_BACK_M * boomAmt;
-      boomZ = -bz * TOP_VIEW_BACK_M * boomAmt;
+      const back = TOP_VIEW_BACK_M * boomAmt + SPECTATOR_BACK_M * specAmt;
+      boomX = -bx * back;
+      boomY = -by * back;
+      boomZ = -bz * back;
     }
     const eyeX = source[0] + upN[0] * eyeLift + boomX;
     const eyeY = source[1] + upN[1] * eyeLift + boomY;
@@ -639,12 +658,18 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
       {peers.map((p) => {
         const id = `peer-${p.peerId}`;
         const body = physics.getBody(id);
-        if (!body) return null;
+        // Seat lock wins over the broadcast body: if the shared table
+        // state says this peer holds a stool, render them exactly on it.
+        const seat = seatedTransform(p.peerId) ?? seatedTransform(id);
+        if (!body && !seat) return null;
+        const pos: [number, number, number] = seat
+          ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
         return (
           <RemoteAvatarBody
             key={id}
-            position={[body.pos[0], body.pos[1], body.pos[2]]}
-            trust={body.trust ?? 0.5}
+            position={pos}
+            pinned={!!seat}
+            trust={body?.trust ?? 0.5}
             label={p.username}
             avatarId={p.avatarId}
             peerPv={p.pv}
