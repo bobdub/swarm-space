@@ -508,7 +508,7 @@ export class UqrcPhysics {
           const u = Math.min(1, dCells / Math.max(1e-6, stampCells));
           // Hermite bowl — deepest at the centre, flush at the rim.
           const fall = 1 - u * u * (3 - 2 * u);
-          const cellDepth = -depth * fall;
+          const cellDepth = -effDepth * fall;
           const flat = idx3(ci + di, cj + dj, ck + dk, N);
           for (let a = 0; a < FIELD3D_AXES; a++) {
             // Bias along the radial axis component for axis 0/1/2.
