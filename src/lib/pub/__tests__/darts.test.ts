@@ -63,9 +63,9 @@ describe('darts 501 reducer', () => {
 
   it('maps accuracy to the expected bands', () => {
     expect(resolveThrow(1, 0).label).toBe('BULL');
-    expect(resolveThrow(0.93, 0).points).toBe(25);
-    expect(resolveThrow(0.85, 0).label).toBe('T20');
-    expect(resolveThrow(0.7, 0).label).toBe('D20');
+    expect(resolveThrow(0.88, 0).points).toBe(25);
+    expect(resolveThrow(0.8, 0).label).toBe('T20');
+    expect(resolveThrow(0.6, 0).label).toBe('D20');
     expect(resolveThrow(0.1, 0).points).toBe(0);
   });
 });
