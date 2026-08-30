@@ -1,0 +1,92 @@
+/**
+ * PubGameLayer — the "walk up and play" glue.
+ *
+ * Watches the local avatar's proximity to registered pub anchors, shows
+ * a single contextual prompt, and opens the matching game panel. The pub
+ * is the interface: entry and exit are positional, the panel is only the
+ * board readout.
+ */
+
+import { useCallback, useEffect, useState } from 'react';
+import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
+import { DartsPanel } from '@/components/pub/DartsPanel';
+import { leaveTable } from '@/lib/pub/gameTableStore';
+
+export function PubGameLayer({
+  selfId,
+  username,
+  mobile,
+}: {
+  selfId: string;
+  username: string;
+  mobile?: boolean;
+}) {
+  const near = useNearbyInteractable(selfId);
+  const [openTableId, setOpenTableId] = useState<string | null>(null);
+
+  const nearTableId = near?.anchor.tableId ?? null;
+
+  const open = useCallback(() => {
+    if (nearTableId) setOpenTableId(nearTableId);
+  }, [nearTableId]);
+
+  const close = useCallback(() => {
+    setOpenTableId((prev) => {
+      if (prev) leaveTable(prev, selfId);
+      return null;
+    });
+  }, [selfId]);
+
+  // Walking away closes the panel and frees the seat — no stuck tables.
+  useEffect(() => {
+    if (!openTableId) return;
+    if (nearTableId === openTableId) return;
+    const timer = window.setTimeout(() => close(), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [openTableId, nearTableId, close]);
+
+  // Keyboard: E to join, Q to leave.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
+      if (target?.isContentEditable) return;
+      if (e.key === 'e' || e.key === 'E') {
+        if (!openTableId && nearTableId) open();
+      } else if (e.key === 'q' || e.key === 'Q') {
+        if (openTableId) close();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openTableId, nearTableId, open, close]);
+
+  if (!selfId) return null;
+
+  return (
+    <>
+      {!openTableId && near && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-40 z-40 flex justify-center px-3">
+          <button
+            type="button"
+            onClick={open}
+            className="pointer-events-auto rounded-full border border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-foreground shadow-[0_0_20px_hsla(265,70%,55%,0.4)]"
+          >
+            {mobile ? `Tap to ${near.interaction.label}` : `Press [E] to ${near.interaction.label}`}
+          </button>
+        </div>
+      )}
+
+      {openTableId && (
+        <div className="pointer-events-none fixed bottom-24 right-3 z-50 flex justify-end">
+          <DartsPanel
+            tableId={openTableId}
+            selfId={selfId}
+            username={username}
+            onClose={close}
+          />
+        </div>
+      )}
+    </>
+  );
+}
