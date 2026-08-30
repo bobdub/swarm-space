@@ -248,7 +248,7 @@ export function SurfaceBar({
       rightOffset: -HALF_W + 3.5,
       forwardOffset: 3,
       upOffset: CARD_TABLE_H / 2,
-      basin: 1.0,
+      basin: 0.3,
       mass: 25,
       meta: { radius: CARD_TABLE_R, height: CARD_TABLE_H },
     });
