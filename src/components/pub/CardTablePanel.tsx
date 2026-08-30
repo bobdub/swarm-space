@@ -99,8 +99,10 @@ export function CardTablePanel({
         </button>
       )}
 
+      <PubStakePanel table={table} selfId={selfId} username={username} />
+
       <p className="mt-2 text-[10px] leading-snug text-muted-foreground">
-        Free play. Texas Hold'em dealing arrives next phase — seats, dealer and
+        Free play by default. Texas Hold'em dealing arrives next phase — seats, dealer and
         table sync are live now. Press [Q] or walk away to leave.
       </p>
     </div>

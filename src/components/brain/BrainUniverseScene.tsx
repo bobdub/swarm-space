@@ -49,6 +49,7 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
+import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
@@ -1438,6 +1439,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     return () => unsub();
   }, [ready, onChatLine]);
 
+  // ── Pub events (drinks) drop a line into Brain chat ───────────────
+  useEffect(() => {
+    const onPubLine = (e: Event) => {
+      const d = (e as CustomEvent).detail as BrainChatLine | undefined;
+      if (!d?.text) return;
+      setChatLines((prev) => (prev.some((l) => l.id === d.id) ? prev : [...prev, d].slice(-100)));
+    };
+    window.addEventListener('pub:chat-line', onPubLine);
+    return () => window.removeEventListener('pub:chat-line', onPubLine);
+  }, []);
+
   // ── Chat send: feed field, optionally call Infinity ───────────────
   const handleSend = useCallback((text: string) => {
     const line: BrainChatLine = {
@@ -2112,6 +2124,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
         <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay
             selfId={selfId}
