@@ -410,7 +410,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Builder "Top view": boom the eye up and back along the view forward
     // so the avatar plus a wide patch of build grid stay in frame.
     const boomAmt = boomBlend.current;
-    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt;
+    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
     if (boomAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
