@@ -40,6 +40,11 @@ import {
   type PubTable,
   type PubIntent,
 } from '@/lib/pub/gameTableStore';
+import {
+  attachDrinkGossip,
+  acceptPeerDrink,
+  type DrinkEvent,
+} from '@/lib/pub/drinks';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -53,6 +58,7 @@ const PUBTABLE_CHANNEL = 'pub:table';
 const PUBTABLE_INTENT_CHANNEL = 'pub:table:intent';
 const PUBTABLE_SYNC_REQUEST = 'pub:table:sync-request';
 const PUBTABLE_SYNC_RESPONSE = 'pub:table:sync-response';
+const PUBDRINK_CHANNEL = 'pub:drink';
 /** How often we look for peers we haven't backfilled from yet. */
 const PEER_POLL_MS = 10_000;
 
@@ -187,6 +193,11 @@ export function bootPlacementGossipBridge(): void {
     });
     mesh.onMessage(PUBTABLE_SYNC_RESPONSE, (_peerId, payload) => {
       try { mergePubTableSnapshot(payload); } catch { /* noop */ }
+    });
+
+    // ── Drinks: fire-and-forget gesture events ────────────────────
+    mesh.onMessage(PUBDRINK_CHANNEL, (_peerId, payload) => {
+      try { acceptPeerDrink(payload); } catch { /* noop */ }
     });
 
     // ── Backfill: main-Brain lobby placements only ──────────────────
