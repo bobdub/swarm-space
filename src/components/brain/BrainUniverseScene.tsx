@@ -168,6 +168,7 @@ import {
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
+import { getSeatPose } from '@/lib/pub/seatStore';
 
 const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
@@ -257,6 +258,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // glides instead of snapping the whole world.
   const boomBlend = useRef(0);
   const pitchTarget = useRef(0);
+  // Seated eye offset, eased so sitting/standing glides.
+  const seatLift = useRef(0);
+  const prevSeatNonce = useRef(0);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
@@ -284,6 +288,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       // Ease toward a steep downward tilt on entering top view, level on exit.
       pitchTarget.current = topView ? -1.0 : 0;
     }
+    // Sitting down at pub furniture nudges the view onto the tabletop.
+    const seat = getSeatPose();
+    if (seat.nonce !== prevSeatNonce.current) {
+      prevSeatNonce.current = seat.nonce;
+      if (!topView) pitchTarget.current = seat.pitch ?? 0;
+    }
+    seatLift.current += (seat.lift - seatLift.current) * 0.12;
     // Glide pitch toward the mode target, then let drag deltas adjust it.
     if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
       pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
@@ -400,7 +411,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Builder "Top view": boom the eye up and back along the view forward
     // so the avatar plus a wide patch of build grid stay in frame.
     const boomAmt = boomBlend.current;
-    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt;
+    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
     if (boomAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
