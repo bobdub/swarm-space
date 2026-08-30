@@ -6,7 +6,7 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
-import { registerPubAnchor } from '@/lib/world/pubAnchors';
+import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
