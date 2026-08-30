@@ -48,6 +48,7 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
+import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';
@@ -2242,6 +2243,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Pub games — walk up to the dartboard, press E, play or watch. */}
+      {ready && selfId && !isBuilding && (
+        <PubGameLayer selfId={selfId} username={user?.username ?? 'Player'} mobile={isMobile} />
       )}
 
       {/* Compass + Mini-Map (always available once spawned) */}

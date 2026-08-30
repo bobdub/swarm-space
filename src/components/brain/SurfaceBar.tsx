@@ -6,6 +6,7 @@ import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
+import { registerPubAnchor } from '@/lib/world/pubAnchors';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -62,6 +63,12 @@ const STOOL_COUNT = 4;
 const STOOL_R = 0.35;
 const STOOL_H = 0.85;
 const STOOL_FORWARD = COUNTER_FORWARD - COUNTER_DEPTH / 2 - 0.7;
+
+// Games nook — dartboard on the west wall, card table in front of it.
+const DARTS_H = 1.73;          // regulation bull height
+const DARTS_R = 0.34;
+const CARD_TABLE_R = 0.9;
+const CARD_TABLE_H = 0.95;
 
 // One pub table + 2 stools in the middle of the room.
 const TABLE_R = 0.7;
@@ -219,8 +226,63 @@ export function SurfaceBar({
       });
     }
 
+    // ── Games nook (west side) ──────────────────────────────────────
+    // Dartboard hangs on the interior face of the west wall.
+    items.push({
+      kind: 'darts-board',
+      blockId: `${id}:darts-1:${anchorPeerId}`,
+      bodyId: `darts-board:${id}:darts-1:${anchorPeerId}`,
+      rightOffset: -HALF_W + WALL_T / 2 + 0.06,
+      forwardOffset: -3,
+      upOffset: DARTS_H,
+      basin: 0.15,
+      mass: 3,
+      meta: { radius: DARTS_R },
+    });
+    // Card table in the same nook — meshes now, Hold'em later.
+    items.push({
+      kind: 'card-table',
+      blockId: `${id}:cards-1:${anchorPeerId}`,
+      bodyId: `card-table:${id}:cards-1:${anchorPeerId}`,
+      rightOffset: -HALF_W + 3.5,
+      forwardOffset: 3,
+      upOffset: CARD_TABLE_H / 2,
+      basin: 1.0,
+      mass: 25,
+      meta: { radius: CARD_TABLE_R, height: CARD_TABLE_H },
+    });
+    for (let i = 0; i < 4; i++) {
+      const ang = (Math.PI / 2) * i + Math.PI / 4;
+      const blockId = `${id}:stool-cards-${i}:${anchorPeerId}`;
+      items.push({
+        kind: 'bar-stool',
+        blockId,
+        bodyId: `bar-stool:${blockId}`,
+        rightOffset: -HALF_W + 3.5 + Math.cos(ang) * 1.6,
+        forwardOffset: 3 + Math.sin(ang) * 1.6,
+        upOffset: STOOL_H / 2,
+        basin: 0.45,
+        mass: 6,
+        meta: { radius: STOOL_R, height: STOOL_H },
+      });
+    }
+
     return items;
   }, [id, anchorPeerId]);
+
+  // Proximity anchors — the pub IS the interface, so interactables
+  // register their live BuilderBlock body and the proximity hook does
+  // the rest. Tags match src/lib/world/barInteractions.ts.
+  useEffect(() => {
+    const dart = furniture.find((f) => f.kind === 'darts-board');
+    if (!dart) return;
+    return registerPubAnchor({
+      key: dart.bodyId,
+      tag: 'darts-board',
+      bodyId: dart.bodyId,
+      tableId: `pub:darts:${id}`,
+    });
+  }, [furniture, id]);
 
   // Wall sign — mounted on the inside of the north wall, behind the counter.
   const signBlockId = `${id}:sign:${anchorPeerId}`;
@@ -460,6 +522,57 @@ export function SurfaceBar({
                   <mesh position={[0, -STOOL_H / 2 + 0.03, 0]} castShadow>
                     <cylinderGeometry args={[STOOL_R * 0.9, STOOL_R * 0.9, 0.06, 20]} />
                     <meshStandardMaterial color="#2a2a2a" metalness={0.5} roughness={0.5} />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'darts-board') {
+              const r = (f.meta.radius as number) ?? DARTS_R;
+              return (
+                <group rotation={[0, 0, Math.PI / 2]}>
+                  {/* Backing board */}
+                  <mesh castShadow>
+                    <cylinderGeometry args={[r + 0.08, r + 0.08, 0.06, 28]} />
+                    <meshStandardMaterial color="#1d1206" roughness={0.8} />
+                  </mesh>
+                  {/* Playing face */}
+                  <mesh position={[0, 0.04, 0]}>
+                    <cylinderGeometry args={[r, r, 0.02, 28]} />
+                    <meshStandardMaterial color="#e8e0cc" roughness={0.6} />
+                  </mesh>
+                  {/* Outer ring */}
+                  <mesh position={[0, 0.05, 0]}>
+                    <torusGeometry args={[r * 0.72, 0.025, 8, 32]} />
+                    <meshStandardMaterial color="#8b1a1a" roughness={0.5} />
+                  </mesh>
+                  {/* Bull */}
+                  <mesh position={[0, 0.06, 0]}>
+                    <cylinderGeometry args={[r * 0.09, r * 0.09, 0.02, 16]} />
+                    <meshStandardMaterial
+                      color="#c62828"
+                      emissive="#c62828"
+                      emissiveIntensity={0.5}
+                      roughness={0.4}
+                    />
+                  </mesh>
+                </group>
+              );
+            }
+            if (f.kind === 'card-table') {
+              const r = (f.meta.radius as number) ?? CARD_TABLE_R;
+              return (
+                <group>
+                  <mesh position={[0, -0.05, 0]} castShadow>
+                    <cylinderGeometry args={[0.12, 0.2, CARD_TABLE_H - 0.1, 12]} />
+                    <meshStandardMaterial color="#2a2a2a" metalness={0.4} roughness={0.5} />
+                  </mesh>
+                  <mesh position={[0, CARD_TABLE_H / 2 - 0.04, 0]} castShadow receiveShadow>
+                    <cylinderGeometry args={[r, r, 0.09, 28]} />
+                    <meshStandardMaterial color="#14532d" roughness={0.9} />
+                  </mesh>
+                  <mesh position={[0, CARD_TABLE_H / 2 - 0.02, 0]}>
+                    <torusGeometry args={[r * 0.98, 0.05, 8, 36]} />
+                    <meshStandardMaterial color={COUNTER_COLOR} roughness={0.5} />
                   </mesh>
                 </group>
               );
