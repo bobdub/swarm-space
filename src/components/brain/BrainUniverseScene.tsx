@@ -257,6 +257,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // glides instead of snapping the whole world.
   const boomBlend = useRef(0);
   const pitchTarget = useRef(0);
+  // Seated eye offset, eased so sitting/standing glides.
+  const seatLift = useRef(0);
+  const prevSeatNonce = useRef(0);
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
