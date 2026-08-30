@@ -235,8 +235,9 @@ export function SurfaceBar({
       rightOffset: -HALF_W + WALL_T / 2 + 0.06,
       forwardOffset: -3,
       upOffset: DARTS_H,
-      basin: 0.15,
+      basin: 0,
       mass: 3,
+
       meta: { radius: DARTS_R },
     });
     // Card table in the same nook — meshes now, Hold'em later.
@@ -528,8 +529,12 @@ export function SurfaceBar({
             }
             if (f.kind === 'darts-board') {
               const r = (f.meta.radius as number) ?? DARTS_R;
+              // Cylinder axis runs along local +Y; rotating -90° about Z
+              // points that axis INTO the room (world +right from the west
+              // wall), so the playing face and its rings sit proud of the
+              // backing board instead of buried inside the wall.
               return (
-                <group rotation={[0, 0, Math.PI / 2]}>
+                <group rotation={[0, 0, -Math.PI / 2]}>
                   {/* Backing board */}
                   <mesh castShadow>
                     <cylinderGeometry args={[r + 0.08, r + 0.08, 0.06, 28]} />
@@ -537,17 +542,38 @@ export function SurfaceBar({
                   </mesh>
                   {/* Playing face */}
                   <mesh position={[0, 0.04, 0]}>
-                    <cylinderGeometry args={[r, r, 0.02, 28]} />
+                    <cylinderGeometry args={[r, r, 0.02, 32]} />
                     <meshStandardMaterial color="#e8e0cc" roughness={0.6} />
                   </mesh>
-                  {/* Outer ring */}
-                  <mesh position={[0, 0.05, 0]}>
-                    <torusGeometry args={[r * 0.72, 0.025, 8, 32]} />
+                  {/* Alternating scoring wedges */}
+                  {Array.from({ length: 10 }).map((_, i) => (
+                    <mesh
+                      key={`wedge-${i}`}
+                      position={[0, 0.052, 0]}
+                      rotation={[0, (Math.PI / 10) * i * 2, 0]}
+                    >
+                      <cylinderGeometry
+                        args={[r * 0.94, r * 0.94, 0.004, 24, 1, false, 0, Math.PI / 10]}
+                      />
+                      <meshStandardMaterial color="#141414" roughness={0.8} />
+                    </mesh>
+                  ))}
+                  {/* Treble + double rings — laid flat in the board plane */}
+                  <mesh position={[0, 0.056, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <torusGeometry args={[r * 0.55, 0.02, 8, 40]} />
                     <meshStandardMaterial color="#8b1a1a" roughness={0.5} />
                   </mesh>
-                  {/* Bull */}
-                  <mesh position={[0, 0.06, 0]}>
-                    <cylinderGeometry args={[r * 0.09, r * 0.09, 0.02, 16]} />
+                  <mesh position={[0, 0.056, 0]} rotation={[Math.PI / 2, 0, 0]}>
+                    <torusGeometry args={[r * 0.9, 0.02, 8, 40]} />
+                    <meshStandardMaterial color="#1f7a3a" roughness={0.5} />
+                  </mesh>
+                  {/* Outer bull + bull */}
+                  <mesh position={[0, 0.058, 0]}>
+                    <cylinderGeometry args={[r * 0.16, r * 0.16, 0.006, 20]} />
+                    <meshStandardMaterial color="#1f7a3a" roughness={0.5} />
+                  </mesh>
+                  <mesh position={[0, 0.062, 0]}>
+                    <cylinderGeometry args={[r * 0.07, r * 0.07, 0.008, 16]} />
                     <meshStandardMaterial
                       color="#c62828"
                       emissive="#c62828"
@@ -566,17 +592,36 @@ export function SurfaceBar({
                     <cylinderGeometry args={[0.12, 0.2, CARD_TABLE_H - 0.1, 12]} />
                     <meshStandardMaterial color="#2a2a2a" metalness={0.4} roughness={0.5} />
                   </mesh>
+                  {/* Felt top */}
                   <mesh position={[0, CARD_TABLE_H / 2 - 0.04, 0]} castShadow receiveShadow>
-                    <cylinderGeometry args={[r, r, 0.09, 28]} />
-                    <meshStandardMaterial color="#14532d" roughness={0.9} />
+                    <cylinderGeometry args={[r, r, 0.09, 32]} />
+                    <meshStandardMaterial color="#14532d" roughness={0.95} />
                   </mesh>
-                  <mesh position={[0, CARD_TABLE_H / 2 - 0.02, 0]}>
-                    <torusGeometry args={[r * 0.98, 0.05, 8, 36]} />
-                    <meshStandardMaterial color={COUNTER_COLOR} roughness={0.5} />
+                  {/* Padded rail — a flat ring around the rim, not a hoop */}
+                  <mesh
+                    position={[0, CARD_TABLE_H / 2 + 0.012, 0]}
+                    rotation={[Math.PI / 2, 0, 0]}
+                  >
+                    <torusGeometry args={[r * 0.94, 0.045, 8, 40]} />
+                    <meshStandardMaterial color={COUNTER_COLOR} roughness={0.6} />
                   </mesh>
+                  {/* Four card spots so the surface reads as a table */}
+                  {Array.from({ length: 4 }).map((_, i) => {
+                    const a = (Math.PI / 2) * i + Math.PI / 4;
+                    return (
+                      <mesh
+                        key={`spot-${i}`}
+                        position={[Math.cos(a) * r * 0.55, CARD_TABLE_H / 2 + 0.008, Math.sin(a) * r * 0.55]}
+                      >
+                        <cylinderGeometry args={[0.11, 0.11, 0.004, 16]} />
+                        <meshStandardMaterial color="#0f3d22" roughness={0.9} />
+                      </mesh>
+                    );
+                  })}
                 </group>
               );
             }
+
             if (f.kind === 'bar-table') {
               return (
                 <group>

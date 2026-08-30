@@ -485,11 +485,21 @@ export class UqrcPhysics {
   ): { cells: number[] } {
     const N = this.field.N;
     const cellsPerUnit = N / WORLD_SIZE;
+    // A lattice cell is ~531 m across. Writing a full-depth bowl for a
+    // 1 m stool therefore carved a half-kilometre defect that snapped a
+    // whole cell sideways whenever Earth's orbit crossed a cell border —
+    // which is exactly the "ground jerks every few paces" the player
+    // feels. Scale the defect by how much of a cell the object really
+    // occupies, and write nothing at all when that is negligible.
+    const coverage = Math.min(1, Math.max(0, radiusM) * cellsPerUnit);
+    const effDepth = depth * coverage;
+    if (effDepth < 1e-3) return { cells: [] };
     const stampCells = Math.max(1, Math.ceil(radiusM * cellsPerUnit));
     const ci = Math.round(worldToLattice(world[0], N));
     const cj = Math.round(worldToLattice(world[1], N));
     const ck = Math.round(worldToLattice(world[2], N));
     const written: number[] = [];
+
     for (let dk = -stampCells; dk <= stampCells; dk++) {
       for (let dj = -stampCells; dj <= stampCells; dj++) {
         for (let di = -stampCells; di <= stampCells; di++) {
@@ -498,7 +508,7 @@ export class UqrcPhysics {
           const u = Math.min(1, dCells / Math.max(1e-6, stampCells));
           // Hermite bowl — deepest at the centre, flush at the rim.
           const fall = 1 - u * u * (3 - 2 * u);
-          const cellDepth = -depth * fall;
+          const cellDepth = -effDepth * fall;
           const flat = idx3(ci + di, cj + dj, ck + dk, N);
           for (let a = 0; a < FIELD3D_AXES; a++) {
             // Bias along the radial axis component for axis 0/1/2.

@@ -9,7 +9,9 @@
  */
 
 import { getBuilderBlockEngine, blockWorldPos } from '@/lib/brain/builderBlockEngine';
+import { getEarthPose } from '@/lib/brain/earth';
 import { findBarInteractionByTag, INTERACT_RADIUS_M, type BarInteraction } from './barInteractions';
+
 
 export interface PubAnchor {
   /** Unique key for this anchor instance. */
@@ -46,6 +48,13 @@ export interface NearbyAnchor {
 export function findNearbyAnchor(pos: [number, number, number] | null): NearbyAnchor | null {
   if (!pos) return null;
   const engine = getBuilderBlockEngine();
+  const pose = getEarthPose();
+  // Local "up" so a wall-mounted dartboard is judged by how close you
+  // stand to the wall, not by the 1.7 m it hangs above your feet.
+  const ux = pos[0] - pose.center[0];
+  const uy = pos[1] - pose.center[1];
+  const uz = pos[2] - pose.center[2];
+  const ulen = Math.hypot(ux, uy, uz) || 1;
   let best: NearbyAnchor | null = null;
   for (const anchor of anchors.values()) {
     const interaction = findBarInteractionByTag(anchor.tag);
@@ -53,10 +62,15 @@ export function findNearbyAnchor(pos: [number, number, number] | null): NearbyAn
     const block = engine.getBlock(anchor.bodyId);
     if (!block) continue;
     const wp = blockWorldPos(block);
-    const d = Math.hypot(wp[0] - pos[0], wp[1] - pos[1], wp[2] - pos[2]);
+    const dx = wp[0] - pos[0];
+    const dy = wp[1] - pos[1];
+    const dz = wp[2] - pos[2];
+    const vert = (dx * ux + dy * uy + dz * uz) / ulen;
+    const horiz = Math.max(0, Math.hypot(dx, dy, dz) ** 2 - vert * vert) ** 0.5;
     const radius = interaction.radiusM || INTERACT_RADIUS_M;
-    if (d > radius) continue;
-    if (!best || d < best.distance) best = { anchor, interaction, distance: d };
+    if (horiz > radius || Math.abs(vert) > 3) continue;
+    if (!best || horiz < best.distance) best = { anchor, interaction, distance: horiz };
   }
   return best;
 }
+
