@@ -9,7 +9,9 @@
  */
 
 import { getBuilderBlockEngine, blockWorldPos } from '@/lib/brain/builderBlockEngine';
+import { getEarthPose } from '@/lib/brain/earth';
 import { findBarInteractionByTag, INTERACT_RADIUS_M, type BarInteraction } from './barInteractions';
+
 
 export interface PubAnchor {
   /** Unique key for this anchor instance. */
