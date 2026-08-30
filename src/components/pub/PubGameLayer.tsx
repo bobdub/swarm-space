@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
-import { standUp } from '@/lib/pub/seatStore';
+import { leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 
 export function PubGameLayer({
@@ -39,7 +39,7 @@ export function PubGameLayer({
   const close = useCallback(() => {
     setOpenTableId((prev) => {
       if (prev) leaveTable(prev, selfId);
-      standUp();
+      leaveSeat();
       return null;
     });
   }, [selfId]);
@@ -85,7 +85,7 @@ export function PubGameLayer({
       )}
 
       {openTableId && (
-        <div className="pointer-events-none fixed bottom-24 right-3 z-50 flex justify-end">
+        <div className="pointer-events-none fixed right-3 top-20 z-[60] flex justify-end">
           {openTableId.startsWith('pub:cards:') ? (
             <CardTablePanel
               tableId={openTableId}
