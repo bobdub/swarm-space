@@ -36,6 +36,12 @@ export interface PubTable {
   seats: PubSeat[];
   /** Optional agreed SWARM stake per seat. 0 = free play (the default). */
   stake: number;
+  /** Seats that ticked "agree" on the current stake. */
+  agreed: string[];
+  /** Seats whose buy-in has actually landed in the table escrow. */
+  funded: string[];
+  /** Set once the pot has been paid out for the current leg. */
+  settled: boolean;
   /** Monotonic revision — stale/duplicate mesh frames are dropped. */
   seq: number;
   updatedAt: number;
@@ -43,6 +49,7 @@ export interface PubTable {
 }
 
 export type PubIntent = { tableId: string } & DartsIntent;
+
 
 const tables = new Map<string, PubTable>();
 const listeners = new Set<() => void>();
