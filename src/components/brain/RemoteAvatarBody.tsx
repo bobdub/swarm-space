@@ -85,18 +85,24 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
       const len = Math.hypot(local[0], local[1], local[2]) || 1;
       const n: [number, number, number] = [local[0] / len, local[1] / len, local[2] / len];
       const lift = sampleSurfaceLift(n);
-      const r = EARTH_RADIUS + lift + HUMAN_HEIGHT / 2;
       // Convert back to world: lift is in local frame; multiply by
       // current direction-from-centre (in world).
       const wx = position[0] - pose.center[0];
       const wy = position[1] - pose.center[1];
       const wz = position[2] - pose.center[2];
       const wLen = Math.hypot(wx, wy, wz) || 1;
+      // Height the peer actually broadcast above the analytic shell. A
+      // peer sitting on a stool (or standing on a raised floor) is above
+      // HUMAN_HEIGHT/2 — flattening them to the ground made seated
+      // players look like they were standing beside the table.
+      const broadcastHeight = wLen - EARTH_RADIUS;
+      const r = EARTH_RADIUS + lift + Math.max(HUMAN_HEIGHT / 2, broadcastHeight);
       targetPos.current.set(
         pose.center[0] + (wx / wLen) * r,
         pose.center[1] + (wy / wLen) * r,
         pose.center[2] + (wz / wLen) * r,
       );
+
     }
     const { up } = getSurfaceFrame(
       [targetPos.current.x, targetPos.current.y, targetPos.current.z],
