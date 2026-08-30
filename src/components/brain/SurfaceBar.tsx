@@ -421,7 +421,10 @@ export function SurfaceBar({
             return (
               <mesh position={[0, 0, 0]} castShadow receiveShadow>
                 <boxGeometry args={[dimX, WALL_H, dimZ]} />
-                <meshStandardMaterial color={STONE} roughness={0.85} />
+                {/* DoubleSide: the follow camera can dip inside the wall
+                    volume; with FrontSide the faces are culled from within
+                    and you see straight through the bar. */}
+                <meshStandardMaterial color={STONE} roughness={0.85} side={THREE.DoubleSide} />
               </mesh>
             );
           }}
@@ -433,7 +436,7 @@ export function SurfaceBar({
             {/* Flat roof slab */}
             <mesh position={[0, 0, 0]} castShadow receiveShadow>
               <boxGeometry args={[HALF_W * 2 + WALL_T, 0.3, HALF_D * 2 + WALL_T]} />
-              <meshStandardMaterial color={ROOF_COLOR} roughness={0.7} />
+              <meshStandardMaterial color={ROOF_COLOR} roughness={0.7} side={THREE.DoubleSide} />
             </mesh>
             {/* Doorway lintel — visual cap above the open south doorway. */}
             <mesh
@@ -441,7 +444,7 @@ export function SurfaceBar({
               castShadow
             >
               <boxGeometry args={[DOOR_HALF * 2 + 0.2, 0.6, WALL_T]} />
-              <meshStandardMaterial color={WOOD} roughness={0.8} />
+              <meshStandardMaterial color={WOOD} roughness={0.8} side={THREE.DoubleSide} />
             </mesh>
 
             {/* Ceiling lights — disc fixtures hanging just below the roof slab. */}
