@@ -30,6 +30,17 @@ import {
   getBarLightsSnapshot,
 } from '@/lib/brain/barLightsStore';
 
+import {
+  attachPubTableGossip,
+  attachPubIntentGossip,
+  acceptPeerTable,
+  acceptPeerIntent,
+  buildPubTableSnapshot,
+  mergePubTableSnapshot,
+  type PubTable,
+  type PubIntent,
+} from '@/lib/pub/gameTableStore';
+
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
 const TOOL_CHANNEL = 'tools:forged';
@@ -38,6 +49,10 @@ const SYNC_RESPONSE_CHANNEL = 'world:placements:sync-response';
 const BARLIGHTS_CHANNEL = 'brain:barlights';
 const BARLIGHTS_SYNC_REQUEST = 'brain:barlights:sync-request';
 const BARLIGHTS_SYNC_RESPONSE = 'brain:barlights:sync-response';
+const PUBTABLE_CHANNEL = 'pub:table';
+const PUBTABLE_INTENT_CHANNEL = 'pub:table:intent';
+const PUBTABLE_SYNC_REQUEST = 'pub:table:sync-request';
+const PUBTABLE_SYNC_RESPONSE = 'pub:table:sync-response';
 /** How often we look for peers we haven't backfilled from yet. */
 const PEER_POLL_MS = 10_000;
 
@@ -100,6 +115,14 @@ export function bootPlacementGossipBridge(): void {
       try { mesh!.broadcast(BARLIGHTS_CHANNEL, snap); } catch { /* noop */ }
     });
 
+    // Pub game tables — LWW table snapshots + host-routed move intents.
+    attachPubTableGossip((rec: PubTable) => {
+      try { mesh!.broadcast(PUBTABLE_CHANNEL, rec); } catch { /* noop */ }
+    });
+    attachPubIntentGossip((intent: PubIntent) => {
+      try { mesh!.broadcast(PUBTABLE_INTENT_CHANNEL, intent); } catch { /* noop */ }
+    });
+
     // Inbound — funnel peer records through the same accept-plug points
     // the BroadcastChannel cross-tab path uses, so the local-protect
     // guard and BuilderBlockEngine replay logic still apply.
@@ -147,6 +170,25 @@ export function bootPlacementGossipBridge(): void {
       try { acceptPeerBarLights(payload); } catch { /* noop */ }
     });
 
+    // ── Pub tables: live gossip + newcomer backfill ────────────────
+    mesh.onMessage(PUBTABLE_CHANNEL, (_peerId, payload) => {
+      try { acceptPeerTable(payload); } catch { /* noop */ }
+    });
+    mesh.onMessage(PUBTABLE_INTENT_CHANNEL, (_peerId, payload) => {
+      // Ignored unless we host the named table.
+      try { acceptPeerIntent(payload); } catch { /* noop */ }
+    });
+    mesh.onMessage(PUBTABLE_SYNC_REQUEST, (peerId) => {
+      try {
+        const snap = buildPubTableSnapshot();
+        if (snap.length === 0) return;
+        void mesh!.send(PUBTABLE_SYNC_RESPONSE, peerId, snap);
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(PUBTABLE_SYNC_RESPONSE, (_peerId, payload) => {
+      try { mergePubTableSnapshot(payload); } catch { /* noop */ }
+    });
+
     // ── Backfill: main-Brain lobby placements only ──────────────────
     mesh.onMessage(SYNC_REQUEST_CHANNEL, (peerId) => {
       try {
@@ -187,12 +229,13 @@ export function bootPlacementGossipBridge(): void {
           asked.add(id);
           void mesh!.send(SYNC_REQUEST_CHANNEL, id, {});
           void mesh!.send(BARLIGHTS_SYNC_REQUEST, id, {});
+          void mesh!.send(PUBTABLE_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
     pollPeers();
     setInterval(pollPeers, PEER_POLL_MS);
 
-    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools)');
+    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables)');
   })();
 }
