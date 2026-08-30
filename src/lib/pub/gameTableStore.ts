@@ -160,14 +160,73 @@ export function leaveTable(tableId: string, peerId: string): void {
   mutateLocal(tableId, 'darts', (t) => {
     if (!t.seats.some((s) => s.peerId === peerId)) return null;
     const seats = t.seats.filter((s) => s.peerId !== peerId);
-    return { ...t, seats, state: syncDartsSeats(t.state, seats.map((s) => s.peerId)) };
+    return {
+      ...t,
+      seats,
+      agreed: t.agreed.filter((id) => id !== peerId),
+      funded: t.funded.filter((id) => id !== peerId),
+      state: syncDartsSeats(t.state, seats.map((s) => s.peerId)),
+    };
   });
 }
 
+/**
+ * Change the agreed stake. Any change invalidates every agreement — no
+ * one is ever pulled into a bigger bet than the one they ticked.
+ */
 export function setTableStake(tableId: string, stake: number): void {
   const clean = Number.isFinite(stake) && stake > 0 ? Math.floor(stake) : 0;
-  mutateLocal(tableId, 'darts', (t) => (t.stake === clean ? null : { ...t, stake: clean }));
+  mutateLocal(tableId, 'darts', (t) =>
+    t.stake === clean ? null : { ...t, stake: clean, agreed: [], funded: [], settled: false });
 }
+
+/** Tick / untick "I agree to this stake" for one seat. */
+export function setSeatAgreement(tableId: string, peerId: string, agreed: boolean): void {
+  mutateLocal(tableId, 'darts', (t) => {
+    const has = t.agreed.includes(peerId);
+    if (has === agreed) return null;
+    return {
+      ...t,
+      agreed: agreed ? [...t.agreed, peerId] : t.agreed.filter((id) => id !== peerId),
+    };
+  });
+}
+
+/** Record that a seat's buy-in has landed in escrow. */
+export function markSeatFunded(tableId: string, peerId: string): void {
+  mutateLocal(tableId, 'darts', (t) =>
+    t.funded.includes(peerId) ? null : { ...t, funded: [...t.funded, peerId] });
+}
+
+/** Host stamps the table settled so the pot is only ever paid once. */
+export function markTableSettled(tableId: string): void {
+  mutateLocal(tableId, 'darts', (t) => (t.settled ? null : { ...t, settled: true }));
+}
+
+/** Every seated player agreed to the current stake. */
+export function allSeatsAgreed(table: PubTable): boolean {
+  return table.seats.length > 0 && table.seats.every((s) => table.agreed.includes(s.peerId));
+}
+
+/** Every seated player has money in escrow — the leg can pay out. */
+export function allSeatsFunded(table: PubTable): boolean {
+  return table.seats.length > 0 && table.seats.every((s) => table.funded.includes(s.peerId));
+}
+
+/** Total SWARM sitting in this table's escrow. */
+export function tablePot(table: PubTable): number {
+  return table.stake > 0 ? table.stake * table.funded.length : 0;
+}
+
+/**
+ * Staked tables are locked until everyone agrees and pays. Free play
+ * (stake 0) is always ready — that rule never bends.
+ */
+export function tableReadyToPlay(table: PubTable): boolean {
+  if (table.stake <= 0) return true;
+  return allSeatsAgreed(table) && allSeatsFunded(table);
+}
+
 
 /**
  * Submit a game move. Host applies it immediately; everyone else relays
