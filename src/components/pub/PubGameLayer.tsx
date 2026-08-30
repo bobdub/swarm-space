@@ -39,6 +39,7 @@ export function PubGameLayer({
   const close = useCallback(() => {
     setOpenTableId((prev) => {
       if (prev) leaveTable(prev, selfId);
+      standUp();
       return null;
     });
   }, [selfId]);
