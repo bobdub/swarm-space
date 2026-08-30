@@ -68,13 +68,14 @@ export function syncDartsSeats(state: DartsState, seatIds: string[]): DartsState
  */
 export function resolveThrow(accuracy: number, roll: number): { points: number; label: string } {
   const a = Math.max(0, Math.min(1, Number.isFinite(accuracy) ? accuracy : 0));
-  if (a >= 0.97) return { points: 50, label: 'BULL' };
-  if (a >= 0.92) return { points: 25, label: '25' };
+  // Forgiving bands — the meter is hand-timed, so near-centre should pay.
+  if (a >= 0.93) return { points: 50, label: 'BULL' };
+  if (a >= 0.86) return { points: 25, label: '25' };
   const idx = Math.floor(Math.max(0, Math.min(0.999999, roll)) * SECTORS.length);
   const sector = SECTORS[idx];
-  if (a >= 0.82) return { points: sector * 3, label: `T${sector}` };
-  if (a >= 0.62) return { points: sector * 2, label: `D${sector}` };
-  if (a >= 0.25) return { points: sector, label: `${sector}` };
+  if (a >= 0.74) return { points: sector * 3, label: `T${sector}` };
+  if (a >= 0.54) return { points: sector * 2, label: `D${sector}` };
+  if (a >= 0.18) return { points: sector, label: `${sector}` };
   return { points: 0, label: 'MISS' };
 }
 
