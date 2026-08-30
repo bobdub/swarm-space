@@ -816,6 +816,27 @@ export class UqrcPhysics {
           fz += radialAcc * dzC * invR * mass;
         }
 
+        // A surface avatar with no player input is a stationary observer.
+        // The evolving UQRC field can contain tiny tangential gradients near
+        // furniture and other bodies; integrating those gradients made idle
+        // players pace back and forth and eventually leave pub interactions.
+        // Keep the radial component so terrain support still works, but do
+        // not let the field invent horizontal movement for a player.
+        if (isSurfaceHumanoid && insideShell && intentMag < 0.05 && rEarth > 1e-6) {
+          const ux = dxC / rEarth;
+          const uy = dyC / rEarth;
+          const uz = dzC / rEarth;
+          const radialForce = fx * ux + fy * uy + fz * uz;
+          fx = radialForce * ux;
+          fy = radialForce * uy;
+          fz = radialForce * uz;
+
+          const radialVelocity = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+          b.vel[0] = radialVelocity * ux;
+          b.vel[1] = radialVelocity * uy;
+          b.vel[2] = radialVelocity * uz;
+        }
+
         const ax = fx / mass;
         const ay = fy / mass;
         const az = fz / mass;

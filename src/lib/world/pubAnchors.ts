@@ -45,7 +45,10 @@ export interface NearbyAnchor {
  * Closest anchor to `pos` that is inside its own activation radius and
  * whose interaction has graduated from `planned`.
  */
-export function findNearbyAnchor(pos: [number, number, number] | null): NearbyAnchor | null {
+export function findNearbyAnchor(
+  pos: [number, number, number] | null,
+  tableId?: string | null,
+): NearbyAnchor | null {
   if (!pos) return null;
   const engine = getBuilderBlockEngine();
   const pose = getEarthPose();
@@ -57,6 +60,10 @@ export function findNearbyAnchor(pos: [number, number, number] | null): NearbyAn
   const ulen = Math.hypot(ux, uy, uz) || 1;
   let best: NearbyAnchor | null = null;
   for (const anchor of anchors.values()) {
+    // Once a game is open, measure against that game's own anchor rather
+    // than whichever nearby furniture happens to be closest. Otherwise a
+    // card table beside the dartboard can falsely look like walking away.
+    if (tableId && anchor.tableId !== tableId) continue;
     const interaction = findBarInteractionByTag(anchor.tag);
     if (!interaction || interaction.status === 'planned') continue;
     const block = engine.getBlock(anchor.bodyId);

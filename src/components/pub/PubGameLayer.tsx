@@ -11,7 +11,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
-import { leaveSeat } from '@/lib/pub/seating';
+import { isSeated, leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 
 export function PubGameLayer({
@@ -23,8 +23,10 @@ export function PubGameLayer({
   username: string;
   mobile?: boolean;
 }) {
-  const near = useNearbyInteractable(selfId);
   const [openTableId, setOpenTableId] = useState<string | null>(null);
+  // While playing, stay locked to the active game's anchor instead of
+  // allowing neighbouring furniture to replace the proximity result.
+  const near = useNearbyInteractable(selfId, openTableId);
 
   const nearTableId = near?.anchor.tableId ?? null;
 
@@ -44,10 +46,15 @@ export function PubGameLayer({
     });
   }, [selfId]);
 
-  // Walking away closes the panel and frees the seat — no stuck tables.
+  // Deliberately walking away closes the panel and frees the seat. Idle
+  // physics drift can no longer switch this check to a neighbouring game.
   useEffect(() => {
     if (!openTableId) return;
     if (nearTableId === openTableId) return;
+    // A pinned stool is stronger evidence than a sampled proximity result.
+    // The next proximity update after deliberate movement sees the released
+    // seat and starts the normal walk-away grace period.
+    if (isSeated()) return;
     const timer = window.setTimeout(() => close(), 10_000);
     return () => window.clearTimeout(timer);
   }, [openTableId, nearTableId, close]);

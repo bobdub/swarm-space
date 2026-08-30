@@ -71,4 +71,46 @@ describe('uqrcPhysics co-rotating transport', () => {
 
     expect(finalR).toBeGreaterThan(below);
   });
+
+  it('does not move an idle surface avatar sideways without player intent', () => {
+    const physics = new UqrcPhysics();
+    const pose = getEarthPose();
+    const start = spawnOnEarth('idle-player', pose);
+    const startLocal = quatRotate(pose.invSpinQuat, [
+      start[0] - pose.center[0],
+      start[1] - pose.center[1],
+      start[2] - pose.center[2],
+    ]);
+
+    physics.addBody({
+      id: 'idle-player',
+      kind: 'self',
+      pos: [...start],
+      vel: [0, 0, 0],
+      mass: 1.8,
+      trust: 1,
+      meta: { attachedTo: 'earth-surface' },
+    });
+    physics.setIntent('idle-player', { fwd: 0, right: 0, yaw: 0 });
+
+    for (let i = 0; i < 120; i++) {
+      (physics as unknown as { tick(): void }).tick();
+    }
+
+    const body = physics.getBody('idle-player');
+    expect(body).toBeTruthy();
+    if (!body) return;
+    const endLocal = quatRotate(getEarthPose().invSpinQuat, [
+      body.pos[0] - getEarthPose().center[0],
+      body.pos[1] - getEarthPose().center[1],
+      body.pos[2] - getEarthPose().center[2],
+    ]);
+    const startRadius = Math.hypot(startLocal[0], startLocal[1], startLocal[2]);
+    const endRadius = Math.hypot(endLocal[0], endLocal[1], endLocal[2]);
+    const dot = (startLocal[0] * endLocal[0] + startLocal[1] * endLocal[1] + startLocal[2] * endLocal[2])
+      / (startRadius * endRadius);
+    const angularDrift = Math.acos(Math.max(-1, Math.min(1, dot)));
+
+    expect(angularDrift * endRadius).toBeLessThan(0.01);
+  });
 });
