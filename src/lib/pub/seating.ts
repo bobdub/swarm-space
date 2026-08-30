@@ -29,6 +29,32 @@ export function teleportBody(id: string, world: [number, number, number]): boole
 }
 
 /**
+ * While seated the body is PINNED to the stool every frame. Without the
+ * pin the support basin and residual velocity slide the avatar off the
+ * stool within a second or two, dropping the view under the tabletop.
+ * Any movement intent releases the pin so the player can just walk away.
+ */
+let pin: { tableId: string; index: number; selfId: string } | null = null;
+let raf = 0;
+
+function pinLoop() {
+  raf = 0;
+  if (!pin) return;
+  const physics = getBrainPhysics();
+  const intent = physics.getIntent(pin.selfId);
+  if (intent && (Math.abs(intent.fwd) > 0.05 || Math.abs(intent.right) > 0.05)) {
+    leaveSeat();
+    return;
+  }
+  const target = pubSeatWorldPos(pin.tableId, pin.index);
+  if (target) {
+    teleportBody(pin.selfId, target);
+    physics.setIntent(pin.selfId, { fwd: 0, right: 0, yaw: intent?.yaw ?? 0, basis: intent?.basis });
+  }
+  raf = requestAnimationFrame(pinLoop);
+}
+
+/**
  * Move the local avatar onto the stool for `index` at `tableId` and
  * apply the seated camera pose. Falls back to the camera-only lift when
  * no stool is registered yet.
@@ -38,9 +64,20 @@ export function takeSeatAt(tableId: string, index: number, selfId: string): bool
   let placed = false;
   if (target && selfId) placed = teleportBody(selfId, target);
   sitDown(0.45, -0.35);
+  if (placed) {
+    pin = { tableId, index, selfId };
+    if (!raf && typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(pinLoop);
+  }
   return placed;
 }
 
+export function isSeated(): boolean {
+  return pin !== null;
+}
+
 export function leaveSeat(): void {
+  pin = null;
+  if (raf) { cancelAnimationFrame(raf); raf = 0; }
   standUp();
 }
+
