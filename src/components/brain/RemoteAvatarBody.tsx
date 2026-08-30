@@ -95,7 +95,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv }: P
       // peer sitting on a stool (or standing on a raised floor) is above
       // HUMAN_HEIGHT/2 — flattening them to the ground made seated
       // players look like they were standing beside the table.
-      const broadcastHeight = wLen - EARTH_RADIUS;
+      const broadcastHeight = wLen - EARTH_RADIUS - lift;
       const r = EARTH_RADIUS + lift + Math.max(HUMAN_HEIGHT / 2, broadcastHeight);
       targetPos.current.set(
         pose.center[0] + (wx / wLen) * r,
