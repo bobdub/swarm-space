@@ -235,8 +235,9 @@ export function SurfaceBar({
       rightOffset: -HALF_W + WALL_T / 2 + 0.06,
       forwardOffset: -3,
       upOffset: DARTS_H,
-      basin: 0.15,
+      basin: 0,
       mass: 3,
+
       meta: { radius: DARTS_R },
     });
     // Card table in the same nook — meshes now, Hold'em later.
