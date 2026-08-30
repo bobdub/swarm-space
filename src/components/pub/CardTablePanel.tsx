@@ -16,6 +16,7 @@ import {
   usePubTable,
 } from '@/lib/pub/gameTableStore';
 import { takeSeatAt, leaveSeat } from '@/lib/pub/seating';
+import { PubStakePanel } from '@/components/pub/PubStakePanel';
 
 export function CardTablePanel({
   tableId,
