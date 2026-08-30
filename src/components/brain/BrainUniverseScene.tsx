@@ -49,7 +49,6 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
-import { setLocalPeerId } from '@/lib/pub/gameTableStore';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
 import { AssetCaster } from '@/components/world/AssetCaster';
 import { UserPlacementsLayer } from '@/components/world/UserPlacementsLayer';

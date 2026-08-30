@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { DartsPanel } from '@/components/pub/DartsPanel';
-import { leaveTable } from '@/lib/pub/gameTableStore';
+import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 
 export function PubGameLayer({
   selfId,
@@ -25,6 +25,10 @@ export function PubGameLayer({
   const [openTableId, setOpenTableId] = useState<string | null>(null);
 
   const nearTableId = near?.anchor.tableId ?? null;
+
+  // Let the mesh bridge know who we are so peer intents can be routed
+  // to whichever table we happen to be hosting.
+  useEffect(() => { setLocalPeerId(selfId); }, [selfId]);
 
   const open = useCallback(() => {
     if (nearTableId) setOpenTableId(nearTableId);
