@@ -284,6 +284,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       // Ease toward a steep downward tilt on entering top view, level on exit.
       pitchTarget.current = topView ? -1.0 : 0;
     }
+    // Sitting down at pub furniture nudges the view onto the tabletop.
+    const seat = getSeatPose();
+    if (seat.nonce !== prevSeatNonce.current) {
+      prevSeatNonce.current = seat.nonce;
+      if (!topView) pitchTarget.current = seat.pitch ?? 0;
+    }
+    seatLift.current += (seat.lift - seatLift.current) * 0.12;
     // Glide pitch toward the mode target, then let drag deltas adjust it.
     if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
       pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
