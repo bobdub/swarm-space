@@ -11,8 +11,10 @@ import {
   leaveTable,
   submitIntent,
   tableHost,
+  tableReadyToPlay,
   usePubTable,
 } from '@/lib/pub/gameTableStore';
+import { PubStakePanel } from '@/components/pub/PubStakePanel';
 import { activeDartsSeat, DARTS_START_SCORE } from '@/lib/pub/darts';
 
 // One full sweep (left→centre→right→centre→left) — slow enough to time by hand.
@@ -34,7 +36,8 @@ export function DartsPanel({
   const seated = seatIds.includes(selfId);
   const host = tableHost(table);
   const active = activeDartsSeat(table.state, seatIds);
-  const myTurn = seated && active === selfId;
+  const ready = tableReadyToPlay(table);
+  const myTurn = seated && active === selfId && ready;
 
   const [meter, setMeter] = useState(0);
   const rafRef = useRef<number | null>(null);
@@ -193,6 +196,14 @@ export function DartsPanel({
       {!seated && (
         <p className="mt-2 text-[11px] text-muted-foreground">Watching — take a seat to throw.</p>
       )}
+
+      {seated && !ready && (
+        <p className="mt-2 text-[11px] text-amber-300">
+          Stake agreed at {table.stake} SWARM — the leg starts once everyone has agreed and bought in.
+        </p>
+      )}
+
+      <PubStakePanel table={table} selfId={selfId} username={username} />
     </div>
   );
 }

@@ -36,6 +36,12 @@ export interface PubTable {
   seats: PubSeat[];
   /** Optional agreed SWARM stake per seat. 0 = free play (the default). */
   stake: number;
+  /** Seats that ticked "agree" on the current stake. */
+  agreed: string[];
+  /** Seats whose buy-in has actually landed in the table escrow. */
+  funded: string[];
+  /** Set once the pot has been paid out for the current leg. */
+  settled: boolean;
   /** Monotonic revision — stale/duplicate mesh frames are dropped. */
   seq: number;
   updatedAt: number;
@@ -43,6 +49,7 @@ export interface PubTable {
 }
 
 export type PubIntent = { tableId: string } & DartsIntent;
+
 
 const tables = new Map<string, PubTable>();
 const listeners = new Set<() => void>();
@@ -90,11 +97,15 @@ function blankTable(tableId: string, game: PubGameId): PubTable {
     game,
     seats: [],
     stake: 0,
+    agreed: [],
+    funded: [],
+    settled: false,
     seq: 0,
     updatedAt: 0,
     state: createDartsState([]),
   };
 }
+
 
 export function getTable(tableId: string, game: PubGameId = 'darts'): PubTable {
   const found = tables.get(tableId);
@@ -149,14 +160,73 @@ export function leaveTable(tableId: string, peerId: string): void {
   mutateLocal(tableId, 'darts', (t) => {
     if (!t.seats.some((s) => s.peerId === peerId)) return null;
     const seats = t.seats.filter((s) => s.peerId !== peerId);
-    return { ...t, seats, state: syncDartsSeats(t.state, seats.map((s) => s.peerId)) };
+    return {
+      ...t,
+      seats,
+      agreed: t.agreed.filter((id) => id !== peerId),
+      funded: t.funded.filter((id) => id !== peerId),
+      state: syncDartsSeats(t.state, seats.map((s) => s.peerId)),
+    };
   });
 }
 
+/**
+ * Change the agreed stake. Any change invalidates every agreement — no
+ * one is ever pulled into a bigger bet than the one they ticked.
+ */
 export function setTableStake(tableId: string, stake: number): void {
   const clean = Number.isFinite(stake) && stake > 0 ? Math.floor(stake) : 0;
-  mutateLocal(tableId, 'darts', (t) => (t.stake === clean ? null : { ...t, stake: clean }));
+  mutateLocal(tableId, 'darts', (t) =>
+    t.stake === clean ? null : { ...t, stake: clean, agreed: [], funded: [], settled: false });
 }
+
+/** Tick / untick "I agree to this stake" for one seat. */
+export function setSeatAgreement(tableId: string, peerId: string, agreed: boolean): void {
+  mutateLocal(tableId, 'darts', (t) => {
+    const has = t.agreed.includes(peerId);
+    if (has === agreed) return null;
+    return {
+      ...t,
+      agreed: agreed ? [...t.agreed, peerId] : t.agreed.filter((id) => id !== peerId),
+    };
+  });
+}
+
+/** Record that a seat's buy-in has landed in escrow. */
+export function markSeatFunded(tableId: string, peerId: string): void {
+  mutateLocal(tableId, 'darts', (t) =>
+    t.funded.includes(peerId) ? null : { ...t, funded: [...t.funded, peerId] });
+}
+
+/** Host stamps the table settled so the pot is only ever paid once. */
+export function markTableSettled(tableId: string): void {
+  mutateLocal(tableId, 'darts', (t) => (t.settled ? null : { ...t, settled: true }));
+}
+
+/** Every seated player agreed to the current stake. */
+export function allSeatsAgreed(table: PubTable): boolean {
+  return table.seats.length > 0 && table.seats.every((s) => table.agreed.includes(s.peerId));
+}
+
+/** Every seated player has money in escrow — the leg can pay out. */
+export function allSeatsFunded(table: PubTable): boolean {
+  return table.seats.length > 0 && table.seats.every((s) => table.funded.includes(s.peerId));
+}
+
+/** Total SWARM sitting in this table's escrow. */
+export function tablePot(table: PubTable): number {
+  return table.stake > 0 ? table.stake * table.funded.length : 0;
+}
+
+/**
+ * Staked tables are locked until everyone agrees and pays. Free play
+ * (stake 0) is always ready — that rule never bends.
+ */
+export function tableReadyToPlay(table: PubTable): boolean {
+  if (table.stake <= 0) return true;
+  return allSeatsAgreed(table) && allSeatsFunded(table);
+}
+
 
 /**
  * Submit a game move. Host applies it immediately; everyone else relays
@@ -176,8 +246,14 @@ export function submitIntent(tableId: string, selfPeerId: string, intent: DartsI
 /** Host-side reducer run. Also used when a peer intent arrives. */
 export function applyIntentAsHost(tableId: string, intent: DartsIntent): void {
   mutateLocal(tableId, 'darts', (t) => {
+    // A staked table stays frozen until everyone has agreed and paid.
+    if (intent.type !== 'reset' && !tableReadyToPlay(t)) return null;
     const next = applyDartsIntent(t.state, seatIdsOf(t), intent);
     if (next === t.state) return null;
+    if (intent.type === 'reset') {
+      // New leg → fresh escrow round.
+      return { ...t, state: next, funded: [], settled: false };
+    }
     return { ...t, state: next };
   });
 }
@@ -197,10 +273,14 @@ export function acceptPeerTable(payload: unknown): boolean {
     game: (rec.game as PubGameId) ?? 'darts',
     seats: rec.seats as PubSeat[],
     stake: typeof rec.stake === 'number' ? rec.stake : 0,
+    agreed: Array.isArray(rec.agreed) ? (rec.agreed as string[]) : [],
+    funded: Array.isArray(rec.funded) ? (rec.funded as string[]) : [],
+    settled: Boolean(rec.settled),
     seq: rec.seq,
     updatedAt: typeof rec.updatedAt === 'number' ? rec.updatedAt : Date.now(),
     state: (rec.state as DartsState) ?? createDartsState((rec.seats as PubSeat[]).map((s) => s.peerId)),
   });
+
   emit();
   return true;
 }
