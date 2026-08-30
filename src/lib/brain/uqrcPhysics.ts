@@ -41,6 +41,7 @@ import {
   type Field3DSnapshot,
 } from '../uqrc/field3D';
 import {
+  ATMOSPHERE_RADIUS,
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
   getEarthPose,
@@ -162,14 +163,21 @@ const SURFACE_RECOVERY_SPEED_BASE = 32.0;
 export const AVATAR_WALK_SPEED_MPH = 60;
 export const AVATAR_WALK_SPEED_MPS = speedLimitFromMph(AVATAR_WALK_SPEED_MPH);
 const SURFACE_WALK_SPEED = AVATAR_WALK_SPEED_MPS;
-/** Inside this radius around the Earth pose center, bodies integrate in
- *  Earth-local (co-rotating) coords so the surface basin and the avatar
- *  share the same frame — pins survive Earth's rotation. Kept as a function
- *  to avoid reading EARTH_RADIUS during module init inside the earth↔physics
- *  import cycle. */
-function getAtmosphereShell(): number {
-  return EARTH_RADIUS * 1.05;
-}
+/** Non-surface bodies enter the Earth-local frame inside the same atmosphere
+ * radius used by the Earth model. Surface-attached humanoids remain in that
+ * frame unconditionally: attachment is a physical relationship, not a
+ * transient altitude test. */
+function getAtmosphereShell(): number { return ATMOSPHERE_RADIUS; }
+
+type SupportBasinHandle = {
+  id: number;
+  cells: number[];
+};
+
+type SupportContribution = {
+  cells: number[];
+  axes: Map<number, [number, number, number]>;
+};
 
 function worldToLattice(p: number, N: number): number {
   // Centre world (0..WORLD_SIZE) in the torus middle; allow negative wrap.
@@ -250,6 +258,15 @@ export class UqrcPhysics {
    *  fallen through the volcano back to the shared village. Pure callback;
    *  physics only invokes it, the scene supplies the spawn point. */
   private coreRescue: ((id: string) => void) | null = null;
+  /** Builder support is an overlay, never an owner of the shared mantle
+   * template. Keeping it separate prevents one moving pub prop from erasing
+   * Earth or a neighbouring prop when its old stamp is removed. */
+  private supportBasins = new Map<number, SupportContribution>();
+  private supportBase = new Map<number, [number, number, number]>();
+  private nextSupportBasinId = 1;
+  /** Last finite Earth-local state for surface bodies. Used only if a bad
+   * sample produces NaN/Infinity; normal finite motion never reads it. */
+  private stableSurfaceLocal = new Map<string, [number, number, number]>();
 
   /** Register the rescue hook (scene-owned: it knows the village anchor). */
   setCoreRescue(fn: ((id: string) => void) | null): void {
@@ -362,11 +379,24 @@ export class UqrcPhysics {
 
   addBody(b: Body): void {
     this.bodies.set(b.id, b);
+    if (
+      (b.kind === 'self' || b.kind === 'avatar') &&
+      b.meta?.attachedTo === 'earth-surface' &&
+      b.pos.every(Number.isFinite)
+    ) {
+      const pose = getEarthPose();
+      this.stableSurfaceLocal.set(b.id, quatRotate(pose.invSpinQuat, [
+        b.pos[0] - pose.center[0],
+        b.pos[1] - pose.center[1],
+        b.pos[2] - pose.center[2],
+      ]));
+    }
   }
 
   removeBody(id: string): void {
     this.bodies.delete(id);
     this.intent.delete(id);
+    this.stableSurfaceLocal.delete(id);
   }
 
   setIntent(id: string, i: Intent): void {
@@ -482,7 +512,7 @@ export class UqrcPhysics {
     world: [number, number, number],
     radiusM: number,
     depth: number = 0.6,
-  ): { cells: number[] } {
+  ): SupportBasinHandle {
     const N = this.field.N;
     const cellsPerUnit = N / WORLD_SIZE;
     // A lattice cell is ~531 m across. Writing a full-depth bowl for a
@@ -493,12 +523,14 @@ export class UqrcPhysics {
     // occupies, and write nothing at all when that is negligible.
     const coverage = Math.min(1, Math.max(0, radiusM) * cellsPerUnit);
     const effDepth = depth * coverage;
-    if (effDepth < 1e-3) return { cells: [] };
+    const id = this.nextSupportBasinId++;
+    if (effDepth < 1e-3) return { id, cells: [] };
     const stampCells = Math.max(1, Math.ceil(radiusM * cellsPerUnit));
     const ci = Math.round(worldToLattice(world[0], N));
     const cj = Math.round(worldToLattice(world[1], N));
     const ck = Math.round(worldToLattice(world[2], N));
     const written: number[] = [];
+    const axes = new Map<number, [number, number, number]>();
 
     for (let dk = -stampCells; dk <= stampCells; dk++) {
       for (let dj = -stampCells; dj <= stampCells; dj++) {
@@ -510,29 +542,85 @@ export class UqrcPhysics {
           const fall = 1 - u * u * (3 - 2 * u);
           const cellDepth = -effDepth * fall;
           const flat = idx3(ci + di, cj + dj, ck + dk, N);
+          if (!this.supportBase.has(flat)) {
+            this.supportBase.set(flat, [
+              this.field.pinTemplate[0][flat],
+              this.field.pinTemplate[1][flat],
+              this.field.pinTemplate[2][flat],
+            ]);
+          }
+          const contribution: [number, number, number] = [0, 0, 0];
           for (let a = 0; a < FIELD3D_AXES; a++) {
             // Bias along the radial axis component for axis 0/1/2.
             const axisVec = a === 0 ? di : a === 1 ? dj : dk;
             const bias = cellDepth * (dCells > 0 ? axisVec / dCells : 0);
-            writePinTemplate(this.field, a, flat, bias);
+            contribution[a] = bias;
           }
+          axes.set(flat, contribution);
           written.push(flat);
         }
       }
     }
-    return { cells: written };
+    this.supportBasins.set(id, { cells: written, axes });
+    this.composeSupportCells(written);
+    return { id, cells: written };
   }
 
-  /** Clear every cell written by a previous `pinSupportBasin`. */
-  unpinSupportBasin(handle: { cells: number[] } | null | undefined): void {
+  /** Remove one support layer and recompose its cells from the mantle/base
+   * plus every remaining overlapping support. */
+  unpinSupportBasin(handle: SupportBasinHandle | null | undefined): void {
     if (!handle) return;
-    for (const flat of handle.cells) {
+    this.supportBasins.delete(handle.id);
+    this.composeSupportCells(handle.cells);
+    handle.cells.length = 0;
+  }
+
+  private composeSupportCells(cells: Iterable<number>): void {
+    const unique = new Set(cells);
+    for (const flat of unique) {
+      const base = this.supportBase.get(flat) ?? [0, 0, 0];
+      const composed: [number, number, number] = [base[0], base[1], base[2]];
+      let owners = 0;
+      for (const support of this.supportBasins.values()) {
+        const value = support.axes.get(flat);
+        if (!value) continue;
+        owners++;
+        for (let a = 0; a < FIELD3D_AXES; a++) composed[a] += value[a];
+      }
       for (let a = 0; a < FIELD3D_AXES; a++) {
-        this.field.pinTemplate[a][flat] = 0;
-        this.field.pinMask[a][flat] = 0;
+        if (owners > 0 || composed[a] !== 0) {
+          writePinTemplate(this.field, a, flat, composed[a]);
+        } else {
+          this.field.pinTemplate[a][flat] = 0;
+          this.field.pinMask[a][flat] = 0;
+        }
+      }
+      if (owners === 0) this.supportBase.delete(flat);
+    }
+  }
+
+  /** Temporarily expose the underlying template before a structural writer
+   * runs, then capture that writer's result as the new base and reapply all
+   * support overlays. */
+  private refreshStructuralPins(writeStructuralPins: () => void): void {
+    const touched = Array.from(this.supportBase.keys());
+    for (const flat of touched) {
+      const base = this.supportBase.get(flat);
+      if (!base) continue;
+      for (let a = 0; a < FIELD3D_AXES; a++) {
+        this.field.pinTemplate[a][flat] = base[a];
+        this.field.pinMask[a][flat] = base[a] === 0 ? 0 : 1;
       }
     }
-    handle.cells.length = 0;
+    writeStructuralPins();
+    for (const flat of touched) {
+      this.supportBase.set(flat, [
+        this.field.pinTemplate[0][flat],
+        this.field.pinTemplate[1][flat],
+        this.field.pinTemplate[2][flat],
+      ]);
+    }
+    this.composeSupportCells(touched);
   }
 
   /** Pin a portal — negative target creates a basin bodies fall into. */
@@ -573,7 +661,7 @@ export class UqrcPhysics {
     try {
       const pose: EarthPose = getEarthPose();
       const prevPose: EarthPose = this.lastPose ?? pose;
-      updateLavaMantlePin(this.field, pose, Date.now() / 1000);
+      this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, Date.now() / 1000));
 
       // 1. Field evolves
       for (let s = 0; s < FIELD_TICKS_PER_PHYSICS; s++) step3D(this.field);
@@ -625,6 +713,23 @@ export class UqrcPhysics {
       // 3. Integrate body motion from field forces + intent
       for (const b of this.bodies.values()) {
         if (b.kind === 'portal' || b.kind === 'piece') continue;
+        const isSurfaceHumanoid =
+          (b.kind === 'self' || b.kind === 'avatar') &&
+          b.meta?.attachedTo === 'earth-surface';
+        if (isSurfaceHumanoid) {
+          const finite = b.pos.every(Number.isFinite) && b.vel.every(Number.isFinite);
+          if (!finite) {
+            const stable = this.stableSurfaceLocal.get(b.id);
+            if (!stable) continue;
+            const recovered = quatRotate(pose.spinQuat, stable);
+            b.pos = [
+              pose.center[0] + recovered[0],
+              pose.center[1] + recovered[1],
+              pose.center[2] + recovered[2],
+            ];
+            b.vel = [0, 0, 0];
+          }
+        }
         const lx = worldToLattice(b.pos[0], N);
         const ly = worldToLattice(b.pos[1], N);
         const lz = worldToLattice(b.pos[2], N);
@@ -635,9 +740,6 @@ export class UqrcPhysics {
         const intentMag = intent
           ? Math.abs(intent.fwd) + Math.abs(intent.right)
           : 0;
-        const isSurfaceHumanoid =
-          (b.kind === 'self' || b.kind === 'avatar') &&
-          b.meta?.attachedTo === 'earth-surface';
         // Phase 4 fix: never suppress field drift. The lava-mantle pin
         // now places the global basin minimum exactly at r=EARTH_RADIUS,
         // so the gradient at a resting surface body is zero by
@@ -778,7 +880,8 @@ export class UqrcPhysics {
         const dyC = b.pos[1] - pose.center[1];
         const dzC = b.pos[2] - pose.center[2];
         const rEarth = Math.hypot(dxC, dyC, dzC);
-        const insideShell = rEarth <= getAtmosphereShell() && b.kind !== 'infinity';
+        const insideShell = b.kind !== 'infinity' &&
+          (isSurfaceHumanoid || rEarth <= getAtmosphereShell());
         const baseMaxSpeed = MAX_SPEED_BASE / sqrtM;
         const maxSpeed = isSurfaceHumanoid && insideShell
           ? Math.max(baseMaxSpeed, SURFACE_RECOVERY_SPEED_BASE / sqrtM)
@@ -992,6 +1095,13 @@ export class UqrcPhysics {
         } else {
           b.local = [loc[0], loc[1], loc[2]];
           b.prevLocal = [loc[0], loc[1], loc[2]];
+        }
+        if (
+          (b.kind === 'self' || b.kind === 'avatar') &&
+          b.meta?.attachedTo === 'earth-surface' &&
+          loc.every(Number.isFinite)
+        ) {
+          this.stableSurfaceLocal.set(b.id, [loc[0], loc[1], loc[2]]);
         }
       }
 

@@ -52,7 +52,7 @@ export interface BuilderBlock extends Required<Pick<BuilderBlockSpec,
   /** Volumetric support-basin handle, owned by the engine and re-issued
    *  every tick at the live world transform. Replaces the old single-cell
    *  `physics.pinPiece` defect. */
-  support: { cells: number[] };
+  support: { id: number; cells: number[] };
   /** Engine tick counter at last placement / upgrade. */
   placedAt: number;
 }

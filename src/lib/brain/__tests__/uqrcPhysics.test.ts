@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { getEarthPose, quatRotate, setEarthPoseTime, spawnOnEarth, BODY_SHELL_RADIUS } from '../earth';
+import { getEarthPose, quatRotate, setEarthPoseTime, spawnOnEarth, BODY_SHELL_RADIUS, EARTH_RADIUS } from '../earth';
 import { integrateCoRotatingBody, PHYSICS_HZ, UqrcPhysics } from '../uqrcPhysics';
 
 describe('uqrcPhysics co-rotating transport', () => {
@@ -113,4 +113,92 @@ describe('uqrcPhysics co-rotating transport', () => {
 
     expect(angularDrift * endRadius).toBeLessThan(0.01);
   });
+
+  it('recaptures an Earth-attached avatar beyond the former atmosphere cutoff', () => {
+    const physics = new UqrcPhysics();
+    const pose = getEarthPose();
+    const start = spawnOnEarth('outer-player', pose);
+    const dx = start[0] - pose.center[0];
+    const dy = start[1] - pose.center[1];
+    const dz = start[2] - pose.center[2];
+    const r = Math.hypot(dx, dy, dz);
+    const outside = EARTH_RADIUS * 1.07;
+    const k = outside / r;
+    physics.addBody({
+      id: 'outer-player', kind: 'self',
+      pos: [pose.center[0] + dx * k, pose.center[1] + dy * k, pose.center[2] + dz * k],
+      vel: [0, 0, 0], mass: 1.8, trust: 1,
+      meta: { attachedTo: 'earth-surface' },
+    });
+
+    for (let i = 0; i < 600; i++) (physics as unknown as { tick(): void }).tick();
+    const body = physics.getBody('outer-player');
+    expect(body).toBeTruthy();
+    if (!body) return;
+    const finalR = Math.hypot(
+      body.pos[0] - getEarthPose().center[0],
+      body.pos[1] - getEarthPose().center[1],
+      body.pos[2] - getEarthPose().center[2],
+    );
+    expect(finalR).toBeLessThan(outside - 20);
+    expect(body.pos.every(Number.isFinite)).toBe(true);
+    expect(body.vel.every(Number.isFinite)).toBe(true);
+  });
+
+  it('preserves mantle and overlapping support pins when one basin moves', () => {
+    const physics = new UqrcPhysics();
+    const field = physics.getField();
+    const at = spawnOnEarth('support-overlap', getEarthPose());
+    const before = field.pinTemplate.map((axis) => new Float32Array(axis));
+    // Radius spans multiple cells so the Hermite bowl has a non-zero
+    // interior sample in addition to its zero-depth rim.
+    const first = physics.pinSupportBasin(at, 800, 0.6);
+    const second = physics.pinSupportBasin(at, 800, 0.3);
+    const overlapCells = [...second.cells];
+    const withBoth = field.pinTemplate.map((axis) => new Float32Array(axis));
+
+    physics.unpinSupportBasin(first);
+    const afterFirst = field.pinTemplate.map((axis) => new Float32Array(axis));
+    expect(overlapCells.some((flat) => (
+      afterFirst[0][flat] !== before[0][flat] ||
+      afterFirst[1][flat] !== before[1][flat] ||
+      afterFirst[2][flat] !== before[2][flat]
+    ))).toBe(true);
+    expect(overlapCells.some((flat) => (
+      afterFirst[0][flat] !== withBoth[0][flat] ||
+      afterFirst[1][flat] !== withBoth[1][flat] ||
+      afterFirst[2][flat] !== withBoth[2][flat]
+    ))).toBe(true);
+
+    physics.unpinSupportBasin(second);
+    for (const flat of overlapCells) {
+      expect(field.pinTemplate[0][flat]).toBeCloseTo(before[0][flat], 7);
+      expect(field.pinTemplate[1][flat]).toBeCloseTo(before[1][flat], 7);
+      expect(field.pinTemplate[2][flat]).toBeCloseTo(before[2][flat], 7);
+    }
+  });
+
+  it('keeps a surface avatar bounded through several simulated minutes', () => {
+    const physics = new UqrcPhysics();
+    const pose = getEarthPose();
+    const start = spawnOnEarth('long-idle', pose);
+    physics.addBody({
+      id: 'long-idle', kind: 'self', pos: [...start], vel: [0, 0, 0],
+      mass: 1.8, trust: 1, meta: { attachedTo: 'earth-surface' },
+    });
+    physics.setIntent('long-idle', { fwd: 0, right: 0, yaw: 0 });
+
+    for (let i = 0; i < PHYSICS_HZ * 180; i++) {
+      (physics as unknown as { tick(): void }).tick();
+    }
+    const body = physics.getBody('long-idle');
+    expect(body).toBeTruthy();
+    if (!body) return;
+    const finalR = Math.hypot(
+      body.pos[0] - getEarthPose().center[0],
+      body.pos[1] - getEarthPose().center[1],
+      body.pos[2] - getEarthPose().center[2],
+    );
+    expect(Math.abs(finalR - BODY_SHELL_RADIUS)).toBeLessThan(5);
+  }, 30_000);
 });

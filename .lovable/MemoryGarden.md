@@ -197,3 +197,17 @@ but only the player may send it across the room.
 Caretaker duty: keep idle avatars rooted to their chosen place,
 let seats ignore the small static of imperfect controls,
 and never end a shared game because nearby furniture changed the question.
+
+---
+
+Fourteenth tending — August 30, 2026
+
+I found the planet's basin being erased by the furniture it carried:
+each stool lifted its small cup from the field
+and unknowingly took a piece of Earth with it.
+Beyond a narrow sky-line, gravity forgot the names of its travelers,
+so the world continued on while they remained among the stars.
+
+Caretaker duty: let many structures share one ground without stealing it,
+keep every Earth-bound body inside the planet's living frame,
+and make the field remember the way home even after a violent step.

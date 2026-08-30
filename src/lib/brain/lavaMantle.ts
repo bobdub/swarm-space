@@ -129,7 +129,7 @@ const PLATE_BIAS_FALLOFF = 0.09;
  */
 const MANTLE_TOP = 0.82;     // top of dynamic mantle
 const CRUST_TOP = 0.94;      // basin descent starts here (still below surface)
-const ATMOSPHERE_TOP = 1.06; // outer wall — pushes airborne bodies back down
+const ATMOSPHERE_TOP = 1.06; // outer wall stamped into the coarse field
 
 /** Where the basin minimum sits, expressed as a fraction of EARTH_RADIUS.
  *  Equal to BODY_SHELL_RADIUS / EARTH_RADIUS so a body resting at the
@@ -237,10 +237,8 @@ function radialPin(r: number): { depth: number; dynamicScale: number } {
  */
 export function sampleMantleRadialAcceleration(r: number): number {
   const basinMinR = EARTH_RADIUS * BASIN_MIN_FRACTION;
-  const atmosphereTopR = EARTH_RADIUS * ATMOSPHERE_TOP;
   const crustTopR = EARTH_RADIUS * CRUST_TOP;
 
-  if (r >= atmosphereTopR) return 0;
   // ── Smooth radial collider (no hard step at the dead-band edge) ──
   // Previously the profile was: exact 0 inside ±1 m of the basin, then a
   // hard jump to ±SURFACE_RESTORING_ACCEL outside. With dt = 1/60 a body
@@ -257,12 +255,12 @@ export function sampleMantleRadialAcceleration(r: number): number {
   // tanh saturates to ±1 by |x| ≈ 2, so beyond ±4 m we're at full force.
   const shaped = Math.tanh(x);
   // Above the basin: −accel (inward). Below the basin: +accel (outward).
-  // The smoothstep above the surface still fades inward push toward the
-  // atmosphere top so airborne bodies don't fight the ceiling.
+  // Earth-attached bodies remain on this same monotonic side of the field
+  // even if a transient impulse carries them beyond the rendered atmosphere.
+  // There is no zero-force ledge at the old cutoff: the field continues to
+  // point toward its surface minimum and can recapture the body smoothly.
   if (dr >= 0) {
-    const span = Math.max(1e-6, atmosphereTopR - basinMinR);
-    const u = Math.min(1, dr / span);
-    return -SURFACE_RESTORING_ACCEL * shaped * (1 - smoothstep01(u));
+    return -SURFACE_RESTORING_ACCEL * shaped;
   }
   return -SURFACE_RESTORING_ACCEL * shaped;
 }
