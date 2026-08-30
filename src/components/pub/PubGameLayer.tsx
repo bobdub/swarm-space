@@ -10,6 +10,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { DartsPanel } from '@/components/pub/DartsPanel';
+import { CardTablePanel } from '@/components/pub/CardTablePanel';
+import { standUp } from '@/lib/pub/seatStore';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 
 export function PubGameLayer({
