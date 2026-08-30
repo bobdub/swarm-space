@@ -50,7 +50,7 @@ export function SeatDebugOverlay({ tableId }: { tableId?: string | null }) {
 
         const locks = new Set(listSeatLocks().map((l) => l.peerId));
         const next: Row[] = [];
-        for (const body of getBrainPhysics().listBodies?.() ?? []) {
+        for (const body of getBrainPhysics().getBodies()) {
           if (!body.id.startsWith('peer-')) continue;
           const peerId = body.id.slice(5);
           const seatPos = seatedTransform(peerId) ?? seatedTransform(body.id);
