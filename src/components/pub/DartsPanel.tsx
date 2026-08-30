@@ -15,7 +15,8 @@ import {
 } from '@/lib/pub/gameTableStore';
 import { activeDartsSeat, DARTS_START_SCORE } from '@/lib/pub/darts';
 
-const METER_PERIOD_MS = 1400;
+// One full sweep (left→centre→right→centre→left) — slow enough to time by hand.
+const METER_PERIOD_MS = 3600;
 
 export function DartsPanel({
   tableId,
