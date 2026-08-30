@@ -32,7 +32,7 @@ export const INTERACT_RADIUS_M = 1.5;
 export const BAR_INTERACTIONS: ReadonlyArray<BarInteraction> = [
   { id: 'sit',     label: 'Sit',          anchorTag: 'bar-stool',   status: 'planned', radiusM: 1.0 },
   { id: 'order',   label: 'Order drink',  anchorTag: 'bar-counter', status: 'planned', radiusM: 1.5 },
-  { id: 'darts',   label: 'Play darts',   anchorTag: 'darts-board', status: 'beta',    radiusM: 2.5 },
+  { id: 'darts',   label: 'Play darts',   anchorTag: 'darts-board', status: 'beta',    radiusM: 3.5 },
   { id: 'pool',    label: 'Play pool',    anchorTag: 'pool-table',  status: 'planned', radiusM: 2.0 },
   { id: 'jukebox', label: 'Pick a song',  anchorTag: 'jukebox',     status: 'planned', radiusM: 1.5 },
 ];
