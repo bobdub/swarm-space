@@ -86,12 +86,21 @@ export function PubGameLayer({
 
       {openTableId && (
         <div className="pointer-events-none fixed bottom-24 right-3 z-50 flex justify-end">
-          <DartsPanel
-            tableId={openTableId}
-            selfId={selfId}
-            username={username}
-            onClose={close}
-          />
+          {openTableId.startsWith('pub:cards:') ? (
+            <CardTablePanel
+              tableId={openTableId}
+              selfId={selfId}
+              username={username}
+              onClose={close}
+            />
+          ) : (
+            <DartsPanel
+              tableId={openTableId}
+              selfId={selfId}
+              username={username}
+              onClose={close}
+            />
+          )}
         </div>
       )}
     </>
