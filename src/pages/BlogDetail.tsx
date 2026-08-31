@@ -23,9 +23,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import type { Post } from "@/types";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
-import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
+import { loadBlogHeroImage, type BlogHeroMedia } from "@/lib/blogging/heroMedia";
 import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
 import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
+import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
+import { FileUpload } from "@/components/FileUpload";
+import type { Manifest } from "@/lib/fileEncryption";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
