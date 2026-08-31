@@ -36,15 +36,18 @@ export default function BlogDetail() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
-  const [heroUrl, setHeroUrl] = useState<string | null>(null);
+  const [hero, setHero] = useState<BlogHeroMedia | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftManifestIds, setDraftManifestIds] = useState<string[]>([]);
+  const [showMediaUpload, setShowMediaUpload] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { ensureManifest, broadcastPost } = useP2PContext();
+  const { ensureManifest, broadcastPost, announceContent } = useP2PContext();
 
   const loadPost = useCallback(async () => {
     if (!postId) {
