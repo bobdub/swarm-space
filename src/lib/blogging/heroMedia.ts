@@ -16,21 +16,31 @@ type EnsureManifestFn = (
   options?: EnsureManifestOptions
 ) => Promise<StoredManifest | null>;
 
+export interface BlogHeroMedia {
+  url: string;
+  kind: "image" | "video";
+  mime: string;
+}
+
 export interface BlogHeroLoadResult {
+  /** Blob URL of the resolved hero, or null when nothing could be decrypted. */
   heroUrl: string | null;
+  /** Full hero descriptor (kind + mime) when resolved. */
+  hero: BlogHeroMedia | null;
   pendingManifestIds: string[];
 }
 
 /**
- * Resolve the best image hero for a blog post from local store / mesh.
- * Returns a blob URL when an image can be fully decrypted.
+ * Resolve the best banner hero for a blog post from local store / mesh.
+ * Accepts both images and short video clips — the first attachment of a
+ * displayable type wins, so authors control the banner by attachment order.
  */
 export async function loadBlogHeroImage(
   manifestIds: string[] | undefined,
   ensureManifest: EnsureManifestFn,
 ): Promise<BlogHeroLoadResult> {
   if (!Array.isArray(manifestIds) || manifestIds.length === 0) {
-    return { heroUrl: null, pendingManifestIds: [] };
+    return { heroUrl: null, hero: null, pendingManifestIds: [] };
   }
 
   const pendingManifestIds = new Set<string>();
@@ -53,7 +63,12 @@ export async function loadBlogHeroImage(
     }
 
     const mime = manifest.mime ?? "";
-    if (!mime.startsWith("image/")) {
+    const kind: "image" | "video" | null = mime.startsWith("image/")
+      ? "image"
+      : mime.startsWith("video/")
+        ? "video"
+        : null;
+    if (!kind) {
       continue;
     }
 
@@ -67,8 +82,10 @@ export async function loadBlogHeroImage(
       };
       const blob = await decryptAndReassembleFile(decryptableManifest, fileKey);
       reportDeliveryEvent({ kind: 'manifest-resolved', manifestId });
+      const url = URL.createObjectURL(blob);
       return {
-        heroUrl: URL.createObjectURL(blob),
+        heroUrl: url,
+        hero: { url, kind, mime },
         pendingManifestIds: Array.from(pendingManifestIds),
       };
     } catch (error) {
@@ -83,6 +100,7 @@ export async function loadBlogHeroImage(
 
   return {
     heroUrl: null,
+    hero: null,
     pendingManifestIds: Array.from(pendingManifestIds),
   };
 }

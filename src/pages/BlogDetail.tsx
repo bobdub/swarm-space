@@ -23,9 +23,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import type { Post } from "@/types";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
-import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
+import { loadBlogHeroImage, type BlogHeroMedia } from "@/lib/blogging/heroMedia";
 import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
 import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
+import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
+import { FileUpload } from "@/components/FileUpload";
+import type { Manifest } from "@/lib/fileEncryption";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
@@ -33,15 +36,18 @@ export default function BlogDetail() {
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
-  const [heroUrl, setHeroUrl] = useState<string | null>(null);
+  const [hero, setHero] = useState<BlogHeroMedia | null>(null);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftManifestIds, setDraftManifestIds] = useState<string[]>([]);
+  const [showMediaUpload, setShowMediaUpload] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const { ensureManifest, broadcastPost } = useP2PContext();
+  const { ensureManifest, broadcastPost, announceContent } = useP2PContext();
 
   const loadPost = useCallback(async () => {
     if (!postId) {
@@ -66,24 +72,24 @@ export default function BlogDetail() {
   const loadHero = useCallback(async () => {
     if (!post?.manifestIds?.length) {
       setPendingManifestIds([]);
-      setHeroUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+      setHero((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
         return null;
       });
       return;
     }
 
-    const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+    const { hero: nextHero, pendingManifestIds: pending } = await loadBlogHeroImage(
       post.manifestIds,
       ensureManifest,
     );
 
     setPendingManifestIds(pending);
-    setHeroUrl((prev) => {
-      if (prev && prev !== nextHeroUrl) {
-        URL.revokeObjectURL(prev);
+    setHero((prev) => {
+      if (prev && prev.url !== nextHero?.url) {
+        URL.revokeObjectURL(prev.url);
       }
-      return nextHeroUrl;
+      return nextHero;
     });
   }, [ensureManifest, post?.manifestIds]);
 
@@ -118,11 +124,11 @@ export default function BlogDetail() {
 
   useEffect(() => {
     return () => {
-      if (heroUrl) {
-        URL.revokeObjectURL(heroUrl);
+      if (hero) {
+        URL.revokeObjectURL(hero.url);
       }
     };
-  }, [heroUrl]);
+  }, [hero]);
 
   const classification = useMemo(() => (post ? classifyPost(post).classification : "post"), [post]);
   const isBlogPost = classification === "blog" || classification === "book";
@@ -169,6 +175,7 @@ export default function BlogDetail() {
     if (!post || !isAuthor) return;
     if (searchParams.get("edit") === "1") {
       setDraft(post.content ?? "");
+      setDraftManifestIds(post.manifestIds ?? []);
       setIsEditing(true);
     }
   }, [post, isAuthor, searchParams]);
@@ -176,12 +183,31 @@ export default function BlogDetail() {
   const handleStartEditing = () => {
     if (!post) return;
     setDraft(post.content ?? "");
+    setDraftManifestIds(post.manifestIds ?? []);
+    setShowMediaUpload(false);
     setIsEditing(true);
   };
 
   const handleCancelEditing = () => {
     setIsEditing(false);
     setDraft(post?.content ?? "");
+    setDraftManifestIds(post?.manifestIds ?? []);
+    setShowMediaUpload(false);
+  };
+
+  const handleMediaReady = (manifests: Manifest[]) => {
+    setDraftManifestIds((prev) => {
+      const next = [...prev];
+      for (const manifest of manifests) {
+        if (!next.includes(manifest.fileId)) next.push(manifest.fileId);
+      }
+      return next;
+    });
+    setShowMediaUpload(false);
+  };
+
+  const handleRemoveMedia = (manifestId: string) => {
+    setDraftManifestIds((prev) => prev.filter((id) => id !== manifestId));
   };
 
   const handleSaveEdit = async () => {
@@ -190,13 +216,24 @@ export default function BlogDetail() {
       toast.error("Content required", { description: "Blog content cannot be empty." });
       return;
     }
+    if (isEncrypting) {
+      toast.error("Still encrypting", { description: "Wait for the upload to finish." });
+      return;
+    }
     setIsSaving(true);
     try {
-      const updated = await updatePost(post.id, { content: draft.trim() });
+      const updated = await updatePost(post.id, {
+        content: draft.trim(),
+        manifestIds: draftManifestIds,
+      });
       setPost(updated);
       broadcastPost(updated);
+      draftManifestIds.forEach((manifestId) => {
+        try { announceContent(manifestId); } catch { /* mesh offline */ }
+      });
       toast.success("Blog updated");
       setIsEditing(false);
+      setShowMediaUpload(false);
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
       console.error("Failed to update blog:", error);
@@ -261,19 +298,26 @@ export default function BlogDetail() {
       ) : (
         <>
           {/* ── Hero Section ── */}
-          {heroUrl ? (
+          {hero ? (
             <div className="relative mx-auto max-w-5xl px-4 pt-6 md:px-8">
               <div className="overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.12)] shadow-[0_40px_120px_hsla(326,71%,62%,0.12)]">
                 <div className="relative">
-                  <img
-                    src={heroUrl}
-                    alt={`${title} hero image`}
-                    className="h-auto max-h-[520px] w-full object-cover"
-                    loading="lazy"
+                  <BlogMediaHero
+                    hero={hero}
+                    title={title}
+                    className={
+                      hero.kind === "video"
+                        ? "max-h-[520px] w-full bg-black object-contain"
+                        : "h-auto max-h-[520px] w-full object-cover"
+                    }
                   />
-                  {/* Cinematic gradient overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-background/20 via-transparent to-background/20" />
+                  {hero.kind === "image" && (
+                    <>
+                      {/* Cinematic gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-background/20 via-transparent to-background/20" />
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -387,8 +431,59 @@ export default function BlogDetail() {
                   rows={18}
                   className="min-h-[420px] text-base leading-relaxed"
                 />
+
+                {/* Banner media (image or short video clip) */}
+                <div className="space-y-3 rounded-2xl border border-border/40 bg-muted/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.25em] text-foreground/40">
+                    Banner media
+                  </p>
+                  {draftManifestIds.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {draftManifestIds.map((manifestId) => (
+                        <li
+                          key={manifestId}
+                          className="flex items-center justify-between gap-2 rounded-md bg-background/60 px-2.5 py-1.5 text-xs"
+                        >
+                          <span className="truncate font-mono text-foreground/60">{manifestId}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveMedia(manifestId)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-foreground/40">
+                      No banner media attached. Add an image or a short video clip (max 20MB).
+                    </p>
+                  )}
+
+                  {showMediaUpload ? (
+                    <FileUpload
+                      onFilesReady={handleMediaReady}
+                      onEncryptingChange={setIsEncrypting}
+                      maxFiles={4}
+                      acceptedTypes={["image/*", "video/*"]}
+                    />
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowMediaUpload(true)}
+                    >
+                      Add media
+                    </Button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2">
-                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving}>
+                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving || isEncrypting}>
                     {isSaving ? "Saving…" : "Save"}
                   </Button>
                   <Button type="button" variant="ghost" onClick={handleCancelEditing} disabled={isSaving}>

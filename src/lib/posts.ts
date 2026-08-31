@@ -25,7 +25,7 @@ export async function getPostsNewerThan(sinceIso: string | null): Promise<Post[]
  */
 export async function updatePost(
   postId: string,
-  updates: Partial<Pick<Post, "content" | "nsfw">>
+  updates: Partial<Pick<Post, "content" | "nsfw" | "manifestIds">>
 ): Promise<Post> {
   const post = await get<Post>("posts", postId);
   if (!post) {
