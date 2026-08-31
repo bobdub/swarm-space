@@ -216,7 +216,7 @@ function HeroSection({
   firstUrl: string | null;
   classification: BlogClassification;
 }) {
-  const [heroUrl, setHeroUrl] = useState<string | null>(null);
+  const [hero, setHero] = useState<BlogHeroMedia | null>(null);
   const [loading, setLoading] = useState(false);
   const [pendingManifestIds, setPendingManifestIds] = useState<string[]>([]);
   const { ensureManifest } = useP2PContext();
@@ -225,8 +225,8 @@ function HeroSection({
   const loadHeroImage = useCallback(async () => {
     if (!hasMedia || !post.manifestIds || post.manifestIds.length === 0) {
       setPendingManifestIds([]);
-      setHeroUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+      setHero((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
         return null;
       });
       return;
@@ -234,17 +234,17 @@ function HeroSection({
 
     setLoading(true);
     try {
-      const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+      const { hero: nextHero, pendingManifestIds: pending } = await loadBlogHeroImage(
         post.manifestIds,
         ensureManifest,
       );
 
       setPendingManifestIds(pending);
-      setHeroUrl((prev) => {
-        if (prev && prev !== nextHeroUrl) {
-          URL.revokeObjectURL(prev);
+      setHero((prev) => {
+        if (prev && prev.url !== nextHero?.url) {
+          URL.revokeObjectURL(prev.url);
         }
-        return nextHeroUrl;
+        return nextHero;
       });
     } catch (error) {
       console.warn("[BlogPostCard] Failed to load hero image:", error);
@@ -284,22 +284,32 @@ function HeroSection({
 
   useEffect(() => {
     return () => {
-      if (heroUrl) {
-        URL.revokeObjectURL(heroUrl);
+      if (hero) {
+        URL.revokeObjectURL(hero.url);
       }
     };
-  }, [heroUrl]);
+  }, [hero]);
 
-  // Decrypted hero image loaded successfully
-  if (heroUrl) {
+  // Decrypted hero media loaded successfully
+  if (hero) {
     return (
-      <div className="relative h-56 overflow-hidden">
-        <img
-          src={heroUrl}
-          alt="Blog hero"
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+      <div
+        className="relative h-56 overflow-hidden"
+        onClick={hero.kind === "video" ? (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+        } : undefined}
+      >
+        <BlogMediaHero
+          hero={hero}
+          compact
+          className={
+            hero.kind === "video"
+              ? "h-full w-full bg-black object-contain"
+              : "h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+          }
         />
-        <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[hsla(245,70%,8%,0.95)] to-transparent" />
       </div>
     );
   }
