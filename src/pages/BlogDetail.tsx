@@ -175,6 +175,7 @@ export default function BlogDetail() {
     if (!post || !isAuthor) return;
     if (searchParams.get("edit") === "1") {
       setDraft(post.content ?? "");
+      setDraftManifestIds(post.manifestIds ?? []);
       setIsEditing(true);
     }
   }, [post, isAuthor, searchParams]);
@@ -182,12 +183,31 @@ export default function BlogDetail() {
   const handleStartEditing = () => {
     if (!post) return;
     setDraft(post.content ?? "");
+    setDraftManifestIds(post.manifestIds ?? []);
+    setShowMediaUpload(false);
     setIsEditing(true);
   };
 
   const handleCancelEditing = () => {
     setIsEditing(false);
     setDraft(post?.content ?? "");
+    setDraftManifestIds(post?.manifestIds ?? []);
+    setShowMediaUpload(false);
+  };
+
+  const handleMediaReady = (manifests: Manifest[]) => {
+    setDraftManifestIds((prev) => {
+      const next = [...prev];
+      for (const manifest of manifests) {
+        if (!next.includes(manifest.fileId)) next.push(manifest.fileId);
+      }
+      return next;
+    });
+    setShowMediaUpload(false);
+  };
+
+  const handleRemoveMedia = (manifestId: string) => {
+    setDraftManifestIds((prev) => prev.filter((id) => id !== manifestId));
   };
 
   const handleSaveEdit = async () => {
@@ -196,13 +216,24 @@ export default function BlogDetail() {
       toast.error("Content required", { description: "Blog content cannot be empty." });
       return;
     }
+    if (isEncrypting) {
+      toast.error("Still encrypting", { description: "Wait for the upload to finish." });
+      return;
+    }
     setIsSaving(true);
     try {
-      const updated = await updatePost(post.id, { content: draft.trim() });
+      const updated = await updatePost(post.id, {
+        content: draft.trim(),
+        manifestIds: draftManifestIds,
+      });
       setPost(updated);
       broadcastPost(updated);
+      draftManifestIds.forEach((manifestId) => {
+        try { announceContent(manifestId); } catch { /* mesh offline */ }
+      });
       toast.success("Blog updated");
       setIsEditing(false);
+      setShowMediaUpload(false);
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
       console.error("Failed to update blog:", error);
