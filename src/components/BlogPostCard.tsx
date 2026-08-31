@@ -20,9 +20,10 @@ import { useAuth } from "@/hooks/useAuth";
 import type { Post } from "@/types";
 import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
-import { loadBlogHeroImage } from "@/lib/blogging/heroMedia";
+import { loadBlogHeroImage, type BlogHeroMedia } from "@/lib/blogging/heroMedia";
 import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
 import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
+import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
 
 interface BlogPostCardProps {
   post: Post;
