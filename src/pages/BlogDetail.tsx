@@ -298,19 +298,26 @@ export default function BlogDetail() {
       ) : (
         <>
           {/* ── Hero Section ── */}
-          {heroUrl ? (
+          {hero ? (
             <div className="relative mx-auto max-w-5xl px-4 pt-6 md:px-8">
               <div className="overflow-hidden rounded-3xl border border-[hsla(174,59%,56%,0.12)] shadow-[0_40px_120px_hsla(326,71%,62%,0.12)]">
                 <div className="relative">
-                  <img
-                    src={heroUrl}
-                    alt={`${title} hero image`}
-                    className="h-auto max-h-[520px] w-full object-cover"
-                    loading="lazy"
+                  <BlogMediaHero
+                    hero={hero}
+                    title={title}
+                    className={
+                      hero.kind === "video"
+                        ? "max-h-[520px] w-full bg-black object-contain"
+                        : "h-auto max-h-[520px] w-full object-cover"
+                    }
                   />
-                  {/* Cinematic gradient overlay */}
-                  <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-background/20 via-transparent to-background/20" />
+                  {hero.kind === "image" && (
+                    <>
+                      {/* Cinematic gradient overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-background/20 via-transparent to-background/20" />
+                    </>
+                  )}
                 </div>
               </div>
             </div>
