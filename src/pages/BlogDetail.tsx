@@ -431,8 +431,59 @@ export default function BlogDetail() {
                   rows={18}
                   className="min-h-[420px] text-base leading-relaxed"
                 />
+
+                {/* Banner media (image or short video clip) */}
+                <div className="space-y-3 rounded-2xl border border-border/40 bg-muted/20 p-4">
+                  <p className="text-xs uppercase tracking-[0.25em] text-foreground/40">
+                    Banner media
+                  </p>
+                  {draftManifestIds.length > 0 ? (
+                    <ul className="space-y-1.5">
+                      {draftManifestIds.map((manifestId) => (
+                        <li
+                          key={manifestId}
+                          className="flex items-center justify-between gap-2 rounded-md bg-background/60 px-2.5 py-1.5 text-xs"
+                        >
+                          <span className="truncate font-mono text-foreground/60">{manifestId}</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px] text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveMedia(manifestId)}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-xs text-foreground/40">
+                      No banner media attached. Add an image or a short video clip (max 20MB).
+                    </p>
+                  )}
+
+                  {showMediaUpload ? (
+                    <FileUpload
+                      onFilesReady={handleMediaReady}
+                      onEncryptingChange={setIsEncrypting}
+                      maxFiles={4}
+                      acceptedTypes={["image/*", "video/*"]}
+                    />
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowMediaUpload(true)}
+                    >
+                      Add media
+                    </Button>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-2">
-                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving}>
+                  <Button type="button" onClick={handleSaveEdit} disabled={isSaving || isEncrypting}>
                     {isSaving ? "Saving…" : "Save"}
                   </Button>
                   <Button type="button" variant="ghost" onClick={handleCancelEditing} disabled={isSaving}>
