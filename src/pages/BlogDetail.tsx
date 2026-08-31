@@ -72,24 +72,24 @@ export default function BlogDetail() {
   const loadHero = useCallback(async () => {
     if (!post?.manifestIds?.length) {
       setPendingManifestIds([]);
-      setHeroUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
+      setHero((prev) => {
+        if (prev) URL.revokeObjectURL(prev.url);
         return null;
       });
       return;
     }
 
-    const { heroUrl: nextHeroUrl, pendingManifestIds: pending } = await loadBlogHeroImage(
+    const { hero: nextHero, pendingManifestIds: pending } = await loadBlogHeroImage(
       post.manifestIds,
       ensureManifest,
     );
 
     setPendingManifestIds(pending);
-    setHeroUrl((prev) => {
-      if (prev && prev !== nextHeroUrl) {
-        URL.revokeObjectURL(prev);
+    setHero((prev) => {
+      if (prev && prev.url !== nextHero?.url) {
+        URL.revokeObjectURL(prev.url);
       }
-      return nextHeroUrl;
+      return nextHero;
     });
   }, [ensureManifest, post?.manifestIds]);
 
@@ -124,11 +124,11 @@ export default function BlogDetail() {
 
   useEffect(() => {
     return () => {
-      if (heroUrl) {
-        URL.revokeObjectURL(heroUrl);
+      if (hero) {
+        URL.revokeObjectURL(hero.url);
       }
     };
-  }, [heroUrl]);
+  }, [hero]);
 
   const classification = useMemo(() => (post ? classifyPost(post).classification : "post"), [post]);
   const isBlogPost = classification === "blog" || classification === "book";
