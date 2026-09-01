@@ -188,3 +188,38 @@ export function claimLandPlot(input: {
   write(next, input.ns);
   return plot;
 }
+/**
+ * Build permission for a lattice cell.
+ *
+ * - Unclaimed ground → anyone may build.
+ * - Private plot     → owner only.
+ * - Commons (roads / squares) → devs only; everyone else is blocked so
+ *   public ground stays walkable.
+ */
+export function canBuildAtCell(
+  cx: number,
+  cz: number,
+  actorId: string,
+  opts?: { isDev?: boolean; ns?: string },
+): { ok: boolean; reason?: string; plot?: LandPlot } {
+  const plot = getPlotAtCell(cx, cz, opts?.ns);
+  if (!plot) return { ok: true };
+  if (plotKind(plot) === 'commons') {
+    return opts?.isDev
+      ? { ok: true, plot }
+      : { ok: false, reason: 'This is communal land.', plot };
+  }
+  if (plot.ownerId === actorId) return { ok: true, plot };
+  return { ok: false, reason: 'This land belongs to another player.', plot };
+}
+
+/** Same gate, from a tangent-plane point (metres). */
+export function canBuildAtTangent(
+  tx: number,
+  tz: number,
+  actorId: string,
+  opts?: { isDev?: boolean; ns?: string },
+): { ok: boolean; reason?: string; plot?: LandPlot } {
+  const { cx, cz } = tangentToCell(tx, tz);
+  return canBuildAtCell(cx, cz, actorId, opts);
+}
