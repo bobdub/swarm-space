@@ -319,6 +319,40 @@ export function BrainBuilderBar({
           </button>
           <button
             type="button"
+            data-testid="builder-toggle-showland"
+            onClick={toggleShowLandMarkers}
+            aria-pressed={showLand}
+            title="Show land — surface markers for owned and communal plots"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              showLand
+                ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Eye className="h-3 w-3" aria-hidden="true" />
+            <span>Land</span>
+          </button>
+          {canLayCommons && (
+            <button
+              type="button"
+              data-testid="builder-toggle-commons"
+              onClick={() => setPlotMode(plotMode === 'commons' ? 'private' : 'commons')}
+              aria-pressed={plotMode === 'commons'}
+              title="Commons — lay free public land (roads, squares). Devs only."
+              className={[
+                'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+                plotMode === 'commons'
+                  ? 'border-slate-300/70 bg-slate-300/20 text-slate-100'
+                  : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+              ].join(' ')}
+            >
+              <Route className="h-3 w-3" aria-hidden="true" />
+              <span>Commons</span>
+            </button>
+          )}
+          <button
+            type="button"
             data-testid="builder-toggle-topview"
             onClick={toggleBuilderTopView}
             aria-pressed={topView}
