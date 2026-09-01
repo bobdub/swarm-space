@@ -103,3 +103,34 @@ describe('landPlots — ownership and overlap', () => {
     expect(rectOverlapsForeign(disjoint, 'peer-B', NS)).toBe(false);
   });
 });
+describe('build permissions', () => {
+  const NS2 = 'perm-test';
+  it('blocks foreign private land, allows the owner and open ground', async () => {
+    const { claimLandPlot, canBuildAtCell } = await import('../landPlots');
+    claimLandPlot({
+      ownerId: 'peer-a',
+      cellRect: { cx0: 0, cz0: 0, cx1: 2, cz1: 2 },
+      anchorId: 'origin',
+      priceSwarm: 12,
+      ns: NS2,
+    });
+    expect(canBuildAtCell(0, 0, 'peer-a', { ns: NS2 }).ok).toBe(true);
+    expect(canBuildAtCell(0, 0, 'peer-b', { ns: NS2 }).ok).toBe(false);
+    expect(canBuildAtCell(9, 9, 'peer-b', { ns: NS2 }).ok).toBe(true);
+  });
+
+  it('commons are dev-only', async () => {
+    const { claimLandPlot, canBuildAtCell } = await import('../landPlots');
+    claimLandPlot({
+      ownerId: 'peer-dev',
+      cellRect: { cx0: 10, cz0: 10, cx1: 12, cz1: 11 },
+      anchorId: 'origin',
+      priceSwarm: 0,
+      kind: 'commons',
+      ns: NS2,
+    });
+    expect(canBuildAtCell(10, 10, 'peer-dev', { ns: NS2, isDev: false }).ok).toBe(false);
+    expect(canBuildAtCell(10, 10, 'peer-dev', { ns: NS2, isDev: true }).ok).toBe(true);
+    expect(canBuildAtCell(10, 10, 'peer-x', { ns: NS2 }).ok).toBe(false);
+  });
+});

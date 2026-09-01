@@ -33,6 +33,7 @@ import {
   priceForRect,
   rectBoxCount,
   getPlotAtCell,
+  plotKind,
   tangentToCell,
 } from '@/lib/world/landPlots';
 import type { PendingPlot } from '@/lib/brain/useBrainBuilder';
@@ -145,10 +146,11 @@ export function PlotSurveyOverlay({
     const tx = local[0] * ref.right[0] + local[1] * ref.right[1] + local[2] * ref.right[2];
     const tz = local[0] * ref.forward[0] + local[1] * ref.forward[1] + local[2] * ref.forward[2];
 
-    // Foreign-plot guard.
+    // Claimed-land guard — foreign private plots AND communal land are
+    // both un-claimable (commons stay walkable for everyone).
     const cell = tangentToCell(tx, tz);
     const owning = getPlotAtCell(cell.cx, cell.cz);
-    if (owning && owning.ownerId !== ownerId) {
+    if (owning && (plotKind(owning) === 'commons' || owning.ownerId !== ownerId)) {
       rejectFlashUntilRef.current = performance.now() + REJECT_FLASH_MS;
       // Don't push — line just stops extending here.
     } else {

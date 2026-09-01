@@ -7,6 +7,7 @@ import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
 import { EARTH_RADIUS, type Vec3 } from '@/lib/brain/earth';
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
+import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { emitImpactFx, emitSwingFx, type ImpactMaterial } from '@/lib/world/swingFxBus';
@@ -124,6 +125,19 @@ function pointInFrontOfSelf(selfId: string | undefined, reach: number): { point:
   };
 }
 
+/**
+ * Land gate for a swing. Sculpting, digging and striking placed blocks
+ * are all world mutations, so they honour the same plot ownership rule
+ * as placement.
+ */
+function landBlocks(point: Vec3, selfId?: string): boolean {
+  if (!selfId) return false;
+  const perm = canBuildAtWorldPoint(point, selfId);
+  if (perm.ok) return false;
+  toast.error(perm.reason ?? 'You cannot alter this land.');
+  return true;
+}
+
 async function applyImpactToBlock(params: {
   toolPrefabId: string;
   blockId: string;
@@ -137,6 +151,7 @@ async function applyImpactToBlock(params: {
   const tool = getToolAny(toolPrefabId);
   const block = getBuilderBlockEngine().getBlock(blockId);
   if (!toolPrefab || !block) return false;
+  if (landBlocks(point, selfId)) return false;
 
   if (!tool) {
     toast.message(toolPrefab.label, { description: 'This tool does not yet resolve through sculpting.' });
@@ -269,6 +284,7 @@ async function digShell(
   const prefab = getPrefab(toolPrefabId);
   const tool = getToolAny(toolPrefabId);
   if (!prefab) return false;
+  if (landBlocks(target.point, selfId)) return false;
 
   const up = unitFrom(target.point);
   const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);

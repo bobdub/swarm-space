@@ -12,7 +12,12 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route } from 'lucide-react';
+import {
+  subscribeShowLandMarkers,
+  toggleShowLandMarkers,
+} from '@/lib/world/landOverlayStore';
+import { isDev } from '@/lib/world/devRoles';
 import {
   subscribeBuilderTopView,
   toggleBuilderTopView,
@@ -99,6 +104,8 @@ export function BrainBuilderBar({
     setFreeBuild,
     plotting,
     togglePlotting,
+    plotMode,
+    setPlotMode,
     pendingPlot,
     setPendingPlot,
     surveyProgress,
@@ -124,6 +131,9 @@ export function BrainBuilderBar({
   useEffect(() => subscribeLandPlots(setPlots), []);
   // Overhead build camera — resets to off when the bar unmounts (build exit).
   const [topView, setTopView] = useState(false);
+  const [showLand, setShowLand] = useState(true);
+  useEffect(() => subscribeShowLandMarkers(setShowLand), []);
+  const canLayCommons = isDev(selfId);
   useEffect(() => subscribeBuilderTopView(setTopView), []);
   useEffect(() => () => setBuilderTopView(false), []);
   const ownsAnyPlot = useMemo(
@@ -146,9 +156,10 @@ export function BrainBuilderBar({
   // While actively walking a survey (no pending plot yet), hide the
   // entire bar so the world is fully walkable.
   if (plotting && !pendingPlot) {
+    const commons = plotMode === 'commons';
     const canPurchase = !!surveyProgress && surveyProgress.boxes > 0;
     const boxes = surveyProgress?.boxes ?? 0;
-    const price = surveyProgress?.priceSwarm ?? 0;
+    const price = commons ? 0 : (surveyProgress?.priceSwarm ?? 0);
     const canAfford =
       canPurchase && (swarmBalance == null || swarmBalance >= price);
     return (
@@ -159,7 +170,9 @@ export function BrainBuilderBar({
             {boxes} {boxes === 1 ? 'box' : 'boxes'}
           </span>
           <span className="shrink-0 text-amber-300/70">·</span>
-          <span className="shrink-0 font-semibold tabular-nums">{price} SWARM</span>
+          <span className="shrink-0 font-semibold tabular-nums">
+            {commons ? 'Public · free' : `${price} SWARM`}
+          </span>
           <span className="shrink-0 text-amber-300/70">·</span>
           <span className="shrink-0 text-[10px] text-amber-100/70">
             walk back to close
@@ -186,8 +199,9 @@ export function BrainBuilderBar({
   }
 
   if (pendingPlot) {
+    const commons = plotMode === 'commons';
     const shortfall = swarmBalance != null ? Math.max(0, pendingPlot.priceSwarm - swarmBalance) : 0;
-    const canAfford = swarmBalance == null || swarmBalance >= pendingPlot.priceSwarm;
+    const canAfford = commons || swarmBalance == null || swarmBalance >= pendingPlot.priceSwarm;
     return (
       <div
         role="form"
@@ -197,7 +211,7 @@ export function BrainBuilderBar({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-amber-300">
             <LandPlotIcon className="h-4 w-4" />
-            <span className="text-sm font-semibold">Claim Land Plot</span>
+            <span className="text-sm font-semibold">{commons ? 'Lay Communal Land' : 'Claim Land Plot'}</span>
           </div>
           <Button type="button" size="icon" variant="ghost" aria-label="Cancel plot" onClick={() => setPendingPlot(null)} className="h-7 w-7">
             <X className="h-3.5 w-3.5" />
@@ -206,7 +220,7 @@ export function BrainBuilderBar({
         <div className="grid grid-cols-3 gap-2 text-[11px]">
           <Stat label="Size" value={`${pendingPlot.widthM.toFixed(1)} × ${pendingPlot.depthM.toFixed(1)} m`} />
           <Stat label="Boxes" value={`${pendingPlot.boxes}`} />
-          <Stat label="Cost" value={`${pendingPlot.priceSwarm} SWARM`} />
+          <Stat label="Cost" value={commons ? 'Free (public)' : `${pendingPlot.priceSwarm} SWARM`} />
         </div>
         <div className="flex items-center justify-between gap-2">
           <div className="text-[11px] text-muted-foreground">
@@ -234,7 +248,7 @@ export function BrainBuilderBar({
               disabled={!canAfford}
               className="rounded-full border border-amber-400/70 bg-amber-400/20 px-4 py-1.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-400/30 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Confirm Plot
+              {commons ? 'Lay Public Land' : 'Confirm Plot'}
             </button>
           </div>
         </div>
@@ -303,6 +317,40 @@ export function BrainBuilderBar({
             <LandPlotIcon className="h-3 w-3" aria-hidden="true" />
             <span>Plot</span>
           </button>
+          <button
+            type="button"
+            data-testid="builder-toggle-showland"
+            onClick={toggleShowLandMarkers}
+            aria-pressed={showLand}
+            title="Show land — surface markers for owned and communal plots"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              showLand
+                ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Eye className="h-3 w-3" aria-hidden="true" />
+            <span>Land</span>
+          </button>
+          {canLayCommons && (
+            <button
+              type="button"
+              data-testid="builder-toggle-commons"
+              onClick={() => setPlotMode(plotMode === 'commons' ? 'private' : 'commons')}
+              aria-pressed={plotMode === 'commons'}
+              title="Commons — lay free public land (roads, squares). Devs only."
+              className={[
+                'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+                plotMode === 'commons'
+                  ? 'border-slate-300/70 bg-slate-300/20 text-slate-100'
+                  : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+              ].join(' ')}
+            >
+              <Route className="h-3 w-3" aria-hidden="true" />
+              <span>Commons</span>
+            </button>
+          )}
           <button
             type="button"
             data-testid="builder-toggle-topview"

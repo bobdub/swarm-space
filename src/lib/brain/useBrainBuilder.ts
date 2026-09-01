@@ -35,11 +35,15 @@ export interface PendingPlot {
   depthM: number;
 }
 
+/** Private = paid personal claim. Commons = free dev-laid public land. */
+export type PlotClaimMode = 'private' | 'commons';
+
 export interface UseBrainBuilder {
   mode: BuilderMode;
   magnetic: boolean;
   freeBuild: boolean;
   plotting: boolean;
+  plotMode: PlotClaimMode;
   pendingPlot: PendingPlot | null;
   /** Live snapshot of the in-progress survey (counter / fill). */
   surveyProgress: PendingPlot | null;
@@ -53,6 +57,7 @@ export interface UseBrainBuilder {
   setFreeBuild: (next: boolean) => void;
   setPlotting: (next: boolean) => void;
   togglePlotting: () => void;
+  setPlotMode: (next: PlotClaimMode) => void;
   setPendingPlot: (p: PendingPlot | null) => void;
   setSurveyProgress: (p: PendingPlot | null) => void;
   setActiveSection: (section: PrefabSectionId) => void;
@@ -74,6 +79,7 @@ export function useBrainBuilder(): UseBrainBuilder {
   const [magnetic, setMagneticState] = useState<boolean>(true);
   const [freeBuild, setFreeBuildState] = useState<boolean>(false);
   const [plotting, setPlottingState] = useState<boolean>(false);
+  const [plotMode, setPlotModeState] = useState<PlotClaimMode>('private');
   const [pendingPlot, setPendingPlotState] = useState<PendingPlot | null>(null);
   const [surveyProgress, setSurveyProgressState] = useState<PendingPlot | null>(null);
   const [activeSection, setActiveSection] = useState<PrefabSectionId>('walls');
@@ -88,6 +94,7 @@ export function useBrainBuilder(): UseBrainBuilder {
   const exitBuild = useCallback(() => {
     setMode('off');
     setPlottingState(false);
+    setPlotModeState('private');
     setPendingPlotState(null);
     setSurveyProgressState(null);
   }, []);
@@ -118,6 +125,7 @@ export function useBrainBuilder(): UseBrainBuilder {
       return next;
     });
   }, []);
+  const setPlotMode = useCallback((next: PlotClaimMode) => setPlotModeState(next), []);
   const setPendingPlot = useCallback((p: PendingPlot | null) => setPendingPlotState(p), []);
   const setSurveyProgress = useCallback(
     (p: PendingPlot | null) => setSurveyProgressState(p),
@@ -131,6 +139,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     magnetic,
     freeBuild,
     plotting,
+    plotMode,
     pendingPlot,
     surveyProgress,
     activeSection,
@@ -143,6 +152,7 @@ export function useBrainBuilder(): UseBrainBuilder {
     setFreeBuild,
     setPlotting,
     togglePlotting,
+    setPlotMode,
     setPendingPlot,
     setSurveyProgress,
     setActiveSection,
