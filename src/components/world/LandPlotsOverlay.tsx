@@ -2,11 +2,18 @@
  * LandPlotsOverlay — renders claimed plot footprints as flat outlined
  * rectangles glued to the Earth-local lattice-origin frame.
  *
- * Visible whenever Builder Mode is on. Own plots use a green tint;
- * foreign plots use a red tint so the no-build boundary is obvious.
+ * Always visible (unless the player turns markers off) so ownership is
+ * legible while walking, not only while building:
+ *   • own plot      → green outline, faint green fill
+ *   • foreign plot  → red outline + red fill (no-build)
+ *   • commons/road  → slate outline + pale fill (dev-laid public land)
+ *
+ * Each plot carries a small owner nameplate so the boundary is
+ * attributable at a glance.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import {
   earthLocalToWorld,
@@ -20,30 +27,76 @@ import {
   PLOT_CELL,
   loadLandPlots,
   subscribeLandPlots,
+  plotKind,
   type LandPlot,
 } from '@/lib/world/landPlots';
+import { subscribeShowLandMarkers } from '@/lib/world/landOverlayStore';
 
 interface LandPlotsOverlayProps {
   selfId: string;
+  /** Stronger fills while building so boundaries are unmissable. */
+  emphasized?: boolean;
 }
 
 const SEGMENTS_PER_SIDE = 6;
 
-export function LandPlotsOverlay({ selfId }: LandPlotsOverlayProps) {
-  const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
-  useEffect(() => subscribeLandPlots(setPlots), []);
+type PlotStyle = 'own' | 'foreign' | 'commons';
 
-  if (plots.length === 0) return null;
+function styleFor(plot: LandPlot, selfId: string): PlotStyle {
+  if (plotKind(plot) === 'commons') return 'commons';
+  return plot.ownerId === selfId ? 'own' : 'foreign';
+}
+
+const COLORS: Record<PlotStyle, string> = {
+  own: '#22c55e',
+  foreign: '#ef4444',
+  commons: '#94a3b8',
+};
+
+const FILL_OPACITY: Record<PlotStyle, number> = {
+  own: 0.07,
+  foreign: 0.18,
+  commons: 0.12,
+};
+
+function shortId(id: string): string {
+  const clean = id.replace(/^peer-/, '');
+  return clean.length > 10 ? `${clean.slice(0, 6)}…${clean.slice(-3)}` : clean;
+}
+
+export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverlayProps) {
+  const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
+  const [visible, setVisible] = useState(true);
+  useEffect(() => subscribeLandPlots(setPlots), []);
+  useEffect(() => subscribeShowLandMarkers(setVisible), []);
+
+  if (!visible || plots.length === 0) return null;
   return (
     <group renderOrder={5}>
       {plots.map((p) => (
-        <PlotOutline key={p.id} plot={p} isOwn={p.ownerId === selfId} />
+        <PlotOutline
+          key={p.id}
+          plot={p}
+          style={styleFor(p, selfId)}
+          selfId={selfId}
+          emphasized={emphasized}
+        />
       ))}
     </group>
   );
 }
 
-function PlotOutline({ plot, isOwn }: { plot: LandPlot; isOwn: boolean }) {
+function PlotOutline({
+  plot,
+  style,
+  selfId,
+  emphasized,
+}: {
+  plot: LandPlot;
+  style: PlotStyle;
+  selfId: string;
+  emphasized: boolean;
+}) {
   // Generate the rect perimeter in tangent coords (with sub-segments so
   // the curved Earth surface doesn't show kinks).
   const tangentPoints = useMemo(() => {
@@ -73,12 +126,12 @@ function PlotOutline({ plot, isOwn }: { plot: LandPlot; isOwn: boolean }) {
 
   const material = useMemo(
     () => new THREE.LineBasicMaterial({
-      color: isOwn ? '#22c55e' : '#ef4444',
+      color: COLORS[style],
       transparent: true,
-      opacity: 0.85,
+      opacity: style === 'commons' ? 0.6 : 0.85,
       depthTest: false,
     }),
-    [isOwn],
+    [style],
   );
 
   useEffect(() => {
@@ -111,18 +164,24 @@ function PlotOutline({ plot, isOwn }: { plot: LandPlot; isOwn: boolean }) {
   });
 
   const line = useMemo(() => new THREE.Line(geometry, material), [geometry, material]);
-  // Foreign plots also get a translucent red ground fill so it's
-  // visually unmistakable that the area is off-limits — the outline
-  // alone is easy to miss at grazing camera angles.
   return (
     <>
       <primitive object={line} />
-      {!isOwn && <PlotFill plot={plot} />}
+      <PlotFill plot={plot} style={style} emphasized={emphasized} />
+      <PlotNameplate plot={plot} style={style} selfId={selfId} />
     </>
   );
 }
 
-function PlotFill({ plot }: { plot: LandPlot }) {
+function PlotFill({
+  plot,
+  style,
+  emphasized,
+}: {
+  plot: LandPlot;
+  style: PlotStyle;
+  emphasized: boolean;
+}) {
   const fillGeometry = useMemo(() => {
     const { cx0, cz0, cx1, cz1 } = plot.cellRect;
     const x0 = cx0 * PLOT_CELL, x1 = cx1 * PLOT_CELL;
@@ -158,13 +217,13 @@ function PlotFill({ plot }: { plot: LandPlot }) {
 
   const material = useMemo(
     () => new THREE.MeshBasicMaterial({
-      color: '#ef4444',
+      color: COLORS[style],
       transparent: true,
-      opacity: 0.18,
+      opacity: FILL_OPACITY[style] * (emphasized ? 1.4 : 1),
       depthWrite: false,
       side: THREE.DoubleSide,
     }),
-    [],
+    [style, emphasized],
   );
 
   useEffect(() => {
@@ -199,6 +258,65 @@ function PlotFill({ plot }: { plot: LandPlot }) {
 
   const mesh = useMemo(() => new THREE.Mesh(fillGeometry, material), [fillGeometry, material]);
   return <primitive object={mesh} />;
+}
+
+/**
+ * Owner nameplate — a small billboard pinned above the plot centre so
+ * the boundary is attributable without opening any panel.
+ */
+function PlotNameplate({
+  plot,
+  style,
+  selfId,
+}: {
+  plot: LandPlot;
+  style: PlotStyle;
+  selfId: string;
+}) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  const centre = useMemo(() => {
+    const { cx0, cz0, cx1, cz1 } = plot.cellRect;
+    return {
+      tx: ((cx0 + cx1) / 2) * PLOT_CELL,
+      tz: ((cz0 + cz1) / 2) * PLOT_CELL,
+    };
+  }, [plot.cellRect]);
+
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const pose = getEarthPose();
+    const ref = getEarthLocalSiteFrame(plot.anchorId || WORLD_GRID_ORIGIN_ANCHOR);
+    const nx = ref.normal[0] + (ref.right[0] * centre.tx + ref.forward[0] * centre.tz) / EARTH_RADIUS;
+    const ny = ref.normal[1] + (ref.right[1] * centre.tx + ref.forward[1] * centre.tz) / EARTH_RADIUS;
+    const nz = ref.normal[2] + (ref.right[2] * centre.tx + ref.forward[2] * centre.tz) / EARTH_RADIUS;
+    const nLen = Math.hypot(nx, ny, nz) || 1;
+    const un: [number, number, number] = [nx / nLen, ny / nLen, nz / nLen];
+    const r = EARTH_RADIUS + sampleSurfaceLift(un) + 1.6;
+    const world = earthLocalToWorld([un[0] * r, un[1] * r, un[2] * r], pose);
+    g.position.set(world[0], world[1], world[2]);
+  });
+
+  const label =
+    style === 'commons'
+      ? plot.label || 'Public land'
+      : plot.ownerId === selfId
+        ? 'Your land'
+        : `${shortId(plot.ownerId)}'s land`;
+
+  return (
+    <group ref={groupRef}>
+      <Html center distanceFactor={26} occlude="blending" zIndexRange={[8, 0]}>
+        <div
+          style={{ borderColor: COLORS[style], color: COLORS[style] }}
+          className="pointer-events-none whitespace-nowrap rounded-full border bg-background/70 px-2 py-0.5 text-[10px] font-semibold backdrop-blur-sm"
+        >
+          {label}
+        </div>
+      </Html>
+    </group>
+  );
 }
 
 export default LandPlotsOverlay;
