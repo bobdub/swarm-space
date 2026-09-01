@@ -173,6 +173,8 @@ export function claimLandPlot(input: {
   cellRect: PlotCellRect;
   anchorId: string;
   priceSwarm: number;
+  kind?: LandPlotKind;
+  label?: string;
   ns?: string;
 }): LandPlot {
   const plot: LandPlot = {
@@ -182,7 +184,9 @@ export function claimLandPlot(input: {
     anchorId: input.anchorId,
     priceSwarm: input.priceSwarm,
     claimedAt: Date.now(),
-    unlocksLandmarks: true,
+    unlocksLandmarks: input.kind !== 'commons',
+    kind: input.kind ?? 'private',
+    label: input.label,
   };
   const next = read(input.ns).concat(plot);
   write(next, input.ns);
