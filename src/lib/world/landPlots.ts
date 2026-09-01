@@ -27,6 +27,9 @@ export interface PlotCellRect {
   cz1: number;
 }
 
+/** Private plots are owner-only; commons are dev-laid public ground. */
+export type LandPlotKind = 'private' | 'commons';
+
 export interface LandPlot {
   id: string;
   ownerId: string;
@@ -37,7 +40,16 @@ export interface LandPlot {
   claimedAt: number;
   /** Future: landmark catalog unlocked by this plot. */
   unlocksLandmarks: boolean;
+  /** Defaults to 'private' for legacy records. */
+  kind?: LandPlotKind;
+  /** Optional label shown on the surface marker (e.g. "Main Road"). */
+  label?: string;
 }
+
+export function plotKind(plot: LandPlot): LandPlotKind {
+  return plot.kind === 'commons' ? 'commons' : 'private';
+}
+
 
 const STORE_KEY = 'brain-land-plots-v1';
 
