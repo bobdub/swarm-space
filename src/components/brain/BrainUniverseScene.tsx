@@ -69,6 +69,8 @@ import {
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { placePrefabAtHit } from '@/lib/world/placementController';
+import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
+import { isDev } from '@/lib/world/devRoles';
 import {
   recordLocalPlacement,
   removeLocalPlacement,
@@ -976,7 +978,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const handleConfirmPlot = useCallback(async () => {
     const pending = builder.pendingPlot;
     if (!pending || !selfId) return;
-    try {
+    const commons = builder.plotMode === 'commons';
+    if (commons && !isDev(selfId)) {
+      toast.error('Only maintainers can lay communal land.');
+      return;
+    }
+    if (!commons) try {
       await burnSwarm({
         from: selfId,
         amount: pending.priceSwarm,
@@ -990,9 +997,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       ownerId: selfId,
       cellRect: pending.rect,
       anchorId: WORLD_GRID_ORIGIN_ANCHOR,
-      priceSwarm: pending.priceSwarm,
+      priceSwarm: commons ? 0 : pending.priceSwarm,
+      kind: commons ? 'commons' : 'private',
+      label: commons ? 'Public land' : undefined,
     });
-    toast.success(`Claimed plot · ${pending.boxes} boxes · ${pending.priceSwarm} SWARM`);
+    toast.success(
+      commons
+        ? `Laid communal land · ${pending.boxes} boxes`
+        : `Claimed plot · ${pending.boxes} boxes · ${pending.priceSwarm} SWARM`,
+    );
     builder.setPendingPlot(null);
     builder.setPlotting(false);
     // refresh balance
@@ -1806,15 +1819,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [handleDropPortal]);
 
   const handleDeleteWorldPlacement = useCallback(async (record: PlacementRecord) => {
+    const perm = canBuildAtWorldPoint(record.hitPoint, selfId);
+    if (!perm.ok) {
+      toast.error(perm.reason ?? 'You cannot alter buildings here.');
+      return;
+    }
     await removeLocalPlacement(record.placementId);
     if (builder.selectedBlockId === record.placementId) builder.selectBlock(null);
     if (editingPlacementRef.current?.placementId === record.placementId) editingPlacementRef.current = null;
     toast(`Removed ${getPrefab(record.prefabId)?.label ?? 'asset'}.`);
-  }, [builder]);
+  }, [builder, selfId]);
 
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
     const prefab = getPrefab(record.prefabId);
     if (!prefab) return;
+    const entryPerm = canBuildAtWorldPoint(record.hitPoint, selfId);
+    if (!entryPerm.ok) {
+      toast.error(entryPerm.reason ?? 'You cannot alter buildings here.');
+      return;
+    }
     setDecorateTarget(null);
     decoratingPlacementRef.current = null;
     editingPlacementRef.current = record;
@@ -1835,24 +1858,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       yaw: record.yaw,
       upOffset: record.upOffset ?? 0,
       onConfirm: async (hit, yaw, _payload, upOffset) => {
-        // Plot gate — refuse to move into someone else's plot.
-        try {
-          const pose = getEarthPose();
-          const disp: [number, number, number] = [
-            hit[0] - pose.center[0],
-            hit[1] - pose.center[1],
-            hit[2] - pose.center[2],
-          ];
-          const local = worldDisplacementToEarthLocal(disp, pose);
-          const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
-          const tx = local[0] * ref.right[0] + local[1] * ref.right[1] + local[2] * ref.right[2];
-          const tz = local[0] * ref.forward[0] + local[1] * ref.forward[1] + local[2] * ref.forward[2];
-          const owning = getPlotAtTangent(tx, tz);
-          if (owning && owning.ownerId !== selfId) {
-            toast.error('This land belongs to another player.');
+        // Land gate — one shared permission check for every mutation.
+        {
+          const perm = canBuildAtWorldPoint(hit, selfId);
+          if (!perm.ok) {
+            toast.error(perm.reason ?? 'You cannot build here.');
             return;
           }
-        } catch { /* fail open */ }
+        }
         const updated = {
           ...record,
           hitPoint: hit,
@@ -1871,18 +1884,23 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         builder.selectBlock(record.placementId);
       },
     });
-  }, [builder]);
+  }, [builder, selfId]);
 
   // Decorate: open the in-world post composer for a placed wall. The
   // composer pins the new post to the wall + routes it to the project /
   // Explore feed via the standard PostComposer pipeline.
   const [decorateTarget, setDecorateTarget] = useState<PlacementRecord | null>(null);
   const handleDecorateWorldPlacement = useCallback((record: PlacementRecord) => {
+    const perm = canBuildAtWorldPoint(record.hitPoint, selfId);
+    if (!perm.ok) {
+      toast.error(perm.reason ?? 'You cannot decorate on this land.');
+      return;
+    }
     editingPlacementRef.current = null;
     decoratingPlacementRef.current = record;
     builder.selectBlock(record.placementId);
     setDecorateTarget(record);
-  }, [builder]);
+  }, [builder, selfId]);
 
   // Clear any pending cast when the scene unmounts so stale cast state
   // doesn't leak across navigations.
@@ -1916,24 +1934,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       },
       hitPoint: null,
       onConfirm: async (hit, yaw, _payload, upOffset) => {
-        // Land Plot gate — refuse to place inside someone else's plot.
-        try {
-          const pose = getEarthPose();
-          const disp: [number, number, number] = [
-            hit[0] - pose.center[0],
-            hit[1] - pose.center[1],
-            hit[2] - pose.center[2],
-          ];
-          const local = worldDisplacementToEarthLocal(disp, pose);
-          const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
-          const tx = local[0] * ref.right[0] + local[1] * ref.right[1] + local[2] * ref.right[2];
-          const tz = local[0] * ref.forward[0] + local[1] * ref.forward[1] + local[2] * ref.forward[2];
-          const owning = getPlotAtTangent(tx, tz);
-          if (owning && owning.ownerId !== selfId) {
-            toast.error('This land belongs to another player.');
+        // Land gate — one shared permission check for every mutation.
+        {
+          const perm = canBuildAtWorldPoint(hit, selfId);
+          if (!perm.ok) {
+            toast.error(perm.reason ?? 'You cannot build here.');
             return;
           }
-        } catch { /* fail open if math errors */ }
+        }
         const handle = placePrefabAtHit({
           hitPoint: hit,
           prefabId: id,
@@ -2156,7 +2164,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             fallbackAnchorPeerId={WORLD_GRID_ORIGIN_ANCHOR}
           />
         )}
-        {isBuilding && selfId && <LandPlotsOverlay selfId={selfId} />}
+        {selfId && <LandPlotsOverlay selfId={selfId} emphasized={isBuilding} />}
         {isPlotting && selfId && !builder.pendingPlot && (
           <PlotSurveyOverlay
             selfId={selfId}
