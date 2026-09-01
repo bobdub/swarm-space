@@ -126,7 +126,6 @@ export function useBrainBuilder(): UseBrainBuilder {
     });
   }, []);
   const setPlotMode = useCallback((next: PlotClaimMode) => setPlotModeState(next), []);
-  const setPlotMode = useCallback((next: PlotClaimMode) => setPlotModeState(next), []);
   const setPendingPlot = useCallback((p: PendingPlot | null) => setPendingPlotState(p), []);
   const setSurveyProgress = useCallback(
     (p: PendingPlot | null) => setSurveyProgressState(p),
