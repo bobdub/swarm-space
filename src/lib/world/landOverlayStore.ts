@@ -1,17 +1,18 @@
 /**
  * landOverlayStore — "Show land" toggle for the surface plot markers.
  *
- * Markers are ON by default so ownership is always legible while
- * walking, not just while building.
+ * Markers are OFF by default so the walking world stays clean; the
+ * "Land" chip (and Builder Mode) turns them on.
  */
 const KEY = 'brain-show-land-markers-v1';
 let show = (() => {
   try {
-    if (typeof localStorage === 'undefined') return true;
+    if (typeof localStorage === 'undefined') return false;
     const raw = localStorage.getItem(KEY);
-    return raw == null ? true : raw === '1';
-  } catch { return true; }
+    return raw == null ? false : raw === '1';
+  } catch { return false; }
 })();
+
 
 const listeners = new Set<(v: boolean) => void>();
 
