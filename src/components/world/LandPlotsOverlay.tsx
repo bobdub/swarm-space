@@ -31,9 +31,12 @@ import {
   loadLandPlots,
   subscribeLandPlots,
   plotKind,
+  rectsAdjacent,
+  rectsIntersect,
   type LandPlot,
 } from '@/lib/world/landPlots';
 import { subscribeShowLandMarkers } from '@/lib/world/landOverlayStore';
+import { getBuilderTopView } from '@/lib/brain/builderCameraStore';
 
 interface LandPlotsOverlayProps {
   selfId: string;
@@ -46,6 +49,9 @@ const SEGMENTS_PER_SIDE = 6;
 const PLOT_VIEW_DISTANCE = 420;
 /** Labels fade out sooner than the footprint. */
 const LABEL_VIEW_DISTANCE = 160;
+/** Top view: labels shrink further and only name plots you are over. */
+const TOP_VIEW_LABEL_SCALE = 0.55;
+const TOP_VIEW_LABEL_DISTANCE = 90;
 /** Max plots rendered at once, nearest first. */
 const MAX_VISIBLE_PLOTS = 24;
 
@@ -159,21 +165,72 @@ export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverla
     ));
   });
 
+  const labelGroups = useMemo(() => computeLabelGroups(nearby), [nearby]);
+
+
+
   if (!visible || nearby.length === 0) return null;
   return (
     <group renderOrder={5}>
-      {nearby.map((p) => (
-        <PlotMarker
-          key={p.id}
-          plot={p}
-          style={styleFor(p, selfId)}
-          selfId={selfId}
-          emphasized={emphasized}
-        />
-      ))}
+      {nearby.map((p) => {
+        const g = labelGroups.get(p.id);
+        return (
+          <PlotMarker
+            key={p.id}
+            plot={p}
+            style={styleFor(p, selfId)}
+            selfId={selfId}
+            emphasized={emphasized}
+            labelCentre={g ?? null}
+          />
+        );
+      })}
     </group>
   );
 }
+
+/**
+ * Group touching same-owner, same-kind plots so a merged holding shows a
+ * single nameplate at the centre of its combined footprint instead of one
+ * label per parcel. Returns a map of representative plot id → centre.
+ */
+function computeLabelGroups(plots: LandPlot[]): Map<string, { tx: number; tz: number }> {
+  const parent = new Map<string, string>();
+  const find = (a: string): string => {
+    let r = a;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  for (const p of plots) parent.set(p.id, p.id);
+  for (let i = 0; i < plots.length; i++) {
+    for (let j = i + 1; j < plots.length; j++) {
+      const a = plots[i], b = plots[j];
+      if (a.ownerId !== b.ownerId || plotKind(a) !== plotKind(b)) continue;
+      if (!rectsAdjacent(a.cellRect, b.cellRect) && !rectsIntersect(a.cellRect, b.cellRect)) continue;
+      const ra = find(a.id), rb = find(b.id);
+      if (ra !== rb) parent.set(rb, ra);
+    }
+  }
+  const bounds = new Map<string, { cx0: number; cz0: number; cx1: number; cz1: number }>();
+  for (const p of plots) {
+    const root = find(p.id);
+    const b = bounds.get(root);
+    const r = p.cellRect;
+    bounds.set(root, b ? {
+      cx0: Math.min(b.cx0, r.cx0), cz0: Math.min(b.cz0, r.cz0),
+      cx1: Math.max(b.cx1, r.cx1), cz1: Math.max(b.cz1, r.cz1),
+    } : { ...r });
+  }
+  const out = new Map<string, { tx: number; tz: number }>();
+  for (const [root, b] of bounds) {
+    out.set(root, {
+      tx: ((b.cx0 + b.cx1) / 2) * PLOT_CELL,
+      tz: ((b.cz0 + b.cz1) / 2) * PLOT_CELL,
+    });
+  }
+  return out;
+}
+
 
 /**
  * Shared pose-change gate: the plot footprints only need rebuilding
@@ -207,11 +264,14 @@ function PlotMarker({
   style,
   selfId,
   emphasized,
+  labelCentre,
 }: {
   plot: LandPlot;
   style: PlotStyle;
   selfId: string;
   emphasized: boolean;
+  /** Centre of the merged holding; null when this plot is not the label owner. */
+  labelCentre: { tx: number; tz: number } | null;
 }) {
   const tangentPoints = useMemo(() => {
     const { cx0, cz0, cx1, cz1 } = plot.cellRect;
@@ -291,6 +351,8 @@ function PlotMarker({
       : `${shortId(plot.ownerId)}'s land`;
 
   const sprite = useMemo(() => makeLabelSprite(label, COLORS[style]), [label, style]);
+  const baseScale = useRef<[number, number]>([sprite.scale.x, sprite.scale.y]);
+  useEffect(() => { baseScale.current = [sprite.scale.x, sprite.scale.y]; }, [sprite]);
   useEffect(() => () => {
     try { (sprite.material as THREE.SpriteMaterial).map?.dispose(); } catch { /* ignore */ }
     try { (sprite.material as THREE.SpriteMaterial).dispose(); } catch { /* ignore */ }
@@ -323,11 +385,18 @@ function PlotMarker({
     (fillGeometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     fillGeometry.computeBoundingSphere();
 
-    const lw = tangentToWorld(centre.tx, centre.tz, ref, pose, 1.6);
-    sprite.position.set(lw[0], lw[1], lw[2]);
-    const cam = state.camera.position;
-    const d = Math.hypot(lw[0] - cam.x, lw[1] - cam.y, lw[2] - cam.z);
-    sprite.visible = d < LABEL_VIEW_DISTANCE;
+    if (!labelCentre) {
+      sprite.visible = false;
+    } else {
+      const top = getBuilderTopView();
+      const lw = tangentToWorld(labelCentre.tx, labelCentre.tz, ref, pose, top ? 0.6 : 1.6);
+      sprite.position.set(lw[0], lw[1], lw[2]);
+      const k = top ? TOP_VIEW_LABEL_SCALE : 1;
+      sprite.scale.set(baseScale.current[0] * k, baseScale.current[1] * k, 1);
+      const cam = state.camera.position;
+      const d = Math.hypot(lw[0] - cam.x, lw[1] - cam.y, lw[2] - cam.z);
+      sprite.visible = d < (top ? TOP_VIEW_LABEL_DISTANCE : LABEL_VIEW_DISTANCE);
+    }
   });
 
   return (
@@ -347,8 +416,8 @@ function fillGeometry_dep(plot: LandPlot): string {
 
 /** Canvas-texture billboard label — no DOM, no occlusion plate. */
 function makeLabelSprite(text: string, color: string): THREE.Sprite {
-  const pad = 12;
-  const fontPx = 34;
+  const pad = 6;
+  const fontPx = 16;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
@@ -379,7 +448,7 @@ function makeLabelSprite(text: string, color: string): THREE.Sprite {
   tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  const scale = 3.2;
+  const scale = 1.4;
   sprite.scale.set((w / h) * scale, scale, 1);
   return sprite;
 }

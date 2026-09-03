@@ -10,12 +10,14 @@ import {
   claimLandPlot,
   tangentToCell,
   cellInRect,
+  clearLandPlotsCache,
 } from '../landPlots';
 import { CELL, WALL_PITCH } from '../buildGrid';
 
 const NS = 'landPlots-test';
 
 beforeEach(() => {
+  clearLandPlotsCache();
   if (typeof localStorage !== 'undefined') {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('brain-land-plots-v1')) localStorage.removeItem(k);
@@ -132,5 +134,46 @@ describe('build permissions', () => {
     expect(canBuildAtCell(10, 10, 'peer-dev', { ns: NS2, isDev: false }).ok).toBe(false);
     expect(canBuildAtCell(10, 10, 'peer-dev', { ns: NS2, isDev: true }).ok).toBe(true);
     expect(canBuildAtCell(10, 10, 'peer-x', { ns: NS2 }).ok).toBe(false);
+  });
+});
+
+describe('overlap rejection and same-owner merging', () => {
+  const NS2 = 'test-land-merge';
+  beforeEach(() => { clearLandPlotsCache(); localStorage.removeItem(`brain-land-plots-v1:${NS2}`); });
+
+  it('rejects a claim overlapping any existing plot', async () => {
+    const { claimLandPlot } = await import('../landPlots');
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 0, cz0: 0, cx1: 2, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2 });
+    expect(() => claimLandPlot({
+      ownerId: 'peer-A', cellRect: { cx0: 1, cz0: 1, cx1: 3, cz1: 3 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2,
+    })).toThrow();
+    expect(() => claimLandPlot({
+      ownerId: 'peer-B', cellRect: { cx0: 1, cz0: 1, cx1: 3, cz1: 3 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2,
+    })).toThrow();
+  });
+
+  it('merges adjacent same-owner plots into one record', async () => {
+    const { claimLandPlot, loadLandPlots } = await import('../landPlots');
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 0, cz0: 0, cx1: 2, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2 });
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 2, cz0: 0, cx1: 4, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2 });
+    const plots = loadLandPlots(NS2);
+    expect(plots).toHaveLength(1);
+    expect(plots[0].cellRect).toEqual({ cx0: 0, cz0: 0, cx1: 4, cz1: 2 });
+    expect(plots[0].priceSwarm).toBe(24);
+  });
+
+  it('does not merge different owners or commons with private', async () => {
+    const { claimLandPlot, loadLandPlots } = await import('../landPlots');
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 0, cz0: 0, cx1: 2, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2 });
+    claimLandPlot({ ownerId: 'peer-B', cellRect: { cx0: 2, cz0: 0, cx1: 4, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 12, ns: NS2 });
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 0, cz0: 2, cx1: 2, cz1: 4 }, anchorId: 'world-origin', priceSwarm: 0, kind: 'commons', ns: NS2 });
+    expect(loadLandPlots(NS2)).toHaveLength(3);
+  });
+
+  it('reports the owned footprint span for top-view framing', async () => {
+    const { claimLandPlot, ownedFootprintSpanM, PLOT_CELL } = await import('../landPlots');
+    expect(ownedFootprintSpanM('peer-A', NS2)).toBe(0);
+    claimLandPlot({ ownerId: 'peer-A', cellRect: { cx0: 0, cz0: 0, cx1: 4, cz1: 2 }, anchorId: 'world-origin', priceSwarm: 24, ns: NS2 });
+    expect(ownedFootprintSpanM('peer-A', NS2)).toBe(4 * PLOT_CELL);
   });
 });

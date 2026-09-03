@@ -85,6 +85,11 @@ function write(plots: LandPlot[], ns?: string): void {
   }
 }
 
+/** Test hook — drops the in-memory cache so storage is re-read. */
+export function clearLandPlotsCache(): void {
+  memCache.clear();
+}
+
 export function loadLandPlots(ns?: string): LandPlot[] {
   return read(ns).slice();
 }
@@ -161,13 +166,88 @@ export function rectOverlapsForeign(
   const plots = read(ns);
   for (const p of plots) {
     if (p.ownerId === ownerId) continue;
-    if (rect.cx0 < p.cellRect.cx1 && rect.cx1 > p.cellRect.cx0 &&
-        rect.cz0 < p.cellRect.cz1 && rect.cz1 > p.cellRect.cz0) return true;
+    if (rectsIntersect(rect, p.cellRect)) return true;
   }
   return false;
 }
 
-/** Persist a claim. Does NOT debit SWARM — caller is responsible. */
+/** Do two cell rects share at least one cell? */
+export function rectsIntersect(a: PlotCellRect, b: PlotCellRect): boolean {
+  return a.cx0 < b.cx1 && a.cx1 > b.cx0 && a.cz0 < b.cz1 && a.cz1 > b.cz0;
+}
+
+/**
+ * True when `rect` overlaps ANY existing plot — own, foreign or
+ * commons. Overlapping claims are never allowed; adjacent same-owner
+ * claims are the supported way to grow a holding (they merge).
+ */
+export function rectOverlapsAny(rect: PlotCellRect, ns?: string): boolean {
+  for (const p of read(ns)) {
+    if (rectsIntersect(rect, p.cellRect)) return true;
+  }
+  return false;
+}
+
+/** Rects touch edge-to-edge (share a boundary with non-zero overlap). */
+export function rectsAdjacent(a: PlotCellRect, b: PlotCellRect): boolean {
+  const xOverlap = a.cx0 < b.cx1 && a.cx1 > b.cx0;
+  const zOverlap = a.cz0 < b.cz1 && a.cz1 > b.cz0;
+  if (xOverlap && (a.cz1 === b.cz0 || b.cz1 === a.cz0)) return true;
+  if (zOverlap && (a.cx1 === b.cx0 || b.cx1 === a.cx0)) return true;
+  return false;
+}
+
+function unionRect(a: PlotCellRect, b: PlotCellRect): PlotCellRect {
+  return {
+    cx0: Math.min(a.cx0, b.cx0),
+    cz0: Math.min(a.cz0, b.cz0),
+    cx1: Math.max(a.cx1, b.cx1),
+    cz1: Math.max(a.cz1, b.cz1),
+  };
+}
+
+/**
+ * Merge same-owner, same-kind, same-anchor plots whose rects touch and
+ * whose union is exactly covered by the pair (i.e. the result is still
+ * a clean rectangle). Runs to a fixed point. Plots that only form an
+ * L-shape stay separate records but render as one group.
+ */
+export function mergeAdjacentPlots(plots: LandPlot[]): LandPlot[] {
+  const out = plots.slice();
+  let merged = true;
+  while (merged) {
+    merged = false;
+    outer:
+    for (let i = 0; i < out.length; i++) {
+      for (let j = i + 1; j < out.length; j++) {
+        const a = out[i], b = out[j];
+        if (a.ownerId !== b.ownerId) continue;
+        if (plotKind(a) !== plotKind(b)) continue;
+        if (a.anchorId !== b.anchorId) continue;
+        if (!rectsAdjacent(a.cellRect, b.cellRect)) continue;
+        const u = unionRect(a.cellRect, b.cellRect);
+        if (rectBoxCount(u) !== rectBoxCount(a.cellRect) + rectBoxCount(b.cellRect)) continue;
+        const combined: LandPlot = {
+          ...a,
+          cellRect: u,
+          priceSwarm: (a.priceSwarm || 0) + (b.priceSwarm || 0),
+          claimedAt: Math.min(a.claimedAt, b.claimedAt),
+          unlocksLandmarks: a.unlocksLandmarks || b.unlocksLandmarks,
+        };
+        out.splice(j, 1);
+        out[i] = combined;
+        merged = true;
+        break outer;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Persist a claim. Does NOT debit SWARM — caller is responsible.
+ * Throws when the rect overlaps an existing plot.
+ */
 export function claimLandPlot(input: {
   ownerId: string;
   cellRect: PlotCellRect;
@@ -177,6 +257,9 @@ export function claimLandPlot(input: {
   label?: string;
   ns?: string;
 }): LandPlot {
+  if (rectOverlapsAny(input.cellRect, input.ns)) {
+    throw new Error('That area overlaps land that is already claimed.');
+  }
   const plot: LandPlot = {
     id: `plot:${Date.now().toString(36)}:${Math.floor(Math.random() * 0xffff).toString(36)}`,
     ownerId: input.ownerId,
@@ -188,10 +271,14 @@ export function claimLandPlot(input: {
     kind: input.kind ?? 'private',
     label: input.label,
   };
-  const next = read(input.ns).concat(plot);
+  const next = mergeAdjacentPlots(read(input.ns).concat(plot));
   write(next, input.ns);
-  return plot;
+  // The claim may have been folded into a neighbouring parcel; return
+  // whichever record now covers it.
+  const covering = next.find((p) => rectsIntersect(p.cellRect, plot.cellRect));
+  return covering ?? plot;
 }
+
 /**
  * Build permission for a lattice cell.
  *
@@ -226,4 +313,24 @@ export function canBuildAtTangent(
 ): { ok: boolean; reason?: string; plot?: LandPlot } {
   const { cx, cz } = tangentToCell(tx, tz);
   return canBuildAtCell(cx, cz, actorId, opts);
+}
+
+/**
+ * Largest horizontal span (metres) of everything `ownerId` owns, taken
+ * across the bounding box of their parcels. 0 when they own nothing.
+ * Used to frame the builder Top view so all owned land fits.
+ */
+export function ownedFootprintSpanM(ownerId: string, ns?: string): number {
+  let cx0 = Infinity, cz0 = Infinity, cx1 = -Infinity, cz1 = -Infinity;
+  let any = false;
+  for (const p of read(ns)) {
+    if (p.ownerId !== ownerId || plotKind(p) === 'commons') continue;
+    any = true;
+    cx0 = Math.min(cx0, p.cellRect.cx0);
+    cz0 = Math.min(cz0, p.cellRect.cz0);
+    cx1 = Math.max(cx1, p.cellRect.cx1);
+    cz1 = Math.max(cz1, p.cellRect.cz1);
+  }
+  if (!any) return 0;
+  return Math.max((cx1 - cx0), (cz1 - cz0)) * PLOT_CELL;
 }
