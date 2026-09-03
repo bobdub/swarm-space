@@ -17,7 +17,7 @@ import {
   subscribeShowLandMarkers,
   toggleShowLandMarkers,
 } from '@/lib/world/landOverlayStore';
-import { isDev } from '@/lib/world/devRoles';
+import { isDev, grantDev } from '@/lib/world/devRoles';
 import {
   subscribeBuilderTopView,
   toggleBuilderTopView,
