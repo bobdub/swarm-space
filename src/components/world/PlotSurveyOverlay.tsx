@@ -150,7 +150,10 @@ export function PlotSurveyOverlay({
     // both un-claimable (commons stay walkable for everyone).
     const cell = tangentToCell(tx, tz);
     const owning = getPlotAtCell(cell.cx, cell.cz);
-    if (owning && (plotKind(owning) === 'commons' || owning.ownerId !== ownerId)) {
+    // Any claimed cell blocks the survey — overlapping claims are never
+    // allowed, and holdings grow by claiming *adjacent* ground (which the
+    // store then merges into one parcel).
+    if (owning) {
       rejectFlashUntilRef.current = performance.now() + REJECT_FLASH_MS;
       // Don't push — line just stops extending here.
     } else {

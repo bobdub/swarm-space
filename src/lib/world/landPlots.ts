@@ -309,3 +309,23 @@ export function canBuildAtTangent(
   const { cx, cz } = tangentToCell(tx, tz);
   return canBuildAtCell(cx, cz, actorId, opts);
 }
+
+/**
+ * Largest horizontal span (metres) of everything `ownerId` owns, taken
+ * across the bounding box of their parcels. 0 when they own nothing.
+ * Used to frame the builder Top view so all owned land fits.
+ */
+export function ownedFootprintSpanM(ownerId: string, ns?: string): number {
+  let cx0 = Infinity, cz0 = Infinity, cx1 = -Infinity, cz1 = -Infinity;
+  let any = false;
+  for (const p of read(ns)) {
+    if (p.ownerId !== ownerId || plotKind(p) === 'commons') continue;
+    any = true;
+    cx0 = Math.min(cx0, p.cellRect.cx0);
+    cz0 = Math.min(cz0, p.cellRect.cz0);
+    cx1 = Math.max(cx1, p.cellRect.cx1);
+    cz1 = Math.max(cz1, p.cellRect.cz1);
+  }
+  if (!any) return 0;
+  return Math.max((cx1 - cx0), (cz1 - cz0)) * PLOT_CELL;
+}

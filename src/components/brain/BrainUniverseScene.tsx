@@ -17,7 +17,7 @@ import { BuildGridOverlay } from '@/components/world/BuildGridOverlay';
 import { PlotSurveyOverlay } from '@/components/world/PlotSurveyOverlay';
 import { LandPlotsOverlay } from '@/components/world/LandPlotsOverlay';
 import { useBrainBuilder, type PendingPlot } from '@/lib/brain/useBrainBuilder';
-import { claimLandPlot } from '@/lib/world/landPlots';
+import { claimLandPlot, ownedFootprintSpanM, subscribeLandPlots } from '@/lib/world/landPlots';
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { getSwarmBalance, burnSwarm } from '@/lib/blockchain/token';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
@@ -244,9 +244,26 @@ function spawnNearSharedVillage(
  * follows the body whose position is integrated from field gradients.
  */
 function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: string }) {
-  // Builder "Top view" boom, in metres.
-  const TOP_VIEW_UP_M = 14;
+  // Builder "Top view" boom, in metres. The height adapts to the land the
+  // player owns so a whole holding fits in frame.
+  const TOP_VIEW_UP_MIN_M = 14;
+  const TOP_VIEW_UP_MAX_M = 120;
   const TOP_VIEW_BACK_M = 10;
+  const topUpRef = useRef(TOP_VIEW_UP_MIN_M);
+  useEffect(() => {
+    const recompute = () => {
+      const span = ownedFootprintSpanM(selfId);
+      // Fit the span vertically for a ~60° FOV, plus margin.
+      const fit = span > 0 ? span * 0.95 + 8 : 0;
+      topUpRef.current = Math.max(
+        TOP_VIEW_UP_MIN_M,
+        Math.min(TOP_VIEW_UP_MAX_M, fit),
+      );
+    };
+    recompute();
+    return subscribeLandPlots(recompute);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selfId]);
   const { camera } = useThree();
   const physics = getBrainPhysics();
   const keys = useRef<Record<string, boolean>>({});
@@ -431,7 +448,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // so the avatar plus a wide patch of build grid stay in frame.
     const boomAmt = boomBlend.current;
     const specAmt = specBlend.current;
-    const eyeLift = EYE_LIFT + TOP_VIEW_UP_M * boomAmt + SPECTATOR_UP_M * specAmt + seatLift.current;
+    const eyeLift = EYE_LIFT + topUpRef.current * boomAmt + SPECTATOR_UP_M * specAmt + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
     if (boomAmt > 0 || specAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -992,14 +1009,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       toast.error(err instanceof Error ? err.message : 'Could not charge SWARM');
       return;
     }
-    const plot = claimLandPlot({
+    let plot;
+    try {
+      plot = claimLandPlot({
       ownerId: selfId,
       cellRect: pending.rect,
       anchorId: WORLD_GRID_ORIGIN_ANCHOR,
       priceSwarm: commons ? 0 : pending.priceSwarm,
       kind: commons ? 'commons' : 'private',
       label: commons ? 'Public land' : undefined,
-    });
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not claim that land');
+      return;
+    }
     toast.success(
       commons
         ? `Laid communal land · ${pending.boxes} boxes`
