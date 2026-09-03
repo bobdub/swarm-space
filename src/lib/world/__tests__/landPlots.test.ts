@@ -10,12 +10,14 @@ import {
   claimLandPlot,
   tangentToCell,
   cellInRect,
+  clearLandPlotsCache,
 } from '../landPlots';
 import { CELL, WALL_PITCH } from '../buildGrid';
 
 const NS = 'landPlots-test';
 
 beforeEach(() => {
+  clearLandPlotsCache();
   if (typeof localStorage !== 'undefined') {
     for (const k of Object.keys(localStorage)) {
       if (k.startsWith('brain-land-plots-v1')) localStorage.removeItem(k);
@@ -137,7 +139,7 @@ describe('build permissions', () => {
 
 describe('overlap rejection and same-owner merging', () => {
   const NS2 = 'test-land-merge';
-  beforeEach(() => { localStorage.removeItem(NS2); });
+  beforeEach(() => { clearLandPlotsCache(); localStorage.removeItem(`brain-land-plots-v1:${NS2}`); });
 
   it('rejects a claim overlapping any existing plot', async () => {
     const { claimLandPlot } = await import('../landPlots');

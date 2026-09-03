@@ -85,6 +85,11 @@ function write(plots: LandPlot[], ns?: string): void {
   }
 }
 
+/** Test hook — drops the in-memory cache so storage is re-read. */
+export function clearLandPlotsCache(): void {
+  memCache.clear();
+}
+
 export function loadLandPlots(ns?: string): LandPlot[] {
   return read(ns).slice();
 }
