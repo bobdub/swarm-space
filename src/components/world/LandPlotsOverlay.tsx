@@ -159,6 +159,10 @@ export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverla
     ));
   });
 
+  const labelGroups = useMemo(() => computeLabelGroups(nearby), [nearby]);
+
+
+
   if (!visible || nearby.length === 0) return null;
   return (
     <group renderOrder={5}>
