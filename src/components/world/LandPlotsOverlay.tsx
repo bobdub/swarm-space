@@ -31,9 +31,12 @@ import {
   loadLandPlots,
   subscribeLandPlots,
   plotKind,
+  rectsAdjacent,
+  rectsIntersect,
   type LandPlot,
 } from '@/lib/world/landPlots';
 import { subscribeShowLandMarkers } from '@/lib/world/landOverlayStore';
+import { getBuilderTopView } from '@/lib/brain/builderCameraStore';
 
 interface LandPlotsOverlayProps {
   selfId: string;
@@ -46,6 +49,9 @@ const SEGMENTS_PER_SIDE = 6;
 const PLOT_VIEW_DISTANCE = 420;
 /** Labels fade out sooner than the footprint. */
 const LABEL_VIEW_DISTANCE = 160;
+/** Top view: labels shrink further and only name plots you are over. */
+const TOP_VIEW_LABEL_SCALE = 0.55;
+const TOP_VIEW_LABEL_DISTANCE = 90;
 /** Max plots rendered at once, nearest first. */
 const MAX_VISIBLE_PLOTS = 24;
 
@@ -258,11 +264,14 @@ function PlotMarker({
   style,
   selfId,
   emphasized,
+  labelCentre,
 }: {
   plot: LandPlot;
   style: PlotStyle;
   selfId: string;
   emphasized: boolean;
+  /** Centre of the merged holding; null when this plot is not the label owner. */
+  labelCentre: { tx: number; tz: number } | null;
 }) {
   const tangentPoints = useMemo(() => {
     const { cx0, cz0, cx1, cz1 } = plot.cellRect;
@@ -342,6 +351,8 @@ function PlotMarker({
       : `${shortId(plot.ownerId)}'s land`;
 
   const sprite = useMemo(() => makeLabelSprite(label, COLORS[style]), [label, style]);
+  const baseScale = useRef<[number, number]>([sprite.scale.x, sprite.scale.y]);
+  useEffect(() => { baseScale.current = [sprite.scale.x, sprite.scale.y]; }, [sprite]);
   useEffect(() => () => {
     try { (sprite.material as THREE.SpriteMaterial).map?.dispose(); } catch { /* ignore */ }
     try { (sprite.material as THREE.SpriteMaterial).dispose(); } catch { /* ignore */ }
@@ -374,11 +385,18 @@ function PlotMarker({
     (fillGeometry.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
     fillGeometry.computeBoundingSphere();
 
-    const lw = tangentToWorld(centre.tx, centre.tz, ref, pose, 1.6);
-    sprite.position.set(lw[0], lw[1], lw[2]);
-    const cam = state.camera.position;
-    const d = Math.hypot(lw[0] - cam.x, lw[1] - cam.y, lw[2] - cam.z);
-    sprite.visible = d < LABEL_VIEW_DISTANCE;
+    if (!labelCentre) {
+      sprite.visible = false;
+    } else {
+      const top = getBuilderTopView();
+      const lw = tangentToWorld(labelCentre.tx, labelCentre.tz, ref, pose, top ? 0.6 : 1.6);
+      sprite.position.set(lw[0], lw[1], lw[2]);
+      const k = top ? TOP_VIEW_LABEL_SCALE : 1;
+      sprite.scale.set(baseScale.current[0] * k, baseScale.current[1] * k, 1);
+      const cam = state.camera.position;
+      const d = Math.hypot(lw[0] - cam.x, lw[1] - cam.y, lw[2] - cam.z);
+      sprite.visible = d < (top ? TOP_VIEW_LABEL_DISTANCE : LABEL_VIEW_DISTANCE);
+    }
   });
 
   return (
@@ -398,8 +416,8 @@ function fillGeometry_dep(plot: LandPlot): string {
 
 /** Canvas-texture billboard label — no DOM, no occlusion plate. */
 function makeLabelSprite(text: string, color: string): THREE.Sprite {
-  const pad = 12;
-  const fontPx = 34;
+  const pad = 6;
+  const fontPx = 16;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
@@ -430,7 +448,7 @@ function makeLabelSprite(text: string, color: string): THREE.Sprite {
   tex.needsUpdate = true;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  const scale = 3.2;
+  const scale = 1.4;
   sprite.scale.set((w / h) * scale, scale, 1);
   return sprite;
 }
