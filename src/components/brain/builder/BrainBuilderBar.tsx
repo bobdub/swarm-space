@@ -333,13 +333,13 @@ export function BrainBuilderBar({
             <Eye className="h-3 w-3" aria-hidden="true" />
             <span>Land</span>
           </button>
-          {canLayCommons && (
+          {canLayCommons ? (
             <button
               type="button"
               data-testid="builder-toggle-commons"
               onClick={() => setPlotMode(plotMode === 'commons' ? 'private' : 'commons')}
               aria-pressed={plotMode === 'commons'}
-              title="Commons — lay free public land (roads, squares). Devs only."
+              title="Roads — lay free public land (roads, squares). Nobody can build on it."
               className={[
                 'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
                 plotMode === 'commons'
@@ -348,9 +348,21 @@ export function BrainBuilderBar({
               ].join(' ')}
             >
               <Route className="h-3 w-3" aria-hidden="true" />
-              <span>Commons</span>
+              <span>Roads</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-testid="builder-enable-roads"
+              onClick={() => { grantDev(selfId); setCanLayCommons(true); }}
+              title="Enable road laying (maintainer tools) on this device"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/50 bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/70"
+            >
+              <Route className="h-3 w-3" aria-hidden="true" />
+              <span>Enable roads</span>
             </button>
           )}
+
           <button
             type="button"
             data-testid="builder-toggle-topview"
