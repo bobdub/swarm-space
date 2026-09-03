@@ -162,18 +162,65 @@ export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverla
   if (!visible || nearby.length === 0) return null;
   return (
     <group renderOrder={5}>
-      {nearby.map((p) => (
-        <PlotMarker
-          key={p.id}
-          plot={p}
-          style={styleFor(p, selfId)}
-          selfId={selfId}
-          emphasized={emphasized}
-        />
-      ))}
+      {nearby.map((p) => {
+        const g = labelGroups.get(p.id);
+        return (
+          <PlotMarker
+            key={p.id}
+            plot={p}
+            style={styleFor(p, selfId)}
+            selfId={selfId}
+            emphasized={emphasized}
+            labelCentre={g ?? null}
+          />
+        );
+      })}
     </group>
   );
 }
+
+/**
+ * Group touching same-owner, same-kind plots so a merged holding shows a
+ * single nameplate at the centre of its combined footprint instead of one
+ * label per parcel. Returns a map of representative plot id → centre.
+ */
+function computeLabelGroups(plots: LandPlot[]): Map<string, { tx: number; tz: number }> {
+  const parent = new Map<string, string>();
+  const find = (a: string): string => {
+    let r = a;
+    while (parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  for (const p of plots) parent.set(p.id, p.id);
+  for (let i = 0; i < plots.length; i++) {
+    for (let j = i + 1; j < plots.length; j++) {
+      const a = plots[i], b = plots[j];
+      if (a.ownerId !== b.ownerId || plotKind(a) !== plotKind(b)) continue;
+      if (!rectsAdjacent(a.cellRect, b.cellRect) && !rectsIntersect(a.cellRect, b.cellRect)) continue;
+      const ra = find(a.id), rb = find(b.id);
+      if (ra !== rb) parent.set(rb, ra);
+    }
+  }
+  const bounds = new Map<string, { cx0: number; cz0: number; cx1: number; cz1: number }>();
+  for (const p of plots) {
+    const root = find(p.id);
+    const b = bounds.get(root);
+    const r = p.cellRect;
+    bounds.set(root, b ? {
+      cx0: Math.min(b.cx0, r.cx0), cz0: Math.min(b.cz0, r.cz0),
+      cx1: Math.max(b.cx1, r.cx1), cz1: Math.max(b.cz1, r.cz1),
+    } : { ...r });
+  }
+  const out = new Map<string, { tx: number; tz: number }>();
+  for (const [root, b] of bounds) {
+    out.set(root, {
+      tx: ((b.cx0 + b.cx1) / 2) * PLOT_CELL,
+      tz: ((b.cz0 + b.cz1) / 2) * PLOT_CELL,
+    });
+  }
+  return out;
+}
+
 
 /**
  * Shared pose-change gate: the plot footprints only need rebuilding
