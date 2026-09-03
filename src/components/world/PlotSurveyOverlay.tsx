@@ -33,7 +33,6 @@ import {
   priceForRect,
   rectBoxCount,
   getPlotAtCell,
-  plotKind,
   tangentToCell,
 } from '@/lib/world/landPlots';
 import type { PendingPlot } from '@/lib/brain/useBrainBuilder';
