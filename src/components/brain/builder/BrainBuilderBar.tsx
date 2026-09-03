@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route } from 'lucide-react';
 import {
   subscribeShowLandMarkers,
+  getShowLandMarkers,
   toggleShowLandMarkers,
 } from '@/lib/world/landOverlayStore';
 import { isDev, grantDev } from '@/lib/world/devRoles';
