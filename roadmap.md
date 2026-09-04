@@ -10,4 +10,4 @@
 - [x] Edge-trigger 𝒞_light probes on field ticks rather than 60 Hz body ticks
 - [x] Keep the causal probe observer-only
 - [x] Route saturation recovery through one UQRC operator step
-- [ ] Verify focused tests, full Brain/UQRC checks, and live walking
+- [x] Verify focused and full Brain/UQRC checks (live visual walk blocked by the account gate)

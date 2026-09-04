@@ -30,9 +30,15 @@ touches the network.
 
 When `creep` or `saturated` fires, the response is **field-side only**:
 
-1. Reduce pin stiffness (currently `0.85` in `fieldEngine.ts`) for one tick.
+1. Schedule one operator step at reduced pin stiffness (`0.25 × 0.85`).
 2. Allow diffusion `ν Δu` to smooth the plateau.
 3. Re-apply pins on the next tick.
+
+The probe is edge-triggered once per qualifying field tick. Because bodies run
+at 60 Hz while the field runs at 4 Hz, a modulo condition without a remembered
+field-tick edge would repeat the same probe and relaxation across ~15 body
+ticks. `step3D` consumes and clears the scheduled relaxation; no diagnostic
+function writes directly to `field.axes`.
 
 **Do NOT disconnect WebRTC, leave the swarm, or rebuild peer connections
 in response to a dead-state classification.** The transport is healthy;
