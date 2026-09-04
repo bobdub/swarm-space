@@ -57,7 +57,15 @@ export interface Field3D {
   ticks: number;
   /** Φ — gravitational potential, ∇²Φ = ρ_mass. One Jacobi sweep per step3D tick. */
   phi?: Float32Array;
+  /** Per-field scratch buffers reused by `step3D` (double buffering).
+   *  Purely an allocation optimisation — never read outside the operator. */
+  scratch?: {
+    phi: Float32Array;
+    pi: Float32Array;
+    axes: Float32Array[];
+  };
 }
+
 
 export function createField3D(N: number = FIELD3D_N): Field3D {
   const size = N * N * N;
