@@ -675,7 +675,17 @@ export class UqrcPhysics {
       this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, Date.now() / 1000));
 
       // 1. Field evolves
-      for (let s = 0; s < FIELD_TICKS_PER_PHYSICS; s++) step3D(this.field);
+      // 1. Field evolves on its own (documented) clock, 𝒪_UQRC at FIELD_HZ.
+      this.fieldAccum += dt;
+      const fieldPeriod = 1 / FIELD_HZ;
+      let fieldSteps = 0;
+      while (this.fieldAccum >= fieldPeriod && fieldSteps < 2) {
+        this.fieldAccum -= fieldPeriod;
+        fieldSteps++;
+        step3D(this.field);
+      }
+      if (this.fieldAccum > fieldPeriod * 4) this.fieldAccum = fieldPeriod;
+
 
       const N = this.field.N;
       // Live Earth pose — read once per tick. Bodies inside the atmosphere
