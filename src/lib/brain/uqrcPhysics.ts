@@ -261,6 +261,9 @@ export class UqrcPhysics {
   private prevCausalSample: ProbeHistorySample | null = null;
   private lastCausalState: CausalState = 'dead';
   private lastPose: EarthPose | null = null;
+  /** Seconds of body-time owed to the field operator (FIELD_HZ clock). */
+  private fieldAccum = 0;
+
   /** Per-body dwell timer (seconds) inside the inner core. Triggers a
    *  respawn-to-village rescue once a body has been below
    *  EARTH_CORE_RADIUS for more than CORE_ESCAPE_DWELL_S. */
