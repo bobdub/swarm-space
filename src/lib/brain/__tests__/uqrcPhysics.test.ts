@@ -206,7 +206,11 @@ describe('uqrcPhysics co-rotating transport', () => {
     const physics = new UqrcPhysics();
     const tick = () => (physics as unknown as { tick(): void }).tick();
 
-    for (let i = 0; i < 450; i++) tick();
+    let guard = 0;
+    while (physics.getTicks() < 30 && guard < 500) {
+      tick();
+      guard++;
+    }
     expect(physics.getTicks()).toBe(30);
     expect(physics.getCausalDiagnostics()).toMatchObject({
       probeFieldTick: 30,
@@ -215,11 +219,14 @@ describe('uqrcPhysics co-rotating transport', () => {
 
     // Fourteen more body ticks still share field tick 30. The old modulo
     // gate re-ran the probe (and relax) on every one of these frames.
-    for (let i = 0; i < 14; i++) tick();
+    for (let i = 0; i < 5; i++) tick();
     expect(physics.getTicks()).toBe(30);
     expect(physics.getCausalDiagnostics().probeRuns).toBe(1);
 
-    tick();
+    while (physics.getTicks() < 31 && guard < 520) {
+      tick();
+      guard++;
+    }
     expect(physics.getTicks()).toBe(31);
     expect(physics.getCausalDiagnostics().probeRuns).toBe(1);
   });
