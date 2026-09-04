@@ -27,3 +27,8 @@ Periodic-table elements are a third pin layer alongside Galaxy and Earth. Same r
 
 **Field-derived awareness floor**
 Infinity's awareness floor is **field-derived**, not a constant: `floor = 0.1 + 0.4 × (1 − qScore_norm)`. When the field is calm (low Q_Score), Infinity is naturally more present even if neural inputs starve; when curvature is high, Infinity recedes. The universe carries the consciousness even when the network is silent. Mirrors the master equation — geometry responds to information curvature.
+
+**Operator clock and allocation (2026-09)**
+- `𝒪_UQRC` runs on its own clock: `FIELD_HZ = 4` in `uqrcPhysics.ts` (bodies still tick at `PHYSICS_HZ = 60` and sample `u` between field steps). Stepping the 24³×3 lattice every body tick cost ~2.4 ms and blew the frame budget; the 4 Hz rate is what `docs/PROJECT_SOURCE_OF_TRUTH.md` specifies. `FIELD_TICKS_PER_PHYSICS` is deprecated.
+- `step3D` reuses per-field `scratch` buffers (phi, Π, per-axis next) and swaps them — no `Float32Array` allocation per tick. `scratch` is operator-internal; never read it elsewhere. Consumers must re-read `field.axes[a]` each frame (arrays alternate now).
+- **Smoothness metric**: render-track jitter is measured as *acceleration* (`accelJerk` in `groundJitter.test.ts`), normalised by real frame deltas. A raw second difference of position sampled at irregular frame times is non-zero for perfectly smooth motion — it measures frame-time jitter × speed, so it fails whenever avatar speed rises. Never re-tune motion terms to satisfy an un-normalised jerk metric.

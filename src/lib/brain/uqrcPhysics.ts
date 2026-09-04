@@ -126,7 +126,18 @@ export interface Intent {
 // identical to the pre-scale stamp resolution.
 export const WORLD_SIZE = 60 * 212.5;    // 12 750 m
 export const PHYSICS_HZ = 60;
+/**
+ * The UQRC operator runs on its own clock (docs/PROJECT_SOURCE_OF_TRUTH.md:
+ * field ticks at 4 Hz, bodies at 60 Hz). One full 24³×3 lattice sweep costs
+ * ~2.4 ms, so stepping it every physics tick blew the 16.6 ms frame budget.
+ * Bodies keep sampling u between field steps — the operator is the only
+ * writer of `field.axes`, exactly as before, it simply advances at its
+ * documented rate.
+ */
+export const FIELD_HZ = 4;
+/** @deprecated superseded by FIELD_HZ — kept for callers/tests. */
 export const FIELD_TICKS_PER_PHYSICS = 1;
+
 /** Max fixed steps run in one drive() pass — bounds catch-up after a stall. */
 export const MAX_CATCHUP_STEPS = 4;
 
@@ -250,6 +261,9 @@ export class UqrcPhysics {
   private prevCausalSample: ProbeHistorySample | null = null;
   private lastCausalState: CausalState = 'dead';
   private lastPose: EarthPose | null = null;
+  /** Seconds of body-time owed to the field operator (FIELD_HZ clock). */
+  private fieldAccum = 0;
+
   /** Per-body dwell timer (seconds) inside the inner core. Triggers a
    *  respawn-to-village rescue once a body has been below
    *  EARTH_CORE_RADIUS for more than CORE_ESCAPE_DWELL_S. */
@@ -664,7 +678,17 @@ export class UqrcPhysics {
       this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, Date.now() / 1000));
 
       // 1. Field evolves
-      for (let s = 0; s < FIELD_TICKS_PER_PHYSICS; s++) step3D(this.field);
+      // 1. Field evolves on its own (documented) clock, 𝒪_UQRC at FIELD_HZ.
+      this.fieldAccum += dt;
+      const fieldPeriod = 1 / FIELD_HZ;
+      let fieldSteps = 0;
+      while (this.fieldAccum >= fieldPeriod && fieldSteps < 2) {
+        this.fieldAccum -= fieldPeriod;
+        fieldSteps++;
+        step3D(this.field);
+      }
+      if (this.fieldAccum > fieldPeriod * 4) this.fieldAccum = fieldPeriod;
+
 
       const N = this.field.N;
       // Live Earth pose — read once per tick. Bodies inside the atmosphere
