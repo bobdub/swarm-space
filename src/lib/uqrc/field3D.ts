@@ -25,6 +25,9 @@ export const FIELD3D_RICCI = 0.001;        // ℛ     — Ricci damping
 export const FIELD3D_LAMBDA = 1e-100;      // λ(ε₀) — informational coupling
 export const FIELD3D_DAMPING = 0.12;       // operator step size
 export const FIELD3D_KAPPA_PIN = 0.85;     // L_S^pin coupling strength
+/** One-step basin release. The regular pin coupling is restored automatically
+ * after the next operator step. */
+export const FIELD3D_RELAX_PIN_SCALE = 0.25;
 export const FIELD3D_BOUND = 4;            // global regularity clamp
 
 // ── Subordinate scalings for the three new step3D terms.
@@ -64,6 +67,10 @@ export interface Field3D {
     pi: Float32Array;
     axes: Float32Array[];
   };
+  /** Requested pin-stiffness scale for the next operator step only. */
+  pendingPinStiffnessScale?: number;
+  /** Diagnostic: scale consumed by the most recently completed step. */
+  lastStepPinStiffnessScale?: number;
 }
 
 
@@ -205,6 +212,18 @@ export function writePinTemplate(
   field.axes[axis][flatIdx] = target; // seed for instant visibility
 }
 
+/**
+ * Schedule a one-operator-step release of the pin basin. This changes no live
+ * field sample itself: `step3D` remains the sole evolution writer and lets its
+ * existing diffusion term smooth the plateau while the pins briefly yield.
+ */
+export function schedulePinRelaxation(
+  field: Field3D,
+  scale: number = FIELD3D_RELAX_PIN_SCALE,
+): void {
+  field.pendingPinStiffnessScale = Math.max(0, Math.min(1, scale));
+}
+
 /** One UQRC evolution tick over the 3-D torus. Mutates in place. */
 export function step3D(field: Field3D): Field3D {
   const N = field.N;
@@ -224,6 +243,7 @@ export function step3D(field: Field3D): Field3D {
     };
   }
   const scratch = field.scratch;
+  const pinStiffnessScale = field.pendingPinStiffnessScale ?? 1;
 
   // ─────────────────────────────────────────────────────────────────────
   // 𝒢_mass — gravity as the gradient of u, sourced by pinTemplate.
@@ -294,7 +314,9 @@ export function step3D(field: Field3D): Field3D {
             (u[kpFlat] + u[kmFlat] - 2 * c);
           // 𝒪_UQRC(u) = ν Δu + ℛ u + L_S u
           // L_S u := L_S^free u + κ_pin · mask · (template − u)   (one fused step)
-          const pinTerm = mask[flat] ? FIELD3D_KAPPA_PIN * (tpl[flat] - c) : 0;
+          const pinTerm = mask[flat]
+            ? FIELD3D_KAPPA_PIN * pinStiffnessScale * (tpl[flat] - c)
+            : 0;
 
           // 𝒜_advect(u)_a = −Σ_μ u_μ · 𝒟_μ u_a   (central difference)
           const dax = (u[ipFlat] - u[imFlat]) * 0.5;
@@ -341,6 +363,8 @@ export function step3D(field: Field3D): Field3D {
   }
   // Pin re-assertion is now part of 𝒪_UQRC above (L_S^pin term).
   // No post-hoc field.axes writes — preserves [𝒟_μ, 𝒟_ν] guarantee.
+  field.lastStepPinStiffnessScale = pinStiffnessScale;
+  field.pendingPinStiffnessScale = undefined;
   field.ticks++;
   return field;
 }

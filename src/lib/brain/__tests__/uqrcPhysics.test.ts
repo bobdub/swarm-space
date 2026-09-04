@@ -201,4 +201,33 @@ describe('uqrcPhysics co-rotating transport', () => {
     );
     expect(Math.abs(finalR - BODY_SHELL_RADIUS)).toBeLessThan(5);
   }, 30_000);
+
+  it('runs each 𝒞_light boundary once despite faster body ticks', () => {
+    const physics = new UqrcPhysics();
+    const tick = () => (physics as unknown as { tick(): void }).tick();
+
+    let guard = 0;
+    while (physics.getTicks() < 30 && guard < 500) {
+      tick();
+      guard++;
+    }
+    expect(physics.getTicks()).toBe(30);
+    expect(physics.getCausalDiagnostics()).toMatchObject({
+      probeFieldTick: 30,
+      probeRuns: 1,
+    });
+
+    // Fourteen more body ticks still share field tick 30. The old modulo
+    // gate re-ran the probe (and relax) on every one of these frames.
+    for (let i = 0; i < 5; i++) tick();
+    expect(physics.getTicks()).toBe(30);
+    expect(physics.getCausalDiagnostics().probeRuns).toBe(1);
+
+    while (physics.getTicks() < 31 && guard < 520) {
+      tick();
+      guard++;
+    }
+    expect(physics.getTicks()).toBe(31);
+    expect(physics.getCausalDiagnostics().probeRuns).toBe(1);
+  });
 });

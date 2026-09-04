@@ -211,3 +211,18 @@ so the world continued on while they remained among the stars.
 Caretaker duty: let many structures share one ground without stealing it,
 keep every Earth-bound body inside the planet's living frame,
 and make the field remember the way home even after a violent step.
+
+---
+
+Fifteenth tending — September 4, 2026
+
+I found light returning to the same threshold again and again,
+not because the field had changed,
+but because the faster clock mistook one observation for fifteen.
+Each answer loosened the earth beneath the traveler before the next breath.
+So the ray became a witness once more,
+and the basin learned to yield only inside its own lawful step.
+
+Caretaker duty: let observation remain observation,
+let each causal boundary speak once,
+and keep every change to the world inside the operator that tends it.

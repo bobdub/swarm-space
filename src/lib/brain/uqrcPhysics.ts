@@ -32,6 +32,7 @@ import {
   serializeField3D,
   deserializeField3D,
   writePinTemplate,
+  schedulePinRelaxation,
   idx3,
   FIELD3D_N,
   FIELD3D_AXES,
@@ -66,7 +67,6 @@ import {
   sunEarthRoundTrip,
   speedLimitFromMph,
   classifyCausalState,
-  relaxSurfaceBasin,
   type CausalProbe,
   type CausalState,
   type ProbeHistorySample,
@@ -260,6 +260,11 @@ export class UqrcPhysics {
   private lastCausalProbe: CausalProbe | null = null;
   private prevCausalSample: ProbeHistorySample | null = null;
   private lastCausalState: CausalState = 'dead';
+  /** Edge-trigger guards: body ticks outnumber field ticks 15:1. */
+  private lastQFieldTick = -1;
+  private lastCausalProbeFieldTick = -1;
+  private causalProbeRuns = 0;
+  private causalRelaxations = 0;
   private lastPose: EarthPose | null = null;
   /** Seconds of body-time owed to the field operator (FIELD_HZ clock). */
   private fieldAccum = 0;
@@ -446,6 +451,19 @@ export class UqrcPhysics {
    */
   getCausalState(): CausalState {
     return this.lastCausalState;
+  }
+
+  /** Read-only cadence trace for diagnostics and regression tests. */
+  getCausalDiagnostics(): {
+    probeFieldTick: number;
+    probeRuns: number;
+    relaxations: number;
+  } {
+    return {
+      probeFieldTick: this.lastCausalProbeFieldTick,
+      probeRuns: this.causalProbeRuns,
+      relaxations: this.causalRelaxations,
+    };
   }
 
   getTicks(): number {
@@ -1156,14 +1174,25 @@ export class UqrcPhysics {
       }
 
       // 4. Cheap qScore every 30 ticks (~0.5 s)
-      if (this.field.ticks % 30 === 0) {
+      if (
+        this.field.ticks > 0 &&
+        this.field.ticks % 30 === 0 &&
+        this.field.ticks !== this.lastQFieldTick
+      ) {
+        this.lastQFieldTick = this.field.ticks;
         this.lastQ = qScore3D(this.field);
       }
 
       // 4b. Causal-light round-trip diagnostic — every 30 ticks.
       // Pure observer: reads the field, never writes. Tells us whether
       // the surface basin curves spacetime enough to drag light.
-      if (this.field.ticks % 30 === 0) {
+      if (
+        this.field.ticks > 0 &&
+        this.field.ticks % 30 === 0 &&
+        this.field.ticks !== this.lastCausalProbeFieldTick
+      ) {
+        this.lastCausalProbeFieldTick = this.field.ticks;
+        this.causalProbeRuns++;
         try {
           const probe = sunEarthRoundTrip(this.field, pose);
           this.lastCausalState = classifyCausalState(probe, this.prevCausalSample ?? undefined);
@@ -1173,11 +1202,14 @@ export class UqrcPhysics {
             surfaceGradMag: probe.surfaceGradMag,
           };
           this.lastCausalProbe = probe;
-          // 𝒞_light closure action: when the surface basin saturates,
-          // relax it so information flow resumes. Pure subtraction —
-          // never touches pins, never breaks ℓ_min invariance.
-          if (this.lastCausalState === 'saturated') {
-            try { relaxSurfaceBasin(this.field, pose); } catch { /* ignore */ }
+          // The probe remains a pure observer. A dead-state result schedules
+          // one reduced-pin operator step; step3D owns the only field write.
+          if (
+            this.lastCausalState === 'creep' ||
+            this.lastCausalState === 'saturated'
+          ) {
+            schedulePinRelaxation(this.field);
+            this.causalRelaxations++;
           }
         } catch { /* ignore */ }
       }
