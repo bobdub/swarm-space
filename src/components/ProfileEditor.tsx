@@ -6,6 +6,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { User } from "@/types";
 import { get, put } from "@/lib/store";
+import { updateActiveSessionUser } from "@/lib/auth";
+
 import { toast } from "sonner";
 import { FileUpload } from "./FileUpload";
 import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
@@ -155,9 +157,10 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
       };
 
       await put("users", updatedUser);
-      
-      // Update localStorage for current user
-      localStorage.setItem("me", JSON.stringify(updatedUser));
+
+      // Refresh the active session entry through the single auth writer
+      await updateActiveSessionUser(updatedUser);
+
 
       // Backfill avatarRef on all existing comments by this user
       try {

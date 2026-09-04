@@ -1,62 +1,30 @@
-import { useState, useEffect } from "react";
-import { getCurrentUser, attemptSessionRestore, UserMeta } from "@/lib/auth";
+import { useEffect, useState } from "react";
+import type { UserMeta } from "@/lib/auth";
+import {
+  getSessionSnapshot,
+  subscribeSession,
+} from "@/lib/session/sessionStore";
 
 /**
  * Reactive hook for authentication state.
- * On mount, attempts to restore a session from IndexedDB if localStorage
- * was wiped (cache clear, Brave Shields, browser restart, etc.).
- * Listens to storage + custom events for cross-tab / in-tab reactivity.
+ *
+ * Thin subscriber over the shared session store — every consumer sees the
+ * same answer on the same tick, and a session that can't be read yet reports
+ * `isLoading` rather than pretending the user is signed out.
  */
 export function useAuth() {
-  // Synchronous read from localStorage — if a user is already present we can
-  // skip the loading gate entirely. The async IndexedDB restore below only
-  // matters when localStorage was wiped (cache clear, Brave Shields, etc.).
-  // Without this, redirects gated on `!isLoading && user` (e.g. Index → /brain)
-  // stall when `attemptSessionRestore()` is blocked by a DB upgrade or a slow
-  // IndexedDB open, leaving the user stranded on the marketing page.
-  const initialUser = getCurrentUser();
-  const [user, setUser] = useState<UserMeta | null>(initialUser);
-  const [isLoading, setIsLoading] = useState(initialUser === null);
+  const [state, setState] = useState<{ user: UserMeta | null; isLoading: boolean }>(() => {
+    const snap = getSessionSnapshot();
+    return { user: snap.user, isLoading: snap.status === "unknown" };
+  });
 
   useEffect(() => {
-    let cancelled = false;
-
-    const restore = async () => {
-      try {
-        const restored = await attemptSessionRestore();
-        if (!cancelled) setUser(restored);
-      } catch {
-        if (!cancelled) setUser(getCurrentUser());
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    };
-
-    // Only run the async restore if we don't already have a user synchronously.
-    // Otherwise we'd needlessly block on IndexedDB and risk stalling redirects.
-    if (initialUser === null) {
-      restore();
-    }
-
-    const sync = () => setUser(getCurrentUser());
-
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "me") sync();
-    };
-
-    window.addEventListener("storage", handleStorageChange);
-    window.addEventListener("user-login", sync);
-    window.addEventListener("user-logout", sync);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener("storage", handleStorageChange);
-      window.removeEventListener("user-login", sync);
-      window.removeEventListener("user-logout", sync);
-    };
+    return subscribeSession((snap) => {
+      setState({ user: snap.user, isLoading: snap.status === "unknown" });
+    });
   }, []);
 
-  return { user, isLoading };
+  return state;
 }
 
 /** Dispatch custom event when user logs in */

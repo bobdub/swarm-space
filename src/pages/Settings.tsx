@@ -1,5 +1,7 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { StorageHealthIndicator } from "@/components/StorageHealthIndicator";
+import { SessionHealthCard } from "@/components/settings/SessionHealthCard";
+
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -745,7 +747,11 @@ const Settings = () => {
             </TabsContent>
           </Tabs>
 
+          {/* Session health — which sign-in markers this device holds */}
+          <SessionHealthCard />
+
           {/* Logout */}
+
           <Card className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 mt-8">
             <div className="flex items-center justify-between">
               <div>

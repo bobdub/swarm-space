@@ -84,6 +84,107 @@ async function getLastActiveUserId(): Promise<string | null> {
   }
 }
 
+// ── Session flags ───────────────────────────────────────────────────────────
+// `me` in localStorage is the fast session entry; `meta:lastActiveUserId` in
+// IndexedDB is the durable marker; `session-signed-out` records an INTENTIONAL
+// sign-out. All three are written through the helpers below so they can never
+// drift apart.
+
+const SIGNED_OUT_KEY = "session-signed-out";
+
+/** True when the user deliberately signed out on this device. */
+export function hasIntentionalSignOut(): boolean {
+  try {
+    return localStorage.getItem(SIGNED_OUT_KEY) != null;
+  } catch {
+    return false;
+  }
+}
+
+function setSignOutMarker(): void {
+  try {
+    localStorage.setItem(SIGNED_OUT_KEY, new Date().toISOString());
+  } catch { /* ignore quota */ }
+}
+
+function clearSignOutMarker(): void {
+  try {
+    localStorage.removeItem(SIGNED_OUT_KEY);
+  } catch { /* ignore */ }
+}
+
+/**
+ * Single writer for "this account is now the active session".
+ * Writes every session flag together and announces the login.
+ */
+async function activateSession(user: UserMeta, options: { announce?: boolean } = {}): Promise<void> {
+  const { announce = true } = options;
+
+  clearSignOutMarker();
+  try {
+    localStorage.setItem("me", JSON.stringify(user));
+  } catch (error) {
+    logAuthError("Failed to write session entry", error);
+  }
+  await setLastActiveUserId(user.id);
+  if (announce) window.dispatchEvent(new Event("user-login"));
+}
+
+/**
+ * Refresh the stored session entry after a profile edit. Keeps the fast
+ * entry and the durable marker in step — callers must not write `me` directly.
+ */
+export async function updateActiveSessionUser(
+  user: { id: string } & Partial<UserMeta>
+): Promise<void> {
+  const current = getCurrentUser();
+  if (!current || current.id !== user.id) return;
+  await activateSession({ ...current, ...user } as UserMeta, { announce: false });
+}
+
+export type SessionRestoreResult =
+
+  | { status: "restored"; user: UserMeta }
+  | { status: "none" }
+  | { status: "unavailable"; reason: string };
+
+/**
+ * Attempt to resolve the session, distinguishing "no account on this device"
+ * from "local storage could not be read right now" (blocked DB upgrade, Brave
+ * shields, private mode). Callers must NOT treat `unavailable` as signed out.
+ */
+export async function restoreSessionAttempt(): Promise<SessionRestoreResult> {
+  const current = getCurrentUser();
+  if (current) return { status: "restored", user: current };
+
+  if (hasIntentionalSignOut()) return { status: "none" };
+
+  let accounts: UserMeta[];
+  try {
+    // Deliberately unguarded: a throw here means storage is unreadable.
+    const stored = await getAll<UserMeta>("users");
+    accounts = stored.filter(isLocalAccountMeta);
+  } catch (error) {
+    logAuthError("Session restore could not read local accounts", error);
+    return { status: "unavailable", reason: (error as Error)?.name ?? "storage-error" };
+  }
+
+  if (accounts.length === 0) return { status: "none" };
+
+  const lastId = await getLastActiveUserId();
+  const match = lastId ? accounts.find((a) => a.id === lastId) : undefined;
+  const chosen = match ?? (accounts.length === 1 ? accounts[0] : undefined);
+
+  if (!chosen) {
+    // Marker lost and several identities exist — we can't guess which one.
+    return { status: "none" };
+  }
+
+  await activateSession(chosen);
+  return { status: "restored", user: chosen };
+}
+
+
 // Create new local account
 export async function createLocalAccount(
   username: string,
@@ -116,14 +217,13 @@ export async function createLocalAccount(
   // Store wrapped key in IndexedDB
   await put("meta", { k: wrappedKeyRef, v: wrapped });
   
-  // Store user meta in localStorage for quick access
-  localStorage.setItem("me", JSON.stringify(userMeta));
-  
   // Store user in users store for profile lookup
   await put("users", userMeta);
 
-  // Track as last active user (survives localStorage wipes)
-  await setLastActiveUserId(userId);
+  // Write every session flag together (fast entry + durable marker) and
+  // clear any prior intentional sign-out.
+  await activateSession(userMeta, { announce: false });
+
   
   // Award genesis credits
   await awardGenesisCredits(userId);
@@ -159,47 +259,15 @@ export function getCurrentUser(): UserMeta | null {
 }
 
 /**
- * Attempt to restore a session from IndexedDB when localStorage is empty.
- * Called on app boot by useAuth.  Returns the restored user or null.
- *
- * Strategy:
- *  1. If localStorage already has "me", return that user.
- *  2. Look up lastActiveUserId in IndexedDB.
- *  3. If found, restore that account into localStorage.
- *  4. If not found but exactly one account exists, restore it.
+ * Back-compat wrapper over `restoreSessionAttempt`. Prefer the session store
+ * (`src/lib/session/sessionStore.ts`) — this collapses "storage unavailable"
+ * into `null`, which callers must not read as "signed out".
  */
 export async function attemptSessionRestore(): Promise<UserMeta | null> {
-  // Fast path — localStorage intact
-  const current = getCurrentUser();
-  if (current) return current;
-
-  try {
-    // Check IndexedDB for last active user
-    const lastId = await getLastActiveUserId();
-    if (lastId) {
-      const accounts = await getStoredAccounts();
-      const match = accounts.find(a => a.id === lastId);
-      if (match) {
-        localStorage.setItem("me", JSON.stringify(match));
-        window.dispatchEvent(new Event("user-login"));
-        return match;
-      }
-    }
-
-    // Fallback: if only one identity exists, use it
-    const accounts = await getStoredAccounts();
-    if (accounts.length === 1) {
-      localStorage.setItem("me", JSON.stringify(accounts[0]));
-      await setLastActiveUserId(accounts[0].id);
-      window.dispatchEvent(new Event("user-login"));
-      return accounts[0];
-    }
-  } catch (error) {
-    logAuthError("Session restore from IndexedDB failed", error);
-  }
-
-  return null;
+  const result = await restoreSessionAttempt();
+  return result.status === "restored" ? result.user : null;
 }
+
 
 // Login (unwrap keys)
 export async function loginUser(passphrase?: string): Promise<string | null> {
@@ -227,11 +295,15 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 
 // Logout
 export function logoutUser() {
-  localStorage.removeItem("me");
+  // Record that this sign-out was intentional so boot never silently
+  // restores the session. Cleared by every sign-in path.
+  setSignOutMarker();
+  try { localStorage.removeItem("me"); } catch { /* ignore */ }
   clearUnlockedPrivateKeyCache();
   // Don't clear lastActiveUserId — we want to remember for next restore
   window.dispatchEvent(new Event("user-logout"));
 }
+
 
 // List locally stored accounts (from IndexedDB)
 function isLocalAccountMeta(entry: unknown): entry is UserMeta {
@@ -272,10 +344,9 @@ export async function restoreLocalAccount(userId: string): Promise<UserMeta | nu
       return null;
     }
 
-    localStorage.setItem("me", JSON.stringify(match));
-    await setLastActiveUserId(userId);
-    window.dispatchEvent(new Event("user-login"));
+    await activateSession(match);
     return match;
+
   } catch (error) {
     logAuthError("Failed to restore local account", error);
     return null;
@@ -314,9 +385,9 @@ export async function importAccountBackup(backupJson: string): Promise<UserMeta>
   await put("meta", { k: userMeta.wrappedKeyRef, v: backup.wrappedKey });
   
   // Store user meta
-  localStorage.setItem("me", JSON.stringify(userMeta));
   await put("users", userMeta);
-  await setLastActiveUserId(userMeta.id);
+  await activateSession(userMeta);
+
   
   return userMeta;
 }
@@ -374,12 +445,11 @@ export async function recoverAccountFromPrivateKey(
   };
 
   await put("meta", { k: wrappedKeyRef, v: wrapped });
-  localStorage.setItem("me", JSON.stringify(userMeta));
   await put("users", userMeta);
-  await setLastActiveUserId(userId);
   await awardGenesisCredits(userId);
   await cacheUnlockedPrivateKey(privateKeyBase64);
-  window.dispatchEvent(new Event("user-login"));
+  await activateSession(userMeta);
+
 
   return userMeta;
 }

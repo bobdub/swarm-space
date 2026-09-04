@@ -141,7 +141,30 @@ const RULES = [
       });
     },
   },
+  {
+    id: 'session-flag-writer',
+    message: 'Session flag written outside src/lib/auth.ts — sign-in markers must have one writer.',
+    hint: [
+      'Session state has three flags that must move together:',
+      '  localStorage "me", meta:lastActiveUserId (IndexedDB), and "session-signed-out".',
+      'Write them through the auth helpers only:',
+      '  activateSession(user) / logoutUser()   — src/lib/auth.ts',
+      'Read state via `useAuth`, `useAuthReady`, or `useSession`.',
+    ].join('\n'),
+    scan(file, lines, push, suppressed) {
+      if (file === 'src/lib/auth.ts') return;
+      lines.forEach((ln, i) => {
+        const writesMe = /localStorage\s*\.\s*(setItem|removeItem)\s*\(\s*["']me["']/.test(ln);
+        const writesSignedOut = /localStorage\s*\.\s*(setItem|removeItem)\s*\(\s*["']session-signed-out["']/.test(ln);
+        const writesMarker = /["']meta:lastActiveUserId["']/.test(ln) && /put\s*\(/.test(ln);
+        if ((writesMe || writesSignedOut || writesMarker) && !suppressed(i, 'session-flag-writer')) {
+          push(i + 1);
+        }
+      });
+    },
+  },
 ];
+
 
 // ── Walk ────────────────────────────────────────────────────────────────
 function* walk(dir) {

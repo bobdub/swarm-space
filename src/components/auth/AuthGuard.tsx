@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSession } from "@/hooks/useSession";
+
 import { isHomelessRedirect } from "@/lib/routing/canonicalHome";
 
 /**
@@ -8,7 +9,8 @@ import { isHomelessRedirect } from "@/lib/routing/canonicalHome";
  * publicly so existing share previews keep working.
  */
 export function AuthGuard() {
-  const { user, isReady } = useAuthReady();
+  const { user, status, storageUnavailable } = useSession();
+  const isReady = status !== "unknown";
   const location = useLocation();
 
   // Public share-link short-circuit on Index.
@@ -19,11 +21,18 @@ export function AuthGuard() {
 
   if (!isReady) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4">
         <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+        {storageUnavailable && (
+          <p className="max-w-xs text-center text-sm text-muted-foreground">
+            Restoring your session — this device's storage is busy. Close any
+            other tabs of this app and it will continue automatically.
+          </p>
+        )}
       </div>
     );
   }
+
 
   if (!user && !isPublicSharePreview) {
     // Only carry the `from` hint forward when it points at a real deep link.
