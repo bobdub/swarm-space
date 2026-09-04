@@ -336,6 +336,8 @@ export function step3D(field: Field3D): Field3D {
       }
     }
     field.axes[a] = next;
+    scratch.axes[a] = u;
+
   }
   // Pin re-assertion is now part of 𝒪_UQRC above (L_S^pin term).
   // No post-hoc field.axes writes — preserves [𝒟_μ, 𝒟_ν] guarantee.
