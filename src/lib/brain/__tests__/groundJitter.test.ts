@@ -11,8 +11,10 @@ import { spawnOnEarth, getEarthPose, setEarthPoseTime, BODY_SHELL_RADIUS, endEar
  *   a_i = 2·((Δx_i/Δt_i) − (Δx_{i-1}/Δt_{i-1})) / (Δt_i + Δt_{i-1})
  * Constant-velocity motion sampled at any spacing gives exactly 0.
  */
-const RAW_ALT_CEIL = 999;
-const LATERAL_CEIL = 999;
+/** Ceilings are accelerations (m/s²) of the render-track offset, not raw
+ *  frame deltas — see accelJerk. Sized ~2× the measured post-fix values. */
+const ALT_ACCEL_CEIL = 6;
+const LATERAL_CEIL = 2.5;
 const accelJerk = (a: number[], dts: number[]) => {
   let m = 0;
   for (let i = 2; i < a.length; i++) {
@@ -61,7 +63,8 @@ describe('ground jitter: body stays in register with the rendered Earth', () => 
     expect(locJerk).toBeLessThan(rawJerk * 0.6);
     // Absolute bound is generous: the avatar walks fast, so single-step
     // interpolation of its own acceleration dominates what is left.
-    expect(locJerk).toBeLessThan(RAW_ALT_CEIL);
+    expect(locJerk).toBeLessThan(ALT_ACCEL_CEIL);
+    expect(Number.isFinite(locJerk)).toBe(true);
     endEarthFrame(); setEarthPoseTime(null);
   });
 });
@@ -101,8 +104,6 @@ describe('lateral jitter: structures stay in register with the camera', () => {
     }
     const rawJerk = accelJerk(rawOff, dts);
     const frameJerk = accelJerk(frameOff, dts);
-    // eslint-disable-next-line no-console
-    console.log('lateral accel jerk raw', rawJerk, 'frame', frameJerk);
     expect(frameJerk).toBeLessThan(rawJerk * 0.6);
     expect(frameJerk).toBeLessThan(LATERAL_CEIL);
     endEarthFrame(); setEarthPoseTime(null);
