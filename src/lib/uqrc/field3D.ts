@@ -211,12 +211,27 @@ export function step3D(field: Field3D): Field3D {
   const size = N * N * N;
 
   // ─────────────────────────────────────────────────────────────────────
+  // Scratch buffers — allocated once per field, swapped every tick. The
+  // operator itself is unchanged; only the memory it writes into is reused
+  // (previously 4 × N³ Float32Arrays were allocated per tick ≈ 10 MB/s at
+  // 60 Hz, which starved the tick budget and made long runs time out).
+  // ─────────────────────────────────────────────────────────────────────
+  if (!field.scratch || field.scratch.pi.length !== size) {
+    field.scratch = {
+      phi: new Float32Array(size),
+      pi: new Float32Array(size),
+      axes: Array.from({ length: FIELD3D_AXES }, () => new Float32Array(size)),
+    };
+  }
+  const scratch = field.scratch;
+
+  // ─────────────────────────────────────────────────────────────────────
   // 𝒢_mass — gravity as the gradient of u, sourced by pinTemplate.
   // ρ_mass(x) = Σ_a |pinTemplate_a(x)| ; ∇²Φ = ρ_mass (one Jacobi sweep).
   // ─────────────────────────────────────────────────────────────────────
   if (!field.phi || field.phi.length !== size) field.phi = new Float32Array(size);
   const phi = field.phi;
-  const phiNext = new Float32Array(size);
+  const phiNext = scratch.phi;
   for (let k = 0; k < N; k++) {
     const kp = (k + 1) % N, km = (k + N - 1) % N;
     for (let j = 0; j < N; j++) {
@@ -238,10 +253,11 @@ export function step3D(field: Field3D): Field3D {
     }
   }
   field.phi = phiNext;
+  scratch.phi = phi;
   const Phi = phiNext;
 
   // Pre-compute Π(‖u‖²) per cell once per tick — reused for −∇Π.
-  const piBuf = new Float32Array(size);
+  const piBuf = scratch.pi;
   for (let flat = 0; flat < size; flat++) {
     let m2 = 0;
     for (let a = 0; a < FIELD3D_AXES; a++) {
@@ -256,7 +272,8 @@ export function step3D(field: Field3D): Field3D {
     const tpl = field.pinTemplate[a];
     const mask = field.pinMask[a];
     // Allocation-light: reuse a single scratch buffer per axis per tick
-    const next = new Float32Array(size);
+    const next = scratch.axes[a];
+
     for (let k = 0; k < N; k++) {
       const kp = (k + 1) % N, km = (k + N - 1) % N;
       for (let j = 0; j < N; j++) {
