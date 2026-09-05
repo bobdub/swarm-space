@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
-import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
 import { Zap } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -1046,6 +1046,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
@@ -1140,6 +1141,33 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       setCameraOn(false);
     }
   }, [cameraOn, user]);
+
+  // ── Screen share ──────────────────────────────────────────────────
+  // Independent of camera and mic: sharing never touches the voice track.
+  const toggleScreenShare = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (!screenStream) {
+      try {
+        const stream = await manager.startScreenShare();
+        setScreenStream(stream);
+        stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null));
+      } catch {
+        toast.message('Screen share cancelled');
+        setScreenStream(null);
+      }
+    } else {
+      try { manager.stopScreenShare(); } catch { /* ignore */ }
+      setScreenStream(null);
+    }
+  }, [screenStream, user]);
+
+  // Release any capture when leaving the universe.
+  useEffect(() => () => {
+    if (!user) return;
+    try { getWebRTCManager(user.id, user.username).stopScreenShare(); } catch { /* ignore */ }
+  }, [user]);
+
 
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
@@ -2054,6 +2082,21 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             type="button"
             variant="outline"
             size="sm"
+            onClick={toggleScreenShare}
+            className={
+              screenStream
+                ? 'bg-[hsla(185,80%,14%,0.75)] text-cyan-300 ring-1 ring-cyan-400/50'
+                : 'bg-[hsla(265,70%,8%,0.7)]'
+            }
+            aria-label={screenStream ? 'Stop sharing screen' : 'Share your screen'}
+            title={screenStream ? 'Stop sharing screen' : 'Share your screen'}
+          >
+            {screenStream ? <MonitorOff className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={toggleCamera}
             className="bg-[hsla(265,70%,8%,0.7)]"
             aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
@@ -2227,6 +2270,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           localUsername={user?.username ?? 'You'}
           localMuted={isMuted}
           cameraOn={cameraOn}
+          localScreenStream={screenStream}
         />
       )}
 
