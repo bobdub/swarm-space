@@ -24,7 +24,7 @@ export class WebRTCManager {
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
   /** Sender carrying the screen track, per connection. */
-  private screenSenders = new WeakMap<RTCPeerConnection, RTCRtpSender>();
+  private screenSenders = new Map<string, RTCRtpSender>();
   /** Screen stream id announced by each remote peer, when sharing. */
   private remoteScreenStreamIds = new Map<string, string>();
   private currentRoomId: string | null = null;
@@ -664,7 +664,7 @@ export class WebRTCManager {
     const failures: unknown[] = [];
     for (const [peerId, pc] of this.connections) {
       try {
-        this.attachScreenTrack(pc, screenTrack, stream);
+        this.attachScreenTrack(peerId, pc, screenTrack, stream);
       } catch (error) {
         failures.push(error);
         console.warn(`[WebRTC] Failed to attach screen track for ${peerId}:`, error);
@@ -694,14 +694,14 @@ export class WebRTCManager {
   }
 
   /** Add the screen track to one connection, keyed to its own MediaStream. */
-  private attachScreenTrack(pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream): void {
-    const existing = this.screenSenders.get(pc);
+  private attachScreenTrack(peerId: string, pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream): void {
+    const existing = this.screenSenders.get(peerId);
     if (existing) {
       void existing.replaceTrack(track).catch(() => { /* renegotiation will follow */ });
       return;
     }
     const sender = pc.addTrack(track, stream);
-    this.screenSenders.set(pc, sender);
+    this.screenSenders.set(peerId, sender);
   }
 
   async startScreenShare(): Promise<MediaStream> {
@@ -717,10 +717,11 @@ export class WebRTCManager {
 
     // Remove the screen sender from every connection. The browser raises
     // `negotiationneeded`, which the normal negotiation path handles.
-    for (const [pc, sender] of this.screenSenders) {
-      try { pc.removeTrack(sender); } catch { /* connection may be closed */ }
+    for (const [peerId, sender] of this.screenSenders) {
+      const pc = this.connections.get(peerId);
+      try { pc?.removeTrack(sender); } catch { /* connection may be closed */ }
     }
-    this.screenSenders = new WeakMap();
+    this.screenSenders.clear();
 
     this.screenStream = null;
     console.log('[WebRTC] Screen share stopped');
@@ -779,7 +780,7 @@ export class WebRTCManager {
     // It travels as its own MediaStream, exactly like any second video source.
     const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
     if (screenTrack && this.screenStream) {
-      this.attachScreenTrack(pc, screenTrack, this.screenStream);
+      this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream);
     }
 
     // Handle incoming remote tracks
@@ -1003,6 +1004,7 @@ export class WebRTCManager {
     this.makingOffer.delete(peerId);
     this.negotiationRetryCount.delete(peerId);
     this.remoteScreenStreamIds.delete(peerId);
+    this.screenSenders.delete(peerId);
   }
 
   private async flushPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {
