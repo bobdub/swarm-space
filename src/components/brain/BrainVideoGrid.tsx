@@ -133,7 +133,7 @@ export function BrainVideoGrid({
           });
         }
       }
-      if (p.screenStream && p.screenActive !== false && p.screenStream.getVideoTracks().length > 0) {
+      if (p.screenStream && p.screenStream.getVideoTracks().length > 0) {
         out.push({
           key: `${p.peerId}-screen`,
           label: `${name}'s screen`,

@@ -20,9 +20,8 @@ export interface VideoParticipant {
   peerId: string;
   username: string;
   stream: MediaStream | null;
+  /** Remote screen capture, delivered as its own MediaStream. */
   screenStream?: MediaStream | null;
-  /** Explicit mesh state; keeps transient receiver mutes from hiding a live share. */
-  screenActive?: boolean;
   isMuted: boolean;
   isVideoEnabled: boolean;
   joinedAt: string;

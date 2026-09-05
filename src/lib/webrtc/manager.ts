@@ -23,6 +23,10 @@ export class WebRTCManager {
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
+  /** Sender carrying the screen track, per connection. */
+  private screenSenders = new Map<string, RTCRtpSender>();
+  /** Screen stream id announced by each remote peer, when sharing. */
+  private remoteScreenStreamIds = new Map<string, string>();
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
   private userId: string;
@@ -81,6 +85,12 @@ export class WebRTCManager {
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed to create offer:', e)
           );
+
+          // If we are already sharing, re-announce so the newcomer can label
+          // the incoming screen stream as soon as it arrives.
+          if (this.screenStream && this.currentRoomId) {
+            sendScreenShareState(this.currentRoomId, true, this.screenStream.id);
+          }
           break;
         }
 
@@ -136,16 +146,21 @@ export class WebRTCManager {
 
         case 'screen-share-state': {
           const participant = this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
-          const data = envelope.data as { active?: unknown } | undefined;
+          const data = envelope.data as { active?: unknown; streamId?: unknown } | undefined;
           const active = data?.active === true;
-          participant.screenActive = active;
-          if (!active) participant.screenStream = null;
+          const streamId = typeof data?.streamId === 'string' ? data.streamId : undefined;
+          if (active) {
+            if (streamId) this.remoteScreenStreamIds.set(meshPeerId, streamId);
+          } else {
+            this.remoteScreenStreamIds.delete(meshPeerId);
+            participant.screenStream = null;
+          }
           this.broadcastMessage({
             type: active ? 'screen-share-started' : 'screen-share-stopped',
             roomId: this.currentRoomId,
             peerId: meshPeerId,
           });
-          console.log(`[WebRTC] 🖥️ Screen share ${active ? 'started' : 'stopped'} ping from ${meshPeerId}`);
+          console.log(`[WebRTC] 🖥️ Screen share ${active ? 'started' : 'stopped'} announced by ${meshPeerId}`);
           break;
         }
 
@@ -352,7 +367,7 @@ export class WebRTCManager {
       roomId: room.id,
       room,
     });
-    if (this.currentRoomId) sendScreenShareState(this.currentRoomId, true);
+    
 
     console.log('[WebRTC] Room created:', room.id);
     return room;
@@ -612,12 +627,6 @@ export class WebRTCManager {
     return !!this.localStream?.getAudioTracks().some(t => t.readyState === 'live');
   }
 
-  /** The reserved screen-share transceiver (index 2) for a connection. */
-  private screenSenderFor(pc: RTCPeerConnection): RTCRtpSender | null {
-    const t = pc.getTransceivers()[2];
-    return t ? t.sender : null;
-  }
-
   /**
    * Ask the browser for a screen capture. Kept separate from publishing so
    * the UI can call this synchronously from a user gesture and distinguish a
@@ -636,59 +645,63 @@ export class WebRTCManager {
   }
 
   /**
-   * Publish an already-captured screen stream onto every peer connection.
-   * Throws on publishing failure after stopping the captured tracks so no
-   * orphaned capture is left running.
+   * Publish an already-captured screen stream onto every peer connection as
+   * a normal second MediaStream (`addTrack(track, stream)`). The browser
+   * raises `negotiationneeded` for each connection, so renegotiation runs
+   * through exactly the same path as camera and microphone changes.
    */
   async publishScreenStream(stream: MediaStream): Promise<void> {
     if (this.screenStream && this.screenStream !== stream) {
       this.stopScreenShare();
     }
-    this.screenStream = stream;
     const screenTrack = stream.getVideoTracks()[0] ?? null;
     if (!screenTrack) {
-      this.screenStream = null;
       stream.getTracks().forEach(t => t.stop());
       throw new Error('Screen capture produced no video track');
     }
+    this.screenStream = stream;
 
     const failures: unknown[] = [];
-    // Publish onto the reserved screen slot of every peer connection
     for (const [peerId, pc] of this.connections) {
-      const sender = this.screenSenderFor(pc);
-      if (sender) {
-        try {
-          await sender.replaceTrack(screenTrack);
-        } catch (error) {
-          failures.push(error);
-          console.warn(`[WebRTC] Failed to attach screen track for ${peerId}:`, error);
-        }
-      }
-      if (this.currentRoomId) {
-        void this.createOfferForPeer(peerId).catch((error) => {
-          console.warn(`[WebRTC] Failed renegotiation for screen share with ${peerId}:`, error);
-        });
+      try {
+        this.attachScreenTrack(peerId, pc, screenTrack, stream);
+      } catch (error) {
+        failures.push(error);
+        console.warn(`[WebRTC] Failed to attach screen track for ${peerId}:`, error);
       }
     }
 
-    // Auto-stop when user clicks browser's "Stop sharing" button
+    // Auto-stop when the user clicks the browser's own "Stop sharing" bar.
     screenTrack.addEventListener('ended', () => {
       this.stopScreenShare();
     });
 
-    this.broadcastMessage({
-      type: 'room-updated',
-      roomId: this.currentRoomId ?? '',
-      room: this.currentRoomId ? this.rooms.get(this.currentRoomId) ?? null : null,
-    });
-
-    console.log('[WebRTC] Screen share published');
     // Sharing to zero peers is still a success (they see it when they join);
     // only fail the call when every existing connection rejected the track.
     if (failures.length > 0 && failures.length === this.connections.size) {
       this.stopScreenShare();
       throw new Error('Screen share could not be published to any peer connection');
     }
+
+    if (this.currentRoomId) sendScreenShareState(this.currentRoomId, true, stream.id);
+    console.log('[WebRTC] Screen share published as stream', stream.id);
+
+    this.broadcastMessage({
+      type: 'screen-share-started',
+      roomId: this.currentRoomId ?? '',
+      peerId: getLocalMeshPeerId() ?? this.userId,
+    });
+  }
+
+  /** Add the screen track to one connection, keyed to its own MediaStream. */
+  private attachScreenTrack(peerId: string, pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream): void {
+    const existing = this.screenSenders.get(peerId);
+    if (existing) {
+      void existing.replaceTrack(track).catch(() => { /* renegotiation will follow */ });
+      return;
+    }
+    const sender = pc.addTrack(track, stream);
+    this.screenSenders.set(peerId, sender);
   }
 
   async startScreenShare(): Promise<MediaStream> {
@@ -699,29 +712,27 @@ export class WebRTCManager {
   }
 
   stopScreenShare(): void {
-    if (this.screenStream) {
-      this.screenStream.getTracks().forEach(track => track.stop());
+    if (!this.screenStream) return;
+    this.screenStream.getTracks().forEach(track => track.stop());
 
-      // Clear the reserved screen slot on every peer connection
-      for (const [, pc] of this.connections) {
-        const sender = this.screenSenderFor(pc);
-        if (sender && sender.track) {
-          void sender.replaceTrack(null).catch(() => { /* ignore */ });
-        }
-      }
-
-      this.screenStream = null;
-      console.log('[WebRTC] Screen share stopped');
-
-      if (this.currentRoomId) sendScreenShareState(this.currentRoomId, false);
-
-      // Notify UI
-      this.broadcastMessage({
-        type: 'room-updated',
-        roomId: this.currentRoomId ?? '',
-        room: this.currentRoomId ? this.rooms.get(this.currentRoomId) ?? null : null,
-      });
+    // Remove the screen sender from every connection. The browser raises
+    // `negotiationneeded`, which the normal negotiation path handles.
+    for (const [peerId, sender] of this.screenSenders) {
+      const pc = this.connections.get(peerId);
+      try { pc?.removeTrack(sender); } catch { /* connection may be closed */ }
     }
+    this.screenSenders.clear();
+
+    this.screenStream = null;
+    console.log('[WebRTC] Screen share stopped');
+
+    if (this.currentRoomId) sendScreenShareState(this.currentRoomId, false);
+
+    this.broadcastMessage({
+      type: 'screen-share-stopped',
+      roomId: this.currentRoomId ?? '',
+      peerId: getLocalMeshPeerId() ?? this.userId,
+    });
   }
 
   getScreenStream(): MediaStream | null { return this.screenStream; }
@@ -752,9 +763,6 @@ export class WebRTCManager {
     // track never makes it into a renegotiation.
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
     const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-    // Index 2 is permanently reserved for screen share so `ontrack` can
-    // classify by transceiver identity regardless of arrival order.
-    const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
 
     // Attach local camera/mic tracks if already available
     if (this.localStream) {
@@ -768,10 +776,11 @@ export class WebRTCManager {
       }
     }
 
-    // Attach the screen track (if sharing) so late-joiners see it
+    // Attach the screen track (if already sharing) so late joiners see it.
+    // It travels as its own MediaStream, exactly like any second video source.
     const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
-    if (screenTrack) {
-      await screenTransceiver.sender.replaceTrack(screenTrack);
+    if (screenTrack && this.screenStream) {
+      this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream);
     }
 
     // Handle incoming remote tracks
@@ -779,63 +788,36 @@ export class WebRTCManager {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
       const participant = this.ensureParticipant(peerId, 'Peer');
 
-      const incomingStream = event.streams[0];
-
-      // Distinguish screen-share from camera/mic by **transceiver identity**,
-      // not by stream-id heuristics. The third upfront transceiver (if present)
-      // is the dedicated screen-share slot; anything arriving on it is the
-      // screen track. Everything else is camera/mic and ALWAYS merges into the
-      // single participant.stream.
-      //
-      // The previous heuristic (`incomingStream.id !== participant.stream.id
-      // && kind === 'video'`) misclassified late-arriving camera video as a
-      // screen share whenever audio arrived first in its own MediaStream —
-      // producing the asymmetric "some hear, others don't" bug.
-      const transceivers = pc.getTransceivers();
-      const eventIndex = transceivers.findIndex((transceiver) =>
-        transceiver === event.transceiver || transceiver.receiver === event.receiver);
-      const screenMid = screenTransceiver.mid;
-      const eventMid = event.transceiver.mid;
-      const isScreenTrack = event.track.kind === 'video' && (
-        event.receiver === screenTransceiver.receiver
-        || (screenMid !== null && eventMid === screenMid)
-        || eventIndex === 2
-      );
+      // Camera and microphone are sent on the upfront transceivers without a
+      // stream association, so they arrive with no MediaStream. The screen is
+      // sent with `addTrack(track, screenStream)`, so the browser delivers it
+      // inside its own stream — that is the classification, straight from the
+      // negotiated media description.
+      const incomingStream = event.streams[0] ?? null;
+      const isScreenTrack = event.track.kind === 'video' && !!incomingStream;
 
       console.log('[WebRTC] Track classification:', {
         peerId,
         kind: event.track.kind,
-        eventIndex,
-        eventMid,
-        screenMid,
+        streamId: incomingStream?.id,
         isScreenTrack,
       });
 
-      if (isScreenTrack) {
-        participant.screenStream = incomingStream ?? new MediaStream([event.track]);
-        participant.screenActive = true;
-        console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
-        // Renegotiation can transiently mute a live receiver. Keep its stream;
-        // the explicit mesh stop message is authoritative for tile removal.
-        event.track.onmute = () => {
-          console.log('[WebRTC] 🖥️ Remote screen track temporarily muted for', peerId);
-          this.broadcastMessage({
-            type: 'peer-joined',
-            roomId: this.currentRoomId!,
-            peerId,
-          });
-        };
-        event.track.onunmute = () => {
-          participant.screenActive = true;
-          this.broadcastMessage({
-            type: 'screen-share-started',
-            roomId: this.currentRoomId ?? '',
-            peerId,
-          });
-        };
+      if (isScreenTrack && incomingStream) {
+        participant.screenStream = incomingStream;
+        console.log('[WebRTC] 🖥️ Screen share stream received from', peerId, incomingStream.id);
+        incomingStream.addEventListener('removetrack', () => {
+          if (incomingStream.getVideoTracks().length === 0) {
+            participant.screenStream = null;
+            this.broadcastMessage({
+              type: 'screen-share-stopped',
+              roomId: this.currentRoomId ?? '',
+              peerId,
+            });
+          }
+        });
       } else {
-        // Camera / mic — always merge into the main participant stream,
-        // regardless of which MediaStream container it arrived in.
+        // Camera / mic — always merge into the single participant stream.
         if (!participant.stream) {
           participant.stream = new MediaStream();
         }
@@ -854,7 +836,6 @@ export class WebRTCManager {
         }
         if (isScreenTrack) {
           participant.screenStream = null;
-          participant.screenActive = false;
         }
         this.broadcastMessage({
           type: 'peer-joined',
@@ -863,23 +844,22 @@ export class WebRTCManager {
         });
       };
 
-      if (!isScreenTrack) {
-        event.track.onunmute = () => {
-          this.broadcastMessage({
-            type: 'peer-joined',
-            roomId: this.currentRoomId ?? '',
-            peerId,
-          });
-        };
-      }
+      event.track.onunmute = () => {
+        this.broadcastMessage({
+          type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
+          roomId: this.currentRoomId ?? '',
+          peerId,
+        });
+      };
 
       // Notify UI of updated participant
       this.broadcastMessage({
-        type: 'peer-joined',
-        roomId: this.currentRoomId!,
+        type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
+        roomId: this.currentRoomId ?? '',
         peerId,
       });
     };
+
 
     // ICE candidates → send via mesh
     pc.onicecandidate = (event) => {
@@ -1023,6 +1003,8 @@ export class WebRTCManager {
     this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
     this.negotiationRetryCount.delete(peerId);
+    this.remoteScreenStreamIds.delete(peerId);
+    this.screenSenders.delete(peerId);
   }
 
   private async flushPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {

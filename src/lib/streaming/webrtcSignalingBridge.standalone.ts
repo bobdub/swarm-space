@@ -471,14 +471,18 @@ export function sendReconnectRequest(
   });
 }
 
-/** Announce screen-share lifecycle so remote UI does not infer it from track mute. */
-export function sendScreenShareState(roomId: string, active: boolean): void {
+/**
+ * Announce screen-share lifecycle. The media itself travels as a normal
+ * second MediaStream on the peer connection; this message only carries the
+ * stream id so viewers can label the tile and clear it on a real stop.
+ */
+export function sendScreenShareState(roomId: string, active: boolean, streamId?: string): void {
   if (!meshRef) return;
   meshRef.broadcast(SIGNAL_CHANNEL, {
     msgType: 'screen-share-state',
     from: meshRef.getPeerId(),
     roomId,
-    data: { active },
+    data: { active, streamId },
     ts: Date.now(),
   } satisfies SignalEnvelope);
 }
