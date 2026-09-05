@@ -682,6 +682,9 @@ export class WebRTCManager {
     // track never makes it into a renegotiation.
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
     const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+    // Index 2 is permanently reserved for screen share so `ontrack` can
+    // classify by transceiver identity regardless of arrival order.
+    const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
 
     // Attach local camera/mic tracks if already available
     if (this.localStream) {
@@ -695,11 +698,10 @@ export class WebRTCManager {
       }
     }
 
-    // Add screen share tracks (if active) so late-joiners see them
-    if (this.screenStream) {
-      this.screenStream.getTracks().forEach(track => {
-        pc.addTrack(track, this.screenStream!);
-      });
+    // Attach the screen track (if sharing) so late-joiners see it
+    const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
+    if (screenTrack) {
+      await screenTransceiver.sender.replaceTrack(screenTrack);
     }
 
     // Handle incoming remote tracks
