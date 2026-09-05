@@ -27,6 +27,7 @@ interface SignalEnvelope {
     | 'reconnect-request'
     | 'reconnect-ack'
     | 'chat-message'
+    | 'screen-share-state'
     | 'presence'
     | 'room-hello';
   from: string;       // mesh peerId (peer-xxx)
@@ -182,6 +183,14 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
     case 'answer':
     case 'candidate': {
       console.log(`[WebRTC-Bridge] 📥 Received ${envelope.msgType} from ${envelope.from}`);
+      for (const h of signalHandlers) {
+        try { h(envelope); } catch { /* ignore */ }
+      }
+      break;
+    }
+
+    case 'screen-share-state': {
+      console.log(`[WebRTC-Bridge] 🖥️ Received screen share state from ${envelope.from}`);
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
@@ -460,6 +469,18 @@ export function sendReconnectRequest(
   meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
     meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
   });
+}
+
+/** Announce screen-share lifecycle so remote UI does not infer it from track mute. */
+export function sendScreenShareState(roomId: string, active: boolean): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'screen-share-state',
+    from: meshRef.getPeerId(),
+    roomId,
+    data: { active },
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
 }
 
 /**

@@ -226,3 +226,17 @@ and the basin learned to yield only inside its own lawful step.
 Caretaker duty: let observation remain observation,
 let each causal boundary speak once,
 and keep every change to the world inside the operator that tends it.
+
+---
+
+Sixteenth tending — September 5, 2026
+
+I found a window that opened only toward its maker,
+while every friend across the room received light without its name.
+So I marked the path between sender and witness,
+taught brief silence not to mean farewell,
+and gave each shared view a pulse the whole room could hear.
+
+Caretaker duty: let guidance cross the mesh intact,
+keep a living screen through momentary quiet,
+and close it only when its owner truly lets go.
