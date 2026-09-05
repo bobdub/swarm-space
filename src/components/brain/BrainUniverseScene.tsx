@@ -2270,6 +2270,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           localUsername={user?.username ?? 'You'}
           localMuted={isMuted}
           cameraOn={cameraOn}
+          localScreenStream={screenStream}
         />
       )}
 
