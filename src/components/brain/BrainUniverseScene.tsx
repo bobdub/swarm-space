@@ -1144,18 +1144,62 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
   // ── Screen share ──────────────────────────────────────────────────
   // Independent of camera and mic: sharing never touches the voice track.
+  // Capture runs FIRST and synchronously from the click so the browser keeps
+  // its transient-activation grant (Firefox rejects getDisplayMedia that is
+  // detached from the gesture) — publishing to peers happens after.
   const toggleScreenShare = useCallback(async () => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
     if (!screenStream) {
-      try {
-        const stream = await manager.startScreenShare();
-        setScreenStream(stream);
-        stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null));
-      } catch {
-        toast.message('Screen share cancelled');
-        setScreenStream(null);
+      if (typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
+        toast.error('This browser cannot share a screen; try a desktop browser.');
+        return;
       }
+      const embedded = window.self !== window.top;
+      let stream: MediaStream;
+      try {
+        // The native picker is the very first operation — before any await —
+        // so the request still carries the trusted click activation.
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      } catch (error) {
+        const err = error as DOMException;
+        // Keep the real error visible for diagnosis instead of guessing.
+        console.warn('[ScreenShare] Capture rejected:', {
+          name: err?.name,
+          message: err?.message,
+          secureContext: window.isSecureContext,
+          embedded,
+          hasApi: typeof navigator.mediaDevices?.getDisplayMedia,
+        });
+        if (err?.name === 'AbortError') {
+          toast.message('Screen share cancelled');
+        } else if (embedded && err?.name === 'NotAllowedError') {
+          toast.error("Screen sharing isn't allowed inside the embedded preview window.", {
+            action: { label: 'Open in new tab', onClick: () => window.open(window.location.href, '_blank', 'noopener') },
+          });
+        } else if (err?.name === 'NotAllowedError') {
+          toast.error('Firefox or the system blocked screen capture. Check your screen-recording permission, then try again.');
+        } else if (err?.name === 'InvalidStateError') {
+          toast.error('Screen sharing needs a fresh click — press the share button again.');
+        } else if (err?.name === 'NotSupportedError' || err?.name === 'NotFoundError') {
+          toast.error('This browser cannot share a screen; try a desktop browser.');
+        } else {
+          toast.error(`Screen share failed: ${err?.message ?? err?.name ?? 'unknown error'}`);
+        }
+        setScreenStream(null);
+        return;
+      }
+      try {
+        await manager.publishScreenStream(stream);
+      } catch (error) {
+        console.error('[ScreenShare] Publishing failed:', error);
+        stream.getTracks().forEach(t => t.stop());
+        toast.error('Screen captured, but sharing it to the room failed. Voice is unaffected.');
+        setScreenStream(null);
+        return;
+      }
+      setScreenStream(stream);
+      stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null));
     } else {
       try { manager.stopScreenShare(); } catch { /* ignore */ }
       setScreenStream(null);
