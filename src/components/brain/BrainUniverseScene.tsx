@@ -2082,6 +2082,21 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             type="button"
             variant="outline"
             size="sm"
+            onClick={toggleScreenShare}
+            className={
+              screenStream
+                ? 'bg-[hsla(185,80%,14%,0.75)] text-cyan-300 ring-1 ring-cyan-400/50'
+                : 'bg-[hsla(265,70%,8%,0.7)]'
+            }
+            aria-label={screenStream ? 'Stop sharing screen' : 'Share your screen'}
+            title={screenStream ? 'Stop sharing screen' : 'Share your screen'}
+          >
+            {screenStream ? <MonitorOff className="h-4 w-4" /> : <MonitorUp className="h-4 w-4" />}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
             onClick={toggleCamera}
             className="bg-[hsla(265,70%,8%,0.7)]"
             aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}
