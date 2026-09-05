@@ -1002,6 +1002,7 @@ export class WebRTCManager {
     this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
     this.negotiationRetryCount.delete(peerId);
+    this.remoteScreenStreamIds.delete(peerId);
   }
 
   private async flushPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {
