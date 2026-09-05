@@ -1,40 +1,39 @@
-# Make remote Brain screen sharing actually deliver
+# Implement Brain screen sharing the standard WebRTC way
 
-## Confirmed diagnosis
+You are right: the mesh and calling already work. The screen-share code added a parallel, hand-rolled path (a hard-coded third media slot, manual offers per action, and guesses based on track mute) that fights the working system. The fix is to delete that special path and use the ordinary way browsers ship a second video stream.
 
-The published repair does not complete the start path:
+## Why others never see the screen today
 
-- `publishScreenStream()` attaches the screen track and requests an offer, but never sends `screen-share-state: active`. The only active announcement is incorrectly placed in room creation, before a screen is necessarily being shared; stopping does announce correctly.
-- Directed offer/answer delivery can fail silently. The mesh `send()` resolves `false` when no direct edge exists, while the signaling bridge only falls back to broadcast when the promise rejects. A resolved `false` therefore drops the renegotiation without retry or visible failure.
-- Incoming offer handling is launched without an error boundary. The observed “fewer m-sections” failure can abort screen renegotiation without rebuilding the mismatched peer connection.
-- Existing negotiation tests do not model transceivers or screen tracks, so they can pass without proving that another user receives a shared display.
+- Sharing is announced to the room only when it stops, never when it starts. The start announcement sits in the wrong place (room creation), so viewers get no reliable notice that a screen exists.
+- The screen is pushed through a fixed, reserved slot and renegotiated by a hand-written offer that shares a single per-peer lock with the camera and microphone. A camera toggle at the same moment can consume the retry budget and the screen offer is discarded with only a console warning.
+- Viewers decide what is a screen by slot position, and decide it stopped from a momentary quiet track. Both are guesses about state the browser already reports properly.
 
-## Repair
+## The correct implementation
 
-1. **Make signaling delivery truthful**
-   - Treat both a rejected send and a `false` result as delivery failure, then broadcast the directed envelope as fallback.
-   - Apply this consistently to offers, answers, reconnect messages, room sync, and screen-share state.
+1. **Share the screen as its own media stream, not a reserved slot.**
+   Add the captured screen track to each connection as a normal second video stream. Browsers already carry the stream identity in the negotiation, so the receiving side knows the incoming track belongs to a separate stream than the camera. Remove the fixed third-slot reservation and all position-based guessing.
 
-2. **Announce the real screen lifecycle**
-   - Send the active announcement only after a captured track is attached to peer senders.
-   - Keep the stop announcement where sharing ends.
-   - Replay active state to peers that join or reconnect while sharing is already underway.
+2. **Let the browser drive renegotiation.**
+   Adding or removing the screen track already raises the browser's own "negotiation needed" event, which the existing negotiation handling covers. Delete the manual per-action offer loop for screen sharing so screen sharing shares one consistent, already-proven negotiation path with camera and microphone instead of competing with it.
 
-3. **Recover failed screen negotiation**
-   - Catch remote offer/answer failures at the signaling boundary.
-   - If the peer connection has incompatible media sections, close and recreate that one connection with the fixed audio/camera/screen slot order, then issue one clean offer.
-   - Preserve the microphone stream and captured screen through this peer-only rebuild.
+3. **Remove the track when sharing stops.**
+   Stopping removes the screen track from each connection and lets the same negotiation path settle. No manual slot clearing, no inference from mute.
 
-4. **Add an arrival acknowledgement**
-   - When the viewer receives the dedicated screen track, send a directed acknowledgement to the sharer.
-   - If the sharer gets no acknowledgement after the start announcement, retry once with a clean peer negotiation instead of leaving a local-only tile.
-   - Record concise diagnostics for attachment, offer delivery, remote track classification, acknowledgement, and recovery.
+4. **Identify and end the tile from real browser signals.**
+   The viewer creates a screen tile when a track arrives on a stream that is not the camera stream, and removes it when that stream's track genuinely ends or the stream is removed. Momentary quiet no longer removes anything, so no compensating flag is needed.
 
-5. **Prove the remote path**
-   - Add tests with realistic transceiver slots and two connected managers: start share, deliver offer/answer, receive the remote screen track, preserve it through mute/unmute, and remove it on stop.
-   - Test the resolved-`false` mesh-send fallback and the mismatched-media-section rebuild.
-   - Run the focused WebRTC tests, type checks, and a two-session browser check where one user shares and the other opens the remote tile while voice remains live.
+5. **Keep one lightweight room announcement, correctly placed.**
+   Send "sharing started" at the moment the screen is actually attached and "sharing stopped" when it is removed, so late joiners and reconnecting peers learn the state immediately. This is a notification only; the media path no longer depends on it.
+
+6. **Delete the compensating code.**
+   Remove the reserved-slot logic, the position/slot classification fallback, the mute/unmute state flag, and the screen-specific retry handling. Fewer moving parts than today, not more.
+
+## Verification
+
+- Focused WebRTC tests extended so two connected sides exchange a real screen track: it arrives as a separate stream, survives a camera toggle, and disappears only when sharing ends.
+- Type checks and the existing negotiation tests.
+- Two live sessions in the browser: one user shares, the other sees the tile appear within a couple of seconds, opens it full size, and voice stays live on both sides throughout.
 
 ## Technical scope
 
-Primary files: `src/lib/webrtc/manager.ts`, `src/lib/streaming/webrtcSignalingBridge.standalone.ts`, `src/lib/webrtc/types.ts`, and WebRTC tests. The screen tile design and capture permission flow remain unchanged.
+`src/lib/webrtc/manager.ts` (screen track add/remove via standard sender handling, negotiation-needed driven, stream-based classification in the track handler), `src/lib/webrtc/types.ts` (drop the compensating active flag), `src/components/brain/BrainVideoGrid.tsx` (tile keyed off the screen stream), and the WebRTC tests. Capture permission handling and the tile visual design stay as they are.
