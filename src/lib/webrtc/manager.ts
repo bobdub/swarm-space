@@ -23,6 +23,10 @@ export class WebRTCManager {
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
   private screenStream: MediaStream | null = null;
+  /** Sender carrying the screen track, per connection. */
+  private screenSenders = new WeakMap<RTCPeerConnection, RTCRtpSender>();
+  /** Screen stream id announced by each remote peer, when sharing. */
+  private remoteScreenStreamIds = new Map<string, string>();
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
   private userId: string;
