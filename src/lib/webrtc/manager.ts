@@ -747,9 +747,6 @@ export class WebRTCManager {
     // track never makes it into a renegotiation.
     const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
     const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
-    // Index 2 is permanently reserved for screen share so `ontrack` can
-    // classify by transceiver identity regardless of arrival order.
-    const screenTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
 
     // Attach local camera/mic tracks if already available
     if (this.localStream) {
@@ -763,10 +760,11 @@ export class WebRTCManager {
       }
     }
 
-    // Attach the screen track (if sharing) so late-joiners see it
+    // Attach the screen track (if already sharing) so late joiners see it.
+    // It travels as its own MediaStream, exactly like any second video source.
     const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
-    if (screenTrack) {
-      await screenTransceiver.sender.replaceTrack(screenTrack);
+    if (screenTrack && this.screenStream) {
+      this.attachScreenTrack(pc, screenTrack, this.screenStream);
     }
 
     // Handle incoming remote tracks
@@ -774,63 +772,36 @@ export class WebRTCManager {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
       const participant = this.ensureParticipant(peerId, 'Peer');
 
-      const incomingStream = event.streams[0];
-
-      // Distinguish screen-share from camera/mic by **transceiver identity**,
-      // not by stream-id heuristics. The third upfront transceiver (if present)
-      // is the dedicated screen-share slot; anything arriving on it is the
-      // screen track. Everything else is camera/mic and ALWAYS merges into the
-      // single participant.stream.
-      //
-      // The previous heuristic (`incomingStream.id !== participant.stream.id
-      // && kind === 'video'`) misclassified late-arriving camera video as a
-      // screen share whenever audio arrived first in its own MediaStream —
-      // producing the asymmetric "some hear, others don't" bug.
-      const transceivers = pc.getTransceivers();
-      const eventIndex = transceivers.findIndex((transceiver) =>
-        transceiver === event.transceiver || transceiver.receiver === event.receiver);
-      const screenMid = screenTransceiver.mid;
-      const eventMid = event.transceiver.mid;
-      const isScreenTrack = event.track.kind === 'video' && (
-        event.receiver === screenTransceiver.receiver
-        || (screenMid !== null && eventMid === screenMid)
-        || eventIndex === 2
-      );
+      // Camera and microphone are sent on the upfront transceivers without a
+      // stream association, so they arrive with no MediaStream. The screen is
+      // sent with `addTrack(track, screenStream)`, so the browser delivers it
+      // inside its own stream — that is the classification, straight from the
+      // negotiated media description.
+      const incomingStream = event.streams[0] ?? null;
+      const isScreenTrack = event.track.kind === 'video' && !!incomingStream;
 
       console.log('[WebRTC] Track classification:', {
         peerId,
         kind: event.track.kind,
-        eventIndex,
-        eventMid,
-        screenMid,
+        streamId: incomingStream?.id,
         isScreenTrack,
       });
 
-      if (isScreenTrack) {
-        participant.screenStream = incomingStream ?? new MediaStream([event.track]);
-        participant.screenActive = true;
-        console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
-        // Renegotiation can transiently mute a live receiver. Keep its stream;
-        // the explicit mesh stop message is authoritative for tile removal.
-        event.track.onmute = () => {
-          console.log('[WebRTC] 🖥️ Remote screen track temporarily muted for', peerId);
-          this.broadcastMessage({
-            type: 'peer-joined',
-            roomId: this.currentRoomId!,
-            peerId,
-          });
-        };
-        event.track.onunmute = () => {
-          participant.screenActive = true;
-          this.broadcastMessage({
-            type: 'screen-share-started',
-            roomId: this.currentRoomId ?? '',
-            peerId,
-          });
-        };
+      if (isScreenTrack && incomingStream) {
+        participant.screenStream = incomingStream;
+        console.log('[WebRTC] 🖥️ Screen share stream received from', peerId, incomingStream.id);
+        incomingStream.addEventListener('removetrack', () => {
+          if (incomingStream.getVideoTracks().length === 0) {
+            participant.screenStream = null;
+            this.broadcastMessage({
+              type: 'screen-share-stopped',
+              roomId: this.currentRoomId ?? '',
+              peerId,
+            });
+          }
+        });
       } else {
-        // Camera / mic — always merge into the main participant stream,
-        // regardless of which MediaStream container it arrived in.
+        // Camera / mic — always merge into the single participant stream.
         if (!participant.stream) {
           participant.stream = new MediaStream();
         }
@@ -849,7 +820,6 @@ export class WebRTCManager {
         }
         if (isScreenTrack) {
           participant.screenStream = null;
-          participant.screenActive = false;
         }
         this.broadcastMessage({
           type: 'peer-joined',
@@ -858,23 +828,22 @@ export class WebRTCManager {
         });
       };
 
-      if (!isScreenTrack) {
-        event.track.onunmute = () => {
-          this.broadcastMessage({
-            type: 'peer-joined',
-            roomId: this.currentRoomId ?? '',
-            peerId,
-          });
-        };
-      }
+      event.track.onunmute = () => {
+        this.broadcastMessage({
+          type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
+          roomId: this.currentRoomId ?? '',
+          peerId,
+        });
+      };
 
       // Notify UI of updated participant
       this.broadcastMessage({
-        type: 'peer-joined',
-        roomId: this.currentRoomId!,
+        type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
+        roomId: this.currentRoomId ?? '',
         peerId,
       });
     };
+
 
     // ICE candidates → send via mesh
     pc.onicecandidate = (event) => {
