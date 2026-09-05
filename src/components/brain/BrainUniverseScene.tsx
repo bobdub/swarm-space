@@ -1046,6 +1046,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [portals, setPortals] = useState<BrainPortal[]>([]);
   const [cameraOn, setCameraOn] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
