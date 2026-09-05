@@ -22,6 +22,7 @@ The exact reason Firefox rejects before showing its picker is not present in the
 ## Technical notes
 
 - `BrainUniverseScene.tsx`: perform the native capture synchronously from `toggleScreenShare`, then publish the returned stream; retain the same button for stopping.
+- Screen share uses `navigator.mediaDevices.getDisplayMedia` — a separate browser API from the camera path (`getUserMedia`). The `video: true` inside `getDisplayMedia` selects the screen's picture; it never enables the webcam, and sharing works with the camera off.
 - `manager.ts`: separate `getDisplayMedia` from the sender replacement/renegotiation path and guarantee cleanup if publishing fails.
 - Avoid a preflight Permissions API query: browsers intentionally do not grant persistent screen-capture permission, and the native picker is the source of truth.
 - Keep screen audio disabled so microphone voice remains on its existing audio sender.
