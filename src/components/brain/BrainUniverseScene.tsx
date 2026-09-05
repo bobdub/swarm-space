@@ -1142,6 +1142,33 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     }
   }, [cameraOn, user]);
 
+  // ── Screen share ──────────────────────────────────────────────────
+  // Independent of camera and mic: sharing never touches the voice track.
+  const toggleScreenShare = useCallback(async () => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    if (!screenStream) {
+      try {
+        const stream = await manager.startScreenShare();
+        setScreenStream(stream);
+        stream.getVideoTracks()[0]?.addEventListener('ended', () => setScreenStream(null));
+      } catch {
+        toast.message('Screen share cancelled');
+        setScreenStream(null);
+      }
+    } else {
+      try { manager.stopScreenShare(); } catch { /* ignore */ }
+      setScreenStream(null);
+    }
+  }, [screenStream, user]);
+
+  // Release any capture when leaving the universe.
+  useEffect(() => () => {
+    if (!user) return;
+    try { getWebRTCManager(user.id, user.username).stopScreenShare(); } catch { /* ignore */ }
+  }, [user]);
+
+
   // Pre-warm Web Speech voice list as soon as gate clears.
   useEffect(() => { if (ready) primeInfinityVoice(); }, [ready]);
 
