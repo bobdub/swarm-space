@@ -750,6 +750,16 @@ export class WebRTCManager {
       if (isScreenTrack) {
         participant.screenStream = incomingStream ?? new MediaStream([event.track]);
         console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
+        // A stopped share arrives as a mute (replaceTrack(null)), not an
+        // `ended` event — drop the tile so viewers don't stare at a freeze.
+        event.track.onmute = () => {
+          participant.screenStream = null;
+          this.broadcastMessage({
+            type: 'peer-joined',
+            roomId: this.currentRoomId!,
+            peerId,
+          });
+        };
       } else {
         // Camera / mic — always merge into the main participant stream,
         // regardless of which MediaStream container it arrived in.
