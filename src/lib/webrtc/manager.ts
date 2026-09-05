@@ -85,6 +85,12 @@ export class WebRTCManager {
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed to create offer:', e)
           );
+
+          // If we are already sharing, re-announce so the newcomer can label
+          // the incoming screen stream as soon as it arrives.
+          if (this.screenStream && this.currentRoomId) {
+            sendScreenShareState(this.currentRoomId, true, this.screenStream.id);
+          }
           break;
         }
 
@@ -140,16 +146,21 @@ export class WebRTCManager {
 
         case 'screen-share-state': {
           const participant = this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
-          const data = envelope.data as { active?: unknown } | undefined;
+          const data = envelope.data as { active?: unknown; streamId?: unknown } | undefined;
           const active = data?.active === true;
-          participant.screenActive = active;
-          if (!active) participant.screenStream = null;
+          const streamId = typeof data?.streamId === 'string' ? data.streamId : undefined;
+          if (active) {
+            if (streamId) this.remoteScreenStreamIds.set(meshPeerId, streamId);
+          } else {
+            this.remoteScreenStreamIds.delete(meshPeerId);
+            participant.screenStream = null;
+          }
           this.broadcastMessage({
             type: active ? 'screen-share-started' : 'screen-share-stopped',
             roomId: this.currentRoomId,
             peerId: meshPeerId,
           });
-          console.log(`[WebRTC] 🖥️ Screen share ${active ? 'started' : 'stopped'} ping from ${meshPeerId}`);
+          console.log(`[WebRTC] 🖥️ Screen share ${active ? 'started' : 'stopped'} announced by ${meshPeerId}`);
           break;
         }
 
@@ -356,7 +367,7 @@ export class WebRTCManager {
       roomId: room.id,
       room,
     });
-    if (this.currentRoomId) sendScreenShareState(this.currentRoomId, true);
+    
 
     console.log('[WebRTC] Room created:', room.id);
     return room;
