@@ -21,6 +21,8 @@ export interface VideoParticipant {
   username: string;
   stream: MediaStream | null;
   screenStream?: MediaStream | null;
+  /** Explicit mesh state; keeps transient receiver mutes from hiding a live share. */
+  screenActive?: boolean;
   isMuted: boolean;
   isVideoEnabled: boolean;
   joinedAt: string;
@@ -34,7 +36,7 @@ export interface WebRTCSignal {
 }
 
 export interface VideoRoomMessage {
-  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'reconnect-request' | 'reconnect-ack';
+  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'reconnect-request' | 'reconnect-ack' | 'screen-share-started' | 'screen-share-stopped';
   roomId: string;
   room?: VideoRoom;
   peerId?: string;

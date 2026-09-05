@@ -11,3 +11,9 @@
 - [x] Keep the causal probe observer-only
 - [x] Route saturation recovery through one UQRC operator step
 - [x] Verify focused and full Brain/UQRC checks (live visual walk blocked by the account gate)
+
+## Brain remote screen sharing (2026-09-05)
+- [x] Identify remote screen tracks by their receiver/mid instead of fragile object identity
+- [x] Announce screen-share start/stop through the room mesh
+- [x] Preserve remote screen tiles through transient negotiation mutes
+- [ ] Verify one user can see and enlarge another user's shared screen

@@ -1099,7 +1099,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const refresh = () => setRtcParticipants(manager.getParticipants());
     refresh();
     const unsub = manager.onMessage((m) => {
-      if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated') {
+      if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated'
+        || m.type === 'screen-share-started' || m.type === 'screen-share-stopped') {
         refresh();
       }
     });

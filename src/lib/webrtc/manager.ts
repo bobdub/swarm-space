@@ -2,6 +2,7 @@ import type { VideoRoom, VideoParticipant, WebRTCSignal, VideoRoomMessage } from
 import {
   sendSignalViaMesh,
   sendReconnectRequest,
+  sendScreenShareState,
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
@@ -130,6 +131,21 @@ export class WebRTCManager {
         case 'candidate': {
           this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
           this.handleRemoteCandidate(meshPeerId, envelope.data as RTCIceCandidateInit);
+          break;
+        }
+
+        case 'screen-share-state': {
+          const participant = this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          const data = envelope.data as { active?: unknown } | undefined;
+          const active = data?.active === true;
+          participant.screenActive = active;
+          if (!active) participant.screenStream = null;
+          this.broadcastMessage({
+            type: active ? 'screen-share-started' : 'screen-share-stopped',
+            roomId: this.currentRoomId,
+            peerId: meshPeerId,
+          });
+          console.log(`[WebRTC] 🖥️ Screen share ${active ? 'started' : 'stopped'} ping from ${meshPeerId}`);
           break;
         }
 
@@ -336,6 +352,7 @@ export class WebRTCManager {
       roomId: room.id,
       room,
     });
+    if (this.currentRoomId) sendScreenShareState(this.currentRoomId, true);
 
     console.log('[WebRTC] Room created:', room.id);
     return room;
@@ -696,6 +713,8 @@ export class WebRTCManager {
       this.screenStream = null;
       console.log('[WebRTC] Screen share stopped');
 
+      if (this.currentRoomId) sendScreenShareState(this.currentRoomId, false);
+
       // Notify UI
       this.broadcastMessage({
         type: 'room-updated',
@@ -773,21 +792,44 @@ export class WebRTCManager {
       // screen share whenever audio arrived first in its own MediaStream —
       // producing the asymmetric "some hear, others don't" bug.
       const transceivers = pc.getTransceivers();
-      const screenTransceiver = transceivers[2]; // index 2 = screen slot (audio,video,screen)
-      const isScreenTrack = !!screenTransceiver
-        && event.transceiver === screenTransceiver
-        && event.track.kind === 'video';
+      const eventIndex = transceivers.findIndex((transceiver) =>
+        transceiver === event.transceiver || transceiver.receiver === event.receiver);
+      const screenMid = screenTransceiver.mid;
+      const eventMid = event.transceiver.mid;
+      const isScreenTrack = event.track.kind === 'video' && (
+        event.receiver === screenTransceiver.receiver
+        || (screenMid !== null && eventMid === screenMid)
+        || eventIndex === 2
+      );
+
+      console.log('[WebRTC] Track classification:', {
+        peerId,
+        kind: event.track.kind,
+        eventIndex,
+        eventMid,
+        screenMid,
+        isScreenTrack,
+      });
 
       if (isScreenTrack) {
         participant.screenStream = incomingStream ?? new MediaStream([event.track]);
+        participant.screenActive = true;
         console.log('[WebRTC] 🖥️ Screen share track received from', peerId);
-        // A stopped share arrives as a mute (replaceTrack(null)), not an
-        // `ended` event — drop the tile so viewers don't stare at a freeze.
+        // Renegotiation can transiently mute a live receiver. Keep its stream;
+        // the explicit mesh stop message is authoritative for tile removal.
         event.track.onmute = () => {
-          participant.screenStream = null;
+          console.log('[WebRTC] 🖥️ Remote screen track temporarily muted for', peerId);
           this.broadcastMessage({
             type: 'peer-joined',
             roomId: this.currentRoomId!,
+            peerId,
+          });
+        };
+        event.track.onunmute = () => {
+          participant.screenActive = true;
+          this.broadcastMessage({
+            type: 'screen-share-started',
+            roomId: this.currentRoomId ?? '',
             peerId,
           });
         };
@@ -810,6 +852,10 @@ export class WebRTCManager {
         if (participant.stream && participant.stream.getTracks().includes(event.track)) {
           participant.stream.removeTrack(event.track);
         }
+        if (isScreenTrack) {
+          participant.screenStream = null;
+          participant.screenActive = false;
+        }
         this.broadcastMessage({
           type: 'peer-joined',
           roomId: this.currentRoomId!,
@@ -817,13 +863,15 @@ export class WebRTCManager {
         });
       };
 
-      event.track.onunmute = () => {
-        this.broadcastMessage({
-          type: 'peer-joined',
-          roomId: this.currentRoomId!,
-          peerId,
-        });
-      };
+      if (!isScreenTrack) {
+        event.track.onunmute = () => {
+          this.broadcastMessage({
+            type: 'peer-joined',
+            roomId: this.currentRoomId ?? '',
+            peerId,
+          });
+        };
+      }
 
       // Notify UI of updated participant
       this.broadcastMessage({
