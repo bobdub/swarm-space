@@ -2,17 +2,11 @@
 
 Right now the person sharing sees their own screen tile, but nobody else does. The sharing side does send the picture out — what is unverified is whether it arrives and, if it arrives, whether the viewer's tile survives. Two things in the current code can each swallow it, and both will be checked before anything is declared fixed.
 
-## Step 1 — Reproduce with two people (first task)
+## Step 1 — Repair remote delivery now
 
-Run two browser sessions side by side against the running app, both entering the same Brain, one starting a share with an automatic picker answer. Capture on the viewer side:
+Your live two-user test already confirms the failure: local capture works, but the remote screen never displays. Implement the mesh and viewer-state corrections directly, while adding focused diagnostics to show whether each remote track was negotiated, received, classified, and rendered.
 
-- whether a second picture track actually arrives from the sharer,
-- which slot it arrives on,
-- whether the viewer's tile appears and then disappears.
-
-Nothing below gets implemented as "the fix" until this run says which of the two paths is at fault. If the run shows a third cause, the plan follows the evidence instead.
-
-## Step 2 — Likely faults to fix (confirmed by step 1)
+## Step 2 — Faults to fix
 
 1. **The viewer drops the tile on a momentary pause.** When a picture track arrives it can briefly go quiet, especially while the connection is being renegotiated right after sharing starts. Today the viewer treats that single quiet moment as "sharing stopped" and clears the tile forever, with nothing to bring it back. Fix: only clear on a real stop, and restore the tile when the picture resumes.
 2. **The viewer's slot doesn't line up.** The screen is sent on a dedicated third media slot and the viewer recognises it purely by slot position. If the two sides ever number their slots differently, the incoming screen is mistaken for a camera and merged into the face tile. Fix: identify the screen track by an explicit marker rather than by position alone.
@@ -21,9 +15,9 @@ Nothing below gets implemented as "the fix" until this run says which of the two
 
 Add a small message sent through the mesh when someone starts or stops sharing, carrying their id. Viewers use it to know a share is expected, to refresh their tiles immediately instead of waiting for the periodic check, and to clear a tile only when the owner really stopped. This also covers the case where the picture arrives before the tile list is next refreshed.
 
-## Step 4 — Re-verify
+## Step 4 — Verify the completed repair
 
-Repeat the two-session run: the viewer must see a `<name>'s screen` tile appear within a couple of seconds, keep it while the sharer keeps sharing (including across a camera or mic toggle), be able to open it full size, and lose it only when the sharer stops. Voice stays live throughout on both sides.
+After implementation, repeat the two-session run: the viewer must see a `<name>'s screen` tile appear within a couple of seconds, keep it while the sharer keeps sharing (including across a camera or mic toggle), be able to open it full size, and lose it only when the sharer stops. Voice stays live throughout on both sides.
 
 ## Technical notes
 
