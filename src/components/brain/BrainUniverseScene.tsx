@@ -2328,6 +2328,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster selfId={selfId || undefined} />
+        <PendingBuildsLayer selfId={selfId || undefined} />
+        <WorldDropsLayer selfId={selfId || undefined} />
         <WorldToolTargetsLayer />
         <ToolSwingFX />
         <CarvedCellsLayer />
@@ -2396,6 +2398,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
+        {selfId && <SelfAvatarBody selfId={selfId} username={user?.username ?? 'You'} />}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
@@ -2529,6 +2532,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onConfirmPlot={handleConfirmPlot}
           swarmBalance={swarmBalance}
           selfId={selfId || undefined}
+          hideCatalog
+        />
+      )}
+
+      {/* Inventory panel — the place you choose what to make */}
+      {ready && (
+        <BuilderInventory
+          open={inventoryOpen}
+          builder={builder}
+          onClose={() => setInventoryOpen(false)}
         />
       )}
 
