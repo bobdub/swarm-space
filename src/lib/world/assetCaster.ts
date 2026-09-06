@@ -34,11 +34,18 @@ export interface PendingCast {
   yaw: number;
   /** Vertical stack offset (m) above the local surface. */
   upOffset: number;
+  /**
+   * While true the ghost rides a couple of steps in front of the avatar,
+   * recomputed each frame from the body's facing, instead of tracking the
+   * pointer. Clicking "place" clears it and the ghost waits on the ground.
+   */
+  follow: boolean;
   /** Commit handler — runs when the user presses Confirm. */
   onConfirm: (hitPoint: Vec3, yaw: number, payload: unknown, upOffset: number) => void;
   /** Optional discard handler — runs when the user presses Cancel. */
   onCancel?: () => void;
 }
+
 
 type Listener = (cast: PendingCast | null) => void;
 
@@ -51,10 +58,11 @@ export function getPendingCast(): PendingCast | null {
 
 export function setPendingCast(
   cast:
-    | (Omit<PendingCast, 'yaw' | 'isPositioned' | 'upOffset'> & {
+    | (Omit<PendingCast, 'yaw' | 'isPositioned' | 'upOffset' | 'follow'> & {
         yaw?: number;
         isPositioned?: boolean;
         upOffset?: number;
+        follow?: boolean;
       })
     | null,
 ): void {
@@ -62,6 +70,7 @@ export function setPendingCast(
     ? {
         yaw: 0,
         upOffset: 0,
+        follow: false,
         ...cast,
         isPositioned: cast.isPositioned ?? !!cast.hitPoint,
       }
@@ -70,6 +79,16 @@ export function setPendingCast(
     try { l(pending); } catch { /* listener crash isolated */ }
   }
 }
+
+/** Stop (or resume) the ghost following the avatar. */
+export function setCastFollow(follow: boolean): void {
+  if (!pending || pending.follow === follow) return;
+  pending = { ...pending, follow };
+  for (const l of listeners) {
+    try { l(pending); } catch { /* noop */ }
+  }
+}
+
 
 export function clearPendingCast(): void {
   const cur = pending;

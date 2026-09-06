@@ -5,7 +5,16 @@ import { getToolAny } from '@/lib/brain/toolCatalog';
 import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
-import { EARTH_RADIUS, type Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import {
+  HITS_TO_FELL,
+  TOPPLE_MS,
+  STUMP_FADE_MS,
+  registerTreeHit,
+  clearTreeChop,
+} from '@/lib/world/treeChopStore';
+import { spawnDrop } from '@/lib/world/worldDropsStore';
+
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
 import type { ToolTarget } from '@/lib/world/toolTargets';
@@ -256,6 +265,14 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return true;
   }
 
+  // Trees take several cuts: each accepted swing shakes the trunk, and the
+  // last one topples it and scatters wood on the ground.
+  if (verb === 'chop' && target.natureKind === 'tree') {
+    return chopTree(toolPrefabId, target.blockId, selfId);
+  }
+
+
+
   const body = getBrainPhysics().getBody(target.blockId);
   const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
   return applyImpactToBlock({
@@ -267,6 +284,117 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     selfId,
   });
 }
+
+/** Earth-local unit direction of a world-space point. */
+function localDirFromWorld(point: Vec3): Vec3 {
+  const pose = getEarthPose();
+  const dx = point[0] - pose.center[0];
+  const dy = point[1] - pose.center[1];
+  const dz = point[2] - pose.center[2];
+  const r = Math.hypot(dx, dy, dz) || 1;
+  return quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+}
+
+/** Nudge an Earth-local direction sideways by a small tangent distance (m). */
+function offsetLocalDir(dir: Vec3, ax: number, az: number): Vec3 {
+  const ref: Vec3 = Math.abs(dir[1]) < 0.95 ? [0, 1, 0] : [1, 0, 0];
+  let rx = ref[1] * dir[2] - ref[2] * dir[1];
+  let ry = ref[2] * dir[0] - ref[0] * dir[2];
+  let rz = ref[0] * dir[1] - ref[1] * dir[0];
+  const rn = Math.hypot(rx, ry, rz) || 1;
+  rx /= rn; ry /= rn; rz /= rn;
+  const fx = dir[1] * rz - dir[2] * ry;
+  const fy = dir[2] * rx - dir[0] * rz;
+  const fz = dir[0] * ry - dir[1] * rx;
+  const s = 1 / EARTH_RADIUS;
+  const px = dir[0] + (rx * ax + fx * az) * s;
+  const py = dir[1] + (ry * ax + fy * az) * s;
+  const pz = dir[2] + (rz * ax + fz * az) * s;
+  const n = Math.hypot(px, py, pz) || 1;
+  return [px / n, py / n, pz / n];
+}
+
+/**
+ * Chop a tree. Every swing still runs the shared `applyImpact` predicate,
+ * so a blunt edge or a heavy curvature load is refused exactly as it is
+ * anywhere else. Accepted cuts accumulate: the trunk shakes, and on the
+ * final hit it topples, drops wood, and the stump fades away.
+ */
+async function chopTree(toolPrefabId: string, blockId: string, selfId?: string): Promise<boolean> {
+  const toolPrefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!toolPrefab || !block) return false;
+
+  const body = getBrainPhysics().getBody(blockId);
+  const point: Vec3 = body ? [body.pos[0], body.pos[1], body.pos[2]] : [0, 0, 0];
+  if (landBlocks(point, selfId)) return false;
+
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, toolPrefab.color, tool?.mass ?? toolPrefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(point, up, toolPrefab.color, probe.intensity, 'miss', false, 'wood');
+    toast.message(toolPrefab.label, { description: 'This tool cannot fell a tree.' });
+    return false;
+  }
+
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    curvatureLoad: probe.curvatureLoad,
+    target: { kind: 'block', block, bondTerm: bondTermForKind('tree') },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'chop' : 'resist',
+    swing.cut,
+    'wood',
+  );
+
+  if (!swing.cut) {
+    toast.message(toolPrefab.label, {
+      description: `The trunk resisted (${swing.effectiveCut.toFixed(2)}).`,
+    });
+    return true;
+  }
+
+  const state = registerTreeHit(blockId);
+
+  if (state.hits < HITS_TO_FELL) {
+    toast.message(toolPrefab.label, {
+      description: `The tree shakes — ${HITS_TO_FELL - state.hits} more ${HITS_TO_FELL - state.hits === 1 ? 'swing' : 'swings'}.`,
+    });
+    return true;
+  }
+
+  // Felled. Wood lands a moment later, once the trunk has come down.
+  toast.success('Timber!', { description: 'The tree comes down.' });
+  const treeDir = localDirFromWorld(point);
+  window.setTimeout(() => {
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2;
+      spawnDrop({
+        kind: 'wood',
+        qty: 1,
+        localDir: offsetLocalDir(treeDir, Math.cos(angle) * 1.4, Math.sin(angle) * 1.4),
+        upOffset: 0,
+      });
+    }
+  }, TOPPLE_MS);
+  window.setTimeout(() => {
+    try { getBuilderBlockEngine().removeBlock(blockId); } catch { /* already gone */ }
+    clearTreeChop(blockId);
+  }, TOPPLE_MS + STUMP_FADE_MS);
+  return true;
+}
+
+
 
 /**
  * Dig one step into the Earth shells at a ground cell.

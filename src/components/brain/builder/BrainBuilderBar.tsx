@@ -89,6 +89,8 @@ interface BrainBuilderBarProps {
   swarmBalance?: number | null;
   /** Local peer id — used to gate the Landmarks tab on plot ownership. */
   selfId?: string;
+  /** Hide the section tabs + tiles; the inventory panel owns item picking. */
+  hideCatalog?: boolean;
 }
 
 export function BrainBuilderBar({
@@ -97,6 +99,7 @@ export function BrainBuilderBar({
   onConfirmPlot,
   swarmBalance = null,
   selfId,
+  hideCatalog = false,
 }: BrainBuilderBarProps) {
   const {
     magnetic,
@@ -394,8 +397,10 @@ export function BrainBuilderBar({
         </Button>
       </div>
 
-      {/* Section tabs */}
+      {/* Section tabs — hidden when the inventory panel owns item picking. */}
+      {!hideCatalog && (<>
       <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Prefab sections">
+
         {PREFAB_SECTIONS.map((s) => (
           <SectionTab
             key={s.id}
@@ -490,7 +495,9 @@ export function BrainBuilderBar({
           </>
         )}
       </div>
+      </>)}
     </div>
+
   );
 }
 

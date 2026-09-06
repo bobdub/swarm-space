@@ -12,6 +12,12 @@ import {
   SHARED_VOLCANO_ANCHOR_ID,
 } from '@/lib/brain/volcanoOrgan';
 import { EARTH_RADIUS, getEarthPose, quatRotate } from '@/lib/brain/earth';
+import {
+  getTreeChop,
+  TOPPLE_MS,
+  STUMP_FADE_MS,
+} from '@/lib/world/treeChopStore';
+
 import { VolcanoLavaPool } from '@/components/brain/VolcanoLavaPool';
 
 /**
@@ -68,7 +74,7 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'water': return <Water color={color} />;
     case 'grass': return <Grass color={color} />;
     case 'flower': return <Flower color={color} />;
-    case 'tree': return <Tree color={color} />;
+    case 'tree': return <Tree color={color} blockId={block.bodyId} />;
     case 'fish': return <Fish color={color} sex={(block.meta?.sex as string) ?? 'female'} />;
     case 'hive': return <Hive color={color} />;
     case 'queen_bee': return <Bee color={color} queen />;
@@ -111,12 +117,40 @@ function Flower({ color }: { color: string }) {
   );
 }
 
-function Tree({ color }: { color: string }) {
+function Tree({ color, blockId }: { color: string; blockId: string }) {
   // Smaller, varied tree silhouette so the catalog tree reads as part of
   // a forest rather than competing with SurfaceTree's hero piece.
   const TR = 0.28, TH = 3.0;
+  const groupRef = useRef<THREE.Group>(null);
+
+  // Chopping is visible: each accepted cut shakes the trunk, and the
+  // felling hit tips the whole tree over before the stump fades out.
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const state = getTreeChop(blockId);
+    if (!state) {
+      g.rotation.set(0, 0, 0);
+      g.scale.setScalar(1);
+      return;
+    }
+    const now = Date.now();
+    if (state.toppledAt) {
+      const t = Math.min(1, (now - state.toppledAt) / TOPPLE_MS);
+      const e = t * t;
+      g.rotation.set(0, 0, e * (Math.PI / 2) * 0.92);
+      const fade = Math.max(0, 1 - Math.max(0, now - state.toppledAt - TOPPLE_MS) / STUMP_FADE_MS);
+      g.scale.setScalar(Math.max(0.001, fade));
+      return;
+    }
+    const since = now - state.lastHitAt;
+    const shake = since < 420 ? Math.sin(since / 22) * 0.07 * (1 - since / 420) : 0;
+    g.rotation.set(0, 0, shake);
+    g.scale.setScalar(1);
+  });
+
   return (
-    <group>
+    <group ref={groupRef}>
       <mesh position={[0, TH / 2, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[TR * 0.8, TR, TH, 10]} />
         <meshStandardMaterial color="#6b4f2a" roughness={0.92} />
@@ -132,6 +166,7 @@ function Tree({ color }: { color: string }) {
     </group>
   );
 }
+
 
 function Fish({ color, sex }: { color: string; sex: string }) {
   const accent = sex === 'male' ? '#3b82f6' : '#f472b6';

@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
-import { Zap } from 'lucide-react';
+import { Zap, Eye, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -12,6 +12,20 @@ import { useGamepadIntent } from '@/hooks/useGamepadIntent';
 import { CompassHUD } from '@/components/brain/CompassHUD';
 import { MiniMapHUD } from '@/components/brain/MiniMapHUD';
 import { BuilderActivator } from '@/components/brain/builder/BuilderActivator';
+import { BuilderInventory } from '@/components/brain/builder/BuilderInventory';
+import { PendingBuildsLayer } from '@/components/brain/builder/PendingBuildsLayer';
+import { WorldDropsLayer } from '@/components/brain/world/WorldDropsLayer';
+import {
+  getCameraView,
+  setCameraView,
+  toggleShoulderView,
+  subscribeCameraView,
+  THIRD_PERSON_BACK_M,
+  THIRD_PERSON_UP_M,
+  type CameraView,
+} from '@/lib/brain/cameraViewStore';
+import { stagePendingBuild } from '@/lib/world/pendingBuildsStore';
+import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { BrainBuilderBar } from '@/components/brain/builder/BrainBuilderBar';
 import { BuildGridOverlay } from '@/components/world/BuildGridOverlay';
 import { PlotSurveyOverlay } from '@/components/world/PlotSurveyOverlay';
@@ -67,11 +81,9 @@ import {
   type PendingCast,
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import { placePrefabAtHit } from '@/lib/world/placementController';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
 import { isDev } from '@/lib/world/devRoles';
 import {
-  recordLocalPlacement,
   removeLocalPlacement,
   updateLocalPlacement,
   hydrateWorldPlacements,
@@ -282,6 +294,9 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // Eased 0..1 blend into the overhead boom so entering/leaving Top view
   // glides instead of snapping the whole world.
   const boomBlend = useRef(0);
+  // Eased 0..1 blend into the over-the-shoulder boom. Default view in the
+  // Brain, so it starts fully engaged rather than swinging out on entry.
+  const thirdBlend = useRef(getCameraView() === 'third' ? 1 : 0);
   const pitchTarget = useRef(0);
   // Seated eye offset, eased so sitting/standing glides.
   const seatLift = useRef(0);
@@ -337,6 +352,11 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     }
     boomBlend.current += ((topView ? 1 : 0) - boomBlend.current) * 0.1;
     if (boomBlend.current < 0.001) boomBlend.current = 0;
+    // Over-the-shoulder boom: only on the ground, and never fighting the
+    // overhead builder view or the spectator boom for the same axis.
+    const thirdOn = getCameraView() === 'third' && !topView && !overhead;
+    thirdBlend.current += ((thirdOn ? 1 : 0) - thirdBlend.current) * 0.12;
+    if (thirdBlend.current < 0.001) thirdBlend.current = 0;
     if (lookInput.yaw !== 0 || lookInput.pitch !== 0) {
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
@@ -448,9 +468,15 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // so the avatar plus a wide patch of build grid stay in frame.
     const boomAmt = boomBlend.current;
     const specAmt = specBlend.current;
-    const eyeLift = EYE_LIFT + topUpRef.current * boomAmt + SPECTATOR_UP_M * specAmt + seatLift.current;
+    const thirdAmt = thirdBlend.current;
+    const eyeLift =
+      EYE_LIFT
+      + topUpRef.current * boomAmt
+      + SPECTATOR_UP_M * specAmt
+      + THIRD_PERSON_UP_M * thirdAmt
+      + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
-    if (boomAmt > 0 || specAmt > 0) {
+    if (boomAmt > 0 || specAmt > 0 || thirdAmt > 0) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       // Strip the radial component so the boom pulls back along the ground.
       const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
@@ -459,14 +485,34 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       let bz = viewFwd.z - upN[2] * vdot;
       const bn = Math.hypot(bx, by, bz) || 1;
       bx /= bn; by /= bn; bz /= bn;
-      const back = TOP_VIEW_BACK_M * boomAmt + SPECTATOR_BACK_M * specAmt;
+      const back =
+        TOP_VIEW_BACK_M * boomAmt
+        + SPECTATOR_BACK_M * specAmt
+        + THIRD_PERSON_BACK_M * thirdAmt;
       boomX = -bx * back;
       boomY = -by * back;
       boomZ = -bz * back;
     }
-    const eyeX = source[0] + upN[0] * eyeLift + boomX;
-    const eyeY = source[1] + upN[1] * eyeLift + boomY;
-    const eyeZ = source[2] + upN[2] * eyeLift + boomZ;
+    let eyeX = source[0] + upN[0] * eyeLift + boomX;
+    let eyeY = source[1] + upN[1] * eyeLift + boomY;
+    let eyeZ = source[2] + upN[2] * eyeLift + boomZ;
+    // Terrain pull-in: swinging the boom backwards over rising ground can
+    // bury the eye. Keep it a clear margin above the local surface by
+    // shortening the boom radially — never by moving the body.
+    {
+      const ex = eyeX - pose.center[0];
+      const ey = eyeY - pose.center[1];
+      const ez = eyeZ - pose.center[2];
+      const eyeR = Math.hypot(ex, ey, ez) || 1;
+      const bodyR = Math.hypot(radialDx, radialDy, radialDz);
+      const minR = bodyR + 0.9;
+      if (eyeR < minR) {
+        const k = minR / eyeR;
+        eyeX = pose.center[0] + ex * k;
+        eyeY = pose.center[1] + ey * k;
+        eyeZ = pose.center[2] + ez * k;
+      }
+    }
     camera.position.set(eyeX, eyeY, eyeZ);
     camera.up.set(upN[0], upN[1], upN[2]);
 
@@ -651,6 +697,43 @@ function BodyLayer({
   });
 
   return <group ref={groupRef} />;
+}
+
+/**
+ * SelfAvatarBody — your own character, drawn from behind.
+ *
+ * Uses the same avatar mesh everyone else sees you as, driven by the local
+ * physics body, so over-the-shoulder view and remote views agree. Hidden
+ * in first person (you would be looking at the inside of your own head).
+ */
+function SelfAvatarBody({ selfId, username }: { selfId: string; username: string }) {
+  const physics = getBrainPhysics();
+  const [, force] = useState(0);
+  const [view, setView] = useState<CameraView>(() => getCameraView());
+  useEffect(() => subscribeCameraView(setView), []);
+  useEffect(() => {
+    const id = window.setInterval(() => force((n) => (n + 1) & 0xfff), 100);
+    return () => window.clearInterval(id);
+  }, []);
+  const avatarId = useMemo(() => {
+    try { return loadHubPrefs()?.avatarId; } catch { return undefined; }
+  }, []);
+
+  if (view === 'first') return null;
+  const body = physics.getBody(selfId);
+  const seat = seatedTransform(selfId);
+  if (!body && !seat) return null;
+  const pos: [number, number, number] = seat ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
+  return (
+    <RemoteAvatarBody
+      position={pos}
+      pinned={!!seat}
+      trust={body?.trust ?? 0.6}
+      label={username}
+      avatarId={avatarId}
+      peerPv={BRAIN_PHYSICS_VERSION}
+    />
+  );
 }
 
 /**
@@ -973,6 +1056,24 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const decoratingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [cameraView, setCameraViewState] = useState<CameraView>(() => getCameraView());
+  useEffect(() => subscribeCameraView(setCameraViewState), []);
+  // Keyboard: V flips over-the-shoulder / close-up, B opens the inventory,
+  // Escape closes it. Typing in chat or any input never triggers these.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'v') { toggleShoulderView(); return; }
+      if (k === 'b') { setInventoryOpen((v) => !v); return; }
+      if (e.key === 'Escape') setInventoryOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const isPlotting = isBuilding && builder.plotting;
   // SWARM balance for the plot Confirm panel — refreshed when the
   // pending plot appears (so the user sees the live amount).
@@ -2028,6 +2129,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         color: prefab.color,
       },
       hitPoint: null,
+      // The ghost rides in front of the avatar until it is placed.
+      follow: true,
       onConfirm: async (hit, yaw, _payload, upOffset) => {
         // Land gate — one shared permission check for every mutation.
         {
@@ -2037,18 +2140,22 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             return;
           }
         }
-        const handle = placePrefabAtHit({
-          hitPoint: hit,
+        // Placing does not raise the piece — it stages a private ghost the
+        // owner then builds by press-and-hold. Materials are spent, and
+        // the lattice written, only at the end of that hold.
+        const pose = getEarthPose();
+        const dx = hit[0] - pose.center[0];
+        const dy = hit[1] - pose.center[1];
+        const dz = hit[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz) || 1;
+        const localDir = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+        stagePendingBuild({
           prefabId: id,
-          actorId: selfId,
+          localDir,
           yaw,
           upOffset: upOffset ?? 0,
         });
-        if (handle) {
-          await recordLocalPlacement(handle);
-          builder.selectBlock(handle.placementId);
-          toast(`Placed ${prefab.label}.`);
-        }
+        toast(`${prefab.label} ready — walk over and hold to build.`);
         builder.selectPrefab(null);
       },
       onCancel: () => {
@@ -2189,7 +2296,22 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             <MessageSquare className="h-4 w-4" />
             <span className="ml-1 hidden sm:inline">Chat</span>
           </Button>
-          <BuilderActivator mode={builder.mode} onToggle={builder.toggleMode} />
+          <BuilderActivator
+            mode={builder.mode}
+            onToggle={() => {
+              builder.toggleMode();
+              setInventoryOpen((v) => !v);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => toggleShoulderView()}
+            aria-label={cameraView === 'first' ? 'Switch to over-the-shoulder view' : 'Switch to close-up view'}
+            title="View (V)"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-[hsla(265,70%,8%,0.6)] text-foreground/80 transition-colors hover:text-foreground"
+          >
+            {cameraView === 'first' ? <User className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
           {capabilities.portals && (
             <Button
               type="button"
@@ -2237,6 +2359,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <ElementsVisual />
         <EarthBody />
         <AssetCaster selfId={selfId || undefined} />
+        <PendingBuildsLayer selfId={selfId || undefined} />
+        <WorldDropsLayer selfId={selfId || undefined} />
         <WorldToolTargetsLayer />
         <ToolSwingFX />
         <CarvedCellsLayer />
@@ -2305,6 +2429,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
+        {selfId && <SelfAvatarBody selfId={selfId} username={user?.username ?? 'You'} />}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
@@ -2438,6 +2563,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onConfirmPlot={handleConfirmPlot}
           swarmBalance={swarmBalance}
           selfId={selfId || undefined}
+          hideCatalog
+        />
+      )}
+
+      {/* Inventory panel — the place you choose what to make */}
+      {ready && (
+        <BuilderInventory
+          open={inventoryOpen}
+          builder={builder}
+          onClose={() => setInventoryOpen(false)}
         />
       )}
 
