@@ -2113,6 +2113,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         color: prefab.color,
       },
       hitPoint: null,
+      // The ghost rides in front of the avatar until it is placed.
+      follow: true,
       onConfirm: async (hit, yaw, _payload, upOffset) => {
         // Land gate — one shared permission check for every mutation.
         {
@@ -2122,18 +2124,22 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             return;
           }
         }
-        const handle = placePrefabAtHit({
-          hitPoint: hit,
+        // Placing does not raise the piece — it stages a private ghost the
+        // owner then builds by press-and-hold. Materials are spent, and
+        // the lattice written, only at the end of that hold.
+        const pose = getEarthPose();
+        const dx = hit[0] - pose.center[0];
+        const dy = hit[1] - pose.center[1];
+        const dz = hit[2] - pose.center[2];
+        const r = Math.hypot(dx, dy, dz) || 1;
+        const localDir = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+        stagePendingBuild({
           prefabId: id,
-          actorId: selfId,
+          localDir,
           yaw,
           upOffset: upOffset ?? 0,
         });
-        if (handle) {
-          await recordLocalPlacement(handle);
-          builder.selectBlock(handle.placementId);
-          toast(`Placed ${prefab.label}.`);
-        }
+        toast(`${prefab.label} ready — walk over and hold to build.`);
         builder.selectPrefab(null);
       },
       onCancel: () => {
