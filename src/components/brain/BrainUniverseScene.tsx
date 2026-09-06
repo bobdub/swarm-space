@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
-import { Zap } from 'lucide-react';
+import { Zap, Eye, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
