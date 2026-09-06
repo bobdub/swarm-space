@@ -81,11 +81,9 @@ import {
   type PendingCast,
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import { placePrefabAtHit } from '@/lib/world/placementController';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
 import { isDev } from '@/lib/world/devRoles';
 import {
-  recordLocalPlacement,
   removeLocalPlacement,
   updateLocalPlacement,
   hydrateWorldPlacements,
