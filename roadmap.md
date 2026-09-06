@@ -17,3 +17,12 @@
 - [x] Announce screen-share start/stop through the room mesh
 - [x] Preserve remote screen tiles through transient negotiation mutes
 - [ ] Verify one user can see and enlarge another user's shared screen
+
+## Brain building framework (2026-09-06)
+- [ ] Stage 1 — Over-the-shoulder view with V toggle and terrain pull-in
+- [ ] Stage 2 — Plain-word materials (Wood, Stone, Water, Fibre, Food)
+- [ ] Stage 3 — Transparent inventory panel replacing bottom builder bar
+- [ ] Stage 4 — Follow-ghost placement with click-to-stage controls
+- [ ] Stage 5 — Press-and-hold build with material re-check and decay
+- [ ] Stage 6 — Tree chopping with shake, topple, and wood pickups
+- [ ] Verify in preview: camera, inventory, ghost, build, chop
