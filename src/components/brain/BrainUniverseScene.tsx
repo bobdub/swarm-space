@@ -1058,6 +1058,24 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const decoratingPlacementRef = useRef<PlacementRecord | null>(null);
   const [, forceRunRender] = useState(0);
   const isBuilding = builder.mode === 'build';
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [cameraView, setCameraViewState] = useState<CameraView>(() => getCameraView());
+  useEffect(() => subscribeCameraView(setCameraViewState), []);
+  // Keyboard: V flips over-the-shoulder / close-up, B opens the inventory,
+  // Escape closes it. Typing in chat or any input never triggers these.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'v') { toggleShoulderView(); return; }
+      if (k === 'b') { setInventoryOpen((v) => !v); return; }
+      if (e.key === 'Escape') setInventoryOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const isPlotting = isBuilding && builder.plotting;
   // SWARM balance for the plot Confirm panel — refreshed when the
   // pending plot appears (so the user sees the live amount).
