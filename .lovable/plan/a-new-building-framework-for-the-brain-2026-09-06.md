@@ -20,7 +20,7 @@ Everything you gather becomes a simple material — Wood, Stone, Water, Fibre, F
 - Each item is a tile showing its picture, its name and the materials it needs (for example "Wood 4 · Stone 2").
 - If you don't have enough, the tile is dimmed and can't be picked; hovering says what's missing.
 - Your current material totals sit along the top of the panel.
-- Closing: pick an item, press `B` again, or press Escape.
+- Closing: pick an item, press `B` again, or press Escape, or press the Hammer icon .
 
 ## 4. Ghost previews you control
 
@@ -37,9 +37,9 @@ Everything you gather becomes a simple material — Wood, Stone, Water, Fibre, F
 - Build time scales with the item's size and material cost — a small wall is a few seconds, a roof section longer.
 - Let go early and the progress eases back down rather than resetting instantly.
 - At zero, the materials are spent, the ghost turns solid, and the finished object appears for everyone.
-- If materials ran out in the meantime, the prompt says so instead of building.
+- Check materials pefore counting down if materials were used between placement and build and the player no longer has enough the prompt shows what is missing over building  
 
-## 6. Chopping trees
+  6. Chopping trees
 
 - Walk to a tree with an axe held, swing, and you see your character swing.
 - The tree shakes on each hit, and after a few hits it topples and drops wood pieces on the ground.
