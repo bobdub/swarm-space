@@ -2298,7 +2298,22 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             <MessageSquare className="h-4 w-4" />
             <span className="ml-1 hidden sm:inline">Chat</span>
           </Button>
-          <BuilderActivator mode={builder.mode} onToggle={builder.toggleMode} />
+          <BuilderActivator
+            mode={builder.mode}
+            onToggle={() => {
+              builder.toggleMode();
+              setInventoryOpen((v) => !v);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => toggleShoulderView()}
+            aria-label={cameraView === 'first' ? 'Switch to over-the-shoulder view' : 'Switch to close-up view'}
+            title="View (V)"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-border/60 bg-[hsla(265,70%,8%,0.6)] text-foreground/80 transition-colors hover:text-foreground"
+          >
+            {cameraView === 'first' ? <User className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
           {capabilities.portals && (
             <Button
               type="button"
