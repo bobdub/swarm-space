@@ -303,10 +303,53 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     return top;
   };
 
+  /**
+   * Earth-local dir a couple of grid cells in front of the avatar, along
+   * the camera's forward projected onto the local tangent plane. This is
+   * the anchor for a following ghost: it stays ahead of the player as
+   * they walk and turn, instead of skating around with the mouse.
+   */
+  const dirInFrontOfAvatar = (): Vec3 | null => {
+    const pose = getEarthPose();
+    const physics = getBrainPhysics();
+    const body = selfId ? physics.getBody(selfId) : undefined;
+    if (!body) return null;
+    const bp = (selfId ? physics.getBodyRenderPos(selfId) : undefined) ?? body.pos;
+    // 1. Avatar's Earth-local unit normal.
+    const disp: [number, number, number] = [
+      bp[0] - pose.center[0],
+      bp[1] - pose.center[1],
+      bp[2] - pose.center[2],
+    ];
+    const local = worldDisplacementToEarthLocal(disp, pose);
+    const rN = Math.hypot(local[0], local[1], local[2]) || 1;
+    const n: Vec3 = [local[0] / rN, local[1] / rN, local[2] / rN];
+    // 2. Camera-forward projected onto the avatar tangent plane.
+    const camFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
+    const camLocal = quatRotate(pose.invSpinQuat, [camFwd.x, camFwd.y, camFwd.z]);
+    const dot = camLocal[0] * n[0] + camLocal[1] * n[1] + camLocal[2] * n[2];
+    let tfx = camLocal[0] - n[0] * dot;
+    let tfy = camLocal[1] - n[1] * dot;
+    let tfz = camLocal[2] - n[2] * dot;
+    const tfn = Math.hypot(tfx, tfy, tfz);
+    if (tfn > 1e-4) {
+      tfx /= tfn; tfy /= tfn; tfz /= tfn;
+    } else {
+      tfx = 1; tfy = 0; tfz = 0;
+    }
+    // 3. Walk SPAWN_FORWARD_M along the tangent and re-normalise.
+    const baseRadius = surfaceRadiusFor(n);
+    const ax = n[0] * baseRadius + tfx * SPAWN_FORWARD_M;
+    const ay = n[1] * baseRadius + tfy * SPAWN_FORWARD_M;
+    const az = n[2] * baseRadius + tfz * SPAWN_FORWARD_M;
+    const ar = Math.hypot(ax, ay, az) || 1;
+    return [ax / ar, ay / ar, az / ar];
+  };
+
   // Seed the ghost when a new session arms. Both brand-new placements and
   // edits/moves get a visible ghost immediately: new placements seed a
-  // couple of grid cells in front of the avatar so the user can slide it
-  // with the pointer and commit with a single click.
+  // couple of grid cells in front of the avatar, and (in follow mode) keep
+  // riding there until the user places them.
   useEffect(() => {
     if (!cast) return;
     if (cast.hitPoint) {
@@ -318,41 +361,9 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     const pose = getEarthPose();
     const center = new THREE.Vector3(pose.center[0], pose.center[1], pose.center[2]);
     let worldHit: Vec3 | null = null;
-    const physics = getBrainPhysics();
-    const body = selfId ? physics.getBody(selfId) : undefined;
-    if (body) {
-      // 1. Avatar's Earth-local unit normal.
-      const disp: [number, number, number] = [
-        body.pos[0] - pose.center[0],
-        body.pos[1] - pose.center[1],
-        body.pos[2] - pose.center[2],
-      ];
-      const local = worldDisplacementToEarthLocal(disp, pose);
-      const rN = Math.hypot(local[0], local[1], local[2]) || 1;
-      const n: Vec3 = [local[0] / rN, local[1] / rN, local[2] / rN];
-      // 2. Camera-forward projected onto the avatar tangent plane.
-      const camFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).normalize();
-      // Express camFwd in Earth-local frame too so we can subtract the
-      // surface-normal component.
-      const camLocal = quatRotate(pose.invSpinQuat, [camFwd.x, camFwd.y, camFwd.z]);
-      const dot = camLocal[0] * n[0] + camLocal[1] * n[1] + camLocal[2] * n[2];
-      let tfx = camLocal[0] - n[0] * dot;
-      let tfy = camLocal[1] - n[1] * dot;
-      let tfz = camLocal[2] - n[2] * dot;
-      const tfn = Math.hypot(tfx, tfy, tfz);
-      if (tfn > 1e-4) {
-        tfx /= tfn; tfy /= tfn; tfz /= tfn;
-      } else {
-        tfx = 1; tfy = 0; tfz = 0;
-      }
-      // 3. Walk SPAWN_FORWARD_M along the tangent and re-normalise.
-      const baseRadius = surfaceRadiusFor(n);
-      const ax = n[0] * baseRadius + tfx * SPAWN_FORWARD_M;
-      const ay = n[1] * baseRadius + tfy * SPAWN_FORWARD_M;
-      const az = n[2] * baseRadius + tfz * SPAWN_FORWARD_M;
-      const ar = Math.hypot(ax, ay, az) || 1;
-      const localDir: Vec3 = [ax / ar, ay / ar, az / ar];
-      const snapped = snapLocalDirToGrid(localDir);
+    const ahead = dirInFrontOfAvatar();
+    if (ahead) {
+      const snapped = snapLocalDirToGrid(ahead);
       localDirRef.current = snapped;
       targetDirRef.current = snapped;
       worldHit = localDirToWorldHit(snapped);
@@ -372,7 +383,26 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     setCastHitSilent(worldHit, true);
     // Trigger one re-render so the ghost becomes visible.
     setCast((c) => (c ? { ...c, hitPoint: worldHit, isPositioned: true } : c));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cast, camera, selfId]);
+
+  // Keyboard verbs for a following ghost: R rotates, Esc cancels.
+  useEffect(() => {
+    if (!cast) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (e.code === 'KeyR') {
+        e.preventDefault();
+        rotateCast(Math.PI / 2);
+      } else if (e.code === 'Escape') {
+        e.preventDefault();
+        clearPendingCast();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cast]);
+
 
   // Keep the raycast shell + ghost glued to the live Earth pose, and
   // orient the ghost tangent to the surface so it sits flat.
@@ -383,9 +413,16 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
       sphereRef.current.visible = !!cast;
     }
     if (ghostRef.current) {
+      // Follow mode: the ghost rides in front of the avatar, recomputed
+      // from the body's facing each frame rather than from the pointer.
+      if (cast?.follow) {
+        const ahead = dirInFrontOfAvatar();
+        if (ahead) targetDirRef.current = snapLocalDirToGrid(ahead);
+      }
       // Ease the displayed ghost toward the snapped target so it glides
       // across cells instead of teleporting.
       const tgt = targetDirRef.current;
+
       if (tgt) {
         const cur = localDirRef.current ?? tgt;
         const k = getBuilderTopView() ? GHOST_EASE_TOP : GHOST_EASE;
@@ -476,10 +513,13 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     e.stopPropagation();
     draggingRef.current = true;
     pressStartRef.current = { x: e.nativeEvent.clientX, y: e.nativeEvent.clientY };
-    writeHit(e, true);
+    // A following ghost ignores where the pointer landed — it belongs in
+    // front of the avatar until the user places it.
+    if (!cast.follow) writeHit(e, true);
     try { (e.target as Element | null)?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
   };
   const handlePointerMove = (e: ThreeEvent<PointerEvent>) => {
+    if (cast.follow) return;
     // Mouse: the ghost tracks hover continuously, no click needed.
     // Touch: the ghost tracks the finger while it is down.
     if (e.pointerType !== 'mouse' && !draggingRef.current) return;
@@ -497,10 +537,11 @@ export function AssetCaster({ selfId }: AssetCasterProps = {}) {
     // A click (not a drag) commits the placement right where the ghost is.
     if (Math.hypot(dx, dy) <= CLICK_SLOP_PX) {
       e.stopPropagation();
-      writeHit(e, true);
+      if (!cast.follow) writeHit(e, true);
       confirmCast();
     }
   };
+
 
   return (
     <>
