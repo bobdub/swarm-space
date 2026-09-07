@@ -85,6 +85,11 @@ const Settings = () => {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const initialTab = ["account", "security", "storage", "keys"].includes(tabParam ?? "")
+    ? (tabParam as string)
+    : "account";
 
   // Redirect to auth if not logged in
   useEffect(() => {
