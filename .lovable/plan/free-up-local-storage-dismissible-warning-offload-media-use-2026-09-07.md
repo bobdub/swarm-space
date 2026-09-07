@@ -28,6 +28,7 @@ Safety: the clear step never touches the protected stores (account, keys, blockc
 Verified in the code: the personal-server storage backend exists, but it is never registered as a place the app routes data to — only an external device (folder on disk) is. Result: even with a linked personal server that has free space, all media pieces are still written into the browser, which is why the browser fills up.
 
 Fix:
+
 - When a linked personal server is healthy and has room, register it as the destination for bulk data (media pieces and file records) and for replicas, preferring it over the browser.
 - Reads check the browser first, then fall back to the server, so nothing breaks if the server is offline.
 - If the server is paused, unreachable, or over its cap, writes fall back to the browser as they do today.
@@ -44,4 +45,4 @@ Fix:
 
 ## Verification
 
-Fill-state simulation in the preview: confirm the bar closes and links to Storage; run download → clear and confirm account, posts and wallet survive while usage drops; link a local personal server and confirm new uploads land there and the active-destination label updates.
+Users will test and verify.

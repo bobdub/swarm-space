@@ -42,7 +42,7 @@ import {
   logoutUser,
   type UserMeta,
 } from "@/lib/auth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
@@ -52,6 +52,7 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
+import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { SwarmGatewayPanel } from "@/components/settings/SwarmGatewayPanel";
 import {
@@ -84,6 +85,11 @@ const Settings = () => {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const initialTab = ["account", "security", "storage", "keys"].includes(tabParam ?? "")
+    ? (tabParam as string)
+    : "account";
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -481,7 +487,7 @@ const Settings = () => {
         </header>
 
         <section className="space-y-6">
-          <Tabs defaultValue="account" className="w-full space-y-6">
+          <Tabs defaultValue={initialTab} className="w-full space-y-6">
             <TabsList className="grid w-full grid-cols-4 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
               <TabsTrigger
                 value="account"
@@ -694,6 +700,7 @@ const Settings = () => {
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-6">
+              <FreeUpSpacePanel />
               <StorageTargetsPanel />
               <PersonalServersPanel />
               <SwarmGatewayPanel />
