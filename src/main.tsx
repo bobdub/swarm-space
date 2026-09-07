@@ -96,3 +96,11 @@ scheduleIdle(() => {
     .then((m) => m.startPersonalServerSync())
     .catch((err) => console.warn('[main] personal server sync failed', err));
 });
+
+// ── Personal server tier — routes bulk media to the user's own server so
+// the browser quota stops filling up when a healthy server is linked.
+scheduleIdle(() => {
+  import('./lib/storage/providers/personalServerTier')
+    .then((m) => m.startPersonalServerTier())
+    .catch((err) => console.warn('[main] personal server tier failed', err));
+});

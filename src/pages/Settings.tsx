@@ -52,6 +52,7 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { VerificationModal } from "@/components/verification/VerificationModal";
 import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
+import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { SwarmGatewayPanel } from "@/components/settings/SwarmGatewayPanel";
 import {
@@ -694,6 +695,7 @@ const Settings = () => {
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-6">
+              <FreeUpSpacePanel />
               <StorageTargetsPanel />
               <PersonalServersPanel />
               <SwarmGatewayPanel />
