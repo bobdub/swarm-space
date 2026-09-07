@@ -42,7 +42,7 @@ import {
   logoutUser,
   type UserMeta,
 } from "@/lib/auth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { get } from "@/lib/store";
 import { getBlockedUserIds, unblockUser } from "@/lib/connections";
@@ -482,7 +482,7 @@ const Settings = () => {
         </header>
 
         <section className="space-y-6">
-          <Tabs defaultValue="account" className="w-full space-y-6">
+          <Tabs defaultValue={initialTab} className="w-full space-y-6">
             <TabsList className="grid w-full grid-cols-4 gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.55)] p-1">
               <TabsTrigger
                 value="account"
