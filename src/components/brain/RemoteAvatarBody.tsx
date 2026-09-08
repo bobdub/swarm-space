@@ -136,7 +136,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
   // as presence updates. Flattened onto the local ground plane and held
   // while idle so a standing avatar doesn't spin.
   const headingRef = useRef(new THREE.Vector3());
-  const prevRel = useRef<THREE.Vector3 | null>(null);
+  const prevTarget = useRef<THREE.Vector3 | null>(null);
   const facingQuat = useRef(new THREE.Quaternion());
   const _up = useRef(new THREE.Vector3());
   const _fwd = useRef(new THREE.Vector3());
@@ -153,20 +153,29 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;
-      prevRel.current = smoothRel.current.clone();
+      prevTarget.current = targetRel.current.clone();
+      headingRef.current.set(0, 0, 0);
     } else {
       smoothRel.current.lerp(targetRel.current, 0.18);
 
       const up = _up.current.copy(smoothRel.current).normalize();
-      if (prevRel.current) {
-        const d = _fwd.current.copy(smoothRel.current).sub(prevRel.current);
-        // Remove the vertical component: only ground travel turns a body.
-        d.addScaledVector(up, -d.dot(up));
-        if (d.lengthSq() > 9e-6) headingRef.current.copy(d).normalize();
-      }
-      (prevRel.current ??= new THREE.Vector3()).copy(smoothRel.current);
 
-      if (headingRef.current.lengthSq() > 0.5 && Math.abs(up.lengthSq() - 1) < 0.5) {
+      // Heading comes from the *authoritative* track (targetRel), not the
+      // smoothed one. The smoothed position keeps easing toward the target
+      // after you release the keys, and that trailing motion could flip the
+      // derived direction — which read as the avatar snapping round on stop.
+      // Target deltas simply go to zero when you stop, so the last real
+      // travel direction is held.
+      if (prevTarget.current) {
+        const d = _fwd.current.copy(targetRel.current).sub(prevTarget.current);
+        d.addScaledVector(up, -d.dot(up)); // ground-plane travel only
+        // ~2 cm of lateral travel before we accept a new heading: filters
+        // settle-spring jitter while idle.
+        if (d.lengthSq() > 4e-4) headingRef.current.copy(d).normalize();
+      }
+      (prevTarget.current ??= new THREE.Vector3()).copy(targetRel.current);
+
+      if (headingRef.current.lengthSq() > 0.5) {
         // Re-orthogonalise the stored heading against the current up.
         const fwd = _fwd.current.copy(headingRef.current);
         fwd.addScaledVector(up, -fwd.dot(up));
@@ -175,12 +184,10 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
           const right = _right.current.crossVectors(up, fwd).normalize();
           // Avatar meshes are authored facing local +Z (eyes/snout at +Z).
           _m.current.makeBasis(right, up, fwd);
-
           facingQuat.current.setFromRotationMatrix(_m.current);
           g.quaternion.slerp(facingQuat.current, 0.18);
-        } else {
-          g.quaternion.slerp(targetQuat.current, 0.18);
         }
+        // No fallback once a heading exists: standing still keeps the pose.
       } else {
         g.quaternion.slerp(targetQuat.current, 0.18);
       }
@@ -191,6 +198,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       center[2] + smoothRel.current.z,
     );
   });
+
 
 
   // Spawn-coherence fix: physics anchors the body at its center of mass
