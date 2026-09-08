@@ -173,8 +173,9 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
         if (fwd.lengthSq() > 1e-8) {
           fwd.normalize();
           const right = _right.current.crossVectors(up, fwd).normalize();
-          // Avatar meshes face local -Z, matching three.js convention.
-          _m.current.makeBasis(right, up, fwd.clone().negate());
+          // Avatar meshes are authored facing local +Z (eyes/snout at +Z).
+          _m.current.makeBasis(right, up, fwd);
+
           facingQuat.current.setFromRotationMatrix(_m.current);
           g.quaternion.slerp(facingQuat.current, 0.18);
         } else {
