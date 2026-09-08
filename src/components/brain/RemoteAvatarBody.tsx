@@ -131,6 +131,18 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
     );
   }, [position, isStale, pinned]);
 
+  // Facing: derived from the smoothed Earth-relative track, so it works
+  // identically for the local player and for peers whose positions arrive
+  // as presence updates. Flattened onto the local ground plane and held
+  // while idle so a standing avatar doesn't spin.
+  const headingRef = useRef(new THREE.Vector3());
+  const prevRel = useRef<THREE.Vector3 | null>(null);
+  const facingQuat = useRef(new THREE.Quaternion());
+  const _up = useRef(new THREE.Vector3());
+  const _fwd = useRef(new THREE.Vector3());
+  const _right = useRef(new THREE.Vector3());
+  const _m = useRef(new THREE.Matrix4());
+
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
@@ -141,9 +153,36 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;
+      prevRel.current = smoothRel.current.clone();
     } else {
       smoothRel.current.lerp(targetRel.current, 0.18);
-      g.quaternion.slerp(targetQuat.current, 0.18);
+
+      const up = _up.current.copy(smoothRel.current).normalize();
+      if (prevRel.current) {
+        const d = _fwd.current.copy(smoothRel.current).sub(prevRel.current);
+        // Remove the vertical component: only ground travel turns a body.
+        d.addScaledVector(up, -d.dot(up));
+        if (d.lengthSq() > 9e-6) headingRef.current.copy(d).normalize();
+      }
+      (prevRel.current ??= new THREE.Vector3()).copy(smoothRel.current);
+
+      if (headingRef.current.lengthSq() > 0.5 && Math.abs(up.lengthSq() - 1) < 0.5) {
+        // Re-orthogonalise the stored heading against the current up.
+        const fwd = _fwd.current.copy(headingRef.current);
+        fwd.addScaledVector(up, -fwd.dot(up));
+        if (fwd.lengthSq() > 1e-8) {
+          fwd.normalize();
+          const right = _right.current.crossVectors(up, fwd).normalize();
+          // Avatar meshes face local -Z, matching three.js convention.
+          _m.current.makeBasis(right, up, fwd.clone().negate());
+          facingQuat.current.setFromRotationMatrix(_m.current);
+          g.quaternion.slerp(facingQuat.current, 0.18);
+        } else {
+          g.quaternion.slerp(targetQuat.current, 0.18);
+        }
+      } else {
+        g.quaternion.slerp(targetQuat.current, 0.18);
+      }
     }
     g.position.set(
       center[0] + smoothRel.current.x,
@@ -151,6 +190,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       center[2] + smoothRel.current.z,
     );
   });
+
 
   // Spawn-coherence fix: physics anchors the body at its center of mass
   // (EARTH_RADIUS + HUMAN_HEIGHT/2 above the planet center). The avatar
