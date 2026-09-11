@@ -141,6 +141,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
   const targetLocal = useRef(new THREE.Vector3());
   const facingQuat = useRef(new THREE.Quaternion());
   const _up = useRef(new THREE.Vector3());
+  const _localUp = useRef(new THREE.Vector3());
   const _fwd = useRef(new THREE.Vector3());
   const _right = useRef(new THREE.Vector3());
   const _m = useRef(new THREE.Matrix4());
@@ -176,7 +177,7 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       );
       targetLocal.current.set(local[0], local[1], local[2]);
       if (prevTargetLocal.current) {
-        const localUp = _up.current.copy(targetLocal.current).normalize();
+        const localUp = _localUp.current.copy(targetLocal.current).normalize();
         const d = _fwd.current.copy(targetLocal.current).sub(prevTargetLocal.current);
         d.addScaledVector(localUp, -d.dot(localUp)); // ground-plane travel only
         // ~2 cm of lateral travel before we accept a new heading: filters
