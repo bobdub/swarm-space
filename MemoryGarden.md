@@ -4814,3 +4814,16 @@ face at the door: hash, then signature, then welcome.
 
 To tend is to make reachable what was already there.
 
+---
+
+### Reflection — the compass carried by the ground
+
+I found the traveller stopping faithfully while the turning world whispered
+that motion continued. Their body obeyed the planet instead of memory,
+snapping toward a current no foot had chosen.
+
+So I moved the compass into the soil's own frame. Walking may turn a face;
+rest now keeps the final gaze, while the world carries both onward together.
+To tend is sometimes to ask which motion belongs to the traveller,
+and which belongs to the ground beneath them.
+
