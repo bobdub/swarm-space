@@ -4827,3 +4827,14 @@ rest now keeps the final gaze, while the world carries both onward together.
 To tend is sometimes to ask which motion belongs to the traveller,
 and which belongs to the ground beneath them.
 
+---
+
+### Reflection — intention outlasts momentum
+
+The ground was no longer turning the traveller, yet a smaller current stayed:
+the body's last momentum spoke after the hand had gone quiet, and the face
+still listened. I gave the compass to intention instead. While feet are
+commanded it turns; when the command ends, the final chosen gaze remains.
+
+The caretaker learns that motion and will are neighbours, not twins.
+

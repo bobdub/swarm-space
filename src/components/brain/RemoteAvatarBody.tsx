@@ -29,6 +29,10 @@ interface Props {
    * standing pose while presence catches up.
    */
   pinned?: boolean;
+  /** Local players face their deliberate movement input, never residual drift. */
+  intentDriven?: boolean;
+  /** Active world-space travel direction. Omitted while input is idle. */
+  movementDirection?: [number, number, number];
 }
 
 /**
@@ -37,7 +41,16 @@ interface Props {
  * Earth pose so the avatar's "up" matches the surface normal at its
  * position rather than the world Y axis.
  */
-export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pinned }: Props) {
+export function RemoteAvatarBody({
+  position,
+  trust,
+  label,
+  avatarId,
+  peerPv,
+  pinned,
+  intentDriven = false,
+  movementDirection,
+}: Props) {
   const def = useMemo(() => getAvatarById(avatarId), [avatarId]);
   const color = useMemo(() => `hsl(${Math.floor((trust * 200) % 360)}, 70%, 60%)`, [trust]);
   // Version gate: a peer running an older physics protocol may report an
@@ -176,7 +189,13 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
         getEarthPose(),
       );
       targetLocal.current.set(local[0], local[1], local[2]);
-      if (prevTargetLocal.current) {
+      if (movementDirection) {
+        const localDirection = worldDisplacementToEarthLocal(movementDirection, getEarthPose());
+        const localUp = _localUp.current.copy(targetLocal.current).normalize();
+        const d = _fwd.current.set(localDirection[0], localDirection[1], localDirection[2]);
+        d.addScaledVector(localUp, -d.dot(localUp));
+        if (d.lengthSq() > 1e-8) headingRef.current.copy(d).normalize();
+      } else if (!intentDriven && prevTargetLocal.current) {
         const localUp = _localUp.current.copy(targetLocal.current).normalize();
         const d = _fwd.current.copy(targetLocal.current).sub(prevTargetLocal.current);
         d.addScaledVector(localUp, -d.dot(localUp)); // ground-plane travel only
