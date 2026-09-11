@@ -8,6 +8,7 @@ import {
   HUMAN_HEIGHT,
   STRUCTURE_SHELL_RADIUS,
   EARTH_RADIUS,
+  quatRotate,
   worldDisplacementToEarthLocal,
 } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
@@ -136,7 +137,8 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
   // as presence updates. Flattened onto the local ground plane and held
   // while idle so a standing avatar doesn't spin.
   const headingRef = useRef(new THREE.Vector3());
-  const prevTarget = useRef<THREE.Vector3 | null>(null);
+  const prevTargetLocal = useRef<THREE.Vector3 | null>(null);
+  const targetLocal = useRef(new THREE.Vector3());
   const facingQuat = useRef(new THREE.Quaternion());
   const _up = useRef(new THREE.Vector3());
   const _fwd = useRef(new THREE.Vector3());
@@ -153,31 +155,45 @@ export function RemoteAvatarBody({ position, trust, label, avatarId, peerPv, pin
       smoothRel.current.copy(targetRel.current);
       g.quaternion.copy(targetQuat.current);
       seeded.current = true;
-      prevTarget.current = targetRel.current.clone();
+      const local = worldDisplacementToEarthLocal(
+        [targetRel.current.x, targetRel.current.y, targetRel.current.z],
+        getEarthPose(),
+      );
+      prevTargetLocal.current = new THREE.Vector3(local[0], local[1], local[2]);
       headingRef.current.set(0, 0, 0);
     } else {
       smoothRel.current.lerp(targetRel.current, 0.18);
 
       const up = _up.current.copy(smoothRel.current).normalize();
 
-      // Heading comes from the *authoritative* track (targetRel), not the
-      // smoothed one. The smoothed position keeps easing toward the target
-      // after you release the keys, and that trailing motion could flip the
-      // derived direction — which read as the avatar snapping round on stop.
-      // Target deltas simply go to zero when you stop, so the last real
-      // travel direction is held.
-      if (prevTarget.current) {
-        const d = _fwd.current.copy(targetRel.current).sub(prevTarget.current);
-        d.addScaledVector(up, -d.dot(up)); // ground-plane travel only
+      // Compare authoritative positions in Earth's CO-ROTATING frame.
+      // World-relative positions continue moving with the planet after the
+      // player stops, which previously looked like travel and turned every
+      // idle avatar toward the planet's spin direction.
+      const local = worldDisplacementToEarthLocal(
+        [targetRel.current.x, targetRel.current.y, targetRel.current.z],
+        getEarthPose(),
+      );
+      targetLocal.current.set(local[0], local[1], local[2]);
+      if (prevTargetLocal.current) {
+        const localUp = _up.current.copy(targetLocal.current).normalize();
+        const d = _fwd.current.copy(targetLocal.current).sub(prevTargetLocal.current);
+        d.addScaledVector(localUp, -d.dot(localUp)); // ground-plane travel only
         // ~2 cm of lateral travel before we accept a new heading: filters
         // settle-spring jitter while idle.
         if (d.lengthSq() > 4e-4) headingRef.current.copy(d).normalize();
       }
-      (prevTarget.current ??= new THREE.Vector3()).copy(targetRel.current);
+      (prevTargetLocal.current ??= new THREE.Vector3()).copy(targetLocal.current);
 
       if (headingRef.current.lengthSq() > 0.5) {
-        // Re-orthogonalise the stored heading against the current up.
-        const fwd = _fwd.current.copy(headingRef.current);
+        // The retained direction is Earth-local; rotate it back into the
+        // live world frame so it remains attached to the same patch of soil.
+        const worldHeading = quatRotate(getEarthPose().spinQuat, [
+          headingRef.current.x,
+          headingRef.current.y,
+          headingRef.current.z,
+        ]);
+        const fwd = _fwd.current.set(worldHeading[0], worldHeading[1], worldHeading[2]);
         fwd.addScaledVector(up, -fwd.dot(up));
         if (fwd.lengthSq() > 1e-8) {
           fwd.normalize();
