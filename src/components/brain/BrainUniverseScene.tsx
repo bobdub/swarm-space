@@ -721,13 +721,37 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
 
   if (view === 'first') return null;
   const body = physics.getBody(selfId);
+  const intent = physics.getIntent(selfId);
   const seat = seatedTransform(selfId);
   if (!body && !seat) return null;
   const pos: [number, number, number] = seat ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
+  let movementDirection: [number, number, number] | undefined;
+  if (!seat && intent && intent.basis && Math.hypot(intent.fwd, intent.right) > 0.05) {
+    const { forward, right } = intent.basis;
+    const cy = Math.cos(intent.yaw);
+    const sy = Math.sin(intent.yaw);
+    const pushForward: [number, number, number] = [
+      cy * forward[0] - sy * right[0],
+      cy * forward[1] - sy * right[1],
+      cy * forward[2] - sy * right[2],
+    ];
+    const pushRight: [number, number, number] = [
+      cy * right[0] + sy * forward[0],
+      cy * right[1] + sy * forward[1],
+      cy * right[2] + sy * forward[2],
+    ];
+    movementDirection = [
+      pushForward[0] * intent.fwd + pushRight[0] * intent.right,
+      pushForward[1] * intent.fwd + pushRight[1] * intent.right,
+      pushForward[2] * intent.fwd + pushRight[2] * intent.right,
+    ];
+  }
   return (
     <RemoteAvatarBody
       position={pos}
       pinned={!!seat}
+      intentDriven
+      movementDirection={movementDirection}
       trust={body?.trust ?? 0.6}
       label={username}
       avatarId={avatarId}
