@@ -19,10 +19,10 @@
 - [ ] Verify one user can see and enlarge another user's shared screen
 
 ## Brain building framework (2026-09-06)
-- [ ] Stage 1 — Over-the-shoulder view with V toggle and terrain pull-in
-- [ ] Stage 2 — Plain-word materials (Wood, Stone, Water, Fibre, Food)
-- [ ] Stage 3 — Transparent inventory panel replacing bottom builder bar
-- [ ] Stage 4 — Follow-ghost placement with click-to-stage controls
-- [ ] Stage 5 — Press-and-hold build with material re-check and decay
+- [x] Stage 1 — Over-the-shoulder view with V toggle and terrain pull-in
+- [x] Stage 2 — Plain-word materials (Wood, Stone, Water, Fibre, Food)
+- [x] Stage 3 — Transparent inventory panel replacing bottom builder bar
+- [x] Stage 4 — Follow-ghost placement with click-to-stage controls
+- [x] Stage 5 — Press-and-hold build with material re-check and decay
 - [x] Stage 6 — Tree chopping with shake, topple, wood pickups, and a visible character swing
 - [ ] Verify in preview: camera, inventory, ghost, build, chop
