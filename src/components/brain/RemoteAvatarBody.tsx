@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
@@ -14,6 +14,7 @@ import {
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Text } from '@react-three/drei';
+import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
   position: [number, number, number];
