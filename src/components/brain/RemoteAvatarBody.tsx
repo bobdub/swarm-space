@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
@@ -14,6 +14,7 @@ import {
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Text } from '@react-three/drei';
+import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
   position: [number, number, number];
@@ -159,7 +160,37 @@ export function RemoteAvatarBody({
   const _right = useRef(new THREE.Vector3());
   const _m = useRef(new THREE.Matrix4());
 
+  // Swing animation: a chop/dig is felt in the body, not just in the arc
+  // FX. Only the local player's own swings are published on the bus, so
+  // this is gated to the intent-driven (self) avatar.
+  const bodyRef = useRef<THREE.Group>(null);
+  const swingAt = useRef(0);
+  const SWING_MS = 520;
+  useEffect(() => {
+    if (!intentDriven) return;
+    return subscribeSwingFx((fx) => {
+      if (fx.variant !== 'swing') return;
+      swingAt.current = performance.now();
+    });
+  }, [intentDriven]);
+
   useFrame(() => {
+    const body = bodyRef.current;
+    if (body) {
+      const t = (performance.now() - swingAt.current) / SWING_MS;
+      if (swingAt.current > 0 && t >= 0 && t <= 1) {
+        // Wind up, drive down, settle back — a single smooth arc.
+        const wind = Math.sin(Math.PI * Math.min(1, t * 1.35));
+        const drive = Math.sin(Math.PI * t);
+        body.rotation.x = -0.22 * wind + 0.62 * drive * drive;
+        body.rotation.z = 0.16 * drive;
+        body.position.y = FEET_DROP - 0.12 * drive;
+      } else if (body.rotation.x !== 0 || body.rotation.z !== 0) {
+        body.rotation.x = 0;
+        body.rotation.z = 0;
+        body.position.y = FEET_DROP;
+      }
+    }
     const g = groupRef.current;
     if (!g) return;
     const center = getEarthPose().center;
@@ -250,7 +281,7 @@ export function RemoteAvatarBody({
 
   return (
     <group ref={groupRef}>
-      <group position={[0, FEET_DROP, 0]}>
+      <group ref={bodyRef} position={[0, FEET_DROP, 0]}>
         {def.render({ scale: 1, color })}
       </group>
       {label && (
