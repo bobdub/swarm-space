@@ -24,5 +24,5 @@
 - [ ] Stage 3 — Transparent inventory panel replacing bottom builder bar
 - [ ] Stage 4 — Follow-ghost placement with click-to-stage controls
 - [ ] Stage 5 — Press-and-hold build with material re-check and decay
-- [ ] Stage 6 — Tree chopping with shake, topple, and wood pickups
+- [x] Stage 6 — Tree chopping with shake, topple, wood pickups, and a visible character swing
 - [ ] Verify in preview: camera, inventory, ghost, build, chop
