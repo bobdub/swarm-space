@@ -270,9 +270,88 @@ export function BrainBuilderBar({
         freeBuild ? 'border-amber-400/60 shadow-[0_0_24px_-8px_rgba(251,191,36,0.45)]' : 'border-border/40',
       ].join(' ')}
     >
-      {/* Toggle row — compact chips + always-visible close */}
+      {/* Tabs row — sections + Options, with always-visible close */}
       <div className="flex items-center gap-1.5">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+        <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto" role="tablist" aria-label="Builder sections">
+          {!hideCatalog && PREFAB_SECTIONS.map((s) => (
+            <SectionTab
+              key={s.id}
+              id={s.id}
+              label={s.label}
+              active={virtualTab === null && activeSection === s.id}
+              onSelect={() => { setVirtualTab(null); setActiveSection(s.id); }}
+            />
+          ))}
+          {!hideCatalog && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={virtualTab === LAB_SECTION}
+              onClick={() => setVirtualTab(LAB_SECTION)}
+              className={[
+                'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+                virtualTab === LAB_SECTION
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
+              ].join(' ')}
+              data-section-id={LAB_SECTION}
+            >
+              <FlaskConical className="h-3 w-3" /> Lab
+            </button>
+          )}
+          {!hideCatalog && ownsAnyPlot && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={virtualTab === LANDMARKS_SECTION}
+              onClick={() => setVirtualTab(LANDMARKS_SECTION)}
+              className={[
+                'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+                virtualTab === LANDMARKS_SECTION
+                  ? 'bg-amber-400 text-background'
+                  : 'bg-amber-400/15 text-amber-200 hover:bg-amber-400/30',
+              ].join(' ')}
+              data-section-id={LANDMARKS_SECTION}
+              title="Landmarks unlocked by plot ownership"
+            >
+              <LandPlotIcon className="h-3 w-3" /> Landmarks
+            </button>
+          )}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={virtualTab === OPTIONS_SECTION}
+            data-testid="builder-tab-options"
+            onClick={() =>
+              setVirtualTab(virtualTab === OPTIONS_SECTION ? null : OPTIONS_SECTION)
+            }
+            className={[
+              'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+              virtualTab === OPTIONS_SECTION
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+            data-section-id={OPTIONS_SECTION}
+            title="Options — magnets, free build, plots, views"
+          >
+            <SlidersHorizontal className="h-3 w-3" /> Options
+          </button>
+        </div>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          aria-label="Exit Builder Mode"
+          onClick={exitBuild}
+          className="h-7 w-7 shrink-0"
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {currentTab === OPTIONS_SECTION ? (
+        /* Options tab — every builder toggle lives here */
+        <div className="flex flex-wrap items-center gap-1.5 pb-1">
           <button
             type="button"
             data-testid="builder-toggle-magnetic"
@@ -367,7 +446,6 @@ export function BrainBuilderBar({
               <span>Enable roads</span>
             </button>
           )}
-
           <button
             type="button"
             data-testid="builder-toggle-topview"
@@ -384,67 +462,41 @@ export function BrainBuilderBar({
             <ArrowDownFromLine className="h-3 w-3" aria-hidden="true" />
             <span>Top</span>
           </button>
-        </div>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          aria-label="Exit Builder Mode"
-          onClick={exitBuild}
-          className="h-7 w-7 shrink-0"
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      {/* Section tabs — hidden when the inventory panel owns item picking. */}
-      {!hideCatalog && (<>
-      <div className="flex gap-1 overflow-x-auto" role="tablist" aria-label="Prefab sections">
-
-        {PREFAB_SECTIONS.map((s) => (
-          <SectionTab
-            key={s.id}
-            id={s.id}
-            label={s.label}
-            active={virtualTab === null && activeSection === s.id}
-            onSelect={() => { setVirtualTab(null); setActiveSection(s.id); }}
-          />
-        ))}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={virtualTab === LAB_SECTION}
-          onClick={() => setVirtualTab(LAB_SECTION)}
-          className={[
-            'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
-            virtualTab === LAB_SECTION
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
-          ].join(' ')}
-          data-section-id={LAB_SECTION}
-        >
-          <FlaskConical className="h-3 w-3" /> Lab
-        </button>
-        {ownsAnyPlot && (
           <button
             type="button"
-            role="tab"
-            aria-selected={virtualTab === LANDMARKS_SECTION}
-            onClick={() => setVirtualTab(LANDMARKS_SECTION)}
+            data-testid="builder-toggle-overhead"
+            onClick={toggleOverheadView}
+            aria-pressed={overhead}
+            title="Overhead view — spectator camera above the table"
             className={[
-              'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
-              virtualTab === LANDMARKS_SECTION
-                ? 'bg-amber-400 text-background'
-                : 'bg-amber-400/15 text-amber-200 hover:bg-amber-400/30',
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              overhead
+                ? 'border-primary/60 bg-primary/15 text-primary'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
             ].join(' ')}
-            data-section-id={LANDMARKS_SECTION}
-            title="Landmarks unlocked by plot ownership"
           >
-            <LandPlotIcon className="h-3 w-3" /> Landmarks
+            <Camera className="h-3 w-3" aria-hidden="true" />
+            <span>Overhead</span>
           </button>
-        )}
-      </div>
-
+          <button
+            type="button"
+            data-testid="builder-toggle-seatdebug"
+            onClick={toggleSeatDebug}
+            aria-pressed={seatDebug}
+            title="Seat debug — show seat anchors and occupancy read-out"
+            className={[
+              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
+              seatDebug
+                ? 'border-primary/60 bg-primary/15 text-primary'
+                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+            ].join(' ')}
+          >
+            <Bug className="h-3 w-3" aria-hidden="true" />
+            <span>Seat debug</span>
+          </button>
+        </div>
+      ) : !hideCatalog ? (
+      <>
       {/* Asset tiles */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {currentTab === LAB_SECTION ? (
@@ -495,7 +547,9 @@ export function BrainBuilderBar({
           </>
         )}
       </div>
-      </>)}
+      </>
+      ) : null}
+
     </div>
 
   );
