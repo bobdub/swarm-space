@@ -15,11 +15,8 @@ import { isSeated, leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
 import { SeatDebugOverlay } from '@/components/pub/SeatDebugOverlay';
 import {
-  isOverheadView,
   isSeatDebugOn,
   subscribeSpectator,
-  toggleOverheadView,
-  toggleSeatDebug,
 } from '@/lib/pub/spectatorCameraStore';
 
 export function PubGameLayer({
@@ -41,7 +38,6 @@ export function PubGameLayer({
   // Camera-only QA modes: overhead spectator view + seat debug read-out.
   const [, forceSpec] = useState(0);
   useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
-  const overhead = isOverheadView();
   const debugOn = isSeatDebugOn();
 
   // Let the mesh bridge know who we are so peer intents can be routed
