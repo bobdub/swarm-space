@@ -132,6 +132,20 @@ const Donate = () => {
           </p>
         </Card>
 
+        <Card className="rounded-3xl border border-secondary/20 bg-secondary/5 p-6 md:p-8 space-y-4">
+          <div className="flex items-center gap-3">
+            <Megaphone className="h-5 w-5 text-secondary" />
+            <h2 className="text-xl font-bold text-foreground">Promote Your Token</h2>
+          </div>
+          <p className="text-sm md:text-base text-muted-foreground leading-relaxed">
+            Want to put your project in front of the DWMW audience? Get a custom advertisement written, voiced, animated, and featured on the DWMW 24/7 live stream or inside an episode.
+          </p>
+          <Button onClick={() => navigate("/adverts")} className="w-full sm:w-auto gap-2 rounded-full bg-gradient-to-r from-secondary to-primary px-6 py-3 text-sm font-semibold uppercase tracking-[0.1em] shadow-[0_10px_40px_hsla(var(--secondary),0.35)] transition-transform hover:scale-[1.02]">
+            <Megaphone className="h-4 w-4" />
+            Promote Your Token
+          </Button>
+        </Card>
+
         <div className="space-y-4">
           <h2 className="text-xl font-bold text-foreground">Choose what to support</h2>
           <div className="grid gap-4 sm:grid-cols-2">
