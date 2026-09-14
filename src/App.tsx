@@ -65,6 +65,7 @@ const PersonalServerGuidePage = lazy(() => import("./pages/PersonalServerGuide")
 const SwarmMetaMaskGuide = lazy(() => import("./pages/SwarmMetaMaskGuide"));
 const StorageDiagnostics = lazy(() => import("./pages/StorageDiagnostics"));
 const Donate = lazy(() => import("./pages/Donate"));
+const Adverts = lazy(() => import("./pages/Adverts"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
@@ -165,6 +166,7 @@ function AppContent() {
             <Route path="/storage-diagnostics" element={<StorageDiagnostics />} />
             <Route path="/donate" element={<Donate />} />
             <Route path="/fundraiser" element={<Donate />} />
+            <Route path="/adverts" element={<Adverts />} />
             {/* Brain dev preview — public, no auth gate. Used to QA scaffoldings. */}
             <Route path="/brain-dev" element={<BrainDev />} />
 
