@@ -84,7 +84,12 @@ function equipCatalogTool(prefabId: string, actorId: string): void {
 /** Virtual section id — not present in PREFAB_SECTIONS. */
 const LAB_SECTION = 'lab' as const;
 const LANDMARKS_SECTION = 'landmarks' as const;
-type BarSectionId = PrefabSectionId | typeof LAB_SECTION | typeof LANDMARKS_SECTION;
+const OPTIONS_SECTION = 'options' as const;
+type BarSectionId =
+  | PrefabSectionId
+  | typeof LAB_SECTION
+  | typeof LANDMARKS_SECTION
+  | typeof OPTIONS_SECTION;
 
 interface BrainBuilderBarProps {
   builder: UseBrainBuilder;
