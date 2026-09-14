@@ -13,6 +13,7 @@ import {
   Wrench,
   Mic,
   Heart,
+  Megaphone,
 } from "lucide-react";
 
 const TOKEN_CARDS = [
