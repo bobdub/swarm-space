@@ -12,7 +12,14 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route, SlidersHorizontal, Camera, Bug } from 'lucide-react';
+import {
+  isOverheadView,
+  isSeatDebugOn,
+  subscribeSpectator,
+  toggleOverheadView,
+  toggleSeatDebug,
+} from '@/lib/pub/spectatorCameraStore';
 import {
   subscribeShowLandMarkers,
   getShowLandMarkers,
@@ -77,7 +84,12 @@ function equipCatalogTool(prefabId: string, actorId: string): void {
 /** Virtual section id — not present in PREFAB_SECTIONS. */
 const LAB_SECTION = 'lab' as const;
 const LANDMARKS_SECTION = 'landmarks' as const;
-type BarSectionId = PrefabSectionId | typeof LAB_SECTION | typeof LANDMARKS_SECTION;
+const OPTIONS_SECTION = 'options' as const;
+type BarSectionId =
+  | PrefabSectionId
+  | typeof LAB_SECTION
+  | typeof LANDMARKS_SECTION
+  | typeof OPTIONS_SECTION;
 
 interface BrainBuilderBarProps {
   builder: UseBrainBuilder;
@@ -124,7 +136,14 @@ export function BrainBuilderBar({
   /** Local override — when 'lab'/'landmarks' is picked, override the
    *  section list. They live outside `PREFAB_SECTIONS` so they don't
    *  collide with the catalog tabs. */
-  const [virtualTab, setVirtualTab] = useState<typeof LAB_SECTION | typeof LANDMARKS_SECTION | null>(null);
+  const [virtualTab, setVirtualTab] = useState<
+    typeof LAB_SECTION | typeof LANDMARKS_SECTION | typeof OPTIONS_SECTION | null
+  >(null);
+  // Spectator camera + seat debug now live in the Options tab.
+  const [, forceSpec] = useState(0);
+  useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
+  const overhead = isOverheadView();
+  const seatDebug = isSeatDebugOn();
   const currentTab: BarSectionId = virtualTab ?? activeSection;
 
   const [mints, setMints] = useState<MintedRecord[]>([]);
