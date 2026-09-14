@@ -12,7 +12,14 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route } from 'lucide-react';
+import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route, SlidersHorizontal, Camera, Bug } from 'lucide-react';
+import {
+  isOverheadView,
+  isSeatDebugOn,
+  subscribeSpectator,
+  toggleOverheadView,
+  toggleSeatDebug,
+} from '@/lib/pub/spectatorCameraStore';
 import {
   subscribeShowLandMarkers,
   getShowLandMarkers,
