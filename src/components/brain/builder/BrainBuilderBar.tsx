@@ -136,7 +136,14 @@ export function BrainBuilderBar({
   /** Local override — when 'lab'/'landmarks' is picked, override the
    *  section list. They live outside `PREFAB_SECTIONS` so they don't
    *  collide with the catalog tabs. */
-  const [virtualTab, setVirtualTab] = useState<typeof LAB_SECTION | typeof LANDMARKS_SECTION | null>(null);
+  const [virtualTab, setVirtualTab] = useState<
+    typeof LAB_SECTION | typeof LANDMARKS_SECTION | typeof OPTIONS_SECTION | null
+  >(null);
+  // Spectator camera + seat debug now live in the Options tab.
+  const [, forceSpec] = useState(0);
+  useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
+  const overhead = isOverheadView();
+  const seatDebug = isSeatDebugOn();
   const currentTab: BarSectionId = virtualTab ?? activeSection;
 
   const [mints, setMints] = useState<MintedRecord[]>([]);
