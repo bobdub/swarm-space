@@ -45,7 +45,12 @@ export type TransactionType =
   | "coin_market_settle"
   | "coin_market_cancel"
   | "coin_market_dispute"
-  | "coin_transfer";
+  | "coin_transfer"
+  | "wallet_link"
+  | "wallet_unlink"
+  | "external_deposit"
+  | "external_withdraw"
+  | "external_reconcile";
 
 export interface SwarmTransaction {
   id: string;
