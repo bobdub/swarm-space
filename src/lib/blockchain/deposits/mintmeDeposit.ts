@@ -241,3 +241,41 @@ export async function reconcileMintMe(swarmId: string, opts?: { write?: boolean 
   commit(tx);
   return { recorded: round8(recorded + drift), observed, drift, adjusted: true };
 }
+
+/**
+ * Stage 4 — retire the local MintMe side ledger. Any MINTME still sitting in
+ * the old localStorage wallet is written onto the chain (marked as a
+ * migration, with no external tx hash) once a wallet is bound, then cleared.
+ */
+export async function migrateLocalMintMe(swarmId: string): Promise<number> {
+  if (!swarmId) return 0;
+  const { getAppWalletBalance, debitAppWallet } = await import("../wallets/appWallet");
+  const local = getAppWalletBalance(swarmId, "MINTME");
+  if (!(local > 0)) return 0;
+  const link = getLinkedWallet(swarmId);
+  if (!link) return 0;
+
+  const at = Date.now();
+  const tx: SwarmTransaction = {
+    id: generateTransactionId(),
+    type: "external_deposit",
+    from: link.address,
+    to: swarmId,
+    amount: round8(local),
+    timestamp: new Date(at).toISOString(),
+    signature: "",
+    publicKey: link.address,
+    nonce: at,
+    fee: 0,
+    meta: {
+      kind: "external_deposit",
+      currency: MINTME,
+      address: link.address,
+      source: "local-ledger-migration",
+      note: "Carried over from the old in-app MintMe ledger — no external transaction backs this entry.",
+    },
+  };
+  commit(tx);
+  debitAppWallet(swarmId, "MINTME", local);
+  return round8(local);
+}
