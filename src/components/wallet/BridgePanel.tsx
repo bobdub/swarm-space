@@ -29,12 +29,7 @@ import {
 import { getSwarmBalance, transferSwarm } from "@/lib/blockchain/token";
 import { linkExternalEvmAddress, startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
 import { swarmIdToEvmAddress } from "@/lib/blockchain/gateway/addressMap";
-import {
-  MINTME_NETWORK,
-  isMintMeChain,
-  switchToMintMeNetwork,
-} from "@/lib/blockchain/wallets/mintmeNetwork";
-import { readMintMeBalance, sendMintMe } from "@/lib/blockchain/wallets/mintmeBridge";
+import { MintMeVaultPanel } from "./MintMeVaultPanel";
 
 const EXTERNAL_ONLY_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC"];
 
