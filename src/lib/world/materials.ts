@@ -87,6 +87,23 @@ export function subscribeMaterials(fn: (totals: Record<MaterialId, number>) => v
 const MINERAL_SET = new Set(MINERALS);
 
 /**
+ * The starter tools. These are what a player *gathers with*, so they can
+ * never cost gathered materials — that would lock the only way out of an
+ * empty pack. Everything else keeps its derived cost.
+ */
+export const STARTER_TOOL_IDS = new Set([
+  'tool_knife_stone',
+  'tool_axe_stone',
+  'tool_shovel_stone',
+  'tool_bucket_wood',
+  'tool_pick_stone',
+]);
+
+export function isStarterTool(prefabId: string): boolean {
+  return STARTER_TOOL_IDS.has(prefabId);
+}
+
+/**
  * What a prefab costs, derived entirely from its `constituents` and its
  * bounding volume — no hand-typed numbers.
  *
@@ -94,6 +111,7 @@ const MINERAL_SET = new Set(MINERALS);
  * the carbon belongs to the rock, not to timber, so it counts as Stone.
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
+  if (isStarterTool(prefab.id)) return {};
   const hasMineral = prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));
   const atoms = emptyTotals();
   for (const c of prefab.constituents) {
