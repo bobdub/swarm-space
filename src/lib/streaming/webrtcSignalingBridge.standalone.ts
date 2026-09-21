@@ -28,6 +28,7 @@ interface SignalEnvelope {
     | 'reconnect-ack'
     | 'chat-message'
     | 'screen-share-state'
+    | 'media-state'
     | 'presence'
     | 'room-hello';
   from: string;       // mesh peerId (peer-xxx)
