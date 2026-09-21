@@ -861,7 +861,13 @@ export class WebRTCManager {
           participant.stream.addTrack(event.track);
           console.log(`[WebRTC] ➕ Merged ${event.track.kind} track into participant stream for ${peerId}`);
         }
+        // An empty, reserved video slot arrives muted — that is not a camera.
+        if (event.track.kind === 'video' && event.track.muted) {
+          participant.isVideoEnabled = false;
+        }
       }
+
+      const isCameraTrack = event.track.kind === 'video' && !isScreenTrack;
 
       // Drop dead tracks instead of holding silent references.
       event.track.onended = () => {
@@ -872,6 +878,7 @@ export class WebRTCManager {
         if (isScreenTrack) {
           participant.screenStream = null;
         }
+        if (isCameraTrack) participant.isVideoEnabled = false;
         this.broadcastMessage({
           type: 'peer-joined',
           roomId: this.currentRoomId!,
@@ -879,7 +886,20 @@ export class WebRTCManager {
         });
       };
 
+      event.track.onmute = () => {
+        if (isCameraTrack) {
+          participant.isVideoEnabled = false;
+          this.broadcastMessage({
+            type: 'peer-media-state',
+            roomId: this.currentRoomId ?? '',
+            peerId,
+            camera: false,
+          });
+        }
+      };
+
       event.track.onunmute = () => {
+        if (isCameraTrack) participant.isVideoEnabled = true;
         this.broadcastMessage({
           type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
           roomId: this.currentRoomId ?? '',
