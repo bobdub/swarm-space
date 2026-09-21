@@ -631,6 +631,10 @@ export class WebRTCManager {
         }
       }
 
+      // Fresh tracks arrive enabled — honour the remembered mute.
+      this.applyLocalMuteState();
+      this.announceMediaState();
+
       return this.localStream;
     } catch (error) {
       console.error('[WebRTC] Failed to get user media:', error);
