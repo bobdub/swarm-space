@@ -29,6 +29,7 @@ export function AssetsTab() {
   const userId = user?.id ?? "";
   const { balance: creditBalance } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
+  const [mintme, setMintme] = useState(() => (userId ? getChainMintmeBalance(userId) : 0));
   const [bridge, setBridge] = useState(() => (userId ? getAppWalletBalances(userId) : { ETH: 0, BTC: 0, MINTME: 0 }));
   const { available, address, chainId } = useMetaMask();
 
@@ -36,6 +37,7 @@ export function AssetsTab() {
     if (!userId) return;
     const refresh = async () => {
       setBridge(getAppWalletBalances(userId));
+      setMintme(getChainMintmeBalance(userId));
       try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
     };
     void refresh();
