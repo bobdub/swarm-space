@@ -28,6 +28,7 @@ interface SignalEnvelope {
     | 'reconnect-ack'
     | 'chat-message'
     | 'screen-share-state'
+    | 'media-state'
     | 'presence'
     | 'room-hello';
   from: string;       // mesh peerId (peer-xxx)
@@ -196,6 +197,14 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       }
       break;
     }
+
+    case 'media-state': {
+      for (const h of signalHandlers) {
+        try { h(envelope); } catch { /* ignore */ }
+      }
+      break;
+    }
+
 
     case 'reconnect-request':
     case 'reconnect-ack': {
@@ -486,6 +495,30 @@ export function sendScreenShareState(roomId: string, active: boolean, streamId?:
     ts: Date.now(),
   } satisfies SignalEnvelope);
 }
+
+/**
+ * Announce this peer's camera / microphone state (and username) to the room.
+ * Viewers use it to show a video tile only when a camera is really on, to
+ * render the correct mic icon, and to label tiles with a real name.
+ */
+export function sendMediaState(
+  roomId: string,
+  state: { camera: boolean; mic: boolean },
+  username?: string,
+  userId?: string,
+): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'media-state',
+    from: meshRef.getPeerId(),
+    roomId,
+    username,
+    userId,
+    data: { camera: state.camera, mic: state.mic },
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
+}
+
 
 /**
  * Announce joining a room — existing participants will respond with offers.

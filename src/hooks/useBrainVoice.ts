@@ -29,6 +29,10 @@ export interface BrainVoicePeer {
   position?: [number, number, number];
   /** Brain physics protocol version reported by the peer (undefined = pre-versioning / v0). */
   pv?: number;
+  /** Camera state reported by the peer. */
+  cameraOn?: boolean;
+  /** Microphone muted state reported by the peer. */
+  muted?: boolean;
 }
 
 /**
@@ -45,7 +49,11 @@ export function useBrainVoice(
   const { user } = useAuth();
   const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
+  // Mute lives on the call layer so it survives camera toggles, reconnects
+  // and re-entering the Brain.
   const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(false);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   const [joined, setJoined] = useState(false);
   const joinedRef = useRef(false);
   const lastSelfPosRef = useRef<[number, number, number] | undefined>(undefined);
@@ -74,7 +82,12 @@ export function useBrainVoice(
     };
 
     const unsub = manager.onMessage((msg) => {
-      if (msg.type === "peer-joined" || msg.type === "peer-left") {
+      if (
+        msg.type === "peer-joined" ||
+        msg.type === "peer-left" ||
+        msg.type === "peer-media-state" ||
+        msg.type === "room-updated"
+      ) {
         setRawParticipants(manager.getParticipants());
         // Re-broadcast our presence so late joiners (and reconnects) learn
         // our avatar selection right away.
@@ -157,14 +170,16 @@ export function useBrainVoice(
     let cancelled = false;
     if (audio) {
       void (async () => {
+        // Never force-unmute here: acquiring the mic must respect the
+        // user's own mute choice, even across re-runs of this effect.
         if (manager.hasLiveAudioTrack()) {
-          manager.toggleAudio(true);
+          manager.toggleAudio(!isMutedRef.current);
           return;
         }
         await manager
           .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
           .catch(() => null);
-        if (!cancelled) manager.toggleAudio(true);
+        if (!cancelled) manager.toggleAudio(!isMutedRef.current);
       })();
     } else {
       try { manager.toggleAudio(false); } catch { /* ignore */ }
@@ -187,6 +202,8 @@ export function useBrainVoice(
         color: pres?.color,
         position: pres?.position,
         pv: pres?.pv,
+        cameraOn: p.isVideoEnabled,
+        muted: p.isMuted,
       };
     });
   }, [rawParticipants, presenceById]);

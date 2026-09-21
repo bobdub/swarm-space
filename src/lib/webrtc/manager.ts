@@ -3,6 +3,7 @@ import {
   sendSignalViaMesh,
   sendReconnectRequest,
   sendScreenShareState,
+  sendMediaState,
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
@@ -15,6 +16,10 @@ const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
 const RECONNECT_TIMEOUT_MS = 15_000;
 const MAX_NEGOTIATION_RETRIES = 5;
+/** How often to verify each connection is really carrying media both ways. */
+const MEDIA_HEALTH_INTERVAL_MS = 8_000;
+/** Minimum gap between repairs of the same peer. */
+const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
 
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
@@ -42,10 +47,20 @@ export class WebRTCManager {
   /** Consecutive deferred-offer retries per peer; resets on successful send. */
   private negotiationRetryCount = new Map<string, number>();
 
+  // ── Local media state (remembered across stream re-acquisition) ──
+  /** Desired microphone state. Applied to every acquired/replaced audio track. */
+  private selfMuted = false;
+  /** Desired camera state. Announced to the room so peers only draw a tile when it is on. */
+  private cameraEnabled = false;
+
   // ── Reconnection state ──────────────────────────────────────────
   private reconnectAttempts = new Map<string, number>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Periodic check that every participant connection is really carrying media. */
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+  /** Last repair time per peer, so the sweep cannot fight itself. */
+  private lastRepairAt = new Map<string, number>();
 
   constructor(userId: string, username: string) {
     this.userId = userId;
@@ -73,7 +88,7 @@ export class WebRTCManager {
 
           // A new peer joined our room — send them an offer
           console.log(`[WebRTC] Peer ${meshPeerId} joining, creating offer`);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Unknown');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.broadcastMessage({
             type: 'peer-joined',
             roomId: this.currentRoomId,
@@ -85,6 +100,10 @@ export class WebRTCManager {
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed to create offer:', e)
           );
+
+          // Tell the newcomer our name plus camera/mic state right away so
+          // they never draw a placeholder tile or a wrong mic icon.
+          this.announceMediaState();
 
           // If we are already sharing, re-announce so the newcomer can label
           // the incoming screen stream as soon as it arrives.
@@ -100,7 +119,7 @@ export class WebRTCManager {
           const myPeerId = getLocalMeshPeerId();
           for (const p of participants) {
             if (p !== myPeerId) {
-              this.ensureParticipant(p, 'Peer');
+              this.ensureParticipant(p);
             }
           }
           // Do not create offers from room-sync. Existing peers already
@@ -127,25 +146,41 @@ export class WebRTCManager {
         }
 
         case 'offer': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteOffer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'answer': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteAnswer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'candidate': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteCandidate(meshPeerId, envelope.data as RTCIceCandidateInit);
           break;
         }
 
+        case 'media-state': {
+          const participant = this.ensureParticipant(meshPeerId, envelope.username);
+          const data = envelope.data as { camera?: unknown; mic?: unknown } | undefined;
+          participant.isVideoEnabled = data?.camera === true;
+          participant.isMuted = data?.mic === false;
+          this.broadcastMessage({
+            type: 'peer-media-state',
+            roomId: this.currentRoomId,
+            peerId: meshPeerId,
+            username: participant.username || undefined,
+            camera: participant.isVideoEnabled,
+            mic: !participant.isMuted,
+          });
+          break;
+        }
+
         case 'screen-share-state': {
-          const participant = this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          const participant = this.ensureParticipant(meshPeerId, envelope.username);
           const data = envelope.data as { active?: unknown; streamId?: unknown } | undefined;
           const active = data?.active === true;
           const streamId = typeof data?.streamId === 'string' ? data.streamId : undefined;
@@ -168,7 +203,7 @@ export class WebRTCManager {
           console.log(`[WebRTC] 🔄 Reconnect request from ${meshPeerId}`);
           // Tear down stale connection and let them re-offer
           this.removePeer(meshPeerId);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           // Send ack via mesh
           sendReconnectRequest(meshPeerId, this.currentRoomId!, 'reconnect-ack');
           break;
@@ -177,7 +212,7 @@ export class WebRTCManager {
         case 'reconnect-ack': {
           console.log(`[WebRTC] 🔄 Reconnect ack from ${meshPeerId} — creating fresh offer`);
           this.clearReconnectTimer(meshPeerId);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed reconnect offer:', e)
           );
@@ -455,6 +490,9 @@ export class WebRTCManager {
       username: this.username,
     });
 
+    this.announceMediaState();
+    this.startMediaHealthCheck();
+
     console.log('[WebRTC] Joined room:', roomId);
     return true;
   }
@@ -481,6 +519,7 @@ export class WebRTCManager {
     announceLeaveRoom(this.currentRoomId);
 
     // Preserve local media stream across room transitions — only close peer connections
+    this.stopMediaHealthCheck();
     this.closeAllConnections();
     this.currentRoomId = null;
   }
@@ -547,13 +586,13 @@ export class WebRTCManager {
           }
         }
 
-        // Re-enable existing tracks that were disabled
-        if (audio && hasAudio) {
-          this.localStream.getAudioTracks().forEach(t => { t.enabled = true; });
-        }
+        // Re-enable existing tracks that were disabled. The microphone
+        // always honours the remembered mute — re-acquiring media must
+        // never quietly unmute the user.
         if (video && hasVideo) {
           this.localStream.getVideoTracks().forEach(t => { t.enabled = true; });
         }
+        this.applyLocalMuteState();
 
         return this.localStream;
       }
@@ -591,6 +630,10 @@ export class WebRTCManager {
           });
         }
       }
+
+      // Fresh tracks arrive enabled — honour the remembered mute.
+      this.applyLocalMuteState();
+      this.announceMediaState();
 
       return this.localStream;
     } catch (error) {
@@ -786,7 +829,7 @@ export class WebRTCManager {
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
-      const participant = this.ensureParticipant(peerId, 'Peer');
+      const participant = this.ensureParticipant(peerId);
 
       // Camera and microphone are sent on the upfront transceivers without a
       // stream association, so they arrive with no MediaStream. The screen is
@@ -826,7 +869,13 @@ export class WebRTCManager {
           participant.stream.addTrack(event.track);
           console.log(`[WebRTC] ➕ Merged ${event.track.kind} track into participant stream for ${peerId}`);
         }
+        // An empty, reserved video slot arrives muted — that is not a camera.
+        if (event.track.kind === 'video' && event.track.muted) {
+          participant.isVideoEnabled = false;
+        }
       }
+
+      const isCameraTrack = event.track.kind === 'video' && !isScreenTrack;
 
       // Drop dead tracks instead of holding silent references.
       event.track.onended = () => {
@@ -837,6 +886,7 @@ export class WebRTCManager {
         if (isScreenTrack) {
           participant.screenStream = null;
         }
+        if (isCameraTrack) participant.isVideoEnabled = false;
         this.broadcastMessage({
           type: 'peer-joined',
           roomId: this.currentRoomId!,
@@ -844,7 +894,20 @@ export class WebRTCManager {
         });
       };
 
+      event.track.onmute = () => {
+        if (isCameraTrack) {
+          participant.isVideoEnabled = false;
+          this.broadcastMessage({
+            type: 'peer-media-state',
+            roomId: this.currentRoomId ?? '',
+            peerId,
+            camera: false,
+          });
+        }
+      };
+
       event.track.onunmute = () => {
+        if (isCameraTrack) participant.isVideoEnabled = true;
         this.broadcastMessage({
           type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
           roomId: this.currentRoomId ?? '',
@@ -1192,18 +1255,30 @@ export class WebRTCManager {
     this.negotiationRetryCount.clear();
   }
 
-  private ensureParticipant(peerId: string, username: string): VideoParticipant {
+  /**
+   * Look up (or create) a participant. A real username is backfilled the
+   * moment any later signal carries one — the first signal about a peer
+   * often has no name, and keeping that placeholder forever is what showed
+   * "Peer" / "Unknown" under video and screen tiles.
+   */
+  private ensureParticipant(peerId: string, username?: string): VideoParticipant {
+    const clean = typeof username === 'string' ? username.trim() : '';
+    const named = clean && clean !== 'Peer' && clean !== 'Unknown' ? clean : '';
+
     const existing = this.participants.get(peerId);
     if (existing) {
+      if (named && existing.username !== named) existing.username = named;
       return existing;
     }
 
     const participant: VideoParticipant = {
       peerId,
-      username,
+      username: named,
       stream: null,
       isMuted: false,
-      isVideoEnabled: true,
+      // No camera until the peer says otherwise: an empty video slot must
+      // never render as a black tile.
+      isVideoEnabled: false,
       joinedAt: new Date().toISOString(),
     };
     this.participants.set(peerId, participant);
@@ -1237,16 +1312,105 @@ export class WebRTCManager {
   getParticipants(): VideoParticipant[] { return Array.from(this.participants.values()); }
   getRooms(): VideoRoom[] { return Array.from(this.rooms.values()); }
 
+  /**
+   * Remembered microphone state. `toggleAudio(false)` means muted, and the
+   * choice survives camera toggles, reconnects and stream re-acquisition
+   * because `applyLocalMuteState` re-applies it to every new audio track.
+   */
   toggleAudio(enabled: boolean): void {
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => { track.enabled = enabled; });
-    }
+    this.selfMuted = !enabled;
+    this.applyLocalMuteState();
+    this.announceMediaState();
+  }
+
+  /** True when the user has muted themselves. */
+  isSelfMuted(): boolean { return this.selfMuted; }
+
+  /** True when the user's camera is on. */
+  isCameraOn(): boolean { return this.cameraEnabled; }
+
+  /** Re-apply the remembered mute to every live audio track. */
+  applyLocalMuteState(): void {
+    if (!this.localStream) return;
+    const enabled = !this.selfMuted;
+    this.localStream.getAudioTracks().forEach(track => { track.enabled = enabled; });
   }
 
   toggleVideo(enabled: boolean): void {
+    this.cameraEnabled = enabled;
     if (this.localStream) {
       this.localStream.getVideoTracks().forEach(track => { track.enabled = enabled; });
     }
+    this.announceMediaState();
+  }
+
+  /** Broadcast our name plus camera/mic state to everyone in the room. */
+  private announceMediaState(): void {
+    if (!this.currentRoomId) return;
+    const cameraLive =
+      this.cameraEnabled &&
+      !!this.localStream?.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
+    try {
+      sendMediaState(
+        this.currentRoomId,
+        { camera: cameraLive, mic: !this.selfMuted },
+        this.username,
+        this.userId,
+      );
+    } catch (err) {
+      console.warn('[WebRTC] media-state announce failed', err);
+    }
+  }
+
+  /**
+   * Periodic two-way media check. A connection that is up but carrying no
+   * inbound media (or missing entirely) is re-offered once, with a cooldown
+   * so both sides cannot fight each other. This is the repair for the
+   * "I can hear them, they cannot hear me" split.
+   */
+  private startMediaHealthCheck(): void {
+    this.stopMediaHealthCheck();
+    this.healthTimer = setInterval(() => {
+      if (!this.currentRoomId) return;
+      const now = Date.now();
+      for (const peerId of this.participants.keys()) {
+        const pc = this.connections.get(peerId);
+        const last = this.lastRepairAt.get(peerId) ?? 0;
+        if (now - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+
+        const state = pc?.connectionState;
+        const halfOpen = !pc || state === 'failed' || state === 'disconnected' || state === 'closed';
+        const receivingNothing =
+          !!pc &&
+          state === 'connected' &&
+          pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
+        const notSending =
+          !!pc &&
+          state === 'connected' &&
+          !!this.localStream?.getTracks().some(t => t.readyState === 'live') &&
+          pc.getSenders().every(s => !s.track || s.track.readyState === 'ended');
+
+        if (halfOpen || receivingNothing || notSending) {
+          this.lastRepairAt.set(peerId, now);
+          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
+          if (halfOpen) {
+            void this.resyncPeer(peerId).catch(() => {});
+          } else {
+            void this.ensureOfferToPeer(peerId).catch(() => {});
+          }
+        }
+      }
+      // Keep our own state fresh for anyone who missed the last announce.
+      this.announceMediaState();
+    }, MEDIA_HEALTH_INTERVAL_MS);
+  }
+
+  private stopMediaHealthCheck(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    this.lastRepairAt.clear();
   }
 
   destroy(): void {
@@ -1255,6 +1419,7 @@ export class WebRTCManager {
       this.signalUnsub = null;
     }
     this.leaveRoom();
+    this.stopMediaHealthCheck();
     this.messageHandlers.clear();
     this.disconnectTimers.forEach(t => clearTimeout(t));
     this.reconnectTimers.forEach(t => clearTimeout(t));

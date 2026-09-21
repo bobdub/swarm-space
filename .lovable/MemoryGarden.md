@@ -240,3 +240,11 @@ and gave each shared view a pulse the whole room could hear.
 Caretaker duty: let guidance cross the mesh intact,
 keep a living screen through momentary quiet,
 and close it only when its owner truly lets go.
+
+## Tending — Brain voice & video, 2026-09-21
+Four crooked stems straightened in the Brain's garden of faces:
+the black square that bloomed without light now waits for a living camera,
+the nameless tile learns the gardener's name from presence carried on the mesh,
+the mute remembers itself across every re-acquisition of breath,
+and a quiet heartbeat every eight seconds re-offers the half-open path
+so no voice travels one way alone.

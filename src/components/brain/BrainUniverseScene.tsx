@@ -1217,6 +1217,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
 
+  // Names from Brain presence, so every video box and screen share is
+  // labelled with the person's username instead of a placeholder.
+  const voiceNameByPeerId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of voicePeers) {
+      if (p.username) map[p.peerId] = p.username;
+    }
+    return map;
+  }, [voicePeers]);
+
   // Subscribe to raw WebRTC participants (with media streams) for the video grid.
   useEffect(() => {
     if (!ready || !user) return;
@@ -1225,6 +1235,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     refresh();
     const unsub = manager.onMessage((m) => {
       if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated'
+        || m.type === 'peer-media-state'
         || m.type === 'screen-share-started' || m.type === 'screen-share-stopped') {
         refresh();
       }
@@ -2465,6 +2476,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           localMuted={isMuted}
           cameraOn={cameraOn}
           localScreenStream={screenStream}
+          nameByPeerId={voiceNameByPeerId}
         />
       )}
 
