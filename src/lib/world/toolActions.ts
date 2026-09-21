@@ -272,6 +272,14 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return chopTree(toolPrefabId, target.blockId, selfId);
   }
 
+  // Rock faces yield stone to a pick, chip by chip. The mountain stays —
+  // only loose stone comes away.
+  if (verb === 'mine' && (target.natureKind === 'mountain' || target.natureKind === 'volcano')) {
+    return mineRock(toolPrefabId, target.blockId, target.natureKind, selfId);
+  }
+
+
+
 
 
   const body = getBrainPhysics().getBody(target.blockId);
