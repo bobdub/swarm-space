@@ -3,6 +3,7 @@ import {
   sendSignalViaMesh,
   sendReconnectRequest,
   sendScreenShareState,
+  sendMediaState,
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
@@ -42,10 +43,20 @@ export class WebRTCManager {
   /** Consecutive deferred-offer retries per peer; resets on successful send. */
   private negotiationRetryCount = new Map<string, number>();
 
+  // ── Local media state (remembered across stream re-acquisition) ──
+  /** Desired microphone state. Applied to every acquired/replaced audio track. */
+  private selfMuted = false;
+  /** Desired camera state. Announced to the room so peers only draw a tile when it is on. */
+  private cameraEnabled = false;
+
   // ── Reconnection state ──────────────────────────────────────────
   private reconnectAttempts = new Map<string, number>();
   private disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Periodic check that every participant connection is really carrying media. */
+  private healthTimer: ReturnType<typeof setInterval> | null = null;
+  /** Last repair time per peer, so the sweep cannot fight itself. */
+  private lastRepairAt = new Map<string, number>();
 
   constructor(userId: string, username: string) {
     this.userId = userId;
@@ -73,7 +84,7 @@ export class WebRTCManager {
 
           // A new peer joined our room — send them an offer
           console.log(`[WebRTC] Peer ${meshPeerId} joining, creating offer`);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Unknown');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.broadcastMessage({
             type: 'peer-joined',
             roomId: this.currentRoomId,
@@ -85,6 +96,10 @@ export class WebRTCManager {
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed to create offer:', e)
           );
+
+          // Tell the newcomer our name plus camera/mic state right away so
+          // they never draw a placeholder tile or a wrong mic icon.
+          this.announceMediaState();
 
           // If we are already sharing, re-announce so the newcomer can label
           // the incoming screen stream as soon as it arrives.
@@ -100,7 +115,7 @@ export class WebRTCManager {
           const myPeerId = getLocalMeshPeerId();
           for (const p of participants) {
             if (p !== myPeerId) {
-              this.ensureParticipant(p, 'Peer');
+              this.ensureParticipant(p);
             }
           }
           // Do not create offers from room-sync. Existing peers already
@@ -127,25 +142,41 @@ export class WebRTCManager {
         }
 
         case 'offer': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteOffer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'answer': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteAnswer(meshPeerId, envelope.data as RTCSessionDescriptionInit);
           break;
         }
 
         case 'candidate': {
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.handleRemoteCandidate(meshPeerId, envelope.data as RTCIceCandidateInit);
           break;
         }
 
+        case 'media-state': {
+          const participant = this.ensureParticipant(meshPeerId, envelope.username);
+          const data = envelope.data as { camera?: unknown; mic?: unknown } | undefined;
+          participant.isVideoEnabled = data?.camera === true;
+          participant.isMuted = data?.mic === false;
+          this.broadcastMessage({
+            type: 'peer-media-state',
+            roomId: this.currentRoomId,
+            peerId: meshPeerId,
+            username: participant.username || undefined,
+            camera: participant.isVideoEnabled,
+            mic: !participant.isMuted,
+          });
+          break;
+        }
+
         case 'screen-share-state': {
-          const participant = this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          const participant = this.ensureParticipant(meshPeerId, envelope.username);
           const data = envelope.data as { active?: unknown; streamId?: unknown } | undefined;
           const active = data?.active === true;
           const streamId = typeof data?.streamId === 'string' ? data.streamId : undefined;
@@ -168,7 +199,7 @@ export class WebRTCManager {
           console.log(`[WebRTC] 🔄 Reconnect request from ${meshPeerId}`);
           // Tear down stale connection and let them re-offer
           this.removePeer(meshPeerId);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           // Send ack via mesh
           sendReconnectRequest(meshPeerId, this.currentRoomId!, 'reconnect-ack');
           break;
@@ -177,7 +208,7 @@ export class WebRTCManager {
         case 'reconnect-ack': {
           console.log(`[WebRTC] 🔄 Reconnect ack from ${meshPeerId} — creating fresh offer`);
           this.clearReconnectTimer(meshPeerId);
-          this.ensureParticipant(meshPeerId, envelope.username ?? 'Peer');
+          this.ensureParticipant(meshPeerId, envelope.username);
           this.createOfferForPeer(meshPeerId).catch(e =>
             console.error('[WebRTC] Failed reconnect offer:', e)
           );
