@@ -2465,6 +2465,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           localMuted={isMuted}
           cameraOn={cameraOn}
           localScreenStream={screenStream}
+          nameByPeerId={voiceNameByPeerId}
         />
       )}
 
