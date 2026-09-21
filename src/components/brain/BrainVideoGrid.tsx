@@ -95,6 +95,7 @@ export function BrainVideoGrid({
   localMuted,
   cameraOn,
   localScreenStream = null,
+  nameByPeerId,
 }: BrainVideoGridProps) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
