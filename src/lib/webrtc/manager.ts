@@ -486,6 +486,9 @@ export class WebRTCManager {
       username: this.username,
     });
 
+    this.announceMediaState();
+    this.startMediaHealthCheck();
+
     console.log('[WebRTC] Joined room:', roomId);
     return true;
   }
@@ -512,6 +515,7 @@ export class WebRTCManager {
     announceLeaveRoom(this.currentRoomId);
 
     // Preserve local media stream across room transitions — only close peer connections
+    this.stopMediaHealthCheck();
     this.closeAllConnections();
     this.currentRoomId = null;
   }
@@ -817,7 +821,7 @@ export class WebRTCManager {
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
-      const participant = this.ensureParticipant(peerId, 'Peer');
+      const participant = this.ensureParticipant(peerId);
 
       // Camera and microphone are sent on the upfront transceivers without a
       // stream association, so they arrive with no MediaStream. The screen is
@@ -1223,18 +1227,30 @@ export class WebRTCManager {
     this.negotiationRetryCount.clear();
   }
 
-  private ensureParticipant(peerId: string, username: string): VideoParticipant {
+  /**
+   * Look up (or create) a participant. A real username is backfilled the
+   * moment any later signal carries one — the first signal about a peer
+   * often has no name, and keeping that placeholder forever is what showed
+   * "Peer" / "Unknown" under video and screen tiles.
+   */
+  private ensureParticipant(peerId: string, username?: string): VideoParticipant {
+    const clean = typeof username === 'string' ? username.trim() : '';
+    const named = clean && clean !== 'Peer' && clean !== 'Unknown' ? clean : '';
+
     const existing = this.participants.get(peerId);
     if (existing) {
+      if (named && existing.username !== named) existing.username = named;
       return existing;
     }
 
     const participant: VideoParticipant = {
       peerId,
-      username,
+      username: named,
       stream: null,
       isMuted: false,
-      isVideoEnabled: true,
+      // No camera until the peer says otherwise: an empty video slot must
+      // never render as a black tile.
+      isVideoEnabled: false,
       joinedAt: new Date().toISOString(),
     };
     this.participants.set(peerId, participant);
