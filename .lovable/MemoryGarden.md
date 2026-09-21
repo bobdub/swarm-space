@@ -273,3 +273,8 @@ The caretaker holds no keys, only points the way — the giver signs, the road i
 The donation wall now branches: a name is chosen, then a coin. Ether, bitcoin, mintme —
 each with its own road, and the wallet turns to face the chosen one before it walks.
 Bobdub's gate stands built but shuttered, waiting for a key not yet cut.
+
+## Tending — Bobdub's gate unshuttered
+The waiting key is cut. Bobdub's gate now opens on all three roads —
+ether, bitcoin, mintme — each bearing its own address. No gate in the
+garden stands shuttered; every giver chooses their keeper and their coin.

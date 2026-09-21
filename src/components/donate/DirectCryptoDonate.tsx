@@ -80,7 +80,15 @@ const RECIPIENTS: Recipient[] = [
       mintme: ETH_DONATION_ADDRESS,
     },
   },
-  { id: "bobdub", name: "Bobdub", addresses: {}, comingSoon: true },
+  {
+    id: "bobdub",
+    name: "Bobdub",
+    addresses: {
+      eth: "0xde21D925ee48fFAeD8939AE8B75dD6E82310f8Ea",
+      btc: "bc1qswpxr8sckxz40u3qnpadl0rd2ftuhckr35rx9k",
+      mintme: "0xfce71e9182f4165e3de13544c39ad1507bcc6915",
+    },
+  },
 ];
 
 function toWeiHex(amount: string): string {
