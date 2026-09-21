@@ -29,6 +29,10 @@ export interface BrainVoicePeer {
   position?: [number, number, number];
   /** Brain physics protocol version reported by the peer (undefined = pre-versioning / v0). */
   pv?: number;
+  /** Camera state reported by the peer. */
+  cameraOn?: boolean;
+  /** Microphone muted state reported by the peer. */
+  muted?: boolean;
 }
 
 /**
