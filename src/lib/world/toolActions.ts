@@ -403,6 +403,72 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
   return true;
 }
 
+/**
+ * Mine a rock face. Same shared `applyImpact` predicate as every other
+ * swing — a blunt head or a heavy curvature load is refused identically.
+ * An accepted bite chips stone loose onto the ground; the rock itself
+ * stays standing.
+ */
+async function mineRock(
+  toolPrefabId: string,
+  blockId: string,
+  kind: string,
+  selfId?: string,
+): Promise<boolean> {
+  const toolPrefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!toolPrefab || !block) return false;
+
+  const body = getBrainPhysics().getBody(blockId);
+  const point: Vec3 = body ? [body.pos[0], body.pos[1], body.pos[2]] : [0, 0, 0];
+  if (landBlocks(point, selfId)) return false;
+
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, toolPrefab.color, tool?.mass ?? toolPrefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(point, up, toolPrefab.color, probe.intensity, 'miss', false, 'stone');
+    toast.message(toolPrefab.label, { description: 'This tool cannot break rock.' });
+    return false;
+  }
+
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    curvatureLoad: probe.curvatureLoad,
+    target: { kind: 'block', block, bondTerm: bondTermForKind(kind) },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'mine' : 'resist',
+    swing.cut,
+    'stone',
+  );
+
+  if (!swing.cut) {
+    toast.message(toolPrefab.label, {
+      description: `The rock held firm (${swing.effectiveCut.toFixed(2)}).`,
+    });
+    return true;
+  }
+
+  const rockDir = localDirFromWorld(point);
+  spawnDrop({
+    kind: 'stone',
+    qty: 1,
+    localDir: offsetLocalDir(rockDir, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2),
+    upOffset: 0,
+  });
+  toast.success(toolPrefab.label, { description: 'Stone chips loose.' });
+  return true;
+}
+
 
 
 /**
