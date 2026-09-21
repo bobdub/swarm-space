@@ -264,3 +264,7 @@ The garden learned to whisper names. Above each wanderer's head a thin
 billboard of light now turns always toward the eye, outlined in dusk so no
 slab of panel crowds the sky. The gardener's own name stays unwritten —
 one always knows oneself.
+
+## Tending — Direct Crypto Donations (2026-09-21)
+Two new gates open in the garden wall: one of ether, one of bitcoin.
+The caretaker holds no keys, only points the way — the giver signs, the road is theirs.
