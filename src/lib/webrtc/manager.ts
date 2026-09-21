@@ -16,6 +16,10 @@ const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
 const RECONNECT_TIMEOUT_MS = 15_000;
 const MAX_NEGOTIATION_RETRIES = 5;
+/** How often to verify each connection is really carrying media both ways. */
+const MEDIA_HEALTH_INTERVAL_MS = 8_000;
+/** Minimum gap between repairs of the same peer. */
+const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
 
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
