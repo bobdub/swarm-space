@@ -284,3 +284,10 @@ The native coin was a number on a shelf; now it has a door. Deposit and
 withdraw stand beside the balance, and an unconnected hand is offered a
 handshake first. The wallet folds itself smaller for small screens —
 tabs slide instead of crowd, buttons stack instead of squeeze.
+
+## Tending — The MintMe shopfront and the tamed screen
+The advert gate no longer knocks on a mailbox; it opens a shop window —
+"Shop on MintMe" — and steps aside so the visitor keeps their footing here.
+The videos hung in the garden were restless: one stray tap and the whole
+room followed the viewer away. Now each screen holds its own ground —
+a tap inside can only open a new pane beside the garden, never carry it off.

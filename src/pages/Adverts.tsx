@@ -12,7 +12,7 @@ import {
   Film,
   Tv,
   CalendarDays,
-  Mail,
+  ShoppingBag,
 } from "lucide-react";
 
 const FEATURES = [
@@ -108,9 +108,13 @@ const Adverts = () => {
           </div>
 
           <Button asChild className="w-full sm:w-auto gap-2 rounded-full bg-gradient-to-r from-primary to-secondary px-6 py-3 text-sm font-semibold uppercase tracking-[0.1em] shadow-[0_10px_40px_hsla(var(--primary),0.35)] transition-transform hover:scale-[1.02]">
-            <a href="mailto:dwminuteworld@gmail.com?subject=Promote%20My%20Token%20on%20DWMW">
-              <Mail className="h-4 w-4" />
-              Get in Touch
+            <a
+              href="https://www.mintme.com/token/DWMW/reward-finalize/Show-Advert"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ShoppingBag className="h-4 w-4" />
+              Shop on MintMe
             </a>
           </Button>
         </Card>

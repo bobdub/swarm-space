@@ -1318,6 +1318,7 @@ export function PostCard({ post }: PostCardProps) {
                             allowFullScreen
                             loading="lazy"
                             referrerPolicy="strict-origin-when-cross-origin"
+                            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
                             className="h-full w-full"
                           />
                         </div>
