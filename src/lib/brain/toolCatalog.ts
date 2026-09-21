@@ -15,7 +15,7 @@
 import { SHELL_DEFS, INNER_SYMBOLS } from './elements';
 import { ELEMENT_COLORS, blendColor } from '@/lib/virtualHub/compoundCatalog';
 
-export type ToolActionKind = 'whittle' | 'chop' | 'dig';
+export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine';
 
 export interface ToolPart {
   role: 'handle' | 'head' | 'binding';
