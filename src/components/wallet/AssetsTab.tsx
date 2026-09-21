@@ -54,8 +54,8 @@ export function AssetsTab() {
     { code: "CREDIT", label: "Credits", amount: creditBalance, kind: "native" as const },
     { code: "ETH",    label: "ETH — Ethereum", amount: bridge.ETH,    kind: "bridge" as const },
     { code: "BTC",    label: "BTC — Bitcoin",  amount: bridge.BTC,    kind: "bridge" as const },
-    { code: "MINTME", label: "MintMe",         amount: bridge.MINTME, kind: "bridge" as const },
-  ]), [swarm, creditBalance, bridge]);
+    { code: "MINTME", label: "MintMe",         amount: mintme,        kind: "native" as const },
+  ]), [swarm, creditBalance, bridge, mintme]);
 
   return (
     <div className="space-y-6">
