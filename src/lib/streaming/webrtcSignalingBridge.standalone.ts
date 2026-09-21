@@ -497,6 +497,30 @@ export function sendScreenShareState(roomId: string, active: boolean, streamId?:
 }
 
 /**
+ * Announce this peer's camera / microphone state (and username) to the room.
+ * Viewers use it to show a video tile only when a camera is really on, to
+ * render the correct mic icon, and to label tiles with a real name.
+ */
+export function sendMediaState(
+  roomId: string,
+  state: { camera: boolean; mic: boolean },
+  username?: string,
+  userId?: string,
+): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'media-state',
+    from: meshRef.getPeerId(),
+    roomId,
+    username,
+    userId,
+    data: { camera: state.camera, mic: state.mic },
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
+}
+
+
+/**
  * Announce joining a room — existing participants will respond with offers.
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
