@@ -13,7 +13,7 @@ import {
 } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
-import { Text } from '@react-three/drei';
+import { Billboard, Text } from '@react-three/drei';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
@@ -284,11 +284,24 @@ export function RemoteAvatarBody({
       <group ref={bodyRef} position={[0, FEET_DROP, 0]}>
         {def.render({ scale: 1, color })}
       </group>
-      {label && (
-        <mesh position={[0, FEET_DROP + 2.0, 0]}>
-          <planeGeometry args={[1.5, 0.3]} />
-          <meshBasicMaterial color="hsl(245, 70%, 12%)" transparent opacity={0.7} />
-        </mesh>
+      {label && !intentDriven && (
+        // Nameplate: billboarded so it always faces the camera, small and
+        // outlined rather than slab-backed so a crowd never turns into a
+        // wall of panels. Hidden for the local player (you know who you are).
+        <Billboard position={[0, FEET_DROP + 2.05, 0]} follow>
+          <Text
+            fontSize={0.2}
+            color="hsl(210, 40%, 96%)"
+            anchorX="center"
+            anchorY="middle"
+            maxWidth={3}
+            outlineWidth={0.018}
+            outlineColor="hsl(245, 70%, 8%)"
+            outlineOpacity={0.85}
+          >
+            {label.length > 18 ? `${label.slice(0, 17)}…` : label}
+          </Text>
+        </Billboard>
       )}
       {isStale && (
         <Text
