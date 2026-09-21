@@ -101,7 +101,11 @@ export function BrainVideoGrid({
 
   const tiles = useMemo<Tile[]>(() => {
     const out: Tile[] = [];
-    if (cameraOn && localStream && localStream.getVideoTracks().some((t) => t.enabled)) {
+    if (
+      cameraOn &&
+      localStream &&
+      localStream.getVideoTracks().some((t) => t.enabled && t.readyState === "live")
+    ) {
       out.push({
         key: "self",
         label: `${localUsername} (you)`,
