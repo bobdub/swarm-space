@@ -22,6 +22,7 @@ import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
+import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 
 
 export function AssetsTab() {
