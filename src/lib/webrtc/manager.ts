@@ -1304,16 +1304,105 @@ export class WebRTCManager {
   getParticipants(): VideoParticipant[] { return Array.from(this.participants.values()); }
   getRooms(): VideoRoom[] { return Array.from(this.rooms.values()); }
 
+  /**
+   * Remembered microphone state. `toggleAudio(false)` means muted, and the
+   * choice survives camera toggles, reconnects and stream re-acquisition
+   * because `applyLocalMuteState` re-applies it to every new audio track.
+   */
   toggleAudio(enabled: boolean): void {
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach(track => { track.enabled = enabled; });
-    }
+    this.selfMuted = !enabled;
+    this.applyLocalMuteState();
+    this.announceMediaState();
+  }
+
+  /** True when the user has muted themselves. */
+  isSelfMuted(): boolean { return this.selfMuted; }
+
+  /** True when the user's camera is on. */
+  isCameraOn(): boolean { return this.cameraEnabled; }
+
+  /** Re-apply the remembered mute to every live audio track. */
+  applyLocalMuteState(): void {
+    if (!this.localStream) return;
+    const enabled = !this.selfMuted;
+    this.localStream.getAudioTracks().forEach(track => { track.enabled = enabled; });
   }
 
   toggleVideo(enabled: boolean): void {
+    this.cameraEnabled = enabled;
     if (this.localStream) {
       this.localStream.getVideoTracks().forEach(track => { track.enabled = enabled; });
     }
+    this.announceMediaState();
+  }
+
+  /** Broadcast our name plus camera/mic state to everyone in the room. */
+  private announceMediaState(): void {
+    if (!this.currentRoomId) return;
+    const cameraLive =
+      this.cameraEnabled &&
+      !!this.localStream?.getVideoTracks().some(t => t.readyState === 'live' && t.enabled);
+    try {
+      sendMediaState(
+        this.currentRoomId,
+        { camera: cameraLive, mic: !this.selfMuted },
+        this.username,
+        this.userId,
+      );
+    } catch (err) {
+      console.warn('[WebRTC] media-state announce failed', err);
+    }
+  }
+
+  /**
+   * Periodic two-way media check. A connection that is up but carrying no
+   * inbound media (or missing entirely) is re-offered once, with a cooldown
+   * so both sides cannot fight each other. This is the repair for the
+   * "I can hear them, they cannot hear me" split.
+   */
+  private startMediaHealthCheck(): void {
+    this.stopMediaHealthCheck();
+    this.healthTimer = setInterval(() => {
+      if (!this.currentRoomId) return;
+      const now = Date.now();
+      for (const peerId of this.participants.keys()) {
+        const pc = this.connections.get(peerId);
+        const last = this.lastRepairAt.get(peerId) ?? 0;
+        if (now - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+
+        const state = pc?.connectionState;
+        const halfOpen = !pc || state === 'failed' || state === 'disconnected' || state === 'closed';
+        const receivingNothing =
+          !!pc &&
+          state === 'connected' &&
+          pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
+        const notSending =
+          !!pc &&
+          state === 'connected' &&
+          !!this.localStream?.getTracks().some(t => t.readyState === 'live') &&
+          pc.getSenders().every(s => !s.track || s.track.readyState === 'ended');
+
+        if (halfOpen || receivingNothing || notSending) {
+          this.lastRepairAt.set(peerId, now);
+          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
+          if (halfOpen) {
+            void this.resyncPeer(peerId).catch(() => {});
+          } else {
+            void this.ensureOfferToPeer(peerId).catch(() => {});
+          }
+        }
+      }
+      // Keep our own state fresh for anyone who missed the last announce.
+      this.announceMediaState();
+    }, MEDIA_HEALTH_INTERVAL_MS);
+  }
+
+  private stopMediaHealthCheck(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
+    }
+    this.lastRepairAt.clear();
   }
 
   destroy(): void {
