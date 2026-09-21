@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { DirectCryptoDonate } from "@/components/donate/DirectCryptoDonate";
 import {
   ArrowLeft,
   ExternalLink,
@@ -131,6 +132,8 @@ const Donate = () => {
             Whether you want to support a specific creator or contribute to one of the community's larger projects, every donation helps keep the creative network growing.
           </p>
         </Card>
+
+        <DirectCryptoDonate />
 
         <Card className="rounded-3xl border border-secondary/20 bg-secondary/5 p-6 md:p-8 space-y-4">
           <div className="flex items-center gap-3">
