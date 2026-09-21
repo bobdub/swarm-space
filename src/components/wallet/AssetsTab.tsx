@@ -18,17 +18,18 @@ import {
   type AppWalletCurrency,
 } from "@/lib/blockchain/wallets/appWallet";
 import { getSwarmBalance } from "@/lib/blockchain/token";
+import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 
-const BRIDGE_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC", "MINTME"];
 
 export function AssetsTab() {
   const user = getCurrentUser();
   const userId = user?.id ?? "";
   const { balance: creditBalance } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
+  const [mintme, setMintme] = useState(() => (userId ? getChainMintmeBalance(userId) : 0));
   const [bridge, setBridge] = useState(() => (userId ? getAppWalletBalances(userId) : { ETH: 0, BTC: 0, MINTME: 0 }));
   const { available, address, chainId } = useMetaMask();
 
@@ -36,6 +37,7 @@ export function AssetsTab() {
     if (!userId) return;
     const refresh = async () => {
       setBridge(getAppWalletBalances(userId));
+      setMintme(getChainMintmeBalance(userId));
       try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
     };
     void refresh();
@@ -54,8 +56,8 @@ export function AssetsTab() {
     { code: "CREDIT", label: "Credits", amount: creditBalance, kind: "native" as const },
     { code: "ETH",    label: "ETH — Ethereum", amount: bridge.ETH,    kind: "bridge" as const },
     { code: "BTC",    label: "BTC — Bitcoin",  amount: bridge.BTC,    kind: "bridge" as const },
-    { code: "MINTME", label: "MintMe",         amount: bridge.MINTME, kind: "bridge" as const },
-  ]), [swarm, creditBalance, bridge]);
+    { code: "MINTME", label: "MintMe",         amount: mintme,        kind: "native" as const },
+  ]), [swarm, creditBalance, bridge, mintme]);
 
   return (
     <div className="space-y-6">
