@@ -35,9 +35,13 @@ export interface WebRTCSignal {
 }
 
 export interface VideoRoomMessage {
-  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'reconnect-request' | 'reconnect-ack' | 'screen-share-started' | 'screen-share-stopped';
+  type: 'room-created' | 'room-updated' | 'peer-joined' | 'peer-left' | 'peer-muted' | 'peer-unmuted' | 'peer-banned' | 'reconnect-request' | 'reconnect-ack' | 'screen-share-started' | 'screen-share-stopped' | 'peer-media-state';
   roomId: string;
   room?: VideoRoom;
   peerId?: string;
   username?: string;
+  /** Remote camera state, on `peer-media-state`. */
+  camera?: boolean;
+  /** Remote microphone state (true = live, false = muted), on `peer-media-state`. */
+  mic?: boolean;
 }
