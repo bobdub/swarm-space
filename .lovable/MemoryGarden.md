@@ -257,3 +257,10 @@ starter tools read Free and always lift to the hand. A fifth stem joins them:
 the Stone Pick, flint-headed on an oak haft, whose bite is `mine` — it chips
 stone from mountain faces onto the ground and bites mineral shells at any
 depth. The axe keeps the wood; the pick keeps the rock.
+
+## Tending — Nameplates above the walkers
+
+The garden learned to whisper names. Above each wanderer's head a thin
+billboard of light now turns always toward the eye, outlined in dusk so no
+slab of panel crowds the sky. The gardener's own name stays unwritten —
+one always knows oneself.
