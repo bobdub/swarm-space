@@ -165,14 +165,16 @@ export function useBrainVoice(
     let cancelled = false;
     if (audio) {
       void (async () => {
+        // Never force-unmute here: acquiring the mic must respect the
+        // user's own mute choice, even across re-runs of this effect.
         if (manager.hasLiveAudioTrack()) {
-          manager.toggleAudio(true);
+          manager.toggleAudio(!isMutedRef.current);
           return;
         }
         await manager
           .startLocalStream(true, false, { audioInputId: prefs?.audioInputId })
           .catch(() => null);
-        if (!cancelled) manager.toggleAudio(true);
+        if (!cancelled) manager.toggleAudio(!isMutedRef.current);
       })();
     } else {
       try { manager.toggleAudio(false); } catch { /* ignore */ }
@@ -195,6 +197,8 @@ export function useBrainVoice(
         color: pres?.color,
         position: pres?.position,
         pv: pres?.pv,
+        cameraOn: p.isVideoEnabled,
+        muted: p.isMuted,
       };
     });
   }, [rawParticipants, presenceById]);
