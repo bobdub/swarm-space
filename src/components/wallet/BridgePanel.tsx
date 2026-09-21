@@ -68,9 +68,6 @@ export function BridgePanel() {
   const [wdTo, setWdTo] = useState("");
   const [wdAmount, setWdAmount] = useState("");
   const [depAmount, setDepAmount] = useState("");
-  const [mmintBal, setMmintBal] = useState<number | null>(null);
-  const [mmintTo, setMmintTo] = useState("");
-  const [mmintAmount, setMmintAmount] = useState("");
 
   const available = useMemo(() => isMetaMaskAvailable(), []);
 
