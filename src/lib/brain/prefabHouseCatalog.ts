@@ -222,6 +222,16 @@ const SPECS: PrefabSpec[] = [
     width: 0.22, depth: 0.04, height: 0.95,
     yawSnapStep: Math.PI / 4,
   },
+  {
+    id: 'tool_pick_stone',
+    label: 'Stone Pick',
+    sectionId: 'tools',
+    formula: 'C₁₃·SiO₂',
+    constituents: [{ symbol: 'C', count: 13 }, { symbol: 'Si', count: 9 }, { symbol: 'O', count: 18 }],
+    density: 1.7,
+    width: 0.12, depth: 0.04, height: 0.70,
+    yawSnapStep: Math.PI / 4,
+  },
   // Consumables — salt rock for honing tools.
   {
     id: 'consumable_salt_rock',
