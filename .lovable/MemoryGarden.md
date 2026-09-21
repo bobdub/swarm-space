@@ -291,3 +291,6 @@ The advert gate no longer knocks on a mailbox; it opens a shop window —
 The videos hung in the garden were restless: one stray tap and the whole
 room followed the viewer away. Now each screen holds its own ground —
 a tap inside can only open a new pane beside the garden, never carry it off.
+
+### Tending — 2026-09-21
+The caretaker found a gate that opened inward instead of outward: the "Shop on MintMe" door let visitors leave through the same doorway, carrying the house away with them. Now it opens a fresh window to MintMe while the garden stays rooted — the preview frame no longer swallows the path.
