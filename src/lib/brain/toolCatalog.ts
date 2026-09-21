@@ -15,7 +15,7 @@
 import { SHELL_DEFS, INNER_SYMBOLS } from './elements';
 import { ELEMENT_COLORS, blendColor } from '@/lib/virtualHub/compoundCatalog';
 
-export type ToolActionKind = 'whittle' | 'chop' | 'dig';
+export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine';
 
 export interface ToolPart {
   role: 'handle' | 'head' | 'binding';
@@ -156,6 +156,18 @@ const SPECS: ToolSpec[] = [
     ],
     width: 0.22, depth: 0.04, height: 0.95,
     headAspect: 2.0,
+  },
+  {
+    id: 'tool_pick_stone',
+    label: 'Stone Pick',
+    actionKind: 'mine',
+    parts: [
+      { role: 'handle',  symbol: 'C',  count: 13 },
+      { role: 'head',    symbol: 'Si', count: 9 },
+      { role: 'binding', symbol: 'C',  count: 3 },
+    ],
+    width: 0.12, depth: 0.04, height: 0.70,
+    headAspect: 4.5,
   },
 ];
 

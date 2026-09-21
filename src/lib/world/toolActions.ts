@@ -29,12 +29,13 @@ import { setToolTarget } from '@/lib/world/toolTargetStore';
 import { weatherCurvatureBoost } from '@/lib/world/weather';
 
 
-export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
+export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'mine' | 'gather' | 'sharpen' | 'none';
 
 function verbFor(toolPrefabId: string): ToolVerb {
   if (toolPrefabId.startsWith('tool_axe')) return 'chop';
   if (toolPrefabId.startsWith('tool_knife')) return 'whittle';
   if (toolPrefabId.startsWith('tool_shovel')) return 'dig';
+  if (toolPrefabId.startsWith('tool_pick')) return 'mine';
   if (toolPrefabId.startsWith('tool_bucket')) return 'gather';
   if (toolPrefabId.startsWith('consumable_salt')) return 'sharpen';
   return 'none';
@@ -271,6 +272,14 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return chopTree(toolPrefabId, target.blockId, selfId);
   }
 
+  // Rock faces yield stone to a pick, chip by chip. The mountain stays —
+  // only loose stone comes away.
+  if (verb === 'mine' && (target.natureKind === 'mountain' || target.natureKind === 'volcano')) {
+    return mineRock(toolPrefabId, target.blockId, target.natureKind, selfId);
+  }
+
+
+
 
 
   const body = getBrainPhysics().getBody(target.blockId);
@@ -391,6 +400,72 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
     try { getBuilderBlockEngine().removeBlock(blockId); } catch { /* already gone */ }
     clearTreeChop(blockId);
   }, TOPPLE_MS + STUMP_FADE_MS);
+  return true;
+}
+
+/**
+ * Mine a rock face. Same shared `applyImpact` predicate as every other
+ * swing — a blunt head or a heavy curvature load is refused identically.
+ * An accepted bite chips stone loose onto the ground; the rock itself
+ * stays standing.
+ */
+async function mineRock(
+  toolPrefabId: string,
+  blockId: string,
+  kind: string,
+  selfId?: string,
+): Promise<boolean> {
+  const toolPrefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!toolPrefab || !block) return false;
+
+  const body = getBrainPhysics().getBody(blockId);
+  const point: Vec3 = body ? [body.pos[0], body.pos[1], body.pos[2]] : [0, 0, 0];
+  if (landBlocks(point, selfId)) return false;
+
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, toolPrefab.color, tool?.mass ?? toolPrefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(point, up, toolPrefab.color, probe.intensity, 'miss', false, 'stone');
+    toast.message(toolPrefab.label, { description: 'This tool cannot break rock.' });
+    return false;
+  }
+
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    curvatureLoad: probe.curvatureLoad,
+    target: { kind: 'block', block, bondTerm: bondTermForKind(kind) },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'mine' : 'resist',
+    swing.cut,
+    'stone',
+  );
+
+  if (!swing.cut) {
+    toast.message(toolPrefab.label, {
+      description: `The rock held firm (${swing.effectiveCut.toFixed(2)}).`,
+    });
+    return true;
+  }
+
+  const rockDir = localDirFromWorld(point);
+  spawnDrop({
+    kind: 'stone',
+    qty: 1,
+    localDir: offsetLocalDir(rockDir, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2),
+    upOffset: 0,
+  });
+  toast.success(toolPrefab.label, { description: 'Stone chips loose.' });
   return true;
 }
 

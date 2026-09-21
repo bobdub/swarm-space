@@ -65,6 +65,7 @@ function actionMatchesTarget(action: Tool['actionKind'], target: ImpactTarget): 
   const n = target.shell.n;
   if (action === 'dig') return n <= 2;
   if (action === 'chop') return n <= 2;
+  if (action === 'mine') return true; // a pick bites mineral lattices at any depth
   if (action === 'whittle') return true;
   return false;
 }
