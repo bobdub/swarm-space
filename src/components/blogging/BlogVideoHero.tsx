@@ -21,6 +21,7 @@ export function BlogVideoHero({ videoId, title, className }: BlogVideoHeroProps)
         title={title ? `${title} — video` : "Blog video"}
         className="absolute inset-0 h-full w-full"
         loading="lazy"
+        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowFullScreen
       />

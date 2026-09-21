@@ -265,6 +265,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
           title="YouTube video"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
           allowFullScreen
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
           style={{ width: '100%', height: '100%', border: 0, borderRadius: 6, background: '#000' }}
         />
       );
