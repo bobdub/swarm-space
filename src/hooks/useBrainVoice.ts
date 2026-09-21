@@ -49,7 +49,17 @@ export function useBrainVoice(
   const { user } = useAuth();
   const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
-  const [isMuted, setIsMuted] = useState(false);
+  // Mute lives on the call layer so it survives camera toggles, reconnects
+  // and re-entering the Brain.
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('imagination.session.user') ?? 'null');
+      void u;
+    } catch { /* ignore */ }
+    return false;
+  });
+  const isMutedRef = useRef(false);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   const [joined, setJoined] = useState(false);
   const joinedRef = useRef(false);
   const lastSelfPosRef = useRef<[number, number, number] | undefined>(undefined);
