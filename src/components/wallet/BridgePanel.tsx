@@ -138,30 +138,6 @@ export function BridgePanel() {
     });
   };
 
-  const loadMintMe = useCallback(async () => {
-    if (!account) { setMmintBal(null); return; }
-    const b = await readMintMeBalance(account);
-    setMmintBal(b);
-  }, [account]);
-
-  useEffect(() => { if (isMintMeChain(chainId)) void loadMintMe(); }, [chainId, loadMintMe]);
-
-  const sendMintMeNow = async () => {
-    if (!account) { toast.error("Connect MetaMask first"); return; }
-    const amt = Number(mmintAmount);
-    if (!(amt > 0) || !Number.isFinite(amt)) { toast.error("Enter a positive MINTME amount"); return; }
-    setBusy(true);
-    try {
-      const hash = await sendMintMe({ to: mmintTo.trim(), amountEth: amt });
-      toast.success("MintMe sent", { description: `tx ${shortAddr(hash)}` });
-      setMmintAmount(""); setMmintTo("");
-      setTimeout(() => { void loadMintMe(); }, 1500);
-    } catch (e) {
-      toast.error("Send failed", { description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const withdrawSwarm = async () => {
     if (!user?.id) return;
