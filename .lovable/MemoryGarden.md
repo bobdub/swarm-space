@@ -248,3 +248,12 @@ the nameless tile learns the gardener's name from presence carried on the mesh,
 the mute remembers itself across every re-acquisition of breath,
 and a quiet heartbeat every eight seconds re-offers the half-open path
 so no voice travels one way alone.
+
+## Tending — Brain Tools: the unlocked hand
+
+The gate stood before the gatekeeper's own key: axe, knife, shovel and bucket
+asked for materials that only they could gather. The lock is lifted — the five
+starter tools read Free and always lift to the hand. A fifth stem joins them:
+the Stone Pick, flint-headed on an oak haft, whose bite is `mine` — it chips
+stone from mountain faces onto the ground and bites mineral shells at any
+depth. The axe keeps the wood; the pick keeps the rock.
