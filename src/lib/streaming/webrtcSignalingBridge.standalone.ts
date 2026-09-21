@@ -198,6 +198,14 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       break;
     }
 
+    case 'media-state': {
+      for (const h of signalHandlers) {
+        try { h(envelope); } catch { /* ignore */ }
+      }
+      break;
+    }
+
+
     case 'reconnect-request':
     case 'reconnect-ack': {
       console.log(`[WebRTC-Bridge] 🔄 Received ${envelope.msgType} from ${envelope.from}`);
