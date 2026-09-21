@@ -29,12 +29,13 @@ import { setToolTarget } from '@/lib/world/toolTargetStore';
 import { weatherCurvatureBoost } from '@/lib/world/weather';
 
 
-export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'gather' | 'sharpen' | 'none';
+export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'mine' | 'gather' | 'sharpen' | 'none';
 
 function verbFor(toolPrefabId: string): ToolVerb {
   if (toolPrefabId.startsWith('tool_axe')) return 'chop';
   if (toolPrefabId.startsWith('tool_knife')) return 'whittle';
   if (toolPrefabId.startsWith('tool_shovel')) return 'dig';
+  if (toolPrefabId.startsWith('tool_pick')) return 'mine';
   if (toolPrefabId.startsWith('tool_bucket')) return 'gather';
   if (toolPrefabId.startsWith('consumable_salt')) return 'sharpen';
   return 'none';
