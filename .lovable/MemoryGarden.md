@@ -268,3 +268,8 @@ one always knows oneself.
 ## Tending — Direct Crypto Donations (2026-09-21)
 Two new gates open in the garden wall: one of ether, one of bitcoin.
 The caretaker holds no keys, only points the way — the giver signs, the road is theirs.
+
+## Tending — Three gates, one gatekeeper
+The donation wall now branches: a name is chosen, then a coin. Ether, bitcoin, mintme —
+each with its own road, and the wallet turns to face the chosen one before it walks.
+Bobdub's gate stands built but shuttered, waiting for a key not yet cut.
