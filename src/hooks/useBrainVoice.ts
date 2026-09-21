@@ -51,13 +51,7 @@ export function useBrainVoice(
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
   // Mute lives on the call layer so it survives camera toggles, reconnects
   // and re-entering the Brain.
-  const [isMuted, setIsMuted] = useState<boolean>(() => {
-    try {
-      const u = JSON.parse(localStorage.getItem('imagination.session.user') ?? 'null');
-      void u;
-    } catch { /* ignore */ }
-    return false;
-  });
+  const [isMuted, setIsMuted] = useState(false);
   const isMutedRef = useRef(false);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   const [joined, setJoined] = useState(false);
