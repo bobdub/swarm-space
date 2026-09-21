@@ -586,13 +586,13 @@ export class WebRTCManager {
           }
         }
 
-        // Re-enable existing tracks that were disabled
-        if (audio && hasAudio) {
-          this.localStream.getAudioTracks().forEach(t => { t.enabled = true; });
-        }
+        // Re-enable existing tracks that were disabled. The microphone
+        // always honours the remembered mute — re-acquiring media must
+        // never quietly unmute the user.
         if (video && hasVideo) {
-          this.localStream.getVideoTracks().forEach(t => { t.enabled = true; });
+          this.localStream.getVideoTracks().forEach(t => { t.enabled = this.cameraEnabled || true; });
         }
+        this.applyLocalMuteState();
 
         return this.localStream;
       }
