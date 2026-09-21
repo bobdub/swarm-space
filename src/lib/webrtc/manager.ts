@@ -1419,6 +1419,7 @@ export class WebRTCManager {
       this.signalUnsub = null;
     }
     this.leaveRoom();
+    this.stopMediaHealthCheck();
     this.messageHandlers.clear();
     this.disconnectTimers.forEach(t => clearTimeout(t));
     this.reconnectTimers.forEach(t => clearTimeout(t));
