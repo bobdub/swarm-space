@@ -11,6 +11,8 @@ interface BrainVideoGridProps {
   cameraOn: boolean;
   /** Local screen capture, when this user is sharing. */
   localScreenStream?: MediaStream | null;
+  /** Names resolved from Brain presence, keyed by peer id. */
+  nameByPeerId?: Record<string, string>;
 }
 
 interface Tile {
