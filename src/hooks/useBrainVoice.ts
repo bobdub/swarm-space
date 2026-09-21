@@ -82,7 +82,12 @@ export function useBrainVoice(
     };
 
     const unsub = manager.onMessage((msg) => {
-      if (msg.type === "peer-joined" || msg.type === "peer-left") {
+      if (
+        msg.type === "peer-joined" ||
+        msg.type === "peer-left" ||
+        msg.type === "peer-media-state" ||
+        msg.type === "room-updated"
+      ) {
         setRawParticipants(manager.getParticipants());
         // Re-broadcast our presence so late joiners (and reconnects) learn
         // our avatar selection right away.
