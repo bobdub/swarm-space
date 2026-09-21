@@ -18,11 +18,12 @@ import {
   type AppWalletCurrency,
 } from "@/lib/blockchain/wallets/appWallet";
 import { getSwarmBalance } from "@/lib/blockchain/token";
+import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 
-const BRIDGE_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC", "MINTME"];
+const BRIDGE_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC"];
 
 export function AssetsTab() {
   const user = getCurrentUser();
