@@ -122,10 +122,16 @@ export function BrainVideoGrid({
       });
     }
     for (const p of participants) {
-      const name = p.username || p.peerId.slice(0, 8);
+      const resolved = nameByPeerId?.[p.peerId];
+      const raw = (resolved || p.username || "").trim();
+      const name = raw && raw !== "Peer" && raw !== "Unknown" ? raw : p.peerId.slice(0, 8);
       if (p.stream) {
-        const hasVideo = p.stream.getVideoTracks().some((t) => t.enabled && t.readyState === "live");
-        if (hasVideo) {
+        // Only show a box when the camera is genuinely sending pictures:
+        // the peer said their camera is on AND a live, unmuted track arrived.
+        const hasVideo = p.stream
+          .getVideoTracks()
+          .some((t) => t.enabled && !t.muted && t.readyState === "live");
+        if (hasVideo && p.isVideoEnabled !== false) {
           out.push({
             key: p.peerId,
             label: name,
@@ -136,7 +142,10 @@ export function BrainVideoGrid({
           });
         }
       }
-      if (p.screenStream && p.screenStream.getVideoTracks().length > 0) {
+      if (
+        p.screenStream &&
+        p.screenStream.getVideoTracks().some((t) => t.readyState === "live")
+      ) {
         out.push({
           key: `${p.peerId}-screen`,
           label: `${name}'s screen`,
@@ -148,7 +157,7 @@ export function BrainVideoGrid({
       }
     }
     return out;
-  }, [cameraOn, localStream, localMuted, localUsername, localScreenStream, participants]);
+  }, [cameraOn, localStream, localMuted, localUsername, localScreenStream, participants, nameByPeerId]);
 
   const expanded = expandedKey ? tiles.find((t) => t.key === expandedKey) ?? null : null;
 
