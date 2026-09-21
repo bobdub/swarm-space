@@ -309,23 +309,23 @@ export default function Wallet() {
   return (
     <>
       <TopNavigationBar />
-      <div className="container mx-auto py-8 px-4 max-w-7xl">
+      <div className="container mx-auto py-6 sm:py-8 px-3 sm:px-4 max-w-7xl">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div>
-              <h1 className="text-3xl sm:text-4xl font-bold mb-1">Blockchain Wallet</h1>
-              <p className="text-muted-foreground text-sm">Manage tokens, NFTs, mining & swaps</p>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-4xl font-bold mb-1 truncate">Blockchain Wallet</h1>
+              <p className="text-muted-foreground text-xs sm:text-sm">Manage tokens, NFTs, mining & swaps</p>
             </div>
           </div>
           <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
         </div>
 
         {/* MetaMask (always connectable) */}
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex justify-start sm:justify-end">
           <MetaMaskConnectButton compact />
         </div>
 
@@ -401,7 +401,7 @@ export default function Wallet() {
 
         {/* Tabs */}
         <Tabs defaultValue="assets" className="space-y-6">
-          <TabsList className="grid grid-cols-3 sm:grid-cols-9 gap-1 h-auto w-full">
+          <TabsList className="flex w-full h-auto gap-1 overflow-x-auto whitespace-nowrap justify-start sm:grid sm:grid-cols-9">
             <TabsTrigger value="assets" className="min-w-0">Assets</TabsTrigger>
             <TabsTrigger value="transactions" className="min-w-0">Ledger</TabsTrigger>
             <TabsTrigger value="credits" className="min-w-0">Credits</TabsTrigger>

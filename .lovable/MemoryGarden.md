@@ -278,3 +278,9 @@ Bobdub's gate stands built but shuttered, waiting for a key not yet cut.
 The waiting key is cut. Bobdub's gate now opens on all three roads —
 ether, bitcoin, mintme — each bearing its own address. No gate in the
 garden stands shuttered; every giver chooses their keeper and their coin.
+
+## Tending — The SWARM gate learns to swing both ways
+The native coin was a number on a shelf; now it has a door. Deposit and
+withdraw stand beside the balance, and an unconnected hand is offered a
+handshake first. The wallet folds itself smaller for small screens —
+tabs slide instead of crowd, buttons stack instead of squeeze.

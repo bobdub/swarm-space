@@ -22,6 +22,7 @@ import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
+import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 
 
 export function AssetsTab() {
@@ -52,7 +53,7 @@ export function AssetsTab() {
   }, [userId]);
 
   const rows = useMemo(() => ([
-    { code: "SWARM",  label: "SWARM",  amount: swarm,         kind: "native" as const },
+    { code: "SWARM",  label: "SWARM",  amount: swarm,         kind: "swarm" as const },
     { code: "CREDIT", label: "Credits", amount: creditBalance, kind: "native" as const },
     { code: "ETH",    label: "ETH — Ethereum", amount: bridge.ETH,    kind: "bridge" as const },
     { code: "BTC",    label: "BTC — Bitcoin",  amount: bridge.BTC,    kind: "bridge" as const },
@@ -121,26 +122,33 @@ function AssetRow({
   code: string;
   label: string;
   amount: number;
-  kind: "native" | "bridge";
+  kind: "native" | "bridge" | "swarm";
   userId: string;
   metaMaskAddress: string | null;
   metaMaskAvailable: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+    <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <Coins className="h-4 w-4 text-primary" />
           <span className="font-medium">{label}</span>
           {kind === "bridge" && <Badge variant="outline" className="text-[9px]">Bridge</Badge>}
+          {kind === "swarm" && <Badge variant="secondary" className="text-[9px]">Native chain</Badge>}
         </div>
         <div className="mt-0.5 text-xl font-semibold tabular-nums">
           {amount.toLocaleString(undefined, { maximumFractionDigits: kind === "bridge" ? 6 : 2 })}{" "}
           <span className="text-xs font-normal text-muted-foreground">{code}</span>
         </div>
       </div>
+      {kind === "swarm" && (
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
+          <SwarmBridgeDialog mode="deposit" balance={amount} userId={userId} className="w-full sm:w-auto" />
+          <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" />
+        </div>
+      )}
       {kind === "bridge" && (
-        <div className="flex flex-shrink-0 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
           <DepositDialog code={code as AppWalletCurrency} metaMaskAddress={metaMaskAddress} metaMaskAvailable={metaMaskAvailable} />
           <WithdrawDialog
             code={code as AppWalletCurrency}
