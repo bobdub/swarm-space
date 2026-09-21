@@ -590,7 +590,7 @@ export class WebRTCManager {
         // always honours the remembered mute — re-acquiring media must
         // never quietly unmute the user.
         if (video && hasVideo) {
-          this.localStream.getVideoTracks().forEach(t => { t.enabled = this.cameraEnabled || true; });
+          this.localStream.getVideoTracks().forEach(t => { t.enabled = true; });
         }
         this.applyLocalMuteState();
 
