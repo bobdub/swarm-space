@@ -289,7 +289,7 @@ function ProgressRing({ value }: { value: number }) {
   const R = 11;
   const C = 2 * Math.PI * R;
   return (
-    <svg width={28} height={28} viewBox="0 0 28 28" aria-hidden="true">
+    <svg width={20} height={20} viewBox="0 0 28 28" aria-hidden="true">
       <circle cx={14} cy={14} r={R} fill="none" stroke="hsla(0,0%,100%,0.18)" strokeWidth={3} />
       <circle
         cx={14}
