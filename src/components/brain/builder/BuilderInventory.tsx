@@ -56,11 +56,13 @@ interface BuilderInventoryProps {
   open: boolean;
   builder: UseBrainBuilder;
   onClose: () => void;
+  /** Local peer id — used by the Options tab (dev roles, land). */
+  selfId?: string;
   /** Equip a catalog tool straight into the hand slot. */
   onEquipTool?: (prefabId: string) => void;
 }
 
-export function BuilderInventory({ open, builder, onClose, onEquipTool }: BuilderInventoryProps) {
+export function BuilderInventory({ open, builder, onClose, selfId, onEquipTool }: BuilderInventoryProps) {
   const [sectionId, setSectionId] = useState<string>('structures');
   const [totals, setTotals] = useState<Record<MaterialId, number>>(() => materialTotals());
 
