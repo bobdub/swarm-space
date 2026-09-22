@@ -46,25 +46,38 @@ export function HeldToolMesh({ selfId }: Props) {
     return { handle, head: Math.max(0.09, Math.min(0.17, 0.08 + mass * 0.012)) };
   }, [tool]);
 
-  useFrame(() => {
+  useFrame(({ camera }) => {
     const g = groupRef.current;
-    if (!g || !selfId) return;
+    if (!g) return;
     const physics = getBrainPhysics();
-    const body = physics.getBody(selfId);
+    const body = selfId ? physics.getBody(selfId) : undefined;
     // Read the SAME interpolated position the camera rig is built from —
     // sampling the raw tick stamp made the tool swim sideways in view.
-    const bp = physics.getBodyRenderPos(selfId) ?? body?.pos;
+    const bp = (selfId ? physics.getBodyRenderPos(selfId) : undefined) ?? body?.pos;
 
-    const intent = physics.getIntent(selfId);
+    const intent = selfId ? physics.getIntent(selfId) : undefined;
     const basis = intent?.basis;
-    if (!body || !bp || !basis?.forward || !basis?.up) {
-      g.visible = false;
-      return;
+
+    let fwd: [number, number, number];
+    let up: [number, number, number];
+    let anchor: [number, number, number];
+
+    if (bp && basis?.forward && basis?.up) {
+      fwd = [basis.forward[0], basis.forward[1], basis.forward[2]];
+      up = [basis.up[0], basis.up[1], basis.up[2]];
+      anchor = [bp[0] + up[0] * EYE_LIFT, bp[1] + up[1] * EYE_LIFT, bp[2] + up[2] * EYE_LIFT];
+    } else {
+      // Fallback: hang the tool off the camera so it is never invisible
+      // just because the physics intent basis has not been primed yet.
+      const cf = new THREE.Vector3();
+      camera.getWorldDirection(cf);
+      const cu = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      fwd = [cf.x, cf.y, cf.z];
+      up = [cu.x, cu.y, cu.z];
+      anchor = [camera.position.x, camera.position.y, camera.position.z];
     }
 
     g.visible = true;
-    const fwd = basis.forward;
-    const up = basis.up;
     // right = forward × up
     const rx = fwd[1] * up[2] - fwd[2] * up[1];
     const ry = fwd[2] * up[0] - fwd[0] * up[2];
@@ -79,9 +92,9 @@ export function HeldToolMesh({ selfId }: Props) {
     const SIDE = 0.16;  // to the right hand (portrait fov is narrow)
     const DROP = 0.30 - bob;  // below eye line
     g.position.set(
-      bp[0] + up[0] * EYE_LIFT + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
-      bp[1] + up[1] * EYE_LIFT + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
-      bp[2] + up[2] * EYE_LIFT + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
+      anchor[0] + fwd[0] * OUT + (rx / rLen) * SIDE - up[0] * DROP,
+      anchor[1] + fwd[1] * OUT + (ry / rLen) * SIDE - up[1] * DROP,
+      anchor[2] + fwd[2] * OUT + (rz / rLen) * SIDE - up[2] * DROP,
     );
 
 

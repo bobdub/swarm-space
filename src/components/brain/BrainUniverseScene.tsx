@@ -76,6 +76,7 @@ import {
   setPendingCast,
   clearPendingCast,
   confirmCast,
+  rotateCast,
   getPendingCast,
   subscribeCast,
   type PendingCast,
@@ -2334,8 +2335,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <BuilderActivator
             mode={builder.mode}
             onToggle={() => {
+              // One tap in, one tap out — panel state follows the mode
+              // instead of flipping independently of it.
+              const entering = builder.mode !== 'build';
               builder.toggleMode();
-              setInventoryOpen((v) => !v);
+              setInventoryOpen(entering);
             }}
           />
           <button
@@ -2484,18 +2488,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           While plotting, re-enable joystick + look so the user can walk. */}
       {ready && !isMobile && (
         <>
-          {/* Look-drag stays live in Builder Mode so the user can pan and
-              tilt while positioning a piece. */}
+          {/* Look-drag and movement stay live in Builder Mode — the ghost
+              rides in front of you while you walk it into place. */}
           <DesktopLookOverlay />
-          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <DesktopJoystick />}
+          {!builder.pendingPlot && <DesktopJoystick />}
         </>
       )}
 
       {/* Mobile controls */}
       {isMobile && (
         <>
-          <TouchLookOverlay inert={scenePlacementArmed} />
-          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <MobileJoystick />}
+          {/* Only a pointer-positioned ghost needs the look layer inert; a
+              following ghost tracks the avatar, so looking stays free. */}
+          <TouchLookOverlay inert={scenePlacementArmed && !pendingCast?.follow} />
+          {!builder.pendingPlot && <MobileJoystick />}
         </>
       )}
 
@@ -2570,6 +2576,46 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Walk-and-place strip — a prefab ghost rides in front of you while
+          you move; turn it and drop it without stopping. Small on purpose. */}
+      {castArmed && pendingCast?.kind === 'prefab' && pendingCast?.follow && (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 px-3">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-primary/50 bg-[hsla(265,70%,8%,0.85)] px-1.5 py-1 text-xs text-foreground shadow-md backdrop-blur">
+            <button
+              type="button"
+              onClick={() => rotateCast(-Math.PI / 12)}
+              aria-label="Rotate left"
+              className="h-7 w-7 rounded-full hover:bg-foreground/10"
+            >
+              ⟲
+            </button>
+            <button
+              type="button"
+              onClick={() => rotateCast(Math.PI / 12)}
+              aria-label="Rotate right"
+              className="h-7 w-7 rounded-full hover:bg-foreground/10"
+            >
+              ⟳
+            </button>
+            <button
+              type="button"
+              onClick={() => confirmCast()}
+              className="h-7 rounded-full bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Place
+            </button>
+            <button
+              type="button"
+              onClick={() => clearPendingCast()}
+              aria-label="Cancel placement"
+              className="h-7 w-7 rounded-full text-rose-300 hover:bg-foreground/10"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}

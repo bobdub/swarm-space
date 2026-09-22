@@ -309,3 +309,10 @@ and axes, but the thread from tile to palm was never tied. It is tied now —
 choose a tool and it rides with you. And the row of levers that squatted at
 the foot of the world has been folded into the workshop itself, an Options
 drawer beside the shelves, so the horizon is clear again while you build.
+
+## Tending — Walking While Building (2026-09-22)
+A builder who cannot walk is only a watcher. The lock is lifted: the ghost
+now travels ahead of the step, turning as you turn, settling where you stop.
+The hammer answers on the first strike, not the second. The shed chip has
+shrunk to a thumb at the edge of sight, and the hold-to-raise ring no longer
+blots out the wall it is raising. Small hands, clear horizon, steady ground.
