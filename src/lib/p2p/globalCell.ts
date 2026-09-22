@@ -76,10 +76,26 @@ const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
 const DEFAULT_GUN_RELAY_PEERS = [
-  'https://gun-manhattan.herokuapp.com/gun',
-  'https://gun-us.herokuapp.com/gun',
-  'https://gun-eu.herokuapp.com/gun',
+  'https://gun.eco/gun',
+  'https://e2e.we-share.io/gun',
+  'https://relay.peer.ooo/gun',
 ];
+
+/** Debounce window for event-driven Bus evaluation after a new beacon arrives. */
+const BUS_EVENT_DEBOUNCE_MS = 300;
+
+/** Coarse location tag used to prioritise peers sharing the same surface. */
+function currentLocationTag(): string {
+  try {
+    const path = (window.location?.pathname ?? '/').toLowerCase();
+    if (path.startsWith('/brain')) return 'brain';
+    if (path === '/' || path.startsWith('/index') || path.startsWith('/explore')) return 'explore';
+    return path.split('/').filter(Boolean)[0] ?? 'other';
+  } catch {
+    return 'other';
+  }
+}
+
 
 // ── Types ──────────────────────────────────────────────────────────────
 
