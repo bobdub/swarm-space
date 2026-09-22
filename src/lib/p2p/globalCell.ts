@@ -211,6 +211,7 @@ class GlobalCell {
       this.gunAdapter = null;
     }
 
+    if (this.busDebounceTimer) { clearTimeout(this.busDebounceTimer); this.busDebounceTimer = null; }
     this.knownPresence.clear();
     this.waitingNodes.clear();
     this.lastBeaconAt = 0;
@@ -555,6 +556,21 @@ class GlobalCell {
     console.log(
       `${LOG} ⚡ Immediate emit for ${isNew ? 'new peer' : 'peer update'} ${beacon.peerId.slice(0, 16)}`
     );
+
+    // Event-driven Bus evaluation: don't wait up to 15s for the prune tick.
+    this.scheduleBusEvaluation();
+  }
+
+  /** Debounced Bus cycle triggered by beacon arrivals. */
+  private scheduleBusEvaluation(): void {
+    if (!this.running || this.busDebounceTimer) return;
+    this.busDebounceTimer = setTimeout(() => {
+      this.busDebounceTimer = null;
+      if (!this.running) return;
+      const live = this.getKnownPeers();
+      if (live.length === 0) return;
+      this.runConnectionBusCycle(live);
+    }, BUS_EVENT_DEBOUNCE_MS);
   }
 
   // ── Prune & Emit ──────────────────────────────────────────────────
