@@ -139,11 +139,6 @@ export function BrainBuilderBar({
   const [virtualTab, setVirtualTab] = useState<
     typeof LAB_SECTION | typeof LANDMARKS_SECTION | typeof OPTIONS_SECTION | null
   >(null);
-  // Spectator camera + seat debug now live in the Options tab.
-  const [, forceSpec] = useState(0);
-  useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
-  const overhead = isOverheadView();
-  const seatDebug = isSeatDebugOn();
   const currentTab: BarSectionId = virtualTab ?? activeSection;
 
   const [mints, setMints] = useState<MintedRecord[]>([]);
