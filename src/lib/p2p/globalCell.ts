@@ -104,6 +104,8 @@ interface PresenceBeacon {
   trustScore: number;
   ts: number;
   roles?: string[];
+  /** Coarse surface tag ('brain' | 'explore' | path root) for same-room priority. */
+  location?: string;
 }
 
 interface BusWaitingNode {
