@@ -106,6 +106,8 @@ interface PresenceBeacon {
   roles?: string[];
   /** Coarse surface tag ('brain' | 'explore' | path root) for same-room priority. */
   location?: string;
+  /** Number of live mesh connections this peer currently holds (dial arbitration). */
+  conns?: number;
 }
 
 interface BusWaitingNode {
@@ -467,6 +469,7 @@ class GlobalCell {
       trustScore,
       ts: Date.now(),
       location: currentLocationTag(),
+      conns: mesh.getStats().connectedPeers ?? 0,
       ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
