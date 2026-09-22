@@ -49,6 +49,7 @@ export const INVENTORY_SECTIONS: InventorySection[] = [
   { id: 'openings', label: 'Doors & Windows', sources: ['doors', 'windows'] },
   { id: 'roofs', label: 'Roofs', sources: ['roofs'] },
   { id: 'tools', label: 'Tools', sources: ['tools', 'consumables'] },
+  { id: 'options', label: 'Options', sources: [] },
 ];
 
 interface BuilderInventoryProps {
