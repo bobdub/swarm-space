@@ -148,12 +148,6 @@ export function BrainBuilderBar({
   const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
   useEffect(() => subscribeLandPlots(setPlots), []);
   // Overhead build camera — resets to off when the bar unmounts (build exit).
-  const [topView, setTopView] = useState(false);
-  const [showLand, setShowLand] = useState(() => getShowLandMarkers());
-  useEffect(() => subscribeShowLandMarkers(setShowLand), []);
-  const [canLayCommons, setCanLayCommons] = useState(() => isDev(selfId));
-  useEffect(() => { setCanLayCommons(isDev(selfId)); }, [selfId]);
-  useEffect(() => subscribeBuilderTopView(setTopView), []);
   useEffect(() => () => setBuilderTopView(false), []);
   const ownsAnyPlot = useMemo(
     () => !!selfId && plots.some((p) => p.ownerId === selfId),
