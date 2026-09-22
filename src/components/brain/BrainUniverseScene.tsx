@@ -2334,8 +2334,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <BuilderActivator
             mode={builder.mode}
             onToggle={() => {
+              // One tap in, one tap out — panel state follows the mode
+              // instead of flipping independently of it.
+              const entering = builder.mode !== 'build';
               builder.toggleMode();
-              setInventoryOpen((v) => !v);
+              setInventoryOpen(entering);
             }}
           />
           <button
