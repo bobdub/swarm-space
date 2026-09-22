@@ -12,25 +12,9 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route, SlidersHorizontal, Camera, Bug } from 'lucide-react';
-import {
-  isOverheadView,
-  isSeatDebugOn,
-  subscribeSpectator,
-  toggleOverheadView,
-  toggleSeatDebug,
-} from '@/lib/pub/spectatorCameraStore';
-import {
-  subscribeShowLandMarkers,
-  getShowLandMarkers,
-  toggleShowLandMarkers,
-} from '@/lib/world/landOverlayStore';
-import { isDev, grantDev } from '@/lib/world/devRoles';
-import {
-  subscribeBuilderTopView,
-  toggleBuilderTopView,
-  setBuilderTopView,
-} from '@/lib/brain/builderCameraStore';
+import { X, FlaskConical, Plus, LandPlot as LandPlotIcon, Footprints, SlidersHorizontal } from 'lucide-react';
+import { setBuilderTopView } from '@/lib/brain/builderCameraStore';
+import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import { Button } from '@/components/ui/button';
 import {
   PREFAB_SECTIONS,
