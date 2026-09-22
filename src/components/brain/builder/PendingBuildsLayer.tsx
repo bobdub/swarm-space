@@ -219,9 +219,9 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
 
       {near && (
         <Html
-          position={[0, prefab.height + 0.7, 0]}
+          position={[0, prefab.height + 0.55, 0]}
           center
-          distanceFactor={9}
+          distanceFactor={11}
           zIndexRange={[90, 0]}
           style={{ pointerEvents: 'auto', userSelect: 'none' }}
         >
@@ -234,17 +234,17 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
             }}
             onPointerUp={(e) => { e.stopPropagation(); holdingRef.current = false; }}
             onPointerLeave={() => { holdingRef.current = false; }}
+            title={blocked ?? 'Hold to build'}
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              padding: '8px 12px',
+              gap: 4,
+              padding: 3,
               borderRadius: 999,
-              background: 'hsla(265,70%,8%,0.92)',
-              border: `2px solid ${blocked ? 'hsla(35,90%,60%,0.85)' : 'hsla(265,80%,65%,0.7)'}`,
-              boxShadow: '0 0 18px hsla(265,80%,65%,0.4)',
+              background: 'hsla(265,70%,8%,0.85)',
+              border: `1px solid ${blocked ? 'hsla(35,90%,60%,0.85)' : 'hsla(265,80%,65%,0.6)'}`,
               fontFamily: 'system-ui, sans-serif',
-              fontSize: 13,
+              fontSize: 10,
               color: 'white',
               whiteSpace: 'nowrap',
               cursor: 'pointer',
@@ -252,13 +252,11 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
             }}
           >
             <ProgressRing value={progress} />
-            <span>
-              {blocked
-                ? blocked
-                : progress > 0
-                  ? `Building… ${remaining.toFixed(1)}s (${pct}%)`
-                  : 'Build — press and hold'}
-            </span>
+            {(blocked || progress > 0) && (
+              <span style={{ paddingRight: 4 }}>
+                {blocked ? blocked : `${remaining.toFixed(1)}s · ${pct}%`}
+              </span>
+            )}
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
@@ -270,7 +268,10 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
                 background: 'hsla(0,0%,100%,0.08)',
                 color: '#fda4af',
                 borderRadius: 999,
-                padding: '4px 10px',
+                width: 18,
+                height: 18,
+                lineHeight: '18px',
+                padding: 0,
                 fontWeight: 700,
                 cursor: 'pointer',
               }}
