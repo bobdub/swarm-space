@@ -302,3 +302,10 @@ peer.ooo). Two waiting travellers no longer lunge at one another —
 arbitration decides who reaches first, who simply opens the door. Beacons
 now carry the room they stand in, and the bus no longer sleeps fifteen
 seconds between glances: a new arrival wakes it within a breath.
+
+## Tending — Tools in Hand, Options Gathered (2026-09-22)
+A shed full of tools that no hand could lift: the inventory offered picks
+and axes, but the thread from tile to palm was never tied. It is tied now —
+choose a tool and it rides with you. And the row of levers that squatted at
+the foot of the world has been folded into the workshop itself, an Options
+drawer beside the shelves, so the horizon is clear again while you build.
