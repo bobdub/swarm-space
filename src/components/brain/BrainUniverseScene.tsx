@@ -26,7 +26,7 @@ import {
 } from '@/lib/brain/cameraViewStore';
 import { stagePendingBuild } from '@/lib/world/pendingBuildsStore';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
-import { BrainBuilderBar } from '@/components/brain/builder/BrainBuilderBar';
+import { BrainBuilderBar, equipCatalogTool } from '@/components/brain/builder/BrainBuilderBar';
 import { BuildGridOverlay } from '@/components/world/BuildGridOverlay';
 import { PlotSurveyOverlay } from '@/components/world/PlotSurveyOverlay';
 import { LandPlotsOverlay } from '@/components/world/LandPlotsOverlay';
