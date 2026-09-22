@@ -47,7 +47,7 @@ import type { PlacementRecord } from '@/lib/world/worldPlacementsStore';
  * tile now goes directly into the hand slot with a synthetic source
  * record, so dropping it still lands a real placement in the world.
  */
-function equipCatalogTool(prefabId: string, actorId: string): void {
+export function equipCatalogTool(prefabId: string, actorId: string): void {
   const now = Date.now();
   const source: PlacementRecord = {
     placementId: `equip-${prefabId}-${now}`,
