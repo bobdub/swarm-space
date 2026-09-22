@@ -76,6 +76,7 @@ import {
   setPendingCast,
   clearPendingCast,
   confirmCast,
+  rotateCast,
   getPendingCast,
   subscribeCast,
   type PendingCast,
