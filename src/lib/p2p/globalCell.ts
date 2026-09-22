@@ -156,6 +156,7 @@ class GlobalCell {
   private waitingNodes = new Map<string, BusWaitingNode>();
   /** Timestamp of last successful Bus-cycle resolution (Option A or B). */
   private lastBusCycleResolvedAt = 0;
+  private busDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private localRoles = new Set<string>();
   private gatewayListeners = new Set<GatewayPeersListener>();
 
@@ -464,6 +465,7 @@ class GlobalCell {
       peerId: this.localPeerId,
       trustScore,
       ts: Date.now(),
+      location: currentLocationTag(),
       ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
