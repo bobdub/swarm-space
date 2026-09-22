@@ -786,3 +786,24 @@ function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
   return Math.max(0, Math.min(1, x));
 }
+
+/**
+ * Deterministic dial arbitration — prevents WebRTC glare (both sides offering
+ * at once, which forces both into a retry cooldown).
+ *
+ * Rules:
+ *   - Isolated peer dials a connected peer (the connected side stays passive).
+ *   - Otherwise (both isolated, both connected, or unknown) the lower peerId dials.
+ */
+export function shouldLocalDial(
+  localConns: number,
+  remoteConns: number | null,
+  localPeerId: string,
+  remotePeerId: string,
+): boolean {
+  if (remoteConns !== null) {
+    if (localConns === 0 && remoteConns > 0) return true;
+    if (localConns > 0 && remoteConns === 0) return false;
+  }
+  return localPeerId < remotePeerId;
+}
