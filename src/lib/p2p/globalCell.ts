@@ -76,10 +76,26 @@ const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
 const DEFAULT_GUN_RELAY_PEERS = [
-  'https://gun-manhattan.herokuapp.com/gun',
-  'https://gun-us.herokuapp.com/gun',
-  'https://gun-eu.herokuapp.com/gun',
+  'https://gun.eco/gun',
+  'https://e2e.we-share.io/gun',
+  'https://relay.peer.ooo/gun',
 ];
+
+/** Debounce window for event-driven Bus evaluation after a new beacon arrives. */
+const BUS_EVENT_DEBOUNCE_MS = 300;
+
+/** Coarse location tag used to prioritise peers sharing the same surface. */
+function currentLocationTag(): string {
+  try {
+    const path = (window.location?.pathname ?? '/').toLowerCase();
+    if (path.startsWith('/brain')) return 'brain';
+    if (path === '/' || path.startsWith('/index') || path.startsWith('/explore')) return 'explore';
+    return path.split('/').filter(Boolean)[0] ?? 'other';
+  } catch {
+    return 'other';
+  }
+}
+
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -88,6 +104,10 @@ interface PresenceBeacon {
   trustScore: number;
   ts: number;
   roles?: string[];
+  /** Coarse surface tag ('brain' | 'explore' | path root) for same-room priority. */
+  location?: string;
+  /** Number of live mesh connections this peer currently holds (dial arbitration). */
+  conns?: number;
 }
 
 interface BusWaitingNode {
@@ -138,6 +158,7 @@ class GlobalCell {
   private waitingNodes = new Map<string, BusWaitingNode>();
   /** Timestamp of last successful Bus-cycle resolution (Option A or B). */
   private lastBusCycleResolvedAt = 0;
+  private busDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private localRoles = new Set<string>();
   private gatewayListeners = new Set<GatewayPeersListener>();
 
@@ -192,6 +213,7 @@ class GlobalCell {
       this.gunAdapter = null;
     }
 
+    if (this.busDebounceTimer) { clearTimeout(this.busDebounceTimer); this.busDebounceTimer = null; }
     this.knownPresence.clear();
     this.waitingNodes.clear();
     this.lastBeaconAt = 0;
@@ -446,6 +468,8 @@ class GlobalCell {
       peerId: this.localPeerId,
       trustScore,
       ts: Date.now(),
+      location: currentLocationTag(),
+      conns: mesh.getStats().connectedPeers ?? 0,
       ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
@@ -535,6 +559,21 @@ class GlobalCell {
     console.log(
       `${LOG} ⚡ Immediate emit for ${isNew ? 'new peer' : 'peer update'} ${beacon.peerId.slice(0, 16)}`
     );
+
+    // Event-driven Bus evaluation: don't wait up to 15s for the prune tick.
+    this.scheduleBusEvaluation();
+  }
+
+  /** Debounced Bus cycle triggered by beacon arrivals. */
+  private scheduleBusEvaluation(): void {
+    if (!this.running || this.busDebounceTimer) return;
+    this.busDebounceTimer = setTimeout(() => {
+      this.busDebounceTimer = null;
+      if (!this.running) return;
+      const live = this.getKnownPeers();
+      if (live.length === 0) return;
+      this.runConnectionBusCycle(live);
+    }, BUS_EVENT_DEBOUNCE_MS);
   }
 
   // ── Prune & Emit ──────────────────────────────────────────────────
@@ -610,11 +649,16 @@ class GlobalCell {
       }
     }
 
+    const localLocation = currentLocationTag();
+    const localId = this.localPeerId;
+    const localConns = connectedPeers.size;
+
     const waiting = livePeers
       .filter((peer) => peer.peerId !== this.localPeerId)
       .filter((peer) => !connectedPeers.has(peer.peerId))
       .map((peer) => {
         const tracked = this.waitingNodes.get(peer.peerId);
+        const beacon = this.knownPresence.get(peer.peerId);
         const smoothness = computeSmoothness(
           peer.trustScore,
           peer.peerId,
@@ -626,47 +670,41 @@ class GlobalCell {
           ...peer,
           waitAgeMs: tracked ? nowTs - tracked.firstSeenAt : 0,
           smoothness,
+          sameRoom: !!beacon?.location && beacon.location === localLocation,
+          remoteConns: typeof beacon?.conns === 'number' ? beacon.conns : null,
         };
-      });
+      })
+      // Deterministic arbitration — exactly one side of every pair dials,
+      // which removes the simultaneous-offer (glare) collisions.
+      .filter((peer) => shouldLocalDial(localConns, peer.remoteConns, localId, peer.peerId));
 
     if (waiting.length === 0) {
       this.maybeForceLoopGuarantee(nowTs);
       return;
     }
 
+    // Same-surface peers (same room / Brain / Explore) always sort first.
+    const roomFirst = (a: { sameRoom: boolean }, b: { sameRoom: boolean }) =>
+      Number(b.sameRoom) - Number(a.sameRoom);
+
     let candidate: (typeof waiting)[number] | null = null;
     let resolutionMode: 'connected→waiting' | 'waiting→smoothest' | 'waiting→pair' = 'connected→waiting';
 
-    if (connectedPeers.size > 0) {
+    if (localConns > 0) {
       // Local Connected: prefer longest-waiting (fairness), smoothness as tiebreaker.
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
+        .sort((a, b) => roomFirst(a, b) || (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
       resolutionMode = 'connected→waiting';
     } else {
-      // Local Waiting: prefer smoothest peer overall.
-      // Option B fallback: if every visible peer is also Waiting, deterministically
-      // pair with the longest-waiting partner whose peerId sorts lower than ours.
-      // (Lower-id side initiates; higher-id side passively accepts — prevents
-      // simultaneous mutual dials.)
+      // Local Waiting: prefer smoothest peer overall; arbitration above already
+      // guarantees the partner is listening rather than dialing back at us.
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
-      resolutionMode = 'waiting→smoothest';
-
-      if (candidate && candidate.smoothness === 0) {
-        // No Connected/known-good peers visible — engage waiting-pair fallback.
-        const localId = this.localPeerId;
-        const pairCandidate = waiting
-          .slice()
-          .filter(p => p.peerId < localId)
-          .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || a.peerId.localeCompare(b.peerId))[0] ?? null;
-        if (pairCandidate) {
-          candidate = pairCandidate;
-          resolutionMode = 'waiting→pair';
-        }
-      }
+        .sort((a, b) => roomFirst(a, b) || (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+      resolutionMode = (candidate?.remoteConns ?? 0) > 0 ? 'waiting→smoothest' : 'waiting→pair';
     }
+
     if (!candidate) return;
 
     const connected = mesh.connectToPeer(candidate.peerId);
@@ -747,4 +785,25 @@ export function computeSmoothness(
 function clamp01(x: number): number {
   if (!Number.isFinite(x)) return 0;
   return Math.max(0, Math.min(1, x));
+}
+
+/**
+ * Deterministic dial arbitration — prevents WebRTC glare (both sides offering
+ * at once, which forces both into a retry cooldown).
+ *
+ * Rules:
+ *   - Isolated peer dials a connected peer (the connected side stays passive).
+ *   - Otherwise (both isolated, both connected, or unknown) the lower peerId dials.
+ */
+export function shouldLocalDial(
+  localConns: number,
+  remoteConns: number | null,
+  localPeerId: string,
+  remotePeerId: string,
+): boolean {
+  if (remoteConns !== null) {
+    if (localConns === 0 && remoteConns > 0) return true;
+    if (localConns > 0 && remoteConns === 0) return false;
+  }
+  return localPeerId < remotePeerId;
 }
