@@ -33,6 +33,7 @@ import {
   type MaterialId,
 } from '@/lib/world/materials';
 import { getToolAny } from '@/lib/brain/toolCatalog';
+import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 
 export interface InventorySection {
