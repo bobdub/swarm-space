@@ -2580,6 +2580,46 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         </div>
       )}
 
+      {/* Walk-and-place strip — a prefab ghost rides in front of you while
+          you move; turn it and drop it without stopping. Small on purpose. */}
+      {castArmed && pendingCast?.kind === 'prefab' && pendingCast?.follow && (
+        <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 px-3">
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-primary/50 bg-[hsla(265,70%,8%,0.85)] px-1.5 py-1 text-xs text-foreground shadow-md backdrop-blur">
+            <button
+              type="button"
+              onClick={() => rotateCast(-Math.PI / 12)}
+              aria-label="Rotate left"
+              className="h-7 w-7 rounded-full hover:bg-foreground/10"
+            >
+              ⟲
+            </button>
+            <button
+              type="button"
+              onClick={() => rotateCast(Math.PI / 12)}
+              aria-label="Rotate right"
+              className="h-7 w-7 rounded-full hover:bg-foreground/10"
+            >
+              ⟳
+            </button>
+            <button
+              type="button"
+              onClick={() => confirmCast()}
+              className="h-7 rounded-full bg-primary px-3 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Place
+            </button>
+            <button
+              type="button"
+              onClick={() => clearPendingCast()}
+              aria-label="Cancel placement"
+              className="h-7 w-7 rounded-full text-rose-300 hover:bg-foreground/10"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Pub games — walk up to the dartboard, press E, play or watch. */}
       {ready && selfId && !isBuilding && (
         <PubGameLayer selfId={selfId} username={user?.username ?? 'Player'} mobile={isMobile} />
