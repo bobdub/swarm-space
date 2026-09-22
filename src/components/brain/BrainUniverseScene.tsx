@@ -2592,8 +2592,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         </>
       )}
 
-      {/* Builder Bar — focus mode dock; mic/camera/chat remain active above */}
-      {ready && isBuilding && (
+      {/* Plot survey / confirm strip only — all other builder controls now
+          live in the Options tab of the inventory panel, so no bottom bar
+          sits over the world during normal building. */}
+      {ready && isBuilding && (builder.plotting || builder.pendingPlot) && (
         <BrainBuilderBar
           builder={builder}
           onConfirmPlot={handleConfirmPlot}
@@ -2608,7 +2610,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <BuilderInventory
           open={inventoryOpen}
           builder={builder}
+          selfId={selfId || undefined}
           onClose={() => setInventoryOpen(false)}
+          onEquipTool={(prefabId) => equipCatalogTool(prefabId, selfId || 'local')}
         />
       )}
 
