@@ -646,11 +646,16 @@ class GlobalCell {
       }
     }
 
+    const localLocation = currentLocationTag();
+    const localId = this.localPeerId;
+    const localConns = connectedPeers.size;
+
     const waiting = livePeers
       .filter((peer) => peer.peerId !== this.localPeerId)
       .filter((peer) => !connectedPeers.has(peer.peerId))
       .map((peer) => {
         const tracked = this.waitingNodes.get(peer.peerId);
+        const beacon = this.knownPresence.get(peer.peerId);
         const smoothness = computeSmoothness(
           peer.trustScore,
           peer.peerId,
@@ -662,47 +667,41 @@ class GlobalCell {
           ...peer,
           waitAgeMs: tracked ? nowTs - tracked.firstSeenAt : 0,
           smoothness,
+          sameRoom: !!beacon?.location && beacon.location === localLocation,
+          remoteConns: typeof beacon?.conns === 'number' ? beacon.conns : null,
         };
-      });
+      })
+      // Deterministic arbitration — exactly one side of every pair dials,
+      // which removes the simultaneous-offer (glare) collisions.
+      .filter((peer) => shouldLocalDial(localConns, peer.remoteConns, localId, peer.peerId));
 
     if (waiting.length === 0) {
       this.maybeForceLoopGuarantee(nowTs);
       return;
     }
 
+    // Same-surface peers (same room / Brain / Explore) always sort first.
+    const roomFirst = (a: { sameRoom: boolean }, b: { sameRoom: boolean }) =>
+      Number(b.sameRoom) - Number(a.sameRoom);
+
     let candidate: (typeof waiting)[number] | null = null;
     let resolutionMode: 'connected→waiting' | 'waiting→smoothest' | 'waiting→pair' = 'connected→waiting';
 
-    if (connectedPeers.size > 0) {
+    if (localConns > 0) {
       // Local Connected: prefer longest-waiting (fairness), smoothness as tiebreaker.
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
+        .sort((a, b) => roomFirst(a, b) || (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
       resolutionMode = 'connected→waiting';
     } else {
-      // Local Waiting: prefer smoothest peer overall.
-      // Option B fallback: if every visible peer is also Waiting, deterministically
-      // pair with the longest-waiting partner whose peerId sorts lower than ours.
-      // (Lower-id side initiates; higher-id side passively accepts — prevents
-      // simultaneous mutual dials.)
+      // Local Waiting: prefer smoothest peer overall; arbitration above already
+      // guarantees the partner is listening rather than dialing back at us.
       candidate = waiting
         .slice()
-        .sort((a, b) => (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
-      resolutionMode = 'waiting→smoothest';
-
-      if (candidate && candidate.smoothness === 0) {
-        // No Connected/known-good peers visible — engage waiting-pair fallback.
-        const localId = this.localPeerId;
-        const pairCandidate = waiting
-          .slice()
-          .filter(p => p.peerId < localId)
-          .sort((a, b) => (b.waitAgeMs - a.waitAgeMs) || a.peerId.localeCompare(b.peerId))[0] ?? null;
-        if (pairCandidate) {
-          candidate = pairCandidate;
-          resolutionMode = 'waiting→pair';
-        }
-      }
+        .sort((a, b) => roomFirst(a, b) || (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+      resolutionMode = (candidate?.remoteConns ?? 0) > 0 ? 'waiting→smoothest' : 'waiting→pair';
     }
+
     if (!candidate) return;
 
     const connected = mesh.connectToPeer(candidate.peerId);
