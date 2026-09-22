@@ -2484,18 +2484,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           While plotting, re-enable joystick + look so the user can walk. */}
       {ready && !isMobile && (
         <>
-          {/* Look-drag stays live in Builder Mode so the user can pan and
-              tilt while positioning a piece. */}
+          {/* Look-drag and movement stay live in Builder Mode — the ghost
+              rides in front of you while you walk it into place. */}
           <DesktopLookOverlay />
-          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <DesktopJoystick />}
+          {!builder.pendingPlot && <DesktopJoystick />}
         </>
       )}
 
       {/* Mobile controls */}
       {isMobile && (
         <>
-          <TouchLookOverlay inert={scenePlacementArmed} />
-          {(!isBuilding || (isPlotting && !builder.pendingPlot)) && <MobileJoystick />}
+          {/* Only a pointer-positioned ghost needs the look layer inert; a
+              following ghost tracks the avatar, so looking stays free. */}
+          <TouchLookOverlay inert={scenePlacementArmed && !pendingCast?.follow} />
+          {!builder.pendingPlot && <MobileJoystick />}
         </>
       )}
 
