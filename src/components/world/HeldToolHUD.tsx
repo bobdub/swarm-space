@@ -60,41 +60,37 @@ export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
     <div
       role="form"
       aria-label="Held tool"
-      className="pointer-events-auto absolute bottom-[max(env(safe-area-inset-bottom),96px)] right-3 z-30 flex items-center gap-2 rounded-full border border-primary/40 bg-background/90 px-2 py-1.5 shadow-lg backdrop-blur"
+      title={`${prefab.label} — ${target ? target.label : 'swing'}`}
+      className="pointer-events-auto absolute right-2 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-1 rounded-full border border-primary/40 bg-background/80 p-1 shadow-md backdrop-blur"
     >
+      <Button
+        type="button"
+        size="icon"
+        variant="default"
+        onClick={onUse}
+        className="h-9 w-9 rounded-full"
+        aria-label={`Use ${prefab.label}`}
+        title={`Use ${prefab.label}`}
+      >
+        <Hammer className="h-4 w-4" />
+      </Button>
       <span
-        className="flex h-7 w-7 items-center justify-center rounded-full border border-border/50"
+        className="flex h-5 w-5 items-center justify-center rounded-full border border-border/50"
         style={{ backgroundColor: prefab.color }}
         aria-hidden="true"
       >
-        <Hand className="h-3.5 w-3.5 text-foreground/80" />
+        <Hand className="h-3 w-3 text-foreground/80" />
       </span>
-      <span className="text-[11px] font-medium text-foreground/90 max-w-[100px] truncate">
-        {prefab.label}
-      </span>
-      <span className="max-w-[110px] truncate text-[10px] text-foreground/60">
-        {target ? target.label : selectedPlacementId ? 'Target locked' : 'Air (swing)'}
-      </span>
-      <Button
-        type="button"
-        size="sm"
-        variant="default"
-        onClick={onUse}
-        className="h-7 gap-1 px-2 text-[11px]"
-      >
-        <Hammer className="h-3.5 w-3.5" />
-        Use
-      </Button>
       <Button
         type="button"
         size="icon"
         variant="ghost"
         onClick={onDrop}
-        className="h-7 w-7"
-        aria-label="Drop tool"
+        className="h-6 w-6"
+        aria-label={`Drop ${prefab.label}`}
         title="Drop tool"
       >
-        <X className="h-3.5 w-3.5" />
+        <X className="h-3 w-3" />
       </Button>
     </div>
   );
