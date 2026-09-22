@@ -33,6 +33,7 @@ import {
   type MaterialId,
 } from '@/lib/world/materials';
 import { getToolAny } from '@/lib/brain/toolCatalog';
+import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 
 export interface InventorySection {
@@ -49,17 +50,20 @@ export const INVENTORY_SECTIONS: InventorySection[] = [
   { id: 'openings', label: 'Doors & Windows', sources: ['doors', 'windows'] },
   { id: 'roofs', label: 'Roofs', sources: ['roofs'] },
   { id: 'tools', label: 'Tools', sources: ['tools', 'consumables'] },
+  { id: 'options', label: 'Options', sources: [] },
 ];
 
 interface BuilderInventoryProps {
   open: boolean;
   builder: UseBrainBuilder;
   onClose: () => void;
+  /** Local peer id — used by the Options tab (dev roles, land). */
+  selfId?: string;
   /** Equip a catalog tool straight into the hand slot. */
   onEquipTool?: (prefabId: string) => void;
 }
 
-export function BuilderInventory({ open, builder, onClose, onEquipTool }: BuilderInventoryProps) {
+export function BuilderInventory({ open, builder, onClose, selfId, onEquipTool }: BuilderInventoryProps) {
   const [sectionId, setSectionId] = useState<string>('structures');
   const [totals, setTotals] = useState<Record<MaterialId, number>>(() => materialTotals());
 
@@ -167,7 +171,9 @@ export function BuilderInventory({ open, builder, onClose, onEquipTool }: Builde
 
           {/* Tiles */}
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {section.id === 'gathered' ? (
+            {section.id === 'options' ? (
+              <BuilderOptionsPanel builder={builder} selfId={selfId} />
+            ) : section.id === 'gathered' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
                 {MATERIALS.map((m) => (
                   <div

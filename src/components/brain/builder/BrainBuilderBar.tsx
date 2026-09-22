@@ -12,25 +12,9 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { X, Magnet, FlaskConical, Plus, Move3D, LandPlot as LandPlotIcon, Footprints, ArrowDownFromLine, Eye, Route, SlidersHorizontal, Camera, Bug } from 'lucide-react';
-import {
-  isOverheadView,
-  isSeatDebugOn,
-  subscribeSpectator,
-  toggleOverheadView,
-  toggleSeatDebug,
-} from '@/lib/pub/spectatorCameraStore';
-import {
-  subscribeShowLandMarkers,
-  getShowLandMarkers,
-  toggleShowLandMarkers,
-} from '@/lib/world/landOverlayStore';
-import { isDev, grantDev } from '@/lib/world/devRoles';
-import {
-  subscribeBuilderTopView,
-  toggleBuilderTopView,
-  setBuilderTopView,
-} from '@/lib/brain/builderCameraStore';
+import { X, FlaskConical, Plus, LandPlot as LandPlotIcon, Footprints, SlidersHorizontal } from 'lucide-react';
+import { setBuilderTopView } from '@/lib/brain/builderCameraStore';
+import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import { Button } from '@/components/ui/button';
 import {
   PREFAB_SECTIONS,
@@ -63,7 +47,7 @@ import type { PlacementRecord } from '@/lib/world/worldPlacementsStore';
  * tile now goes directly into the hand slot with a synthetic source
  * record, so dropping it still lands a real placement in the world.
  */
-function equipCatalogTool(prefabId: string, actorId: string): void {
+export function equipCatalogTool(prefabId: string, actorId: string): void {
   const now = Date.now();
   const source: PlacementRecord = {
     placementId: `equip-${prefabId}-${now}`,
@@ -139,11 +123,6 @@ export function BrainBuilderBar({
   const [virtualTab, setVirtualTab] = useState<
     typeof LAB_SECTION | typeof LANDMARKS_SECTION | typeof OPTIONS_SECTION | null
   >(null);
-  // Spectator camera + seat debug now live in the Options tab.
-  const [, forceSpec] = useState(0);
-  useEffect(() => subscribeSpectator(() => forceSpec((n) => (n + 1) & 0xfff)), []);
-  const overhead = isOverheadView();
-  const seatDebug = isSeatDebugOn();
   const currentTab: BarSectionId = virtualTab ?? activeSection;
 
   const [mints, setMints] = useState<MintedRecord[]>([]);
@@ -153,12 +132,6 @@ export function BrainBuilderBar({
   const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
   useEffect(() => subscribeLandPlots(setPlots), []);
   // Overhead build camera — resets to off when the bar unmounts (build exit).
-  const [topView, setTopView] = useState(false);
-  const [showLand, setShowLand] = useState(() => getShowLandMarkers());
-  useEffect(() => subscribeShowLandMarkers(setShowLand), []);
-  const [canLayCommons, setCanLayCommons] = useState(() => isDev(selfId));
-  useEffect(() => { setCanLayCommons(isDev(selfId)); }, [selfId]);
-  useEffect(() => subscribeBuilderTopView(setTopView), []);
   useEffect(() => () => setBuilderTopView(false), []);
   const ownsAnyPlot = useMemo(
     () => !!selfId && plots.some((p) => p.ownerId === selfId),
@@ -370,150 +343,7 @@ export function BrainBuilderBar({
 
       {currentTab === OPTIONS_SECTION ? (
         /* Options tab — every builder toggle lives here */
-        <div className="flex flex-wrap items-center gap-1.5 pb-1">
-          <button
-            type="button"
-            data-testid="builder-toggle-magnetic"
-            onClick={() => setMagnetic(!magnetic)}
-            aria-pressed={magnetic}
-            disabled={freeBuild}
-            title="Magnets — stronger snap between assets"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors disabled:opacity-50',
-              magnetic && !freeBuild
-                ? 'border-primary/60 bg-primary/15 text-primary'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <Magnet className="h-3 w-3" aria-hidden="true" />
-            <span>Magnets</span>
-          </button>
-          <button
-            type="button"
-            data-testid="builder-toggle-freebuild"
-            onClick={() => setFreeBuild(!freeBuild)}
-            aria-pressed={freeBuild}
-            title="Free Build — drag and drop assets without grid snap"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              freeBuild
-                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <Move3D className="h-3 w-3" aria-hidden="true" />
-            <span>Free</span>
-          </button>
-          <button
-            type="button"
-            data-testid="builder-toggle-plot"
-            onClick={togglePlotting}
-            aria-pressed={plotting}
-            title="Plot — walk a loop to claim land (3 SWARM per box)"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              plotting
-                ? 'border-amber-400/70 bg-amber-400/15 text-amber-300'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <LandPlotIcon className="h-3 w-3" aria-hidden="true" />
-            <span>Plot</span>
-          </button>
-          <button
-            type="button"
-            data-testid="builder-toggle-showland"
-            onClick={toggleShowLandMarkers}
-            aria-pressed={showLand}
-            title="Show land — surface markers for owned and communal plots"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              showLand
-                ? 'border-emerald-400/60 bg-emerald-400/15 text-emerald-300'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <Eye className="h-3 w-3" aria-hidden="true" />
-            <span>Land</span>
-          </button>
-          {canLayCommons ? (
-            <button
-              type="button"
-              data-testid="builder-toggle-commons"
-              onClick={() => setPlotMode(plotMode === 'commons' ? 'private' : 'commons')}
-              aria-pressed={plotMode === 'commons'}
-              title="Roads — lay free public land (roads, squares). Nobody can build on it."
-              className={[
-                'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-                plotMode === 'commons'
-                  ? 'border-slate-300/70 bg-slate-300/20 text-slate-100'
-                  : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-              ].join(' ')}
-            >
-              <Route className="h-3 w-3" aria-hidden="true" />
-              <span>Roads</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              data-testid="builder-enable-roads"
-              onClick={() => { grantDev(selfId); setCanLayCommons(true); }}
-              title="Enable road laying (maintainer tools) on this device"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border/50 bg-muted/40 px-2 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted/70"
-            >
-              <Route className="h-3 w-3" aria-hidden="true" />
-              <span>Enable roads</span>
-            </button>
-          )}
-          <button
-            type="button"
-            data-testid="builder-toggle-topview"
-            onClick={toggleBuilderTopView}
-            aria-pressed={topView}
-            title="Top view — look down on your avatar and the build grid"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              topView
-                ? 'border-primary/60 bg-primary/15 text-primary'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <ArrowDownFromLine className="h-3 w-3" aria-hidden="true" />
-            <span>Top</span>
-          </button>
-          <button
-            type="button"
-            data-testid="builder-toggle-overhead"
-            onClick={toggleOverheadView}
-            aria-pressed={overhead}
-            title="Overhead view — spectator camera above the table"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              overhead
-                ? 'border-primary/60 bg-primary/15 text-primary'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <Camera className="h-3 w-3" aria-hidden="true" />
-            <span>Overhead</span>
-          </button>
-          <button
-            type="button"
-            data-testid="builder-toggle-seatdebug"
-            onClick={toggleSeatDebug}
-            aria-pressed={seatDebug}
-            title="Seat debug — show seat anchors and occupancy read-out"
-            className={[
-              'inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors',
-              seatDebug
-                ? 'border-primary/60 bg-primary/15 text-primary'
-                : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
-            ].join(' ')}
-          >
-            <Bug className="h-3 w-3" aria-hidden="true" />
-            <span>Seat debug</span>
-          </button>
-        </div>
+        <BuilderOptionsPanel builder={builder} selfId={selfId} className="pb-1" />
       ) : !hideCatalog ? (
       <>
       {/* Asset tiles */}
