@@ -170,7 +170,9 @@ export function BuilderInventory({ open, builder, onClose, selfId, onEquipTool }
 
           {/* Tiles */}
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
-            {section.id === 'gathered' ? (
+            {section.id === 'options' ? (
+              <BuilderOptionsPanel builder={builder} selfId={selfId} />
+            ) : section.id === 'gathered' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
                 {MATERIALS.map((m) => (
                   <div
