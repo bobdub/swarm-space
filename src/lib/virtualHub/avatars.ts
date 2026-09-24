@@ -72,5 +72,38 @@ export function saveHubPrefs(prefs: VirtualHubPrefs): void {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* ignore */
+}
+
+/** Window event fired whenever the active avatar changes at runtime. */
+export const AVATAR_CHANGED_EVENT = "swarm-avatar-changed";
+
+/**
+ * Switch the active avatar in-place (no reload). Persists to hub prefs and
+ * notifies every live listener so the world mesh, mass and peer presence
+ * can all follow the new form.
+ */
+export function setActiveAvatarId(avatarId: string): void {
+  const prefs = loadHubPrefs();
+  if (prefs.avatarId === avatarId) return;
+  saveHubPrefs({ ...prefs, avatarId });
+  try {
+    window.dispatchEvent(new CustomEvent(AVATAR_CHANGED_EVENT, { detail: { avatarId } }));
+  } catch {
+    /* non-browser context */
   }
+}
+
+/** Subscribe to runtime avatar changes. Returns an unsubscribe fn. */
+export function subscribeAvatarChange(cb: (avatarId: string) => void): () => void {
+  const handler = (e: Event) => {
+    const id = (e as CustomEvent<{ avatarId?: string }>).detail?.avatarId;
+    if (typeof id === "string") cb(id);
+  };
+  try {
+    window.addEventListener(AVATAR_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(AVATAR_CHANGED_EVENT, handler);
+  } catch {
+    return () => {};
+  }
+}
 }
