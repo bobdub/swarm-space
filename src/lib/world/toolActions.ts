@@ -230,7 +230,57 @@ export async function applyToolToPlacement(toolPrefabId: string, target: Placeme
   });
 }
 
+/** Reach (m, surface distance from the avatar) per nature kind a verb can work. */
+const AUTO_REACH: Record<ToolVerb, Record<string, number>> = {
+  chop: { tree: 4.2 },
+  mine: { mountain: 14, volcano: 18 },
+  gather: { flower: 2.8, grass: 2.8, fish: 3.2, water: 3.2 },
+  whittle: {},
+  dig: {},
+  sharpen: {},
+  none: {},
+};
+
+/**
+ * Proximity target: when the player swings without having tapped a
+ * target, pick the nearest workable nature block in front of / around
+ * them. This is what makes "walk up to a tree and swing" work.
+ */
+export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): ToolTarget | null {
+  if (!selfId) return null;
+  const reachTable = AUTO_REACH[verbFor(toolPrefabId)];
+  if (!reachTable || Object.keys(reachTable).length === 0) return null;
+  const physics = getBrainPhysics();
+  const self = physics.getBody(selfId);
+  if (!self) return null;
+  const forward = physics.getIntent(selfId)?.basis?.forward;
+  let best: { block: ReturnType<ReturnType<typeof getBuilderBlockEngine>['listBlocks']>[number]; score: number } | null = null;
+  for (const block of getBuilderBlockEngine().listBlocks((b) => b.kind in reachTable)) {
+    const body = physics.getBody(block.bodyId);
+    if (!body) continue;
+    const dx = body.pos[0] - self.pos[0];
+    const dy = body.pos[1] - self.pos[1];
+    const dz = body.pos[2] - self.pos[2];
+    const d = Math.hypot(dx, dy, dz);
+    if (!Number.isFinite(d) || d > reachTable[block.kind]) continue;
+    // Prefer things in front: facing bonus up to 40% of distance.
+    const facing = forward && d > 1e-3 ? (dx * forward[0] + dy * forward[1] + dz * forward[2]) / d : 0;
+    const score = d * (1 - 0.4 * Math.max(0, facing));
+    if (!best || score < best.score) best = { block, score };
+  }
+  if (!best) return null;
+  const kind = best.block.kind;
+  return {
+    kind: 'nature',
+    id: best.block.bodyId,
+    label: getNatureSpec(kind as Parameters<typeof getNatureSpec>[0])?.label ?? labelForKind(kind),
+    natureKind: kind,
+    blockId: best.block.bodyId,
+  };
+}
+
 export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget | null, selfId?: string): Promise<boolean> {
+  if (!target) target = resolveNearbyTarget(toolPrefabId, selfId);
   if (!target) return swingToolInAir(toolPrefabId, selfId);
   if (target.kind === 'placement') return applyToolToPlacement(toolPrefabId, target.placement, selfId);
 

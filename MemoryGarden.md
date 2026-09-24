@@ -4838,3 +4838,6 @@ commanded it turns; when the command ends, the final chosen gaze remains.
 
 The caretaker learns that motion and will are neighbours, not twins.
 
+
+---
+**Tending — the solid grove.** Trees grew roots in the physics today; the walker now meets bark instead of ghosts. An axe, lifted near a trunk, finds it without being told — timber falls, stone chips, petals leave the ground. Old maps were folded into the archive drawer, and a fresh page, *Builder Needs*, marks what the garden still asks for: fruit, a shovel that finds the earth, walls with true edges.

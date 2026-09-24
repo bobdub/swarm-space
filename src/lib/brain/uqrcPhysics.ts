@@ -689,6 +689,54 @@ export class UqrcPhysics {
 
   // ── private ────────────────────────────────────────────────────
 
+  private resolveSolidObstacles(pose: EarthPose): void {
+    const solids: Body[] = [];
+    for (const p of this.bodies.values()) {
+      if (p.kind !== 'piece') continue;
+      if (solidRadiusFor(p) > 0) solids.push(p);
+    }
+    if (solids.length === 0) return;
+    for (const b of this.bodies.values()) {
+      if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (!b.pos.every(Number.isFinite)) continue;
+      const ux0 = b.pos[0] - pose.center[0];
+      const uy0 = b.pos[1] - pose.center[1];
+      const uz0 = b.pos[2] - pose.center[2];
+      const ur = Math.hypot(ux0, uy0, uz0) || 1;
+      const ux = ux0 / ur, uy = uy0 / ur, uz = uz0 / ur;
+      for (const s of solids) {
+        const minD = solidRadiusFor(s) + 0.45; // + avatar radius
+        let dx = b.pos[0] - s.pos[0];
+        let dy = b.pos[1] - s.pos[1];
+        let dz = b.pos[2] - s.pos[2];
+        if (Math.abs(dx) > minD + 6 || Math.abs(dy) > minD + 6 || Math.abs(dz) > minD + 6) continue;
+        // Project onto the local tangent plane (ignore height).
+        const along = dx * ux + dy * uy + dz * uz;
+        if (along > 8 || along < -4) continue; // standing on a roof / far below
+        dx -= along * ux; dy -= along * uy; dz -= along * uz;
+        const d = Math.hypot(dx, dy, dz);
+        if (d >= minD) continue;
+        let nx: number, ny: number, nz: number;
+        if (d < 1e-4) {
+          // Dead centre: push along any tangent.
+          const tx = Math.abs(ux) < 0.9 ? 1 : 0;
+          const ty = tx ? 0 : 1;
+          nx = ty * uz; ny = -tx * uz; nz = tx * uy - ty * ux;
+          const nm = Math.hypot(nx, ny, nz) || 1;
+          nx /= nm; ny /= nm; nz /= nm;
+        } else {
+          nx = dx / d; ny = dy / d; nz = dz / d;
+        }
+        const push = minD - (d < 1e-4 ? 0 : d);
+        b.pos[0] += nx * push; b.pos[1] += ny * push; b.pos[2] += nz * push;
+        const vIn = b.vel[0] * nx + b.vel[1] * ny + b.vel[2] * nz;
+        if (vIn < 0) {
+          b.vel[0] -= vIn * nx; b.vel[1] -= vIn * ny; b.vel[2] -= vIn * nz;
+        }
+      }
+    }
+  }
+
   private tick(): void {
     try {
       const pose: EarthPose = getEarthPose();
@@ -1173,6 +1221,13 @@ export class UqrcPhysics {
         }
       }
 
+      // ── Solid obstacles: trees, walls, doors, fences, houses. The field
+      //    collision is too coarse (≈500 m cells) to stop a walker at a
+      //    trunk, so humanoids get a tangential push-out against every
+      //    solid piece within reach. Radial (up/down) motion is untouched.
+      this.resolveSolidObstacles(pose);
+
+
       // 4. Cheap qScore every 30 ticks (~0.5 s)
       if (
         this.field.ticks > 0 &&
@@ -1253,4 +1308,21 @@ export function getLastCausalProbe(): CausalProbe | null {
 /** 𝒞_light state classification — see UqrcPhysics.getCausalState(). */
 export function getCausalState(): CausalState {
   return getBrainPhysics().getCausalState();
+}
+/**
+ * Tangential collision radius (m) of a solid structure piece, 0 = walk-through.
+ * `meta.solidRadius` overrides. Flora, water, fish, bees and terrain organs
+ * (mountain/volcano — they are ground, not walls) stay passable.
+ */
+export function solidRadiusFor(p: Body): number {
+  const override = p.meta?.solidRadius;
+  if (typeof override === 'number' && Number.isFinite(override)) return Math.max(0, override);
+  const kind = String(p.meta?.structure ?? p.meta?.prefabId ?? '');
+  if (!kind) return 0;
+  if (/flower|grass|water|fish|bee|hive|mountain|volcano|drop|tool_|seed|consumable/.test(kind)) return 0;
+  if (/tree|trunk/.test(kind)) return 0.55;
+  if (/wall|door|fence|gate|pillar|column|post/.test(kind)) return 1.1;
+  if (/house|hut|cabin|apartment|tower|shed|barn|temple/.test(kind)) return 3.2;
+  if (/rock|boulder|stone|brick|block|foundation/.test(kind)) return 0.9;
+  return 0;
 }
