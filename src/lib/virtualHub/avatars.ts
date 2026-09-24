@@ -107,4 +107,3 @@ export function subscribeAvatarChange(cb: (avatarId: string) => void): () => voi
     return () => {};
   }
 }
-}
