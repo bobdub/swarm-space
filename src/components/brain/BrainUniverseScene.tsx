@@ -161,6 +161,7 @@ import {
   loadHubPrefs,
   saveHubPrefs,
   getAvatarMassFromId,
+  subscribeAvatarChange,
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
@@ -716,9 +717,18 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
     const id = window.setInterval(() => force((n) => (n + 1) & 0xfff), 100);
     return () => window.clearInterval(id);
   }, []);
-  const avatarId = useMemo(() => {
+  // Live avatar id — follows runtime switches made in the builder Options
+  // tab, so your form changes in-place without re-entering the Brain.
+  const [avatarId, setAvatarId] = useState<string | undefined>(() => {
     try { return loadHubPrefs()?.avatarId; } catch { return undefined; }
-  }, []);
+  });
+  useEffect(() => subscribeAvatarChange(setAvatarId), []);
+  useEffect(() => {
+    // Mass follows the chosen form — heavier avatars drift more slowly.
+    const b = physics.getBody(selfId);
+    if (b) b.mass = getAvatarMassFromId(avatarId);
+  }, [avatarId, physics, selfId]);
+
 
   if (view === 'first') return null;
   const body = physics.getBody(selfId);

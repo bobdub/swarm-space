@@ -19,6 +19,7 @@ import {
   ArrowDownFromLine,
   Camera,
   Bug,
+  UserRound,
 } from 'lucide-react';
 import {
   isOverheadView,
@@ -38,6 +39,13 @@ import {
   toggleBuilderTopView,
 } from '@/lib/brain/builderCameraStore';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
+import {
+  AVATAR_REGISTRY,
+  loadHubPrefs,
+  setActiveAvatarId,
+  subscribeAvatarChange,
+  DEFAULT_AVATAR_ID,
+} from '@/lib/virtualHub/avatars';
 
 interface BuilderOptionsPanelProps {
   builder: UseBrainBuilder;
@@ -74,11 +82,47 @@ export function BuilderOptionsPanel({
   const [canLayCommons, setCanLayCommons] = useState(() => isDev(selfId));
   useEffect(() => { setCanLayCommons(isDev(selfId)); }, [selfId]);
 
+  const [avatarId, setAvatarId] = useState<string>(() => {
+    try { return loadHubPrefs().avatarId || DEFAULT_AVATAR_ID; } catch { return DEFAULT_AVATAR_ID; }
+  });
+  useEffect(() => subscribeAvatarChange(setAvatarId), []);
+
   return (
-    <div
-      className={`flex flex-wrap items-center gap-1.5 ${className}`}
-      data-testid="builder-options-panel"
-    >
+    <div className={`flex flex-col gap-2 ${className}`} data-testid="builder-options-panel">
+      {/* Avatar — change your form without leaving the world */}
+      <div className="rounded-lg border border-border/40 bg-muted/20 p-2">
+        <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <UserRound className="h-3 w-3" aria-hidden="true" /> Avatar
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {AVATAR_REGISTRY.map((a) => {
+            const active = a.id === avatarId;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                data-testid={`builder-avatar-${a.id}`}
+                aria-pressed={active}
+                disabled={!a.unlocked}
+                title={a.description}
+                onClick={() => setActiveAvatarId(a.id)}
+                className={[
+                  'inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] transition-colors disabled:opacity-50',
+                  active
+                    ? 'border-primary/60 bg-primary/15 text-primary'
+                    : 'border-border/50 bg-muted/40 text-muted-foreground hover:bg-muted/70',
+                ].join(' ')}
+              >
+                <span>{a.name}</span>
+                <span className="opacity-60 tabular-nums">{(a.mass ?? 1.8).toFixed(1)}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+
       <Chip
         testId="builder-toggle-magnetic"
         icon={<Magnet className="h-3 w-3" aria-hidden="true" />}
@@ -158,7 +202,9 @@ export function BuilderOptionsPanel({
         active={seatDebug}
         onClick={toggleSeatDebug}
       />
+      </div>
     </div>
+
   );
 }
 

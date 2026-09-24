@@ -64,15 +64,15 @@ export function useBrainVoice(
     if (!enabled || !user) return;
     const manager = getWebRTCManager(user.id, user.username);
     let cancelled = false;
-    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
-    const localAvatarId = prefs?.avatarId;
 
     const broadcastSelfPresence = () => {
       try {
+        // Read prefs fresh so a mid-session avatar switch reaches peers.
+        const live = (() => { try { return loadHubPrefs(); } catch { return null; } })();
         sendRoomPresence(roomId, {
           userId: user.id,
           username: user.username,
-          avatarId: localAvatarId,
+          avatarId: live?.avatarId,
           position: lastSelfPosRef.current,
           pv: BRAIN_PHYSICS_VERSION,
         });
