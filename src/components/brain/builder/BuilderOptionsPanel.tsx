@@ -38,6 +38,13 @@ import {
   toggleBuilderTopView,
 } from '@/lib/brain/builderCameraStore';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
+import {
+  AVATAR_REGISTRY,
+  loadHubPrefs,
+  setActiveAvatarId,
+  subscribeAvatarChange,
+  DEFAULT_AVATAR_ID,
+} from '@/lib/virtualHub/avatars';
 
 interface BuilderOptionsPanelProps {
   builder: UseBrainBuilder;
