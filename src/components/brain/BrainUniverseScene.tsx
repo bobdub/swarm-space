@@ -161,6 +161,7 @@ import {
   loadHubPrefs,
   saveHubPrefs,
   getAvatarMassFromId,
+  subscribeAvatarChange,
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
