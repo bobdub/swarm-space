@@ -72,6 +72,7 @@ export function saveHubPrefs(prefs: VirtualHubPrefs): void {
     localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
   } catch {
     /* ignore */
+  }
 }
 
 /** Window event fired whenever the active avatar changes at runtime. */
