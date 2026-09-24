@@ -201,7 +201,9 @@ export function BuilderOptionsPanel({
         active={seatDebug}
         onClick={toggleSeatDebug}
       />
+      </div>
     </div>
+
   );
 }
 
