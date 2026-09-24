@@ -1,3 +1,4 @@
+import { getBrowserQScore, startBrowserHealth } from '@/lib/guardrails/browserHealth';
 /**
  * ═══════════════════════════════════════════════════════════════════════
  * WEATHER — a field observable, not a simulation
@@ -112,12 +113,30 @@ export function weatherCurvatureBoost(localNormal: Vec3): number {
   return wet * 0.6 + (storm ? 0.25 : 0);
 }
 
+/**
+ * CPU fallback gate. Browsers don't expose CPU %, so load is estimated
+ * from the Browser QScore (fps, long tasks, loop lag, heap): load = 1 − Q.
+ * Above 60 % the weather falls back: the solver pauses (state frozen,
+ * no field injections) and the renderer drops rain/ripples.
+ */
+export const WEATHER_CPU_FALLBACK = 0.6;
+let fallback = false;
+export function isWeatherFallback(): boolean { return fallback; }
+
 export function startWeather(): () => void {
   if (timer) return stopWeather;
+  startBrowserHealth();
   // One immediate read so the sky reflects the field the moment the
   // scene mounts — the state comes from u, nothing is seeded.
   try { tickWeather(); } catch (err) { console.warn('[weather] first tick failed', err); }
   timer = setInterval(() => {
+    const load = 1 - getBrowserQScore();
+    const next = load > WEATHER_CPU_FALLBACK;
+    if (next !== fallback) {
+      fallback = next;
+      for (const fn of listeners) { try { fn(state); } catch { /* noop */ } }
+    }
+    if (fallback) return;
     try { tickWeather(); } catch (err) { console.warn('[weather] tick failed', err); }
   }, TICK_MS);
   return stopWeather;
