@@ -1309,3 +1309,20 @@ export function getLastCausalProbe(): CausalProbe | null {
 export function getCausalState(): CausalState {
   return getBrainPhysics().getCausalState();
 }
+/**
+ * Tangential collision radius (m) of a solid structure piece, 0 = walk-through.
+ * `meta.solidRadius` overrides. Flora, water, fish, bees and terrain organs
+ * (mountain/volcano — they are ground, not walls) stay passable.
+ */
+export function solidRadiusFor(p: Body): number {
+  const override = p.meta?.solidRadius;
+  if (typeof override === 'number' && Number.isFinite(override)) return Math.max(0, override);
+  const kind = String(p.meta?.structure ?? p.meta?.prefabId ?? '');
+  if (!kind) return 0;
+  if (/flower|grass|water|fish|bee|hive|mountain|volcano|drop|tool_|seed|consumable/.test(kind)) return 0;
+  if (/tree|trunk/.test(kind)) return 0.55;
+  if (/wall|door|fence|gate|pillar|column|post/.test(kind)) return 1.1;
+  if (/house|hut|cabin|apartment|tower|shed|barn|temple/.test(kind)) return 3.2;
+  if (/rock|boulder|stone|brick|block|foundation/.test(kind)) return 0.9;
+  return 0;
+}
