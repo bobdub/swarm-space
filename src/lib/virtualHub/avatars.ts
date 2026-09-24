@@ -5,6 +5,7 @@
 import type { JSX } from "react";
 import { rabbitAvatar } from "./avatars/rabbit";
 import { dragonAvatar } from "./avatars/dragon";
+import { catAvatar } from "./avatars/cat";
 
 export interface AvatarRenderProps {
   scale?: number;
