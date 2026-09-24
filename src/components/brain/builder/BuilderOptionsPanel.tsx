@@ -19,6 +19,7 @@ import {
   ArrowDownFromLine,
   Camera,
   Bug,
+  UserRound,
 } from 'lucide-react';
 import {
   isOverheadView,
