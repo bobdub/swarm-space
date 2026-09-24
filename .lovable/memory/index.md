@@ -13,7 +13,10 @@
 - **Visible Q_Score:** Wrap stress hotspots with `withHealth`/`spikeHealth` so the badge spikes on real runtime events; baseline seeded from `src/lib/uqrc/baseline.json`.
 - **Dead-state ≠ Network:** UQRC causal-probe `creep`/`saturated`/`dead` is local field saturation. Resolve via field-side basin relax. NEVER disconnect WebRTC or leave swarm in response.
 
+- Weather falls back when CPU load > 60%.
+
 ## Memories
+- [Weather CPU fallback](mem://features/weather-cpu-fallback) — load = 1 − Browser QScore, pause solver, hide rain
 - [Infinity Protocol](mem://preference/infinity-protocol) — Personal Knowledge Logic Chain; 7-step order of operations for implementation reasoning
 - [Project Overview](mem://documentation/project-overview) — Three-Tier P2P stack, Neural Network layer, PeerJS, Gun.js, WebTorrent
 - [Scaffold Bus](mem://architecture/scaffold-bus) — Phase-Two pub/sub unifying World/NPC/Coin/Lab/Media via shared UQRC field; flag `scaffoldBus`
