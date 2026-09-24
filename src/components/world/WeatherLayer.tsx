@@ -10,6 +10,7 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   getWeather,
+  isWeatherFallback,
   startWeather,
   stopWeather,
   subscribeWeather,
@@ -28,7 +29,7 @@ export function WeatherLayer() {
 
   useEffect(() => {
     const stop = startWeather();
-    const unsub = subscribeWeather(setSnapshot);
+    const unsub = subscribeWeather((s) => setSnapshot({ ...s }));
     return () => { unsub(); stop(); stopWeather(); };
   }, []);
 
@@ -91,8 +92,8 @@ function CloudBody({ cloud }: { cloud: WeatherCloud }) {
           <meshStandardMaterial color={tone} roughness={1} transparent opacity={opacity} depthWrite={false} />
         </mesh>
       ))}
-      {cloud.raining && <RainColumn altitude={cloud.altitude} radius={cloud.radius} />}
-      {cloud.raining && <GroundRipples altitude={cloud.altitude} radius={cloud.radius} />}
+      {cloud.raining && !isWeatherFallback() && <RainColumn altitude={cloud.altitude} radius={cloud.radius} />}
+      {cloud.raining && !isWeatherFallback() && <GroundRipples altitude={cloud.altitude} radius={cloud.radius} />}
     </group>
   );
 }
