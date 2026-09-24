@@ -25,6 +25,7 @@ export interface AvatarDefinition {
 
 export const AVATAR_REGISTRY: AvatarDefinition[] = [
   rabbitAvatar,
+  catAvatar,
   dragonAvatar,
   // Future avatars: { id: 'fox', ... }, { id: 'owl', ... }
 ];
