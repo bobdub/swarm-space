@@ -64,8 +64,6 @@ export function useBrainVoice(
     if (!enabled || !user) return;
     const manager = getWebRTCManager(user.id, user.username);
     let cancelled = false;
-    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
-    void prefs;
 
     const broadcastSelfPresence = () => {
       try {
