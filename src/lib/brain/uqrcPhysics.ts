@@ -1126,10 +1126,21 @@ export class UqrcPhysics {
                   - waterDip;
                 const targetShell = BODY_SHELL_RADIUS + elevation;
                 const dr = rMag - targetShell;
-              if (Math.abs(dr) < 1.0) {
-                // Idle → strong damping (0.85 retained → 0.15 kept).
-                // Full intent → gentle damping so the player keeps
-                // authority over vertical motion.
+              if (dr < 0 && Number.isFinite(targetShell)) {
+                // Hard terrain floor: the visible ground (volcano cone +
+                // land lift) is solid. Step the body up onto it and drop
+                // any downward radial velocity so it can never sink
+                // through the slope or phase the camera inside the crust.
+                b.pos[0] = pose.center[0] + ux * targetShell;
+                b.pos[1] = pose.center[1] + uy * targetShell;
+                b.pos[2] = pose.center[2] + uz * targetShell;
+                const newVRad = Math.max(0, vRad);
+                b.vel[0] = newVRad * ux + tx;
+                b.vel[1] = newVRad * uy + ty;
+                b.vel[2] = newVRad * uz + tz;
+              } else if (dr < 4.0) {
+                // Settle band (widened so walking downhill off the cone
+                // follows the slope instead of floating off ledges).
                 const moving = Math.min(1, intentMag);
                 const damp = 0.15 + 0.55 * moving;      // 0.15 idle → 0.70 moving
                 const spring = 4.0 * (1 - 0.5 * moving); // 4.0 idle → 2.0 moving
