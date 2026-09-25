@@ -199,7 +199,8 @@ describe('uqrcPhysics co-rotating transport', () => {
       body.pos[1] - getEarthPose().center[1],
       body.pos[2] - getEarthPose().center[2],
     );
-    expect(Math.abs(finalR - BODY_SHELL_RADIUS)).toBeLessThan(5);
+    // Terrain floor: land sits up to LAND_LIFT (6 m) above the sea shell.
+    expect(Math.abs(finalR - BODY_SHELL_RADIUS)).toBeLessThan(7);
   }, 30_000);
 
   it('runs each 𝒞_light boundary once despite faster body ticks', () => {
