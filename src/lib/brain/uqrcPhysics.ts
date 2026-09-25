@@ -1138,6 +1138,27 @@ export class UqrcPhysics {
                 b.vel[0] = newVRad * ux + tx;
                 b.vel[1] = newVRad * uy + ty;
                 b.vel[2] = newVRad * uz + tz;
+                // Lift the render-interpolation start too, so the camera
+                // never lerps from a sub-surface pre-clamp position.
+                if (b.prevPos) {
+                  const pdx = b.prevPos[0] - pose.center[0];
+                  const pdy = b.prevPos[1] - pose.center[1];
+                  const pdz = b.prevPos[2] - pose.center[2];
+                  const pr = Math.hypot(pdx, pdy, pdz);
+                  if (pr > 1e-6 && pr < targetShell) {
+                    const s = targetShell / pr;
+                    b.prevPos[0] = pose.center[0] + pdx * s;
+                    b.prevPos[1] = pose.center[1] + pdy * s;
+                    b.prevPos[2] = pose.center[2] + pdz * s;
+                  }
+                }
+                if (b.prevLocal) {
+                  const pl = Math.hypot(b.prevLocal[0], b.prevLocal[1], b.prevLocal[2]);
+                  if (pl > 1e-6 && pl < targetShell) {
+                    const s = targetShell / pl;
+                    b.prevLocal[0] *= s; b.prevLocal[1] *= s; b.prevLocal[2] *= s;
+                  }
+                }
               } else if (dr < 4.0) {
                 // Settle band (widened so walking downhill off the cone
                 // follows the slope instead of floating off ledges).
