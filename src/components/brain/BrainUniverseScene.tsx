@@ -147,6 +147,8 @@ import {
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
+import { worldPosToLocalNormal } from '@/lib/brain/earth';
 import { COSMO_COMPOUNDS } from '@/lib/brain/cosmoChemistry';
 // Sun light colour driven by the H/He plasma compound — shader, scene
 // light, and HUD all read from the same chemistry source.
@@ -507,7 +509,17 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       const ez = eyeZ - pose.center[2];
       const eyeR = Math.hypot(ex, ey, ez) || 1;
       const bodyR = Math.hypot(radialDx, radialDy, radialDz);
-      const minR = bodyR + 0.9;
+      // Also sample the real terrain (volcano cone + land lift) under the
+      // eye so a boom swung over a slope never ends up inside the crust.
+      let terrainR = 0;
+      try {
+        const eyeLocalN = worldPosToLocalNormal([eyeX, eyeY, eyeZ], pose);
+        terrainR = FEET_SHELL_RADIUS
+          + sampleVolcanoElevation(getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), eyeLocalN)
+          + sampleSurfaceLift(eyeLocalN)
+          + 1.2;
+      } catch { /* organ unavailable — fall back to body-relative floor */ }
+      const minR = Math.max(bodyR + 0.9, terrainR);
       if (eyeR < minR) {
         const k = minR / eyeR;
         eyeX = pose.center[0] + ex * k;

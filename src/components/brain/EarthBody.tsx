@@ -337,7 +337,7 @@ export function EarthBody() {
           vertexShader={earthVertex}
           fragmentShader={earthFragment}
           uniforms={uniforms}
-          side={THREE.FrontSide}
+          side={THREE.DoubleSide}
         />
       </mesh>
       {/* Soft glow halo */}
