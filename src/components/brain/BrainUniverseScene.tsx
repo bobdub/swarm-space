@@ -311,20 +311,48 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   const prevSpec = useRef(false);
 
   useEffect(() => {
-    const onDown = (e: KeyboardEvent) => (keys.current[e.code] = true);
-    const onUp = (e: KeyboardEvent) => (keys.current[e.code] = false);
-    const onShift = (e: KeyboardEvent) => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-        if (e.type === 'keydown' && !e.repeat) tryStartRun(performance.now());
+    // Map both physical code and typed key so WASD / arrows work on any
+    // keyboard layout, browser, or when e.code is empty.
+    const KEY_MAP: Record<string, string> = {
+      w: 'KeyW', a: 'KeyA', s: 'KeyS', d: 'KeyD',
+      arrowup: 'KeyW', arrowleft: 'KeyA', arrowdown: 'KeyS', arrowright: 'KeyD',
+    };
+    const CODE_MAP: Record<string, string> = {
+      KeyW: 'KeyW', KeyA: 'KeyA', KeyS: 'KeyS', KeyD: 'KeyD',
+      ArrowUp: 'KeyW', ArrowLeft: 'KeyA', ArrowDown: 'KeyS', ArrowRight: 'KeyD',
+    };
+    const isTyping = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
+    };
+    const resolve = (e: KeyboardEvent) =>
+      CODE_MAP[e.code] ?? KEY_MAP[(e.key || '').toLowerCase()];
+    const onDown = (e: KeyboardEvent) => {
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = resolve(e);
+      if (k) {
+        keys.current[k] = true;
+        if (e.code.startsWith('Arrow')) e.preventDefault();
+      }
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight' || e.key === 'Shift') {
+        if (!e.repeat) tryStartRun(performance.now());
       }
     };
-    window.addEventListener('keydown', onDown);
-    window.addEventListener('keyup', onUp);
-    window.addEventListener('keydown', onShift);
+    const onUp = (e: KeyboardEvent) => {
+      const k = resolve(e);
+      if (k) keys.current[k] = false;
+    };
+    const clearAll = () => { keys.current = {}; };
+    const onVis = () => { if (document.hidden) clearAll(); };
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keyup', onUp, true);
+    window.addEventListener('blur', clearAll);
+    document.addEventListener('visibilitychange', onVis);
     return () => {
-      window.removeEventListener('keydown', onDown);
-      window.removeEventListener('keyup', onUp);
-      window.removeEventListener('keydown', onShift);
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keyup', onUp, true);
+      window.removeEventListener('blur', clearAll);
+      document.removeEventListener('visibilitychange', onVis);
     };
   }, []);
 
