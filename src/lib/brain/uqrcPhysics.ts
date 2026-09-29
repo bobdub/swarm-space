@@ -1124,7 +1124,7 @@ export class UqrcPhysics {
                   sampleVolcanoElevation(organ, localN)
                   + sampleSurfaceLift(localN)
                   - waterDip;
-                const targetShell = BODY_SHELL_RADIUS + elevation;
+                const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {
                 // Hard terrain floor: the visible ground (volcano cone +
