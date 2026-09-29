@@ -78,6 +78,7 @@ import {
   WATER_WALK_SCALE,
 } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
+import { FOOT_CUSHION } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 

@@ -6,12 +6,10 @@ import {
   getSurfaceFrame,
   getEarthPose,
   HUMAN_HEIGHT,
-  STRUCTURE_SHELL_RADIUS,
-  EARTH_RADIUS,
   quatRotate,
   worldDisplacementToEarthLocal,
 } from '@/lib/brain/earth';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { feetRadiusAt } from '@/lib/brain/groundHeight';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Billboard, Text } from '@react-three/drei';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
@@ -82,27 +80,11 @@ export function RemoteAvatarBody({
     if (pinned) {
       // Seat lock: the stool transform is already exact in this scene.
       targetPos.current.set(position[0], position[1], position[2]);
-    } else if (isStale) {
-
-      // Reproject onto the structural shell (skin radius from Earth centre).
-      const dx = position[0] - pose.center[0];
-      const dy = position[1] - pose.center[1];
-      const dz = position[2] - pose.center[2];
-      const len = Math.hypot(dx, dy, dz) || 1;
-      const k = STRUCTURE_SHELL_RADIUS / len;
-      targetPos.current.set(
-        pose.center[0] + dx * k,
-        pose.center[1] + dy * k,
-        pose.center[2] + dz * k,
-      );
     } else {
-      // Local-terrain reproject: remote peers broadcast their body
-      // centre at the analytic shell, but the local viewer renders the
-      // surface with `sampleSurfaceLift` (mountains, dips). Without
-      // re-projecting, peers visibly sink into hills or float in the
-      // air. Take the broadcast direction, look up the terrain lift
-      // here, and place the body centre at EARTH_RADIUS + lift +
-      // HUMAN_HEIGHT/2 so feet land on the rendered ground.
+      // Feet-first grounding (same for stale and current peers): take the
+      // broadcast direction, find the solid ground there, and put the FEET
+      // at ground + FOOT_CUSHION. A peer broadcasting higher (stool, floor)
+      // keeps that height; nobody is ever rendered below the ground.
       const disp: [number, number, number] = [
         position[0] - pose.center[0],
         position[1] - pose.center[1],
@@ -111,25 +93,16 @@ export function RemoteAvatarBody({
       const local = worldDisplacementToEarthLocal(disp, pose);
       const len = Math.hypot(local[0], local[1], local[2]) || 1;
       const n: [number, number, number] = [local[0] / len, local[1] / len, local[2] / len];
-      const lift = sampleSurfaceLift(n);
-      // Convert back to world: lift is in local frame; multiply by
-      // current direction-from-centre (in world).
-      const wx = position[0] - pose.center[0];
-      const wy = position[1] - pose.center[1];
-      const wz = position[2] - pose.center[2];
-      const wLen = Math.hypot(wx, wy, wz) || 1;
-      // Height the peer actually broadcast above the analytic shell. A
-      // peer sitting on a stool (or standing on a raised floor) is above
-      // HUMAN_HEIGHT/2 — flattening them to the ground made seated
-      // players look like they were standing beside the table.
-      const broadcastHeight = wLen - EARTH_RADIUS - lift;
-      const r = EARTH_RADIUS + lift + Math.max(HUMAN_HEIGHT / 2, broadcastHeight);
+      const feetR = feetRadiusAt(n);
+      const wLen = Math.hypot(disp[0], disp[1], disp[2]) || 1;
+      const broadcastFeet = wLen - HUMAN_HEIGHT / 2;
+      const raised = !isStale && broadcastFeet - feetR > 0.3 ? broadcastFeet : feetR;
+      const r = raised + HUMAN_HEIGHT / 2;
       targetPos.current.set(
-        pose.center[0] + (wx / wLen) * r,
-        pose.center[1] + (wy / wLen) * r,
-        pose.center[2] + (wz / wLen) * r,
+        pose.center[0] + (disp[0] / wLen) * r,
+        pose.center[1] + (disp[1] / wLen) * r,
+        pose.center[2] + (disp[2] / wLen) * r,
       );
-
     }
     const { up } = getSurfaceFrame(
       [targetPos.current.x, targetPos.current.y, targetPos.current.z],
