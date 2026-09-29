@@ -78,6 +78,7 @@ import {
   WATER_WALK_SCALE,
 } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
+import { FOOT_CUSHION } from './earth';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -1124,7 +1125,7 @@ export class UqrcPhysics {
                   sampleVolcanoElevation(organ, localN)
                   + sampleSurfaceLift(localN)
                   - waterDip;
-                const targetShell = BODY_SHELL_RADIUS + elevation;
+                const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {
                 // Hard terrain floor: the visible ground (volcano cone +

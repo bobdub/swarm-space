@@ -886,3 +886,6 @@ export function getEarthSpawnTransform(
   ];
   return { bodyPos, up: frame.up, forward: frame.forward, right: frame.right, eyePos };
 }
+
+/** Feet ride this far above the solid ground — an almost unnoticed lift. */
+export const FOOT_CUSHION = 0.05;
