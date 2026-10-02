@@ -265,13 +265,15 @@ export function EarthBody() {
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
-        // Blend channel ocean with H₂O compound colour so chemistry is
-        // always present without nuking the channel's mood.
+        // Water must read BLUE. The H₂O compound colour (white H + red O)
+        // washes the ocean out to pale pink-gray at a 50/50 blend, so
+        // weight the channel's ocean blue 4:1 — chemistry stays present
+        // as a faint tint without drowning the blue.
         uColOcean: {
           value: new THREE.Vector3(
-            (palette.ocean[0] + waterRgb[0]) * 0.5,
-            (palette.ocean[1] + waterRgb[1]) * 0.5,
-            (palette.ocean[2] + waterRgb[2]) * 0.5,
+            palette.ocean[0] * 0.8 + waterRgb[0] * 0.2,
+            palette.ocean[1] * 0.8 + waterRgb[1] * 0.2,
+            palette.ocean[2] * 0.8 + waterRgb[2] * 0.2,
           ),
         },
         uColShore: { value: v3(palette.shore) },
