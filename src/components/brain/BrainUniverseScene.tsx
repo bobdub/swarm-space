@@ -149,6 +149,7 @@ import { quatRotate } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { worldPosToLocalNormal } from '@/lib/brain/earth';
+import { FOOT_CUSHION } from '@/lib/brain/earth';
 import { COSMO_COMPOUNDS } from '@/lib/brain/cosmoChemistry';
 // Sun light colour driven by the H/He plasma compound — shader, scene
 // light, and HUD all read from the same chemistry source.
@@ -545,7 +546,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
         terrainR = FEET_SHELL_RADIUS
           + sampleVolcanoElevation(getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), eyeLocalN)
           + sampleSurfaceLift(eyeLocalN)
-          + 1.2;
+          + FOOT_CUSHION + 1.2;
       } catch { /* organ unavailable — fall back to body-relative floor */ }
       const minR = Math.max(bodyR + 0.9, terrainR);
       if (eyeR < minR) {

@@ -55,4 +55,4 @@ export function subscribeCameraView(listener: Listener): () => void {
 
 /** Boom geometry for the over-the-shoulder rig, metres. */
 export const THIRD_PERSON_BACK_M = 4.5;
-export const THIRD_PERSON_UP_M = 2.2;
+export const THIRD_PERSON_UP_M = 1.2;

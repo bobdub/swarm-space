@@ -180,7 +180,8 @@ export function RemoteAvatarBody({
       prevTargetLocal.current = new THREE.Vector3(local[0], local[1], local[2]);
       headingRef.current.set(0, 0, 0);
     } else {
-      smoothRel.current.lerp(targetRel.current, 0.18);
+      if (intentDriven) smoothRel.current.copy(targetRel.current);
+      else smoothRel.current.lerp(targetRel.current, 0.18);
 
       const up = _up.current.copy(smoothRel.current).normalize();
 
