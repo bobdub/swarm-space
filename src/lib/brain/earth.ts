@@ -124,9 +124,9 @@ export const VISIBLE_GROUND_RADIUS = EARTH_RADIUS - SURFACE_TESS_CLEARANCE;
  * radius), so feet and floors are guaranteed co-planar.
  */
 export const STRUCTURE_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
-export const BODY_SHELL_RADIUS = VISIBLE_GROUND_RADIUS + BODY_CENTER_HEIGHT;
+export const BODY_SHELL_RADIUS = EARTH_RADIUS + BODY_CENTER_HEIGHT;
 /** Player feet shell — exactly the visible ground. */
-export const FEET_SHELL_RADIUS = VISIBLE_GROUND_RADIUS;
+export const FEET_SHELL_RADIUS = EARTH_RADIUS;
 
 /**
  * Convert a world-space position to an Earth-LOCAL (un-spun) outward
