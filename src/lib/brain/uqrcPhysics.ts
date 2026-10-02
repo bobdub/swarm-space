@@ -997,7 +997,8 @@ export class UqrcPhysics {
             // wade depth when the foot is over open water so avatars
             // stop walking ON the ocean and start walking IN it.
             const landMask = sampleTerrainDryMask(organ, localN);
-            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+            // Water is solid underfoot (no wading) — feet rest on the visible surface.
+            const waterDip = 0 * (1 - landMask) * WATER_WADE_DEPTH;
             elevation =
               sampleVolcanoElevation(organ, localN)
               + sampleSurfaceLift(localN)
@@ -1120,7 +1121,8 @@ export class UqrcPhysics {
                 const localN = worldPosToLocalNormal(b.pos, pose);
                 const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
                 const landMask = sampleTerrainDryMask(organ, localN);
-                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
+                // Water is solid underfoot (no wading) — feet rest on the visible surface.
+            const waterDip = 0 * (1 - landMask) * WATER_WADE_DEPTH;
                 const elevation =
                   sampleVolcanoElevation(organ, localN)
                   + sampleSurfaceLift(localN)

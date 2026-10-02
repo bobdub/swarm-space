@@ -10,7 +10,8 @@ import { sampleSurfaceLift, WATER_WADE_DEPTH } from './surfaceProfile';
  */
 export function feetRadiusAt(localN: [number, number, number]): number {
   const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-  const waterDip = (1 - sampleTerrainDryMask(organ, localN)) * WATER_WADE_DEPTH;
+  // Water is solid underfoot (no wading), matching the physics floor.
+  const waterDip = 0 * (1 - sampleTerrainDryMask(organ, localN)) * WATER_WADE_DEPTH;
   const elevation = sampleVolcanoElevation(organ, localN) + sampleSurfaceLift(localN) - waterDip;
   return FEET_SHELL_RADIUS + elevation + FOOT_CUSHION;
 }
