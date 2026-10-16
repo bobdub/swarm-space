@@ -74,7 +74,7 @@ class GroupWareNode {
     this.started = true;
     const mesh = getSwarmMeshStandalone();
     mesh.onMessage(GROUPWARE_CHANNEL, (from, payload) => { void this.handle(from, payload as GroupWareMessage); });
-    mesh.onPeer?.(() => this.onPeersChanged());
+    mesh.onPeersChange(() => this.onPeersChanged());
     getGlobalCell().subscribeGatewayPeers(() => this.refreshWaitingHosts());
     setInterval(() => this.refreshWaitingHosts(), 10_000);
     for (const id of Object.keys(this.memberships)) this.status.set(id, 'member');
