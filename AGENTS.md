@@ -14,3 +14,5 @@
 ## Wallet boundaries
 - Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation and local provider overrides cannot misrepresent connection state.
+- Gate external SWARM installation and switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness through a cached query, never through the local provider, because MetaMask must reach its own network RPC.
+- Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.

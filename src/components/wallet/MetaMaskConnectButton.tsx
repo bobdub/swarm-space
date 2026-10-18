@@ -23,6 +23,7 @@ import {
 import { startGatewayCell, linkExternalEvmAddress } from "@/lib/blockchain/gateway/swarmGatewayCell";
 import { getCurrentUser } from "@/lib/auth";
 import { useEffect } from "react";
+import { useSwarmPublicRpc } from "@/hooks/useSwarmPublicRpc";
 
 interface Props {
   compact?: boolean;
@@ -32,6 +33,8 @@ interface Props {
 
 export function MetaMaskConnectButton({ compact = false, iconOnly = false, className }: Props) {
   const { available, address, chainId, busy, connect, disconnect } = useMetaMask();
+  const publicRpc = useSwarmPublicRpc();
+  const canInstall = publicRpc.data === true && !publicRpc.isError && !publicRpc.isFetching;
 
   useEffect(() => {
     if (!address) return;
@@ -66,7 +69,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
         aria-label="Connect MetaMask"
         title={busy ? "Connecting…" : "Connect MetaMask"}
         onClick={async () => {
-          await connect({ addSwarmNetwork: true });
+          await connect({ addSwarmNetwork: canInstall });
         }}
         disabled={busy}
       >
@@ -106,6 +109,16 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
           <div className="mt-1 text-[10px] text-muted-foreground">{chainLabel(chainId)}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground" aria-live="polite">
+          {publicRpc.isFetching ? "Checking SWARM public RPC…" : canInstall
+            ? "SWARM public RPC chain ID verified"
+            : "SWARM public RPC unavailable — installation paused"}
+        </DropdownMenuLabel>
+        {!canInstall && (
+          <DropdownMenuItem onClick={() => { void publicRpc.refetch(); }} disabled={publicRpc.isFetching}>
+            <Link2 className="mr-2 h-4 w-4" /> Check public RPC again
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={async () => {
             startGatewayCell();
@@ -121,7 +134,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
           <DoorOpen className="mr-2 h-4 w-4" />
           {isUsingSwarmGateway() ? "Reconnect via Swarm gateway" : "Use local in-browser gateway"}
         </DropdownMenuItem>
-        {!isSwarmChain(chainId) && (
+        {canInstall && !isSwarmChain(chainId) && (
           <DropdownMenuItem
             onClick={async () => {
               try {
@@ -135,7 +148,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
             <Plus className="mr-2 h-4 w-4" /> Add / switch to Swarm-Space
           </DropdownMenuItem>
         )}
-        {!isSwarmChain(chainId) && (
+        {canInstall && !isSwarmChain(chainId) && (
           <DropdownMenuItem
             onClick={async () => {
               try {
@@ -151,7 +164,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
         )}
         <DropdownMenuItem
           onClick={async () => {
-            await connect({ addSwarmNetwork: true });
+            await connect({ addSwarmNetwork: canInstall });
           }}
         >
           <Link2 className="mr-2 h-4 w-4" /> Reconnect

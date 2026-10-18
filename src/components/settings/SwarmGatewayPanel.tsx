@@ -98,7 +98,7 @@ export function SwarmGatewayPanel() {
           </Badge>
         </div>
         <p className="text-[11px] text-foreground/50">
-          Other peers announcing a gateway on the mesh. Route MetaMask through one to save local work.
+          Other peers announcing a gateway on the mesh. These handle in-app requests, not MetaMask's public network RPC.
         </p>
         {remotePeers.length === 0 ? (
           <div className="text-[11px] text-foreground/40 italic">No remote gateways discovered yet.</div>

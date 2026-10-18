@@ -11,6 +11,7 @@
  */
 
 import { getExternalMetaMaskProvider } from "./metaMaskSdk";
+import { validatePublicRpc } from "./publicRpcValidation";
 
 async function requestWallet(method: string, params: unknown[]): Promise<void> {
   const wallet = await getExternalMetaMaskProvider();
@@ -33,13 +34,20 @@ export const SWARM_EVM_NETWORK = {
   blockExplorerUrls: ["https://swarm-space.lovable.app/explorer"],
 } as const;
 
+/** A successful preflight proves reachability/chain ID, not full EVM compatibility. */
+export function verifySwarmPublicRpc(): Promise<void> {
+  return validatePublicRpc(SWARM_EVM_NETWORK.rpcUrls[0], SWARM_EVM_CHAIN_ID_HEX);
+}
+
 /** Ask MetaMask to add the SWARM network to the user's wallet. */
 export async function addSwarmNetworkToMetaMask(): Promise<void> {
+  await verifySwarmPublicRpc();
   await requestWallet("wallet_addEthereumChain", [SWARM_EVM_NETWORK]);
 }
 
 /** Ask MetaMask to switch the active chain to SWARM (adds it if missing). */
 export async function switchToSwarmNetwork(): Promise<void> {
+  await verifySwarmPublicRpc();
   try {
     await requestWallet("wallet_switchEthereumChain", [
       { chainId: SWARM_EVM_CHAIN_ID_HEX },
