@@ -288,10 +288,10 @@ export async function getEnrichedTransactions(
 
     return {
       ...tx,
-      chainTicker: info?.ticker ?? cid,
+      chainTicker: tx.type === "wallet_tip" ? String(tx.meta?.ticker ?? info?.ticker ?? cid) : info?.ticker ?? cid,
       chainName: info?.chainName ?? cid,
       direction,
-      label: formatTxLabel(tx.type),
+      label: tx.type === "wallet_tip" ? (tx.meta?.intent === "transfer" ? "Transfer" : "Tip") : formatTxLabel(tx.type),
     };
   });
 

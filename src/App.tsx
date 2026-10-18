@@ -13,6 +13,7 @@ import { WalkthroughProvider } from "@/contexts/WalkthroughContext";
 import { PreviewProvider } from "@/contexts/PreviewContext";
 import WalkthroughModal from "@/components/onboarding/WalkthroughModal";
 import CreditEventListener from "@/components/CreditEventListener";
+import { WalletTipService } from "@/components/wallet/WalletTipService";
 import { DBUpgradeOverlay } from "@/components/DBUpgradeOverlay";
 import { StorageFullBanner } from "@/components/StorageFullBanner";
 import { TokenRecoveryBoot } from "@/components/TokenRecoveryBoot";
@@ -235,6 +236,7 @@ const App = () => (
             <P2PProvider>
               <StreamingProvider>
                 <CreditEventListener />
+                <WalletTipService />
                 <AutoMiningService />
                 <DBUpgradeOverlay />
                 
