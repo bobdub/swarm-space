@@ -12,7 +12,7 @@ import {
 import { getCurrentUser } from "@/lib/auth";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { getGlobalCell, type GatewayPeerInfo } from "@/lib/p2p/globalCell";
-import { LocalCompanionPanel } from "@/components/wallet/LocalCompanionPanel";
+import { GroupWareRpcRelays } from "@/components/settings/GroupWareRpcRelays";
 import {
   setRemoteGateway,
   clearRemoteGateway,
@@ -86,10 +86,10 @@ export function SwarmGatewayPanel() {
 
       <p className="text-xs text-muted-foreground">
         {status.running ? "In-browser bridge ready. " : ""}
-        Public SWARM RPC unavailable. A paired local companion can serve read-only requests on your own machine.
+        To list SWARM in MetaMask, pick a Personal Server relay below. Deposits and withdrawals work in your wallet without one.
       </p>
 
-      <LocalCompanionPanel gatewayRunning={status.running} />
+      <GroupWareRpcRelays metaMaskConnected={!!address} />
 
       <div className="space-y-2 border-t border-border pt-4">
         <div className="flex items-center justify-between">
