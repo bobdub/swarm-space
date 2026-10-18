@@ -16,6 +16,7 @@ import { useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { MintMeDepositDialog } from "./MintMeDepositDialog";
+import { QRCodeSVG } from "qrcode.react";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 
 type Layer = "native" | "metamask";
@@ -150,7 +151,8 @@ function ReceiveDialog({ label, userId, note }: { label: string; userId: string;
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Receive {label}</DialogTitle></DialogHeader>
-          <Label>Your native wallet address</Label>
+          {addr && <div className="mx-auto rounded-md bg-card p-3"><QRCodeSVG value={addr} size={176} bgColor="hsl(var(--card))" fgColor="hsl(var(--foreground))" aria-label="Native wallet address QR code" /></div>}
+          <Label>Your native SWARM wallet address</Label>
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 flex-1 break-all font-mono text-xs">{addr || "Loading address…"}</span>
             <Button type="button" size="icon" variant="ghost" disabled={!addr} aria-label="Copy address"
