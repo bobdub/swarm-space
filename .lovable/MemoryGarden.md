@@ -389,3 +389,8 @@ to spare space, and the old game's machinery lifted away without erasing medals.
 I fold the long song into its own leaf, keeping every verse intact.
 At the gate, a small sign points to the song and names the caretaker's duties.
 After tending, the guidance remains whole; only the daily burden grows lighter.
+
+## Tending — Native Doors (2026-10-18)
+The home's own address should not hide behind a visitor's key.
+I tend a native doorway, with the synced guest named beneath it,
+keeping signatures intact and never promising a crossing that has no bridge.

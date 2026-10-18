@@ -1,3 +1,8 @@
+## Native wallet visibility (2026-10-18)
+- [ ] Show a copyable native SWARM address, with synced MetaMask labeled beneath it
+- [ ] Open signed native transfers without MetaMask; keep external export blocked until settlement exists
+- [ ] Verify native transfer and recipient balance through the wallet
+
 ## Tip wallet transition (2026-10-18)
 - [x] Evaluate tips, currencies, native addresses, and compatibility (tips spend credits; ledger wallets currently use identity IDs; derived 0x addresses are gateway aliases only)
 - [x] Add asset selection, native SWARM address resolution and signed SWARM tips; retain existing game-credit history and limits
