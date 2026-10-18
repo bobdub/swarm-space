@@ -3,6 +3,7 @@ import { SwarmBlock, SwarmTransaction, ChainState, SWARM_CONFIG } from "./types"
 import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
+import { verifyWalletTip } from "./wallets/tipSignature";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -146,12 +147,24 @@ export class SwarmChain {
   }
 
   addTransaction(transaction: SwarmTransaction): void {
+    if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
     if (this.hasTransaction(transaction.id)) return;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
+  }
+
+  /** Validation awaits before a synchronous balance check and append: concurrent receipts cannot overspend. */
+  async acceptWalletTip(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (!await verifyWalletTip(transaction)) return false;
+    if (this.hasTransaction(transaction.id)) return true;
+    if (this.getBalance(transaction.from) < (transaction.amount ?? 0)) return false;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
   }
 
   /** Mark state dirty and schedule an async flush (debounced) */

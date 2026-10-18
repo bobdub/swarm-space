@@ -26,7 +26,7 @@ test("non-finite or negative tips cannot be sent", () => {
 test("native tip signature binds sender, recipient, token and amount", async () => {
   const keys = await genIdentityKeyPair();
   const from = await computeUserId(keys.publicKey);
-  const tx: SwarmTransaction = { id: "tip-one", type: "wallet_tip", from, to: "recipient", amount: 3,
+  const tx: SwarmTransaction = { id: "tip-one", type: "wallet_tip", from, to: "aabbccddeeff0011", amount: 3,
     timestamp: "2026-10-18T21:19:00.000Z", signature: "", publicKey: keys.publicKey, nonce: 1, fee: 0,
     meta: { assetId: "chain:SWARM", ticker: "SWARM" } };
   const signed = await signWalletTip(tx, keys.privateKey);
