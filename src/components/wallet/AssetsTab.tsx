@@ -19,6 +19,7 @@ import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { SwarmMetaMaskDialog } from "./SwarmMetaMaskDialog";
 import { MintMeDepositDialog } from "./MintMeDepositDialog";
 import { QRCodeSVG } from "qrcode.react";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 
 type Layer = "native" | "metamask";
@@ -31,6 +32,8 @@ export function AssetsTab() {
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
   const [layer, setLayer] = useState<Layer>("native");
   const { address } = useMetaMask();
+  const { stats, getActivePeerConnections } = useP2PContext();
+  const offline = Math.max(stats.connectedPeers, getActivePeerConnections().length) === 0;
 
   useEffect(() => {
     if (!userId) return;
@@ -69,6 +72,13 @@ export function AssetsTab() {
         ))}
       </div>
 
+      {layer === "native" && offline && (
+        <div role="status" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted-foreground" />
+          Waiting for peers — native transfers travel through the mesh, so a peer must be online. Like mining, they unlock once you connect.
+        </div>
+      )}
+
       {layer === "metamask" && !address && (
         <div className="rounded-md border p-3 text-sm space-y-2">
           <p className="text-muted-foreground">Connect MetaMask to manage assets on your MetaMask wallet.</p>
@@ -89,7 +99,7 @@ export function AssetsTab() {
               </div>
             </div>
             <AssetActions code={r.code} label={r.label} amount={r.amount} userId={userId}
-              layer={layer} metaMaskAddress={address} />
+              layer={layer} metaMaskAddress={address} offline={offline} />
           </div>
         ))}
       </div>
@@ -97,10 +107,20 @@ export function AssetsTab() {
   );
 }
 
-function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
-  code: string; label: string; amount: number; userId: string; layer: Layer; metaMaskAddress: string | null;
+function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, offline }: {
+  code: string; label: string; amount: number; userId: string; layer: Layer; metaMaskAddress: string | null; offline: boolean;
 }) {
   const cls = "grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0";
+  if (offline && layer === "native" && (code === "SWARM" || code === "CREDIT")) {
+    return (
+      <div className={cls}>
+        <ReceiveDialog label={label} userId={userId} note="Transfers to you settle once a mesh peer is online." />
+        <Button type="button" variant="outline" size="sm" disabled title="A mesh peer must be online to transfer.">
+          <ArrowUpFromLine className="mr-1 h-3 w-3" />Waiting for peers
+        </Button>
+      </div>
+    );
+  }
   if (layer === "native" && code === "SWARM") {
     return (
       <div className={cls}>
