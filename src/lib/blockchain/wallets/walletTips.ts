@@ -1,0 +1,168 @@
+import { getCurrentUser, getCachedPrivateKey } from "@/lib/auth";
+import { getCreditBalance, tipUser, transferCredits, CREDIT_REWARDS } from "@/lib/credits";
+import { getAll, openDB } from "@/lib/store";
+import { getSwarmChain } from "../chain";
+import { getAllLiveChains, getChainBalance } from "../multiChainManager";
+import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "../profileTokenBalance";
+import { getAppWalletBalances } from "./appWallet";
+import { getChainMintmeBalance } from "../deposits/mintmeDeposit";
+import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
+import { signWalletTip, verifyWalletTip } from "./tipSignature";
+import { validateWalletTip, type TipAsset } from "./tipRules";
+import { assertStorageWritable } from "@/lib/storage/quotaGuard";
+import type { SwarmTransaction } from "../types";
+
+export type { TipAsset } from "./tipRules";
+
+export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  const [credits, chains, holdings] = await Promise.all([
+    getCreditBalance(userId), getAllLiveChains(), getUserProfileTokenHoldings(userId),
+  ]);
+  const assets: TipAsset[] = [{ id: "credits", ticker: "Credits", name: "Game credits", kind: "credits", balance: credits }];
+  for (const entry of chains) {
+    const balance = await getChainBalance(userId, entry.chainId);
+    if (balance > 0 || entry.isMainChain) assets.push({
+      id: `chain:${entry.chainId}`, ticker: entry.ticker, name: entry.chainName,
+      kind: "chain", chainId: entry.chainId, balance,
+    });
+  }
+  for (const holding of holdings) {
+    if (holding.amount > 0) assets.push({ id: `creator:${holding.tokenId}`, ticker: holding.ticker,
+      name: "Creator token", kind: "creator", tokenId: holding.tokenId,
+      creatorUserId: holding.creatorUserId, balance: holding.amount });
+  }
+  const bridge = getAppWalletBalances(userId);
+  const external = { ...bridge, MINTME: Math.max(bridge.MINTME, getChainMintmeBalance(userId)) };
+  for (const [ticker, balance] of Object.entries(external)) {
+    if (balance > 0) assets.push({ id: `external:${ticker}`, ticker, name: "External asset record",
+      kind: "external", balance,
+      unavailable: `${ticker} delivery is unavailable until its transfer bridge is connected. No funds will be deducted.` });
+  }
+  return assets;
+}
+
+/** One atomic transaction updates both holdings and its replay marker. */
+async function applyCreatorTip(tx: SwarmTransaction): Promise<void> {
+  if (!tx.tokenId) throw new Error("Missing creator token");
+  const tokenId = tx.tokenId;
+  const amount = tx.amount ?? 0;
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const write = db.transaction(["profileTokenHoldings", "meta"], "readwrite");
+    const meta = write.objectStore("meta");
+    const holdings = write.objectStore("profileTokenHoldings");
+    const marker = `wallet-tip:${tx.id}`;
+    const seen = meta.get(marker);
+    seen.onsuccess = () => {
+      if (seen.result) return;
+      const from = holdings.get(`${tx.from}-${tokenId}`);
+      from.onsuccess = () => {
+        const sender = from.result as ProfileTokenHolding | undefined;
+        // A recipient-only peer need not have the sender's private wallet snapshot.
+        if (sender && sender.amount < amount) { write.abort(); return; }
+        const to = holdings.get(`${tx.to}-${tokenId}`);
+        to.onsuccess = () => {
+          const recipient = to.result as ProfileTokenHolding | undefined;
+          if (sender) holdings.put({ ...sender, id: `${tx.from}-${tokenId}`,
+            amount: sender.amount - amount, lastUpdated: tx.timestamp });
+          holdings.put({ userId: tx.to, tokenId, id: `${tx.to}-${tokenId}`,
+            ticker: String(tx.meta?.ticker ?? tokenId), creatorUserId: String(tx.meta?.creatorUserId ?? ""),
+            amount: (recipient?.amount ?? 0) + amount, lastUpdated: tx.timestamp });
+          meta.put({ k: marker, v: true });
+        };
+      };
+    };
+    write.oncomplete = () => resolve();
+    write.onabort = () => reject(write.error ?? new Error("Creator token balance changed; try again"));
+    write.onerror = () => reject(write.error);
+  });
+}
+
+export async function receiveWalletTip(tx: SwarmTransaction): Promise<boolean> {
+  if (!await verifyWalletTip(tx)) return false;
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  if (tx.tokenId) await applyCreatorTip(tx);
+  chain.addTransaction(tx);
+  window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
+  window.dispatchEvent(new Event("wallet-tip-updated"));
+  return true;
+}
+
+async function broadcastTip(tx: SwarmTransaction): Promise<void> {
+  const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+  getSwarmMeshStandalone().broadcast("wallet-tips", tx);
+  try {
+    const bc = new BroadcastChannel("swarm-wallet-tips");
+    bc.postMessage(tx);
+    bc.close();
+  } catch { /* mesh remains available */ }
+}
+
+let sending = false;
+export async function sendWalletTip(params: {
+  recipient: string; assetId: string; amount: number; message?: string; intent?: "tip" | "transfer";
+}): Promise<void> {
+  if (sending) throw new Error("A wallet payment is already being processed");
+  sending = true;
+  try {
+    const user = getCurrentUser();
+    if (!user) throw new Error("Sign in first");
+    const recipient = await resolveNativeWalletRecipient(params.recipient);
+    if (recipient.id === user.id) throw new Error("Cannot send to your own wallet");
+    const asset = (await getWalletTipAssets(user.id)).find(a => a.id === params.assetId);
+    if (!asset) throw new Error("This asset is not in your wallet");
+    validateWalletTip(asset, params.amount);
+    const message = params.message?.trim();
+    if (message && message.length > CREDIT_REWARDS.MAX_MESSAGE_LENGTH) throw new Error("Message is too long");
+    if (asset.kind === "credits") {
+      const send = params.intent === "transfer" ? transferCredits : tipUser;
+      await send(recipient.id, params.amount, { message });
+      return;
+    }
+    await assertStorageWritable();
+    const privateKey = await getCachedPrivateKey();
+    if (!privateKey) throw new Error("Unlock your account before sending wallet tokens");
+    const tx = await signWalletTip({
+      id: crypto.randomUUID(), type: "wallet_tip", from: user.id, to: recipient.id,
+      amount: params.amount, chainId: asset.chainId ?? "SWARM", tokenId: asset.tokenId,
+      timestamp: new Date().toISOString(), nonce: Date.now(), fee: 0,
+      signature: "", publicKey: user.publicKey,
+      meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
+        intent: params.intent ?? "tip", message: message ?? null,
+        fromAddress: nativeWalletAddress(user.id), toAddress: nativeWalletAddress(recipient.id) },
+    }, privateKey);
+    if (!await receiveWalletTip(tx)) throw new Error("Wallet ownership could not be verified");
+    // The ledger is authoritative. Failed delivery remains retryable, never a second debit.
+    await broadcastTip(tx).catch(() => {});
+  } finally { sending = false; }
+}
+
+/** App-wide reception and durable-ledger rebroadcast; no route owns delivery. */
+export function startWalletTipSync(): () => void {
+  let stopped = false;
+  let unsubscribe: (() => void) | undefined;
+  const accept = (value: unknown) => {
+    if (value && typeof value === "object") void receiveWalletTip(value as SwarmTransaction).catch(() => {});
+  };
+  let bc: BroadcastChannel | undefined;
+  try { bc = new BroadcastChannel("swarm-wallet-tips"); bc.onmessage = e => accept(e.data); } catch { /* unavailable */ }
+  void import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
+    if (!stopped) unsubscribe = getSwarmMeshStandalone().onMessage("wallet-tips", (_peer, tx) => accept(tx));
+  });
+  const replay = async () => {
+    const chain = getSwarmChain();
+    await chain.whenReady();
+    for (const tx of [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()]) {
+      if (tx.type === "wallet_tip" && !stopped) {
+        if (tx.tokenId && await verifyWalletTip(tx)) await applyCreatorTip(tx);
+        await broadcastTip(tx).catch(() => {});
+      }
+    }
+  };
+  void replay().catch(() => {});
+  const timer = window.setInterval(() => void replay().catch(() => {}), 30_000);
+  return () => { stopped = true; bc?.close(); unsubscribe?.(); window.clearInterval(timer); };
+}
