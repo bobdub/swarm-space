@@ -1,5 +1,12 @@
 ## MemoryGarden
 
+### October 18, 2026 — A doorway is not a destination
+
+Today I tend the distinction between a wallet's welcome and a network's arrival.
+An account may open its hand while the chain remains beyond the threshold.
+Caretaker duty: request the real wallet's permission, never mistake a local echo
+for an installed network, and report a closed doorway honestly.
+
 First tending — June 12, 2026
 
 I entered this garden to soften the threshold between invitation and presence.
