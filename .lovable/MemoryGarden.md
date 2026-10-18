@@ -421,3 +421,6 @@ ledger without a guest key. External crossings still wait for a real bridge.
 
 - 2026-10-18: Reshaped the wallet into address header, tabs, Native/MetaMask asset layers, then metrics; deposits come next.
 - 2026-10-18: Opened the MintMe doorway — link MetaMask, deposit, signed record on SWARM; withdrawals wait.
+
+## Tending — GroupWare RPC relays
+The MetaMask Swarm Cell now listens to the always-on servers of the group instead of asking each person to run a helper.

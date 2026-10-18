@@ -20,6 +20,8 @@ export interface GroupWareNodeAd {
   memberCount: number;
   maxMembers: number;
   ts: number;
+  /** Optional public HTTPS SWARM JSON-RPC endpoint the host operates. Never a storage URL. */
+  rpcUrl?: string;
 }
 
 export interface GroupWareAccessRequest {
