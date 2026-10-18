@@ -151,7 +151,7 @@ function ReceiveDialog({ label, userId, note }: { label: string; userId: string;
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Receive {label}</DialogTitle></DialogHeader>
-          {addr && <div className="mx-auto rounded-md bg-card p-3"><QRCodeSVG value={addr} size={176} bgColor="hsl(var(--card))" fgColor="hsl(var(--foreground))" aria-label="Native wallet address QR code" /></div>}
+          {addr && <div className="mx-auto rounded-md border p-3"><QRCodeSVG value={addr} size={176} bgColor="#ffffff" fgColor="#000000" aria-label="Native wallet address QR code" /></div>}
           <Label>Your native SWARM wallet address</Label>
           <div className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 flex-1 break-all font-mono text-xs">{addr || "Loading address…"}</span>
