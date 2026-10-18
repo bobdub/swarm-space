@@ -66,7 +66,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
         aria-label="Connect MetaMask"
         title={busy ? "Connecting…" : "Connect MetaMask"}
         onClick={async () => {
-          await connect();
+          await connect({ addSwarmNetwork: true });
         }}
         disabled={busy}
       >
@@ -151,8 +151,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
         )}
         <DropdownMenuItem
           onClick={async () => {
-            await connect();
-            toast.success("MetaMask reconnected");
+            await connect({ addSwarmNetwork: true });
           }}
         >
           <Link2 className="mr-2 h-4 w-4" /> Reconnect

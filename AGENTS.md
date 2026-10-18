@@ -10,3 +10,6 @@
 
 ## Verification compatibility
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
+
+## Wallet boundaries
+- Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.

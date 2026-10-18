@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { addSwarmNetworkToMetaMask } from "@/lib/blockchain/wallets/swarmEvmNetwork";
 import {
   connectMetaMask,
   getMetaMaskAccount,
@@ -34,7 +36,7 @@ export interface MetaMaskState {
   address: string | null;
   chainId: string | null;
   busy: boolean;
-  connect: () => Promise<void>;
+  connect: (options?: { addSwarmNetwork?: boolean }) => Promise<void>;
   disconnect: () => void;
 }
 
@@ -58,7 +60,7 @@ export function useMetaMask(): MetaMaskState {
     return onMetaMaskChange(refresh);
   }, [available, refresh]);
 
-  const connect = useCallback(async () => {
+  const connect = useCallback(async (options?: { addSwarmNetwork?: boolean }) => {
     if (!available) return;
     setBusy(true);
     try {
@@ -67,11 +69,25 @@ export function useMetaMask(): MetaMaskState {
         setAddress(conn.address);
         setChainId(conn.chainId);
         writeCache({ address: conn.address, chainId: conn.chainId });
+        if (options?.addSwarmNetwork) {
+          try {
+            await addSwarmNetworkToMetaMask();
+            await refresh();
+            toast.success("Swarm-Space network added to MetaMask");
+          } catch (err) {
+            const code = (err as { code?: number })?.code;
+            toast.error(code === 4001 ? "SWARM network addition declined" : "Connected, but SWARM network was not added", {
+              description: code === 4001
+                ? "You can try again from the wallet menu."
+                : "MetaMask must reach a working SWARM network address to add it. Try Add Swarm-Space from the wallet menu.",
+            });
+          }
+        }
       }
     } finally {
       setBusy(false);
     }
-  }, [available]);
+  }, [available, refresh]);
 
   const disconnect = useCallback(() => {
     setAddress(null);

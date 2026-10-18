@@ -91,7 +91,12 @@ export async function getMetaMaskProvider(): Promise<Eip1193Provider | null> {
     cachedProvider = swarmProviderRef;
     return swarmProviderRef;
   }
-  if (cachedProvider) return cachedProvider;
+  return getExternalMetaMaskProvider();
+}
+
+/** Real MetaMask only: custom-network registration cannot use our local gateway. */
+export async function getExternalMetaMaskProvider(): Promise<Eip1193Provider | null> {
+  if (cachedProvider && cachedProvider !== swarmProviderRef) return cachedProvider;
   const injected = getInjected();
   if (injected?.isMetaMask) {
     cachedProvider = injected;
