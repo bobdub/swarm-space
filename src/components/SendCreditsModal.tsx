@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { CREDIT_REWARDS } from "@/lib/credits";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getCachedPrivateKey, loginUser } from "@/lib/auth";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockchain/wallets/walletTips";
@@ -23,6 +23,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
   const [amount, setAmount] = useState("");
   const [assets, setAssets] = useState<TipAsset[]>([]);
   const [assetId, setAssetId] = useState("credits");
+  const [passphrase, setPassphrase] = useState("");
   const selectedAsset = assets.find(a => a.id === assetId);
   const isCredits = assetId === "credits";
   const ticker = selectedAsset?.ticker ?? "Credits";
@@ -41,6 +42,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
       setMessage("");
       setMode("transfer");
       setAssetId("credits");
+      setPassphrase("");
     }
   }, [isOpen, toUserId]);
 
@@ -97,12 +99,17 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     setLoading(true);
     try {
       const note = message.trim() ? message.trim() : undefined;
+      if (!isCredits && !await getCachedPrivateKey()) {
+        if (!passphrase) throw new Error("Enter your account passphrase to sign this payment");
+        await loginUser(passphrase);
+      }
+      setPassphrase("");
 
       await sendWalletTip({ recipient: nativeWalletAddress(toUserId), assetId,
         amount: numAmount, message: note, intent: mode });
 
       toast({
-        title: mode === "tip" ? "Tip sent!" : "Payment recorded!",
+        title: isCredits ? (mode === "tip" ? "Tip sent!" : "Payment sent!") : "Payment recorded; peer sync queued",
         description:
           mode === "tip"
             ? `Tipped ${numAmount} ${ticker} to @${toUsername}`
@@ -241,6 +248,13 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
             </p>
           </div>
 
+          <div className="flex gap-3 pt-2">
+            {!isCredits && !selectedAsset?.unavailable && <div className="w-full space-y-2">
+              <Label htmlFor="tip-passphrase">Account passphrase</Label>
+              <Input id="tip-passphrase" type="password" autoComplete="current-password"
+                value={passphrase} onChange={event => setPassphrase(event.target.value)} disabled={loading} />
+            </div>}
+          </div>
           <div className="flex gap-3 pt-2">
             <Button
               onClick={onClose}
