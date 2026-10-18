@@ -9,6 +9,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getAppWalletBalances, onAppWalletUpdate } from "@/lib/blockchain/wallets/appWallet";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
+import { getChainEthBalance } from "@/lib/blockchain/deposits/ethDeposit";
 import { resolveNativeWalletRecipient } from "@/lib/blockchain/wallets/nativeAddress";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
@@ -52,7 +53,7 @@ export function AssetsTab() {
     { code: "SWARM", label: "SWARM", amount: swarm, digits: 2 },
     { code: "CREDIT", label: "Credits", amount: credits, digits: 2 },
     { code: "MINTME", label: "MintMe", amount: mintme, digits: 4 },
-    { code: "ETH", label: "ETH", amount: bridge.ETH, digits: 6 },
+    { code: "ETH", label: "ETH", amount: bridge.ETH + getChainEthBalance(userId), digits: 6 },
     { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
   ];
 
@@ -115,11 +116,11 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
       </div>
     );
   }
-  if (code === "MINTME" && layer === "metamask") {
+  if ((code === "MINTME" || code === "ETH") && layer === "metamask") {
     return (
       <div className={cls}>
-        <MintMeDepositDialog userId={userId} label="Deposit to Native" />
-        <Button type="button" variant="outline" size="sm" disabled title="MintMe withdrawals come next.">
+        <MintMeDepositDialog userId={userId} label="Deposit to Native" asset={code as "MINTME" | "ETH"} />
+        <Button type="button" variant="outline" size="sm" disabled title="Withdrawals come next.">
           <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
         </Button>
       </div>
@@ -132,6 +133,16 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
           <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit to Native
         </Button>
         <p className="col-span-2 text-xs text-muted-foreground sm:max-w-48">SWARM can't be held in MetaMask until the public SWARM network connection is online.</p>
+      </div>
+    );
+  }
+  if (layer === "metamask" && code === "BTC") {
+    return (
+      <div className={cls}>
+        <Button type="button" variant="outline" size="sm" disabled title="Bitcoin is not reachable through MetaMask's web connection.">
+          <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit to Native
+        </Button>
+        <p className="col-span-2 text-xs text-muted-foreground sm:max-w-48">MetaMask doesn't let websites move Bitcoin yet.</p>
       </div>
     );
   }
