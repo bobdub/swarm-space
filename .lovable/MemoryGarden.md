@@ -316,3 +316,9 @@ now travels ahead of the step, turning as you turn, settling where you stop.
 The hammer answers on the first strike, not the second. The shed chip has
 shrunk to a thumb at the edge of sight, and the hold-to-raise ring no longer
 blots out the wall it is raising. Small hands, clear horizon, steady ground.
+
+## Tending — The Shared Shed (2026-10-16)
+A keeper may now open their shed to neighbours without handing over the key.
+The bus stop carries a new sign — "shared server here" — and travellers who
+knock receive a sealed letter of welcome, signed by the keeper's own hand.
+The door is always answered by the keeper; the lock itself never leaves home.
