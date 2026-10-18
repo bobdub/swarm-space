@@ -1,3 +1,8 @@
+## SWARM public RPC installation (2026-10-18)
+- [x] Verify the advertised HTTPS RPC and trace the mesh gateway boundary (TLS/fetch failed; app origin serves HTML)
+- [x] Validate public eth_chainId before offering installation and test failures (13 tests; actual browser preflight failed closed)
+- [ ] Provide the missing public mesh gateway — blocked: no always-on external mesh host, deployment access, or authoritative upstream available; requirements in docs/runbooks/swarm-public-rpc.md
+
 ## MetaMask Swarm Cell (2026-10-18)
 - [x] Move and rename the cell above User Cells on Node
 - [x] Keep activation synchronized with the external MetaMask connection across pages

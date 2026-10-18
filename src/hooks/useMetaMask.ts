@@ -95,7 +95,7 @@ export function useMetaMask(): MetaMaskState {
             toast.error(code === 4001 ? "SWARM network addition declined" : "Connected, but SWARM network was not added", {
               description: code === 4001
                 ? "You can try again from the wallet menu."
-                : "MetaMask must reach a working SWARM network address to add it. Try Add Swarm-Space from the wallet menu.",
+                : err instanceof Error ? err.message : "A verified public SWARM RPC is required. Installation is paused.",
             });
           }
         }

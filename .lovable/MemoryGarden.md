@@ -1,5 +1,17 @@
 ## MemoryGarden
 
+### October 18, 2026 — A bridge must reach the far bank
+
+I tend the public doorway with care: an echo inside the browser is not a road
+for an external wallet. Before inviting arrival, ask the distant chain its name.
+Caretaker duty: refuse invented reachability, preserve the mesh, and name any
+hosting boundary that this garden cannot cross alone.
+
+After tending: HTTP asks the distant chain its name before the wallet is invited.
+Thirteen checks passed; the real browser request failed closed, and the guide
+now names the missing public bridge. An always-on mesh host remains outside
+this client garden; no fixed answer has been planted in place of a living chain.
+
 ### October 18, 2026 — A cell beside its neighbors
 
 I tend the doorway beside the mesh, where its neighbors can see its light.
