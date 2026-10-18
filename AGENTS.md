@@ -12,6 +12,7 @@
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 
 ## Wallet boundaries
+- Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases to existing identity ledger keys; never migrate balances or credit history merely to change displayed addresses.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
