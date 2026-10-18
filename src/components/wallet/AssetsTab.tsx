@@ -75,7 +75,7 @@ export function AssetsTab() {
       )}
 
       <div className="grid gap-2">
-        {rows.map((r) => (
+        {rows.filter((r) => layer === "native" || r.code !== "CREDIT").map((r) => (
           <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -122,6 +122,16 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
         <Button type="button" variant="outline" size="sm" disabled title="MintMe withdrawals come next.">
           <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
         </Button>
+      </div>
+    );
+  }
+  if (layer === "metamask" && code === "SWARM") {
+    return (
+      <div className={cls}>
+        <Button type="button" variant="outline" size="sm" disabled title="SWARM is not on MetaMask yet — it needs a public SWARM network connection first.">
+          <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit to Native
+        </Button>
+        <p className="col-span-2 text-xs text-muted-foreground sm:max-w-48">SWARM can't be held in MetaMask until the public SWARM network connection is online.</p>
       </div>
     );
   }
