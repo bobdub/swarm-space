@@ -13,8 +13,8 @@ import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 
-export function SwarmBridgeDialog({ mode, balance, userId, className }: {
-  mode: "deposit" | "withdraw"; balance: number; userId: string; className?: string;
+export function SwarmBridgeDialog({ mode, balance, userId, className, initialLayer = "native" }: {
+  mode: "deposit" | "withdraw"; balance: number; userId: string; className?: string; initialLayer?: "native" | "export";
 }) {
   const { address } = useMetaMask();
   const nativeAddress = useNativeWalletAddress(userId);
@@ -30,7 +30,7 @@ export function SwarmBridgeDialog({ mode, balance, userId, className }: {
     if (busy) return;
     setOpen(next);
     setPassphrase("");
-    if (next) { setLayer("native"); setAmount(""); setDest(""); }
+    if (next) { setLayer(initialLayer); setAmount(""); setDest(""); }
   };
   const submit = async () => {
     if (invalid || busy || layer !== "native" || mode !== "withdraw") return;
@@ -74,7 +74,7 @@ export function SwarmBridgeDialog({ mode, balance, userId, className }: {
             <div className="space-y-2"><Label htmlFor="native-transfer-passphrase">Account passphrase</Label><Input id="native-transfer-passphrase" type="password" autoComplete="current-password" value={passphrase} onChange={e => setPassphrase(e.target.value)} disabled={busy} /></div>
           </div> : <div className="space-y-3">
             {address ? <div className="space-y-1"><Label>Synced MetaMask wallet</Label><p className="break-all font-mono text-xs">{address}</p></div> : <MetaMaskConnectButton compact />}
-            <Alert><ShieldAlert className="h-4 w-4" /><AlertDescription>MetaMask export is unavailable until a verified transfer bridge is connected. No SWARM will be deducted.</AlertDescription></Alert>
+            <Alert><ShieldAlert className="h-4 w-4" /><AlertDescription>Sending SWARM to MetaMask needs the public SWARM network connection, which isn't online yet — MetaMask can't show SWARM until then. Nothing will be deducted. Use On-network to send SWARM to any native 0x address today.</AlertDescription></Alert>
           </div>}
           <DialogFooter><Button type="button" disabled={layer !== "native" || invalid || busy} onClick={() => void submit()}>{busy ? "Signing…" : layer === "native" ? "Send SWARM" : "Export unavailable"}</Button></DialogFooter>
         </>}

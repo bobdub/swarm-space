@@ -132,6 +132,7 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
         <Button type="button" variant="outline" size="sm" disabled title="SWARM is not on MetaMask yet — it needs a public SWARM network connection first.">
           <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit to Native
         </Button>
+        <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} initialLayer="export" className="w-full sm:w-auto" />
         <p className="col-span-2 text-xs text-muted-foreground sm:max-w-48">SWARM can't be held in MetaMask until the public SWARM network connection is online.</p>
       </div>
     );
