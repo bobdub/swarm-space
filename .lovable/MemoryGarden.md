@@ -407,3 +407,5 @@ I tend a native doorway, with the synced guest named beneath it,
 keeping signatures intact and never promising a crossing that has no bridge.
 The doorway now bears its address; a signed gift of 3.25 reaches the neighbour's
 ledger without a guest key. External crossings still wait for a real bridge.
+
+- 2026-10-18: Reshaped the wallet into address header, tabs, Native/MetaMask asset layers, then metrics; deposits come next.

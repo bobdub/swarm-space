@@ -319,84 +319,14 @@ export default function Wallet() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-4xl font-bold mb-1 truncate">Blockchain Wallet</h1>
-              <p className="text-muted-foreground text-xs sm:text-sm">Manage tokens, NFTs, mining & swaps</p>
+              <h1 className="text-2xl sm:text-4xl font-bold mb-1 truncate">Swarm Wallet</h1>
+              <p className="text-muted-foreground text-xs sm:text-sm">Your local SWARM blockchain wallet</p>
             </div>
           </div>
           <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
         </div>
 
         <NativeWalletAddress userId={user?.id ?? ""} />
-
-        {/* Chain Switcher */}
-        <div className="mb-6">
-          <ChainSwitcher onChainChanged={() => void loadWalletData()} />
-        </div>
-
-        {/* Balance Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card className="border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">
-                {activeChain.ticker} Balance
-              </CardTitle>
-              {activeChain.isMainChain ? (
-                <Coins className="h-4 w-4 text-primary" />
-              ) : (
-                <Link2 className="h-4 w-4 text-primary" />
-              )}
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold tabular-nums">
-                {balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {activeChain.ticker}
-                {!activeChain.isMainChain && (
-                  <span className="ml-1 text-muted-foreground/60">({activeChain.chainName})</span>
-                )}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">NFTs Owned</CardTitle>
-              <Trophy className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{nfts.length}</div>
-              <p className="text-xs text-muted-foreground mt-1">Achievements & Badges</p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-primary/20">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">Mining Status</CardTitle>
-              <Pickaxe className="h-4 w-4 text-primary" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Badge variant={walletMiningStatus.variant}>
-                  {walletMiningStatus.label}
-                </Badge>
-                {(autoMiningActive || (!swarmModeEnabled && miningSession?.status === "active")) && (
-                  <Badge variant="outline" className="text-[10px]">
-                    {autoMiningActive ? "SWARM Mesh" : activeChain.ticker}
-                  </Badge>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {walletMiningStatus.detail}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Quantum Metrics */}
-        <div className="mb-8">
-          <QuantumMetricsPanel />
-        </div>
 
         {/* Tabs */}
         <Tabs defaultValue="assets" className="space-y-6">
@@ -769,6 +699,79 @@ export default function Wallet() {
             <CoinMarketTab />
           </TabsContent>
         </Tabs>
+
+        <div className="mt-8">
+        {/* Chain Switcher */}
+        <div className="mb-6">
+          <ChainSwitcher onChainChanged={() => void loadWalletData()} />
+        </div>
+
+        {/* Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <Card className="border-primary/20">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">
+                {activeChain.ticker} Balance
+              </CardTitle>
+              {activeChain.isMainChain ? (
+                <Coins className="h-4 w-4 text-primary" />
+              ) : (
+                <Link2 className="h-4 w-4 text-primary" />
+              )}
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold tabular-nums">
+                {balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {activeChain.ticker}
+                {!activeChain.isMainChain && (
+                  <span className="ml-1 text-muted-foreground/60">({activeChain.chainName})</span>
+                )}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-primary/20">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">NFTs Owned</CardTitle>
+              <Trophy className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{nfts.length}</div>
+              <p className="text-xs text-muted-foreground mt-1">Achievements & Badges</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-primary/20">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Mining Status</CardTitle>
+              <Pickaxe className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Badge variant={walletMiningStatus.variant}>
+                  {walletMiningStatus.label}
+                </Badge>
+                {(autoMiningActive || (!swarmModeEnabled && miningSession?.status === "active")) && (
+                  <Badge variant="outline" className="text-[10px]">
+                    {autoMiningActive ? "SWARM Mesh" : activeChain.ticker}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {walletMiningStatus.detail}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quantum Metrics */}
+        <div className="mb-8">
+          <QuantumMetricsPanel />
+        </div>
+
+        </div>
       </div>
     </>
   );
