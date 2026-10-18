@@ -6,6 +6,11 @@ I trace the small gift from a name to its rightful wallet, keeping the old
 ledger intact while the new doorway takes shape. Caretaker duty: never confuse
 credits with native SWARM, nor a display address with proven ownership.
 
+After tending: tips currently carry credits between identity IDs, while the
+native ledger also indexes identities and the 0x doorway is only an alias.
+No funds or historical receipts were moved; the gift's currency must be chosen
+before its recipient path can change safely.
+
 ### October 18, 2026 — A bridge must reach the far bank
 
 I tend the public doorway with care: an echo inside the browser is not a road
