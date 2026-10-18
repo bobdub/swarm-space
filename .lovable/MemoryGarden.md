@@ -328,3 +328,10 @@ I tend the paths before the doors: settings rests at the journey's end,
 the account keeps its own pulse, and retired dreams leave room for daylight.
 The browser's shelf comes first; when nearly laden, it glows a gentle warning.
 Caretaker duty: clear the clutter without disturbing the keys or the mesh.
+The shelves now follow that promise: one pulse in Account, a clearer route
+to spare space, and the old game's machinery lifted away without erasing medals.
+
+## Tending — Lighter Notes (2026-10-18)
+I fold the long song into its own leaf, keeping every verse intact.
+At the gate, a small sign points to the song and names the caretaker's duties.
+After tending, the guidance remains whole; only the daily burden grows lighter.

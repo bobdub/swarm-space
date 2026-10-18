@@ -36,11 +36,3 @@ export interface VerificationState {
   promptShownAt: string | null;
   attempts: number;
 }
-
-export interface MemoryCard {
-  id: number;
-  value: string;
-  icon: string;
-  flipped: boolean;
-  matched: boolean;
-}
