@@ -323,7 +323,12 @@ class GroupWareNode {
     switch (m.kind) {
       case 'discover': this.broadcastAd(from); break;
       case 'ad':
-        if (m.ad?.hostPeerId === from && m.ad.nodeId) { this.nodes.set(m.ad.nodeId, m.ad); this.emit(); }
+        if (m.ad?.hostPeerId === from && m.ad.nodeId) {
+          const rpcUrl = sanitizeRpcUrl(m.ad.rpcUrl);
+          const { rpcUrl: _drop, ...rest } = m.ad;
+          this.nodes.set(m.ad.nodeId, rpcUrl ? { ...rest, rpcUrl } : rest);
+          this.emit();
+        }
         break;
       case 'access-request': await this.onAccessRequest(from, m.request); break;
       case 'access-pending': this.status.set(m.nodeId, 'pending'); this.emit(); break;
