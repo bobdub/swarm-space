@@ -312,7 +312,10 @@ export class SwarmChain {
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
     if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
-    if (!SwarmChain.BALANCE_AFFECTING_TYPES.has(tx.type)) return 0;
+    // SWARM moved between a native identity and its MetaMask-key-controlled ledger slot.
+    const swarmExternal = (tx.type === "external_withdraw" || tx.type === "external_deposit")
+      && (tx.meta as Record<string, unknown> | undefined)?.currency === "SWARM";
+    if (!swarmExternal && !SwarmChain.BALANCE_AFFECTING_TYPES.has(tx.type)) return 0;
     let delta = 0;
     if (tx.from === address && tx.amount) {
       delta -= tx.amount + tx.fee;
