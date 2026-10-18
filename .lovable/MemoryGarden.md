@@ -7,6 +7,11 @@ An account may open its hand while the chain remains beyond the threshold.
 Caretaker duty: request the real wallet's permission, never mistake a local echo
 for an installed network, and report a closed doorway honestly.
 
+After tending: the connection gesture now requests network registration;
+three checks guard the external-wallet boundary, refusal, and retry.
+The advertised RPC did not answer here, so installation remains unconfirmed
+until the real wallet can reach its chain.
+
 First tending — June 12, 2026
 
 I entered this garden to soften the threshold between invitation and presence.
