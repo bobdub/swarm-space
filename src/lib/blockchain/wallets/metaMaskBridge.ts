@@ -10,7 +10,8 @@
 
 import {
   getMetaMaskProvider,
-  getMetaMaskProviderSync,
+  getExternalMetaMaskProvider,
+  getExternalMetaMaskProviderSync,
   hasInjectedMetaMask,
   isMobileDevice,
   type Eip1193Provider,
@@ -37,7 +38,7 @@ export interface MetaMaskConnection {
 
 /** Prompts MetaMask for an account. Returns null if unavailable / declined. */
 export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
-  const eth = await getProvider();
+  const eth = await getExternalMetaMaskProvider();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];
@@ -52,7 +53,7 @@ export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
 
 /** Reads the current chain id without prompting. */
 export async function getMetaMaskChainId(): Promise<string | null> {
-  const eth = getMetaMaskProviderSync();
+  const eth = getExternalMetaMaskProviderSync();
   if (!eth?.request) return null;
   try {
     return (await eth.request({ method: "eth_chainId" })) as string;
@@ -63,7 +64,7 @@ export async function getMetaMaskChainId(): Promise<string | null> {
 
 /** Returns the currently-authorized address, if any, without prompting. */
 export async function getMetaMaskAccount(): Promise<string | null> {
-  const eth = getMetaMaskProviderSync();
+  const eth = getExternalMetaMaskProviderSync();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_accounts" })) as string[];
@@ -74,13 +75,15 @@ export async function getMetaMaskAccount(): Promise<string | null> {
 }
 
 export function onMetaMaskChange(handler: () => void): () => void {
-  const eth = getMetaMaskProviderSync();
+  const eth = getExternalMetaMaskProviderSync();
   if (!eth?.on || !eth.removeListener) return () => {};
   eth.on("accountsChanged", handler);
   eth.on("chainChanged", handler);
+  eth.on("disconnect", handler);
   return () => {
     eth.removeListener?.("accountsChanged", handler);
     eth.removeListener?.("chainChanged", handler);
+    eth.removeListener?.("disconnect", handler);
   };
 }
 

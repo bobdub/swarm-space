@@ -53,7 +53,6 @@ import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
-import { SwarmGatewayPanel } from "@/components/settings/SwarmGatewayPanel";
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -670,7 +669,6 @@ const Settings = () => {
               <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
               <PersonalServersPanel />
               <GroupWarePanel />
-              <SwarmGatewayPanel />
             </TabsContent>
 
             <TabsContent value="keys" className="space-y-6">

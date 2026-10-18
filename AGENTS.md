@@ -13,3 +13,4 @@
 
 ## Wallet boundaries
 - Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.
+- Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation and local provider overrides cannot misrepresent connection state.

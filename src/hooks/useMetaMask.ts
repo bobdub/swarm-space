@@ -10,6 +10,7 @@ import {
 } from "@/lib/blockchain/wallets/metaMaskBridge";
 
 const CACHE_KEY = "swarm.metaMask.cache.v1";
+const SESSION_EVENT = "swarm:metamask-session";
 
 interface Cache {
   address: string | null;
@@ -29,6 +30,7 @@ function readCache(): Cache {
 
 function writeCache(c: Cache): void {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch { /* ignore */ }
+  window.dispatchEvent(new CustomEvent<Cache>(SESSION_EVENT, { detail: c }));
 }
 
 export interface MetaMaskState {
@@ -42,9 +44,9 @@ export interface MetaMaskState {
 
 export function useMetaMask(): MetaMaskState {
   const available = typeof window !== "undefined" && isMetaMaskAvailable();
-  const cached = typeof window !== "undefined" ? readCache() : { address: null, chainId: null };
-  const [address, setAddress] = useState<string | null>(cached.address);
-  const [chainId, setChainId] = useState<string | null>(cached.chainId);
+  // Remembered accounts are not proof of a live external wallet connection.
+  const [address, setAddress] = useState<string | null>(null);
+  const [chainId, setChainId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -57,8 +59,22 @@ export function useMetaMask(): MetaMaskState {
   useEffect(() => {
     if (!available) return;
     void refresh();
-    return onMetaMaskChange(refresh);
   }, [available, refresh]);
+
+  useEffect(() => {
+    const update = (event: Event) => {
+      const next = (event as CustomEvent<Cache>).detail;
+      setAddress(next.address);
+      setChainId(next.chainId);
+    };
+    window.addEventListener(SESSION_EVENT, update);
+    return () => window.removeEventListener(SESSION_EVENT, update);
+  }, []);
+
+  useEffect(() => {
+    if (!available) return;
+    return onMetaMaskChange(refresh);
+  }, [available, address, refresh]);
 
   const connect = useCallback(async (options?: { addSwarmNetwork?: boolean }) => {
     if (!available) return;

@@ -109,6 +109,12 @@ export async function getExternalMetaMaskProvider(): Promise<Eip1193Provider | n
 }
 
 /** Synchronous best-effort read for feature detection. */
+export function getExternalMetaMaskProviderSync(): Eip1193Provider | null {
+  const injected = getInjected();
+  if (injected?.isMetaMask) return injected;
+  return cachedProvider && cachedProvider !== swarmProviderRef ? cachedProvider : null;
+}
+
 export function getMetaMaskProviderSync(): Eip1193Provider | null {
   if (useSwarmOverride && swarmProviderRef) return swarmProviderRef;
   return cachedProvider ?? getInjected();
