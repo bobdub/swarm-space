@@ -7,13 +7,13 @@ export interface NavigationItem {
   path: string;
 }
 
-/** Expand-menu order: Explore → Brain → Settings → Node → Wallet */
+/** Expand-menu order: Explore → Brain → Node → Wallet → Settings */
 export const primaryNavigationItems: NavigationItem[] = [
   { icon: Compass, label: "Explore", path: "/explore" },
   { icon: Brain, label: "Brain", path: "/brain" },
-  { icon: Settings, label: "Settings", path: "/settings" },
   { icon: Server, label: "Node", path: "/node-dashboard" },
   { icon: Wallet, label: "Wallet", path: "/wallet" },
+  { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 /** Bottom bar items for mobile — most-used subset */
