@@ -2,16 +2,21 @@
  * SWARM EVM network — canonical MetaMask chain descriptor.
  *
  * SWARM is a custom chain that will expose an EVM-compatible RPC. Until the
- * public RPC endpoint is live, `SWARM_EVM_NETWORK.rpcUrls` uses a placeholder
- * that MetaMask will still accept for adding the network; on-chain calls
- * will fail with a clear "RPC unreachable" error, which is the correct
- * behavior for the pre-launch phase.
+ * public RPC endpoint is live, the configured URL is a placeholder.
+ * MetaMask validates RPC availability and chain ID when adding a network,
+ * so registration may fail until a working SWARM RPC is available.
  *
  * The chain id is chosen from the unassigned range at chainlist.org to
  * avoid collision with any known public chain.
  */
 
-import { requestMetaMask } from "./metaMaskBridge";
+import { getExternalMetaMaskProvider } from "./metaMaskSdk";
+
+async function requestWallet(method: string, params: unknown[]): Promise<void> {
+  const wallet = await getExternalMetaMaskProvider();
+  if (!wallet?.request) throw new Error("MetaMask provider not available");
+  await wallet.request({ method, params });
+}
 
 export const SWARM_EVM_CHAIN_ID_DEC = 74747;
 export const SWARM_EVM_CHAIN_ID_HEX = "0x123fb"; // 74747
@@ -30,13 +35,13 @@ export const SWARM_EVM_NETWORK = {
 
 /** Ask MetaMask to add the SWARM network to the user's wallet. */
 export async function addSwarmNetworkToMetaMask(): Promise<void> {
-  await requestMetaMask("wallet_addEthereumChain", [SWARM_EVM_NETWORK]);
+  await requestWallet("wallet_addEthereumChain", [SWARM_EVM_NETWORK]);
 }
 
 /** Ask MetaMask to switch the active chain to SWARM (adds it if missing). */
 export async function switchToSwarmNetwork(): Promise<void> {
   try {
-    await requestMetaMask("wallet_switchEthereumChain", [
+    await requestWallet("wallet_switchEthereumChain", [
       { chainId: SWARM_EVM_CHAIN_ID_HEX },
     ]);
   } catch (err) {
@@ -44,6 +49,9 @@ export async function switchToSwarmNetwork(): Promise<void> {
     const code = (err as { code?: number })?.code;
     if (code === 4902) {
       await addSwarmNetworkToMetaMask();
+      await requestWallet("wallet_switchEthereumChain", [
+        { chainId: SWARM_EVM_CHAIN_ID_HEX },
+      ]);
       return;
     }
     throw err;
