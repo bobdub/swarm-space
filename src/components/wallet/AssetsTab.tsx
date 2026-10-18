@@ -114,10 +114,10 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
       </div>
     );
   }
-  if (code === "MINTME") {
+  if (code === "MINTME" && layer === "metamask") {
     return (
       <div className={cls}>
-        <MintMeDepositDialog userId={userId} label={layer === "native" ? "Receive" : "Deposit to Native"} />
+        <MintMeDepositDialog userId={userId} label="Deposit to Native" />
         <Button type="button" variant="outline" size="sm" disabled title="MintMe withdrawals come next.">
           <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
         </Button>
