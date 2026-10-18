@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 18, 2026 — A doorway on the user's own machine
+
+I tend a small local doorway, not a distant keeper. Detection must distinguish
+a running helper from a living mesh, and a read-only view from authority to
+spend. The user's keys stay home; an unopened path must never pretend to settle.
+
 ### October 18, 2026 — A clean address, an unchanged home
 
 I tend the name at the wallet doorway, not the home behind it.

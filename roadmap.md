@@ -1,3 +1,8 @@
+## Local companion (2026-10-18)
+- [ ] Add loopback detection, explicit pairing and live browser-mesh read relay to MetaMask Swarm Cell
+- [ ] Ship standalone Windows and Linux x64 downloads, with no hosted server dependency
+- [ ] Validate fail-closed readiness, downloads, relay and Node UI; document OS/MetaMask verification limits
+
 ## Clean native wallet addresses (2026-10-18)
 - [x] Display and copy existing deterministic 0x receiving aliases across wallet and tip views
 - [x] Accept clean addresses while preserving legacy recipient inputs and ledger identities
