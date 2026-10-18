@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockchain/wallets/walletTips";
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
+import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 
 interface SendCreditsModalProps {
   toUserId: string;
@@ -20,6 +21,7 @@ interface SendCreditsModalProps {
 }
 
 export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: SendCreditsModalProps) {
+  const recipientAddress = useNativeWalletAddress(toUserId);
   const [amount, setAmount] = useState("");
   const [assets, setAssets] = useState<TipAsset[]>([]);
   const [assetId, setAssetId] = useState("credits");
@@ -105,7 +107,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
       }
       setPassphrase("");
 
-      await sendWalletTip({ recipient: nativeWalletAddress(toUserId), assetId,
+      await sendWalletTip({ recipient: await nativeWalletAddress(toUserId), assetId,
         amount: numAmount, message: note, intent: mode });
 
       toast({
@@ -187,9 +189,9 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
             <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground">
               @{toUsername}
               <div className="mt-2 flex min-w-0 items-center gap-2">
-                <span className="min-w-0 flex-1 break-all font-mono text-xs">{nativeWalletAddress(toUserId)}</span>
+                <span className="min-w-0 flex-1 break-all font-mono text-xs">{recipientAddress || "Loading address…"}</span>
                 <Button type="button" variant="ghost" size="icon" aria-label="Copy SWARM wallet address" title="Copy SWARM wallet address"
-                  onClick={() => void navigator.clipboard.writeText(nativeWalletAddress(toUserId)).then(() => toast({ title: "Wallet address copied" })).catch(() => toast({ title: "Copy failed", variant: "destructive" }))}>
+                  disabled={!recipientAddress} onClick={() => void navigator.clipboard.writeText(recipientAddress).then(() => toast({ title: "Wallet address copied" })).catch(() => toast({ title: "Copy failed", variant: "destructive" }))}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>

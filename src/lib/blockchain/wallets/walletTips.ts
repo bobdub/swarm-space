@@ -95,7 +95,7 @@ export async function sendWalletTip(params: {
       signature: "", publicKey: user.publicKey,
       meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
         intent: params.intent ?? "tip", message: message ?? null,
-        fromAddress: nativeWalletAddress(user.id), toAddress: nativeWalletAddress(recipient.id) },
+        fromAddress: await nativeWalletAddress(user.id), toAddress: await nativeWalletAddress(recipient.id) },
     }, privateKey);
     if (!await receiveWalletTip(tx)) throw new Error("Wallet ownership or available balance could not be verified");
     // The ledger is authoritative. Failed delivery remains retryable, never a second debit.

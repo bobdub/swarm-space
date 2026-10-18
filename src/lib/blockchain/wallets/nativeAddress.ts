@@ -2,9 +2,9 @@ import { getAll, get } from "@/lib/store";
 import type { User } from "@/types";
 import { swarmIdToEvmAddress } from "../gateway/addressMap";
 
-/** Native ledger identity, with a chain-qualified shareable address. */
-export function nativeWalletAddress(userId: string): string {
-  return `swarm:${userId}`;
+/** Stable 20-byte receiving alias; not an externally controlled EVM account. */
+export function nativeWalletAddress(userId: string): Promise<string> {
+  return swarmIdToEvmAddress(userId);
 }
 
 /** Resolve aliases to the existing account; never move balances to an alias. */
