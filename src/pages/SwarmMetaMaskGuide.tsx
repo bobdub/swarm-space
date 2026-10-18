@@ -181,13 +181,12 @@ const SwarmMetaMaskGuide = () => {
                 <strong>Connect MetaMask</strong>. Approve the popup.
               </li>
               <li>
-                Open <strong>Wallet → Bridge</strong> (or the Swarm Gateway panel)
-                and click <strong>Add Swarm-Space network</strong>. MetaMask will
-                prompt you to add the chain using the details above.
+                The wallet checks the public SWARM RPC before offering network
+                installation. If it is unavailable, installation stays paused.
               </li>
               <li>
-                Switch MetaMask to <strong>Swarm-Space</strong>. You're now able
-                to deposit/withdraw SWARM through the gateway cell.
+                Connecting your account does not install SWARM. A mesh cell
+                alone cannot supply MetaMask's external network connection.
               </li>
             </ol>
           </Section>
@@ -217,14 +216,14 @@ const SwarmMetaMaskGuide = () => {
                 and approve the pairing.
               </li>
               <li>
-                Back in the app, open <strong>Bridge</strong> and add / switch to
-                Swarm-Space just like on desktop.
+                Back in the app, network installation is offered only after
+                the public SWARM RPC returns the expected chain ID.
               </li>
             </ol>
-            <Callout icon={Link2} title="Alternative: add the network manually">
-              In MetaMask, open <em>Settings → Networks → Add a network manually</em>{" "}
-              and paste the Chain ID, RPC URL, currency symbol, and explorer URL
-              from the table above.
+            <Callout icon={Link2} title="Public SWARM RPC required">
+              The advertised RPC has not been verified as available. Do not add
+              the placeholder manually. The in-browser gateway and remote mesh
+              peers are not substitutes for a public HTTPS JSON-RPC service.
             </Callout>
           </Section>
 
@@ -250,10 +249,10 @@ const SwarmMetaMaskGuide = () => {
                 wallet.
               </li>
               <li>
-                <strong>SWARM deposits / withdrawals — live:</strong> Wallet →
-                Assets → Bridge lets MetaMask send SWARM to your in-app wallet
-                and back out to any 0x… address. The in-browser Swarm gateway
-                cell translates every MetaMask call — no cloud, no custodian.
+                <strong>External SWARM transfers — blocked:</strong> MetaMask
+                needs a publicly reachable mesh-backed RPC. The in-browser cell
+                handles in-app requests only; it does not make external deposits
+                or withdrawals available.
               </li>
               <li>
                 <strong>MintMe — live (peer bridge):</strong> your MetaMask

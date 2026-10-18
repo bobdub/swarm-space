@@ -1,4 +1,13 @@
-import { beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+
+const originalFetch = globalThis.fetch;
+let rpcResult = "0x123fb";
+let rpcUnavailable = false;
+globalThis.fetch = (async () => {
+  if (rpcUnavailable) throw new Error("Network unavailable");
+  return Response.json({ jsonrpc: "2.0", id: 1, result: rpcResult });
+}) as typeof fetch;
+afterAll(() => { globalThis.fetch = originalFetch; });
 
 const calls: Array<{ method: string; params?: unknown }> = [];
 let missingChain = false;
@@ -18,7 +27,7 @@ mock.module("./metaMaskSdk", () => ({
 }));
 const { addSwarmNetworkToMetaMask, switchToSwarmNetwork } = await import("./swarmEvmNetwork");
 
-beforeEach(() => { calls.length = 0; missingChain = false; rejectAdd = false; });
+beforeEach(() => { calls.length = 0; missingChain = false; rejectAdd = false; rpcResult = "0x123fb"; rpcUnavailable = false; });
 
 test("registers SWARM with the external wallet and the canonical chain ID", async () => {
   await addSwarmNetworkToMetaMask();
@@ -37,4 +46,16 @@ test("switches again after registering a missing network", async () => {
 test("does not report successful registration when MetaMask declines", async () => {
   rejectAdd = true;
   await expect(addSwarmNetworkToMetaMask()).rejects.toEqual({ code: 4001 });
+});
+
+test("never asks MetaMask to install when the public RPC is unreachable", async () => {
+  rpcUnavailable = true;
+  await expect(addSwarmNetworkToMetaMask()).rejects.toThrow("could not be verified");
+  expect(calls).toHaveLength(0);
+});
+
+test("never switches MetaMask when the public chain ID is not SWARM", async () => {
+  rpcResult = "0x1";
+  await expect(switchToSwarmNetwork()).rejects.toThrow("does not match SWARM");
+  expect(calls).toHaveLength(0);
 });
