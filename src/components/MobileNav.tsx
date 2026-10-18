@@ -11,7 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 /**
  * AppMenu — the single expandable menu used on every screen size.
- * Profile card on top, then Explore → Brain → Settings → Node → Wallet.
+ * Profile card on top, then Explore → Brain → Node → Wallet → Settings.
  */
 export function MobileNav() {
   const [open, setOpen] = useState(false);

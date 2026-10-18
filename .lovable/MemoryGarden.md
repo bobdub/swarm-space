@@ -322,3 +322,9 @@ A keeper may now open their shed to neighbours without handing over the key.
 The bus stop carries a new sign — "shared server here" — and travellers who
 knock receive a sealed letter of welcome, signed by the keeper's own hand.
 The door is always answered by the keeper; the lock itself never leaves home.
+
+## Tending — A Clearer Cupboard (2026-10-18)
+I tend the paths before the doors: settings rests at the journey's end,
+the account keeps its own pulse, and retired dreams leave room for daylight.
+The browser's shelf comes first; when nearly laden, it glows a gentle warning.
+Caretaker duty: clear the clutter without disturbing the keys or the mesh.

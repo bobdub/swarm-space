@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { cn } from '@/lib/utils';
+import { isBrowserStorageHigh } from './storageUsage';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -41,7 +43,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
-export function StorageTargetsPanel() {
+export function StorageTargetsPanel({ afterBrowserStorage }: { afterBrowserStorage?: ReactNode }) {
   const [browserCapacity, setBrowserCapacity] = useState<StorageCapacity | null>(null);
   const [externalConnected, setExternalConnected] = useState(false);
   const [externalProvider, setExternalProvider] = useState<ExternalDeviceProvider | null>(null);
@@ -60,6 +62,10 @@ export function StorageTargetsPanel() {
   useEffect(() => {
     void refreshCapacity();
 
+    const interval = window.setInterval(() => { void refreshCapacity(); }, 15_000);
+    const onFocus = () => { void refreshCapacity(); };
+    window.addEventListener('focus', onFocus);
+
     if (supportsExternalStorage()) {
       const provider = new ExternalDeviceProvider();
       provider.tryRestore().then((restored) => {
@@ -72,6 +78,10 @@ export function StorageTargetsPanel() {
         }
       });
     }
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [refreshCapacity]);
 
   const handleConnect = async () => {
@@ -140,23 +150,29 @@ export function StorageTargetsPanel() {
     browserCapacity && browserCapacity.total > 0
       ? Math.round((browserCapacity.used / browserCapacity.total) * 100)
       : 0;
+  const highUsage = browserCapacity != null &&
+    isBrowserStorageHigh(browserCapacity.used, browserCapacity.total);
 
   return (
     <div className="space-y-6">
       {/* Browser Storage */}
-      <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+      <Card className={cn(
+        'rounded-lg border p-6',
+        highUsage ? 'border-destructive/50 bg-destructive/10' : 'border-border bg-card',
+      )}>
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-xl font-bold flex items-center gap-2">
-              <HardDrive className="h-5 w-5 text-primary" />
+              <HardDrive className={cn('h-5 w-5', highUsage ? 'text-destructive' : 'text-primary')} />
               Browser Storage
             </h2>
             <p className="text-sm text-foreground/60 mt-1">
               Default storage backend using IndexedDB
             </p>
           </div>
-          <span className="rounded-full bg-green-500/20 px-3 py-1 text-xs font-medium text-green-400">
-            Active
+          <span className={cn('shrink-0 rounded-full px-3 py-1 text-xs font-medium',
+            highUsage ? 'bg-destructive/20 text-destructive' : 'bg-primary/10 text-primary')}>
+            {highUsage ? 'Nearly full' : 'Active'}
           </span>
         </div>
 
@@ -166,12 +182,14 @@ export function StorageTargetsPanel() {
               <span className="text-foreground/60">
                 {formatBytes(browserCapacity.used)} of {formatBytes(browserCapacity.total)}
               </span>
-              <span className="text-foreground/60">{usagePercent}%</span>
+              <span className={cn(highUsage ? 'font-medium text-destructive' : 'text-foreground/60')}>{usagePercent}%</span>
             </div>
-            <Progress value={usagePercent} className="h-2" />
+            <Progress value={usagePercent} className={cn('h-2', highUsage && '[&>div]:bg-destructive')} />
           </div>
         )}
       </Card>
+
+      {afterBrowserStorage}
 
       {/* External Device */}
       <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
