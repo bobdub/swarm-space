@@ -280,6 +280,7 @@ export class SwarmChain {
    * Types that actually move SWARM tokens and affect balance.
    */
   private static readonly BALANCE_AFFECTING_TYPES = new Set([
+    "wallet_tip",
     "token_transfer",
     "token_mint",
     "token_burn",
@@ -297,6 +298,7 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
+    if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     if (!SwarmChain.BALANCE_AFFECTING_TYPES.has(tx.type)) return 0;
     let delta = 0;
     if (tx.from === address && tx.amount) {

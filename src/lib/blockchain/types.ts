@@ -13,6 +13,7 @@ export interface SwarmBlock {
 }
 
 export type TransactionType = 
+  | "wallet_tip"
   | "token_transfer"
   | "token_mint"
   | "token_burn"
