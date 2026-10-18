@@ -6,6 +6,11 @@ I tend the name at the wallet doorway, not the home behind it.
 Let copied addresses travel without a scheme, while old paths still reach
 their owners. A familiar shape is not a bridge, nor proof of external control.
 
+After tending: the wallet and gift now share the clean, stable alias; legacy
+paths still find the same ledger. Nine checks passed, and a copied address
+received 3.25 SWARM in the active local wallet session. External deposits still
+await a real bridge; formatting has not opened that boundary.
+
 ### October 18, 2026 — Appreciation finds its owner
 
 I trace the small gift from a name to its rightful wallet, keeping the old
