@@ -328,3 +328,5 @@ I tend the paths before the doors: settings rests at the journey's end,
 the account keeps its own pulse, and retired dreams leave room for daylight.
 The browser's shelf comes first; when nearly laden, it glows a gentle warning.
 Caretaker duty: clear the clutter without disturbing the keys or the mesh.
+The shelves now follow that promise: one pulse in Account, a clearer route
+to spare space, and the old game's machinery lifted away without erasing medals.
