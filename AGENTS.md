@@ -20,3 +20,5 @@
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation and local provider overrides cannot misrepresent connection state.
 - Gate external SWARM installation and switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness through a cached query, never through the local provider, because MetaMask must reach its own network RPC.
 - Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.
+- Local companion downloads are standalone loopback-only programs, built outside the client tree; pair an authenticated browser relay explicitly and expose only allowlisted reads, because the existing raw-transaction adapter is not safe external settlement.
+- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation remains unchanged, because a local helper is not a public gateway.

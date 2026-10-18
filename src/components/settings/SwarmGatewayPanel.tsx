@@ -12,6 +12,7 @@ import {
 import { getCurrentUser } from "@/lib/auth";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { getGlobalCell, type GatewayPeerInfo } from "@/lib/p2p/globalCell";
+import { LocalCompanionPanel } from "@/components/wallet/LocalCompanionPanel";
 import {
   setRemoteGateway,
   clearRemoteGateway,
@@ -85,8 +86,10 @@ export function SwarmGatewayPanel() {
 
       <p className="text-xs text-muted-foreground">
         {status.running ? "In-browser bridge ready. " : ""}
-        Public SWARM RPC unavailable; this cell does not add the network to MetaMask.
+        Public SWARM RPC unavailable. A paired local companion can serve read-only requests on your own machine.
       </p>
+
+      <LocalCompanionPanel gatewayRunning={status.running} />
 
       <div className="space-y-2 border-t border-border pt-4">
         <div className="flex items-center justify-between">
