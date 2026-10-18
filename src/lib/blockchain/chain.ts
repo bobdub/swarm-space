@@ -387,7 +387,14 @@ export class SwarmChain {
    */
   async replaceChain(incoming: SwarmBlock[]): Promise<void> {
     if (incoming.length === 0) return;
+    for (const block of incoming) {
+      for (const tx of block.transactions) {
+        if (tx.type === "wallet_tip" && !await verifyWalletTip(tx)) throw new Error("Invalid wallet tip in peer chain");
+      }
+    }
     this.chain = incoming;
+    const included = new Set(incoming.flatMap(block => block.transactions.map(tx => tx.id)));
+    this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
     await this.persistState();
     try { recordBlockAccepted(this.getLatestBlock()); } catch { /* non-fatal */ }
   }
@@ -407,7 +414,13 @@ export class SwarmChain {
     const target = "0".repeat(block.difficulty);
     if (block.hash.substring(0, block.difficulty) !== target) return false;
 
+    for (const tx of block.transactions) {
+      if (tx.type === "wallet_tip" && !await verifyWalletTip(tx)) return false;
+    }
+
     this.chain.push(block);
+    const included = new Set(block.transactions.map(tx => tx.id));
+    this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
     await saveBlock(block);
     await this.persistState();
     try { recordBlockAccepted(block); } catch { /* non-fatal */ }
