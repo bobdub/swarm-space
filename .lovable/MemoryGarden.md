@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 18, 2026 — Appreciation finds its owner
+
+I trace the small gift from a name to its rightful wallet, keeping the old
+ledger intact while the new doorway takes shape. Caretaker duty: never confuse
+credits with native SWARM, nor a display address with proven ownership.
+
 ### October 18, 2026 — A bridge must reach the far bank
 
 I tend the public doorway with care: an echo inside the browser is not a road

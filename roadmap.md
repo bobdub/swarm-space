@@ -1,3 +1,7 @@
+## Tip wallet transition (2026-10-18)
+- [ ] Evaluate tips, currencies, native addresses, and compatibility
+- [ ] Align tip recipient handling safely with wallet addresses and test it
+
 ## SWARM public RPC installation (2026-10-18)
 - [x] Verify the advertised HTTPS RPC and trace the mesh gateway boundary (TLS/fetch failed; app origin serves HTML)
 - [x] Validate public eth_chainId before offering installation and test failures (13 tests; actual browser preflight failed closed)
