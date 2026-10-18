@@ -25,7 +25,7 @@ import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/bl
 import { deployProfileToken, getUserProfileToken, updateCreatorTokenBanner } from "@/lib/blockchain/profileToken";
 import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
 import { AssetsTab } from "@/components/wallet/AssetsTab";
-import { MetaMaskConnectButton } from "@/components/wallet/MetaMaskConnectButton";
+import { NativeWalletAddress } from "@/components/wallet/NativeWalletAddress";
 import { VaultsPanel } from "@/components/wallet/VaultsPanel";
 import type { NFTMetadata, MiningSession, CreatorToken } from "@/lib/blockchain/types";
 import {
@@ -168,6 +168,7 @@ export default function Wallet() {
     };
 
     window.addEventListener("credit-transaction", handleCreditTransaction);
+    window.addEventListener("blockchain-transaction", handleCreditTransaction);
     window.addEventListener("active-chain-changed", handleChainChanged);
     window.addEventListener("cross-chain-swap", handleCreditTransaction);
     window.addEventListener("reward-pool-update", handleCreditTransaction);
@@ -180,6 +181,7 @@ export default function Wallet() {
 
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
+      window.removeEventListener("blockchain-transaction", handleCreditTransaction);
       window.removeEventListener("active-chain-changed", handleChainChanged);
       window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       window.removeEventListener("reward-pool-update", handleCreditTransaction);
@@ -324,10 +326,7 @@ export default function Wallet() {
           <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
         </div>
 
-        {/* MetaMask (always connectable) */}
-        <div className="mb-4 flex justify-start sm:justify-end">
-          <MetaMaskConnectButton compact />
-        </div>
+        <NativeWalletAddress userId={user?.id ?? ""} />
 
         {/* Chain Switcher */}
         <div className="mb-6">

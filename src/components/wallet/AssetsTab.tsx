@@ -70,9 +70,7 @@ export function AssetsTab() {
                 <WalletIcon className="h-5 w-5 text-primary" /> Assets & Bridge
               </CardTitle>
               <CardDescription>
-                Every balance you hold — native SWARM plus bridge currencies that
-                come in through market sales. MetaMask is optional and can be
-                connected at any time to move bridge funds in or out.
+                Native SWARM, game credits and external asset records.
               </CardDescription>
             </div>
             <MetaMaskConnectButton />
@@ -83,6 +81,7 @@ export function AssetsTab() {
             <div className="rounded-md border bg-muted/40 p-2 text-xs">
               <span className="text-muted-foreground">MetaMask:</span>{" "}
               <span className="font-mono">{shortAddr(address)}</span>{" "}
+              <Badge variant="secondary" className="ml-1 text-[9px]">Synced</Badge>
               <Badge variant="secondary" className="ml-1 text-[9px]">{chainLabel(chainId)}</Badge>
             </div>
           )}
@@ -142,7 +141,7 @@ function AssetRow({
         </div>
       </div>
       {kind === "swarm" && (
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
+        <div className="grid gap-2 sm:flex sm:flex-shrink-0">
           <SwarmBridgeDialog mode="deposit" balance={amount} userId={userId} className="w-full sm:w-auto" />
           <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" />
         </div>

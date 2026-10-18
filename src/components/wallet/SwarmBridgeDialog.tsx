@@ -1,229 +1,84 @@
-/**
- * SwarmBridgeDialog — donation-style deposit / withdraw form for SWARM.
- *
- * Flow:
- *  - MetaMask not connected → the button connects first, then opens the form.
- *  - Deposit  : switches MetaMask to Swarm-Space and sends value to the
- *               user's gateway EVM address (swarmIdToEvmAddress).
- *  - Withdraw : moves SWARM on the in-app chain to any 0x… address.
- */
-import { useEffect, useMemo, useState } from "react";
+/** Native transfers use the signed identity ledger. External exports require a real bridge. */
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowDownToLine, ArrowUpFromLine, ShieldAlert, Link2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Copy, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { requestMetaMask } from "@/lib/blockchain/wallets/metaMaskBridge";
-import {
-  isSwarmChain, switchToSwarmNetwork,
-} from "@/lib/blockchain/wallets/swarmEvmNetwork";
-import { transferSwarm } from "@/lib/blockchain/token";
-import { swarmIdToEvmAddress } from "@/lib/blockchain/gateway/addressMap";
-import { linkExternalEvmAddress, startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
-import { shortAddr, chainLabel, useMetaMask } from "@/hooks/useMetaMask";
+import { useMetaMask } from "@/hooks/useMetaMask";
+import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
+import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
+import { sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
+import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 
-const PRESETS = [25, 100, 500];
-
-function isEvmAddr(v: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(v.trim());
-}
-
-export function SwarmBridgeDialog({
-  mode, balance, userId, className,
-}: {
-  mode: "deposit" | "withdraw";
-  balance: number;
-  userId: string;
-  className?: string;
+export function SwarmBridgeDialog({ mode, balance, userId, className }: {
+  mode: "deposit" | "withdraw"; balance: number; userId: string; className?: string;
 }) {
-  const { available, address, chainId, busy: connecting, connect } = useMetaMask();
+  const { address } = useMetaMask();
   const [open, setOpen] = useState(false);
-  const [action, setAction] = useState<"deposit" | "withdraw">(mode);
+  const [layer, setLayer] = useState<"native" | "export">("native");
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
-  const [gatewayAddr, setGatewayAddr] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => { if (open) setAction(mode); }, [open, mode]);
-
-  useEffect(() => {
-    if (!open || !userId) return;
-    void swarmIdToEvmAddress(userId).then(setGatewayAddr).catch(() => setGatewayAddr(null));
-  }, [open, userId]);
-
-  useEffect(() => {
-    if (address && !dest) setDest(address);
-    if (address && userId) linkExternalEvmAddress(userId, address);
-  }, [address, userId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const parsed = Math.floor(Number(amount));
-  const invalid = useMemo(() => {
-    if (!userId || !Number.isFinite(parsed) || parsed <= 0) return true;
-    if (action === "withdraw") return parsed > balance || !isEvmAddr(dest);
-    return !address;
-  }, [userId, parsed, action, balance, dest, address]);
-
-  const openForm = async () => {
-    if (!address && available) {
-      await connect();
-    }
-    setOpen(true);
+  const parsed = Number(amount);
+  const invalid = !userId || !dest.trim().startsWith("swarm:") || !Number.isFinite(parsed) || parsed <= 0 || parsed > balance;
+  const changeOpen = (next: boolean) => {
+    if (busy) return;
+    setOpen(next);
+    setPassphrase("");
+    if (next) { setLayer("native"); setAmount(""); setDest(""); }
   };
-
   const submit = async () => {
-    if (invalid) return;
+    if (invalid || busy || layer !== "native" || mode !== "withdraw") return;
     setBusy(true);
     try {
-      if (action === "withdraw") {
-        const to = dest.trim();
-        await transferSwarm({
-          from: userId,
-          to,
-          amount: parsed,
-          meta: { via: "bridge-withdraw", evmTo: to.toLowerCase() },
-        });
-        toast.success(`Sent ${parsed} SWARM`, { description: `to ${shortAddr(to)}` });
-      } else {
-        startGatewayCell();
-        if (!isSwarmChain(chainId)) await switchToSwarmNetwork();
-        const to = gatewayAddr ?? (await swarmIdToEvmAddress(userId));
-        const valueWei = (BigInt(parsed) * 10n ** 18n).toString(16);
-        const txHash = await requestMetaMask<string>("eth_sendTransaction", [{
-          from: address, to, value: "0x" + valueWei,
-        }]);
-        toast.success("Deposit submitted", { description: `tx ${shortAddr(String(txHash))}` });
+      if (!await getCachedPrivateKey()) {
+        if (!passphrase) throw new Error("Enter your account passphrase to sign this transfer");
+        await loginUser(passphrase);
       }
-      setAmount("");
+      if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
+      setPassphrase("");
+      await sendWalletTip({ recipient: dest.trim(), assetId: "chain:SWARM", amount: parsed, intent: "transfer" });
+      toast.success("Transfer recorded; peer sync queued", { description: `${parsed} SWARM to ${dest.trim()}` });
       setOpen(false);
-      window.dispatchEvent(new Event("blockchain-transaction"));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Transfer failed");
-    } finally {
-      setBusy(false);
-    }
+      setAmount("");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Transfer failed");
+    } finally { setBusy(false); }
   };
-
-  const Icon = mode === "deposit" ? ArrowDownToLine : ArrowUpFromLine;
-
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className={className}
-        disabled={connecting || (mode === "withdraw" && balance <= 0)}
-        onClick={() => void openForm()}
-      >
-        {!address && available ? <Link2 className="mr-1 h-3 w-3" /> : <Icon className="mr-1 h-3 w-3" />}
-        {!address && available ? "Connect" : mode === "deposit" ? "Deposit" : "Withdraw"}
-      </Button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Move SWARM</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* Action toggle */}
-            <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
-              {(["deposit", "withdraw"] as const).map((a) => (
-                <Button
-                  key={a}
-                  type="button"
-                  size="sm"
-                  variant={action === a ? "default" : "ghost"}
-                  className="h-8 text-xs capitalize"
-                  onClick={() => setAction(a)}
-                >
-                  {a}
-                </Button>
-              ))}
-            </div>
-
-            {/* Wallet pill */}
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-xs">
-              <span className="text-muted-foreground">Balance</span>
-              <span className="font-semibold tabular-nums">{balance.toLocaleString()} SWARM</span>
-              {address ? (
-                <Badge variant="secondary" className="text-[9px]">
-                  {shortAddr(address)} · {chainLabel(chainId)}
-                </Badge>
-              ) : (
-                <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => void connect()}>
-                  <Link2 className="mr-1 h-3 w-3" /> Connect MetaMask
-                </Button>
-              )}
-            </div>
-
-            {/* Amount */}
-            <div className="space-y-2">
-              <Label className="text-xs">Amount (whole SWARM)</Label>
-              <Input
-                inputMode="numeric"
-                value={amount}
-                placeholder="0"
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
-              />
-              <div className="flex flex-wrap gap-1">
-                {PRESETS.map((p) => (
-                  <Button key={p} type="button" size="sm" variant="outline" className="h-7 text-[11px]"
-                    onClick={() => setAmount(String(p))}>
-                    {p}
-                  </Button>
-                ))}
-                {action === "withdraw" && (
-                  <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]"
-                    onClick={() => setAmount(String(Math.floor(balance)))}>
-                    Max
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {action === "withdraw" ? (
-              <div className="space-y-1">
-                <Label className="text-xs">Destination address</Label>
-                <Input value={dest} onChange={(e) => setDest(e.target.value)} placeholder="0x…" />
-                <p className="text-[10px] text-muted-foreground">
-                  {address ? "Prefilled from connected MetaMask." : "Any EVM address works."}
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <Label className="text-xs">Deposit destination</Label>
-                <div className="break-all rounded-md border p-2 font-mono text-[10px]">
-                  {gatewayAddr ?? "…"}
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  MetaMask will switch to Swarm-Space before signing.
-                </p>
-              </div>
-            )}
-
-            <Alert>
-              <ShieldAlert className="h-4 w-4" />
-              <AlertDescription className="text-[11px]">
-                MetaMask signs every transfer — the app never holds your keys.
-              </AlertDescription>
-            </Alert>
+  return <>
+    <Button type="button" variant="outline" size="sm" className={className} disabled={!userId} onClick={() => changeOpen(true)}>
+      {mode === "deposit" ? <ArrowDownToLine className="mr-1 h-3 w-3" /> : <ArrowUpFromLine className="mr-1 h-3 w-3" />}
+      {mode === "deposit" ? "Receive" : "Transfer / Withdraw"}
+    </Button>
+    <Dialog open={open} onOpenChange={changeOpen}>
+      <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+        <DialogHeader><DialogTitle>{mode === "deposit" ? "Receive SWARM" : "Transfer / Withdraw SWARM"}</DialogTitle></DialogHeader>
+        {mode === "deposit" ? <div className="space-y-2">
+          <Label>Native SWARM wallet address</Label>
+          <div className="flex min-w-0 items-center gap-2"><span className="min-w-0 flex-1 break-all font-mono text-xs">{nativeWalletAddress(userId)}</span><Button type="button" variant="ghost" size="icon" className="shrink-0" aria-label="Copy receiving address" title="Copy receiving address" onClick={() => void navigator.clipboard.writeText(nativeWalletAddress(userId)).then(() => toast.success("Wallet address copied")).catch(() => toast.error("Copy failed"))}><Copy className="h-4 w-4" /></Button></div>
+          <p className="text-xs text-muted-foreground">SWARM network only. External deposits are not available.</p>
+        </div> : <>
+          <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+            <Button type="button" size="sm" variant={layer === "native" ? "default" : "ghost"} disabled={busy} onClick={() => setLayer("native")}>On-network</Button>
+            <Button type="button" size="sm" variant={layer === "export" ? "default" : "ghost"} disabled={busy} onClick={() => { setLayer("export"); setPassphrase(""); }}>MetaMask export</Button>
           </div>
-
-          <DialogFooter>
-            <Button type="button" disabled={invalid || busy} onClick={() => void submit()}>
-              {busy ? "Working…" : action === "deposit" ? `Deposit ${parsed > 0 ? parsed : ""} SWARM` : `Withdraw ${parsed > 0 ? parsed : ""} SWARM`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
+          <p className="text-sm">Available: <span className="font-semibold tabular-nums">{balance.toLocaleString(undefined, { maximumFractionDigits: 8 })} SWARM</span></p>
+          {layer === "native" ? <div className="space-y-4">
+            <div className="space-y-2"><Label htmlFor="native-transfer-recipient">Recipient SWARM address</Label><Input id="native-transfer-recipient" value={dest} onChange={e => setDest(e.target.value)} placeholder="swarm:…" disabled={busy} /></div>
+            <div className="space-y-2"><Label htmlFor="native-transfer-amount">Amount (SWARM)</Label><Input id="native-transfer-amount" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0" disabled={busy} /><Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setAmount(String(balance))}>Max</Button></div>
+            <div className="space-y-2"><Label htmlFor="native-transfer-passphrase">Account passphrase</Label><Input id="native-transfer-passphrase" type="password" autoComplete="current-password" value={passphrase} onChange={e => setPassphrase(e.target.value)} disabled={busy} /></div>
+          </div> : <div className="space-y-3">
+            {address ? <div className="space-y-1"><Label>Synced MetaMask wallet</Label><p className="break-all font-mono text-xs">{address}</p></div> : <MetaMaskConnectButton compact />}
+            <Alert><ShieldAlert className="h-4 w-4" /><AlertDescription>MetaMask export is unavailable until a verified transfer bridge is connected. No SWARM will be deducted.</AlertDescription></Alert>
+          </div>}
+          <DialogFooter><Button type="button" disabled={layer !== "native" || invalid || busy} onClick={() => void submit()}>{busy ? "Signing…" : layer === "native" ? "Send SWARM" : "Export unavailable"}</Button></DialogFooter>
+        </>}
+      </DialogContent>
+    </Dialog>
+  </>;
 }
-
 export default SwarmBridgeDialog;
