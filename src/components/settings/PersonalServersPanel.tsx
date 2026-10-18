@@ -197,7 +197,7 @@ export function PersonalServersPanel() {
                           </p>
                         ) : null}
                         {d?.lastError ? (
-                          <p className="mt-1 break-words text-[11px] text-destructive/90">{d.lastError}</p>
+                          <p className="mt-1 break-words text-[11px] text-destructive/90">{friendlySyncError(d.lastError)}</p>
                         ) : null}
                         <Button type="button" size="sm" variant="ghost" className="mt-1 h-6 px-2 text-[11px]"
                           disabled={syncingId === s.id}
@@ -296,4 +296,12 @@ export function PersonalServersPanel() {
       />
     </Card>
   );
+}
+function friendlySyncError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('hash mismatch') || m.includes('400')) return `The server refused an upload (${message}). Tap "Sync now" to retry with the updated format.`;
+  if (m.includes('failed to fetch') || m.includes('cors') || m.includes('network')) return `Couldn't reach the server — check it's online and allows this site (CORS). (${message})`;
+  if (m.includes('401') || m.includes('403') || m.includes('credential')) return `The server rejected this device's access key — relink the server. (${message})`;
+  if (m.includes('cap')) return `The server is full — raise its storage limit or free space. (${message})`;
+  return message;
 }
