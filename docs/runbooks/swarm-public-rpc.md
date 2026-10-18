@@ -9,7 +9,7 @@
 
 ## Missing deployment
 
-An operator must provide an always-on mesh-connected host outside this client-only repository. Static Vite hosting cannot accept JSON-RPC POSTs. A short-lived function returning a fixed chain ID, or proxying without a real upstream, would not fix the missing gateway.
+For a **public** HTTPS endpoint, an operator would need a mesh-connected host outside this client-only repository. This is not required for the user's local companion path. Static Vite hosting cannot accept JSON-RPC POSTs; a fixed chain-ID reply is not a gateway.
 
 The host must terminate HTTPS with a valid public certificate, accept unauthenticated MetaMask JSON-RPC POSTs, support CORS/OPTIONS for the app, and enforce body/batch limits, method allowlists, request deadlines and rate limits. Never expose storage credentials or browser wallet keys.
 
@@ -26,3 +26,15 @@ Before enabling transfers, review raw-transaction signature/chain-ID checks, aut
 5. Only then replace the advertised RPC URL with the deployed endpoint. App installation functions revalidate HTTPS `eth_chainId` before calling external MetaMask; they never use the browser provider as fallback.
 
 Blocked: no public mesh-host deployment, hosting credentials, or authoritative upstream is available in this project.
+
+## Local companion — no public host
+
+Node > MetaMask Swarm Cell now detects the fixed `http://127.0.0.1:8545/health` endpoint. Windows x64 and Linux x64 standalone downloads are in `public/downloads/`; the downloadable source archive includes Go source, four security/relay tests, and build instructions. No helper server runs within this website repository or its hosting.
+
+Launch the unsigned executable (Linux: extract first; execution permission may be required), keep its console open, and paste its random startup pairing code into Node. Sign-in, verified MetaMask connection and an online SWARM mesh peer are required for UI pairing. Pairing lives only while the Node page is mounted and the mesh remains connected. The code is held in memory, not browser storage; restart creates a new code.
+
+The standalone helper binds only IPv4 loopback, validates Host and explicit SWARM browser origins, requires bearer authentication for its browser relay, limits bodies/concurrency/rates, and expires unpaired RPC within five seconds. Public read requests never see the pairing code. A 500ms authenticated poll takes JSON-RPC jobs into the browser's existing gateway and returns its actual ledger results. A fresh `eth_chainId` result of `0x123fb` is required before showing installation and again before contacting the external MetaMask provider. Public HTTPS validation is unchanged.
+
+Read-only allowlist: `eth_chainId`, `net_version`, `web3_clientVersion`, `eth_blockNumber`, `eth_getBalance`, `eth_getBlockByNumber`, `eth_getBlockByHash`. No signing, account methods, gas/nonce placeholders, or transaction submissions are exposed. This is not a complete EVM execution engine; it must not be represented as working external settlement. Local ledger freshness and the existing gateway's address/block adapters still limit what MetaMask can accurately display.
+
+Verified: 15 website tests, four companion Go tests, Windows PE build, Linux executable launch, both UI downloads plus source download, real authenticated browser gateway chain/height relay, write rejection and expiry after browser relay stops. The browser test used a disposable real local account and actual local chain, but invoked pairing directly for the relay check because no real external extension or connected peer was available. Full UI pairing with a live mesh, Windows execution, Linux desktop launch behavior, HTTPS preview local-network permissions and actual MetaMask custom-network acceptance remain unverified. Mobile MetaMask cannot reach a desktop loopback endpoint. Operating-system approval cannot be safely bypassed or promised as one-click deployment.

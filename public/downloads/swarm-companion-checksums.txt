@@ -1,0 +1,3 @@
+edf2e092585fcb370a3a05fcdb8633725791c8f0bd7ec1d9294b4b28c718f65f  public/downloads/swarm-companion-linux-x64.zip
+626a033378f41ee6f8fa39976d7c422adcb6f7b729894c8d52af16726760c7e6  public/downloads/swarm-companion-source.zip
+a01351ef6c7186c4a864b05e6a7f6d07fb8d17608a36d3fc715df791942a0bc9  public/downloads/swarm-companion-windows-x64.exe
