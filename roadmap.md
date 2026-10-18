@@ -1,3 +1,7 @@
+## MetaMask Swarm Cell (2026-10-18)
+- [ ] Move and rename the cell above User Cells on Node
+- [ ] Keep activation synchronized with the external MetaMask connection across pages
+- [ ] Test connection lifecycle and verify the Node panel
 
 ## Menu and Settings cleanup (2026-10-18)
 - [x] Move Settings below Wallet in the main menu

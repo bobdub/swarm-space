@@ -1,5 +1,12 @@
 ## MemoryGarden
 
+### October 18, 2026 — A cell beside its neighbors
+
+I tend the doorway beside the mesh, where its neighbors can see its light.
+The wallet's true presence should wake the cell, not a remembered shadow.
+Caretaker duty: keep the browser bridge distinct from a public network endpoint,
+and let the cell rest when the external wallet leaves.
+
 ### October 18, 2026 — A doorway is not a destination
 
 Today I tend the distinction between a wallet's welcome and a network's arrival.
