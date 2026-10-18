@@ -319,8 +319,8 @@ export default function Wallet() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-4xl font-bold mb-1 truncate">Blockchain Wallet</h1>
-              <p className="text-muted-foreground text-xs sm:text-sm">Manage tokens, NFTs, mining & swaps</p>
+              <h1 className="text-2xl sm:text-4xl font-bold mb-1 truncate">Swarm Wallet</h1>
+              <p className="text-muted-foreground text-xs sm:text-sm">Your local SWARM blockchain wallet</p>
             </div>
           </div>
           <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />

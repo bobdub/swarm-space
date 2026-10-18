@@ -1,38 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
-} from "@/components/ui/dialog";
-import { ArrowDownToLine, ArrowUpFromLine, Copy, ShieldAlert, Coins, Wallet as WalletIcon } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
-import {
-  debitAppWallet,
-  getAppWalletBalances,
-  onAppWalletUpdate,
-  type AppWalletCurrency,
-} from "@/lib/blockchain/wallets/appWallet";
+import { getAppWalletBalances, onAppWalletUpdate } from "@/lib/blockchain/wallets/appWallet";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
+import { resolveNativeWalletRecipient } from "@/lib/blockchain/wallets/nativeAddress";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
-import { chainLabel, shortAddr, useMetaMask } from "@/hooks/useMetaMask";
+import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
+import { useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
+import { SendCreditsModal } from "@/components/SendCreditsModal";
 
+type Layer = "native" | "metamask";
 
 export function AssetsTab() {
-  const user = getCurrentUser();
-  const userId = user?.id ?? "";
-  const { balance: creditBalance } = useCreditBalance(userId || null);
+  const userId = getCurrentUser()?.id ?? "";
+  const { balance: credits } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
-  const [mintme, setMintme] = useState(() => (userId ? getChainMintmeBalance(userId) : 0));
-  const [bridge, setBridge] = useState(() => (userId ? getAppWalletBalances(userId) : { ETH: 0, BTC: 0, MINTME: 0 }));
-  const { available, address, chainId } = useMetaMask();
+  const [mintme, setMintme] = useState(0);
+  const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
+  const [layer, setLayer] = useState<Layer>("native");
+  const { address } = useMetaMask();
 
   useEffect(() => {
     if (!userId) return;
@@ -52,267 +47,148 @@ export function AssetsTab() {
     };
   }, [userId]);
 
-  const rows = useMemo(() => ([
-    { code: "SWARM",  label: "SWARM",  amount: swarm,         kind: "swarm" as const },
-    { code: "CREDIT", label: "Credits", amount: creditBalance, kind: "native" as const },
-    { code: "ETH",    label: "ETH — Ethereum", amount: bridge.ETH,    kind: "bridge" as const },
-    { code: "BTC",    label: "BTC — Bitcoin",  amount: bridge.BTC,    kind: "bridge" as const },
-    { code: "MINTME", label: "MintMe",         amount: mintme,        kind: "native" as const },
-  ]), [swarm, creditBalance, bridge, mintme]);
+  const rows = [
+    { code: "SWARM", label: "SWARM", amount: swarm, digits: 2 },
+    { code: "CREDIT", label: "Credits", amount: credits, digits: 2 },
+    { code: "MINTME", label: "MintMe", amount: mintme, digits: 4 },
+    { code: "ETH", label: "ETH", amount: bridge.ETH, digits: 6 },
+    { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
+  ];
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <WalletIcon className="h-5 w-5 text-primary" /> Assets & Bridge
-              </CardTitle>
-              <CardDescription>
-                Native SWARM, game credits and external asset records.
-              </CardDescription>
-            </div>
-            <MetaMaskConnectButton />
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {address && (
-            <div className="rounded-md border bg-muted/40 p-2 text-xs">
-              <span className="text-muted-foreground">MetaMask:</span>{" "}
-              <span className="font-mono">{shortAddr(address)}</span>{" "}
-              <Badge variant="secondary" className="ml-1 text-[9px]">Synced</Badge>
-              <Badge variant="secondary" className="ml-1 text-[9px]">{chainLabel(chainId)}</Badge>
-            </div>
-          )}
-          <div className="grid gap-2">
-            {rows.map((row) => (
-              <AssetRow
-                key={row.code}
-                code={row.code}
-                label={row.label}
-                amount={row.amount}
-                kind={row.kind}
-                userId={userId}
-                metaMaskAddress={address}
-                metaMaskAvailable={available}
-              />
-            ))}
-          </div>
-          <Alert>
-            <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>Bridge signing is landing next release</AlertTitle>
-            <AlertDescription className="text-xs">
-              Deposits from MetaMask and real on-chain withdrawals go live when
-              the bridge signer ships. For now, sale settlements credit your
-              bridge balance and manual withdrawals debit locally so the
-              accounting stays honest through the update.
-            </AlertDescription>
-          </Alert>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function AssetRow({
-  code, label, amount, kind, userId, metaMaskAddress, metaMaskAvailable,
-}: {
-  code: string;
-  label: string;
-  amount: number;
-  kind: "native" | "bridge" | "swarm";
-  userId: string;
-  metaMaskAddress: string | null;
-  metaMaskAvailable: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <Coins className="h-4 w-4 text-primary" />
-          <span className="font-medium">{label}</span>
-          {kind === "bridge" && <Badge variant="outline" className="text-[9px]">Bridge</Badge>}
-          {kind === "swarm" && <Badge variant="secondary" className="text-[9px]">Native chain</Badge>}
-        </div>
-        <div className="mt-0.5 text-xl font-semibold tabular-nums">
-          {amount.toLocaleString(undefined, { maximumFractionDigits: kind === "bridge" ? 6 : 2 })}{" "}
-          <span className="text-xs font-normal text-muted-foreground">{code}</span>
-        </div>
-      </div>
-      {kind === "swarm" && (
-        <div className="grid gap-2 sm:flex sm:flex-shrink-0">
-          <SwarmBridgeDialog mode="deposit" balance={amount} userId={userId} className="w-full sm:w-auto" />
-          <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" />
-        </div>
-      )}
-      {kind === "bridge" && (
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
-          <DepositDialog code={code as AppWalletCurrency} metaMaskAddress={metaMaskAddress} metaMaskAvailable={metaMaskAvailable} />
-          <WithdrawDialog
-            code={code as AppWalletCurrency}
-            amount={amount}
-            userId={userId}
-            metaMaskAddress={metaMaskAddress}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DepositDialog({
-  code, metaMaskAddress, metaMaskAvailable,
-}: {
-  code: AppWalletCurrency;
-  metaMaskAddress: string | null;
-  metaMaskAvailable: boolean;
-}) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <ArrowDownToLine className="mr-1 h-3 w-3" /> Deposit
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Deposit {code}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          {!metaMaskAvailable && (
-            <Alert>
-              <ShieldAlert className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                Install MetaMask to bridge {code} into your in-app wallet.
-              </AlertDescription>
-            </Alert>
-          )}
-          {metaMaskAvailable && !metaMaskAddress && (
-            <Alert>
-              <ShieldAlert className="h-4 w-4" />
-              <AlertDescription className="text-xs">
-                Connect MetaMask first — deposits are matched against the
-                connected wallet's outgoing transaction.
-              </AlertDescription>
-            </Alert>
-          )}
-          {metaMaskAddress && (
-            <div className="space-y-2">
-              <Label className="text-xs">Send {code} from</Label>
-              <div className="flex items-center gap-2 rounded-md border p-2">
-                <span className="flex-1 truncate font-mono text-xs">{metaMaskAddress}</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(metaMaskAddress);
-                    toast.success("Address copied");
-                  }}
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Sale proceeds already land here automatically. External bridge
-                deposits go live with the bridge signer release.
-              </p>
-            </div>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => toast.info(`Deposit ${code} — bridge signing coming soon`)}>
-            Notify me
+    <section aria-label="Assets" className="space-y-3">
+      <div role="tablist" aria-label="Asset network" className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+        {(["native", "metamask"] as const).map((l) => (
+          <Button key={l} type="button" role="tab" aria-selected={layer === l} size="sm"
+            variant={layer === l ? "default" : "ghost"} onClick={() => setLayer(l)}>
+            {l === "native" ? "Native" : "MetaMask"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        ))}
+      </div>
+
+      {layer === "metamask" && !address && (
+        <div className="rounded-md border p-3 text-sm space-y-2">
+          <p className="text-muted-foreground">Connect MetaMask to manage assets on your MetaMask wallet.</p>
+          <MetaMaskConnectButton compact />
+        </div>
+      )}
+
+      <div className="grid gap-2">
+        {rows.map((r) => (
+          <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Coins className="h-4 w-4 text-primary" /> {r.label}
+              </div>
+              <div className="text-xl font-semibold tabular-nums">
+                {r.amount.toLocaleString(undefined, { maximumFractionDigits: r.digits })}{" "}
+                <span className="text-xs font-normal text-muted-foreground">{r.code}</span>
+              </div>
+            </div>
+            <AssetActions code={r.code} label={r.label} amount={r.amount} userId={userId}
+              layer={layer} metaMaskAddress={address} />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function WithdrawDialog({
-  code, amount, userId, metaMaskAddress,
-}: {
-  code: AppWalletCurrency;
-  amount: number;
-  userId: string;
-  metaMaskAddress: string | null;
+function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
+  code: string; label: string; amount: number; userId: string; layer: Layer; metaMaskAddress: string | null;
 }) {
+  const cls = "grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0";
+  if (layer === "native" && code === "SWARM") {
+    return (
+      <div className={cls}>
+        <SwarmBridgeDialog mode="deposit" balance={amount} userId={userId} className="w-full sm:w-auto" />
+        <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" />
+      </div>
+    );
+  }
+  if (layer === "native" && code === "CREDIT") {
+    return (
+      <div className={cls}>
+        <ReceiveDialog label={label} userId={userId} />
+        <CreditTransferDialog amount={amount} userId={userId} />
+      </div>
+    );
+  }
+  const reason = layer === "metamask"
+    ? metaMaskAddress ? "MetaMask transfers arrive with the deposit release." : "Connect MetaMask first."
+    : "External deposits and withdrawals arrive in the next release.";
+  return (
+    <div className={cls}>
+      {layer === "native"
+        ? <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
+        : <Button type="button" variant="outline" size="sm" disabled title={reason}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
+      <Button type="button" variant="outline" size="sm" disabled title={reason}>
+        <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
+      </Button>
+    </div>
+  );
+}
+
+function ReceiveDialog({ label, userId, note }: { label: string; userId: string; note?: string }) {
   const [open, setOpen] = useState(false);
-  const [value, setValue] = useState("");
-  const [dest, setDest] = useState<string>(metaMaskAddress ?? "");
+  const addr = useNativeWalletAddress(userId);
+  return (
+    <>
+      <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setOpen(true)}>
+        <ArrowDownToLine className="mr-1 h-3 w-3" />Receive
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Receive {label}</DialogTitle></DialogHeader>
+          <Label>Your native wallet address</Label>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1 break-all font-mono text-xs">{addr || "Loading address…"}</span>
+            <Button type="button" size="icon" variant="ghost" disabled={!addr} aria-label="Copy address"
+              onClick={() => void navigator.clipboard.writeText(addr).then(() => toast.success("Wallet address copied"))}>
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          {note && <p className="text-xs text-muted-foreground">{note}</p>}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function CreditTransferDialog({ amount, userId }: { amount: number; userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => { if (metaMaskAddress) setDest(metaMaskAddress); }, [metaMaskAddress]);
-
-  const parsed = Number(value);
-  const invalid = !userId || !(parsed > 0) || parsed > amount || dest.trim().length < 6;
-
-  const submit = async () => {
-    if (invalid) return;
+  const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
+  const next = async () => {
     setBusy(true);
     try {
-      debitAppWallet(userId, code, parsed);
-      toast.success(`Withdraw queued · ${parsed} ${code}`, {
-        description: "Debited from in-app ledger. Bridge signer will broadcast when live.",
-      });
+      const user = await resolveNativeWalletRecipient(input);
+      if (user.id === userId) throw new Error("That is your own wallet.");
+      setTarget({ id: user.id, name: user.displayName || user.username || "user" });
       setOpen(false);
-      setValue("");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Withdraw failed");
-    } finally {
-      setBusy(false);
-    }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Recipient not found");
+    } finally { setBusy(false); }
   };
-
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" disabled={amount <= 0}>
-          <ArrowUpFromLine className="mr-1 h-3 w-3" /> Withdraw
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Withdraw {code}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <Label>Amount</Label>
-            <Input
-              type="number"
-              step="0.000001"
-              min="0"
-              max={amount}
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              placeholder={amount.toString()}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Available: {amount.toFixed(6)} {code}
-            </p>
-          </div>
-          <div>
-            <Label>Destination address</Label>
-            <Input value={dest} onChange={(e) => setDest(e.target.value)} placeholder="0x…" />
-            <p className="mt-1 text-xs text-muted-foreground">
-              {metaMaskAddress ? "Prefilled from connected MetaMask." : "Connect MetaMask to prefill."}
-            </p>
-          </div>
-          <Alert>
-            <ShieldAlert className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              This debits your in-app balance immediately. On-chain broadcast
-              runs when the bridge signer ships.
-            </AlertDescription>
-          </Alert>
-        </div>
-        <DialogFooter>
-          <Button disabled={invalid || busy} onClick={submit}>
-            {busy ? "Queuing…" : `Withdraw ${code}`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <Button type="button" variant="outline" size="sm" disabled={!userId || amount <= 0} onClick={() => setOpen(true)}>
+        <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Transfer Credits</DialogTitle></DialogHeader>
+          <Label htmlFor="credit-recipient">Recipient wallet address</Label>
+          <Input id="credit-recipient" value={input} onChange={(e) => setInput(e.target.value)} placeholder="0x…" />
+          <DialogFooter>
+            <Button type="button" disabled={busy || input.trim().length < 6} onClick={() => void next()}>Continue</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {target && <SendCreditsModal toUserId={target.id} toUsername={target.name} isOpen onClose={() => setTarget(null)} />}
+    </>
   );
 }
+
+export { Badge };
