@@ -10,6 +10,7 @@
 
 import {
   getMetaMaskProvider,
+  getExternalMetaMaskProvider,
   getExternalMetaMaskProviderSync,
   hasInjectedMetaMask,
   isMobileDevice,
@@ -37,7 +38,7 @@ export interface MetaMaskConnection {
 
 /** Prompts MetaMask for an account. Returns null if unavailable / declined. */
 export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
-  const eth = await getProvider();
+  const eth = await getExternalMetaMaskProvider();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_requestAccounts" })) as string[];

@@ -114,7 +114,7 @@ export function MetaMaskConnectButton({ compact = false, iconOnly = false, class
             const me = getCurrentUser();
             if (me?.id && address) linkExternalEvmAddress(me.id, address);
             toast.success("Using in-browser Swarm gateway", {
-              description: "MetaMask now visits Swarm-Space through your local gateway cell.",
+              description: "App requests use your local cell. This does not install a network in MetaMask.",
             });
           }}
         >
