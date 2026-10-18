@@ -36,6 +36,18 @@ export interface HostConfig {
   maxMembers: number;
   members: Record<string, SignedGroupWareMembership>;
   blocked: string[];
+  /** Public HTTPS SWARM RPC this host operates (advertised; never storage). */
+  rpcUrl?: string;
+}
+
+/** Accept only credential-free public HTTPS URLs; anything else is dropped. */
+export function sanitizeRpcUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim() || raw.length > 256) return undefined;
+  try {
+    const u = new URL(raw.trim());
+    if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash) return undefined;
+    return u.href;
+  } catch { return undefined; }
 }
 
 export type RequestStatus = 'none' | 'requesting' | 'pending' | 'member' | 'denied';
@@ -107,7 +119,7 @@ class GroupWareNode {
 
   // ── Host side ───────────────────────────────────────────────────────
 
-  async configureHost(cfg: Pick<HostConfig, 'serverId' | 'name' | 'policy' | 'maxMembers'>) {
+  async configureHost(cfg: Pick<HostConfig, 'serverId' | 'name' | 'policy' | 'maxMembers'> & { rpcUrl?: string }) {
     const prev = this.host;
     this.host = {
       enabled: prev?.enabled ?? false,
@@ -115,6 +127,7 @@ class GroupWareNode {
       members: prev?.members ?? {},
       blocked: prev?.blocked ?? [],
       ...cfg,
+      rpcUrl: sanitizeRpcUrl(cfg.rpcUrl),
       maxMembers: Math.max(1, Math.min(500, Math.floor(cfg.maxMembers))),
     };
     save(HOST_KEY, this.host);
@@ -151,6 +164,7 @@ class GroupWareNode {
       memberCount: Object.keys(this.host.members).length,
       maxMembers: this.host.maxMembers,
       ts: Date.now(),
+      ...(this.host.rpcUrl ? { rpcUrl: this.host.rpcUrl } : {}),
     };
   }
 
