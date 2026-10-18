@@ -6,6 +6,8 @@ import { useMetaMask, chainLabel } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { toast } from "sonner";
 
+const short = (value: string) => (value.length > 18 ? `${value.slice(0, 10)}…${value.slice(-6)}` : value);
+
 export function NativeWalletAddress({ userId }: { userId: string }) {
   const nativeAddress = useNativeWalletAddress(userId);
   const { address, chainId } = useMetaMask();
