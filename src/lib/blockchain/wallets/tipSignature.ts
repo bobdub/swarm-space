@@ -1,7 +1,7 @@
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "@/lib/crypto";
 import type { SwarmTransaction } from "../types";
 
-function payload(tx: SwarmTransaction): Uint8Array {
+function payload(tx: SwarmTransaction): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify({
     id: tx.id, type: tx.type, from: tx.from, to: tx.to, amount: tx.amount,
     tokenId: tx.tokenId ?? null, chainId: tx.chainId ?? "SWARM",

@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { transferCredits, getCreditBalance, CREDIT_REWARDS, tipUser } from "@/lib/credits";
+import { CREDIT_REWARDS } from "@/lib/credits";
 import { getCurrentUser } from "@/lib/auth";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -27,7 +27,6 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
   const isCredits = assetId === "credits";
   const ticker = selectedAsset?.ticker ?? "Credits";
   const [loading, setLoading] = useState(false);
-  const [userBalance, setUserBalance] = useState(0);
   const [mode, setMode] = useState<"transfer" | "tip">("transfer");
   const [message, setMessage] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -35,12 +34,13 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
 
   useEffect(() => {
     if (isOpen) {
-      void loadBalance();
+      void loadBalance().catch(() => toast({ title: "Could not load wallet assets", variant: "destructive" }));
     }
     if (!isOpen) {
       setAmount("");
       setMessage("");
       setMode("transfer");
+      setAssetId("credits");
     }
   }, [isOpen, toUserId]);
 
@@ -49,7 +49,6 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     if (user) {
       const nextAssets = await getWalletTipAssets(user.id);
       setAssets(nextAssets);
-      setUserBalance(nextAssets.find(a => a.id === assetId)?.balance ?? 0);
       setCurrentUserId(user.id);
     }
   };
@@ -69,7 +68,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     if (currentUserId && currentUserId === toUserId) {
       toast({
         title: "Hold up",
-        description: "You can't send credits to yourself",
+        description: "You can't send to yourself",
         variant: "destructive",
       });
       return;
@@ -77,7 +76,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
 
     if (numAmount > (selectedAsset?.balance ?? 0)) {
       toast({
-        title: "Insufficient credits",
+        title: "Insufficient balance",
         description: `You only have ${selectedAsset?.balance ?? 0} ${ticker}`,
         variant: "destructive",
       });
@@ -114,9 +113,9 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
       await loadBalance();
       onClose();
     } catch (error) {
-      console.error("Failed to send credits:", error);
+      console.error("Failed to send payment:", error);
       toast({
-        title: "Failed to send credits",
+        title: "Failed to send payment",
         description: error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
