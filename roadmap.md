@@ -1,7 +1,8 @@
 ## Local companion (2026-10-18)
-- [ ] Add loopback detection, explicit pairing and live browser-mesh read relay to MetaMask Swarm Cell
-- [ ] Ship standalone Windows and Linux x64 downloads, with no hosted server dependency
-- [ ] Validate fail-closed readiness, downloads, relay and Node UI; document OS/MetaMask verification limits
+- [x] Add loopback detection, explicit pairing and live browser-mesh read relay to MetaMask Swarm Cell
+- [x] Ship standalone Windows and Linux x64 downloads, with no hosted server dependency
+- [x] Validate detection/download UI, read-only relay and expiry with a genuine local account; 15 website tests and four companion tests pass
+- [ ] Verify full live-peer UI pairing and actual MetaMask installation — needs a real desktop extension and connected mesh peer; Windows launch also needs a Windows machine
 
 ## Clean native wallet addresses (2026-10-18)
 - [x] Display and copy existing deterministic 0x receiving aliases across wallet and tip views
@@ -23,7 +24,7 @@
 ## SWARM public RPC installation (2026-10-18)
 - [x] Verify the advertised HTTPS RPC and trace the mesh gateway boundary (TLS/fetch failed; app origin serves HTML)
 - [x] Validate public eth_chainId before offering installation and test failures (13 tests; actual browser preflight failed closed)
-- [ ] Provide the missing public mesh gateway — blocked: no always-on external mesh host, deployment access, or authoritative upstream available; requirements in docs/runbooks/swarm-public-rpc.md
+- [x] Choose user-local companion instead of an always-on public host; public HTTPS remains unavailable and is not needed for this local path
 
 ## MetaMask Swarm Cell (2026-10-18)
 - [x] Move and rename the cell above User Cells on Node

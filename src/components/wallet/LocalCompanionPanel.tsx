@@ -116,7 +116,7 @@ export function LocalCompanionPanel({ gatewayRunning }: { gatewayRunning: boolea
     {message && <p role="status" className="break-words text-xs text-muted-foreground">{message}</p>}
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="outline" asChild><a href="/downloads/swarm-companion-windows-x64.exe" download><Download className="mr-2 h-4 w-4" />Windows x64</a></Button>
-      <Button type="button" size="sm" variant="outline" asChild><a href="/downloads/swarm-companion-linux-x64.tar.gz" download><Download className="mr-2 h-4 w-4" />Linux x64</a></Button>
+      <Button type="button" size="sm" variant="outline" asChild><a href="/downloads/swarm-companion-linux-x64.zip" download><Download className="mr-2 h-4 w-4" />Linux x64</a></Button>
       <Button type="button" size="sm" variant="ghost" asChild><a href="/downloads/swarm-companion-source.zip" download><Download className="mr-2 h-4 w-4" />Source &amp; tests</a></Button>
     </div>
     <p className="text-xs text-muted-foreground">Windows: open the downloaded app. Linux: extract, then open the executable; your desktop may require permission to run it. These downloads are unsigned.</p>
