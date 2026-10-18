@@ -99,6 +99,41 @@ function accrueUsage(serverId: string, bytes: number, current: number): void {
   updatePersonalServer(serverId, { usedBytes: current + pending });
 }
 
+// ── Content-address aliasing (HTTPS-blob contract) ─────────────────────
+// HTTPS-blob servers reject a PUT whose URL hash != SHA-256(body). App keys
+// such as `chunk-…`, `manifest:…` and `rec-…` are logical names, so we store
+// bytes under their real body hash and remember logical→hash locally.
+const ALIAS_STORAGE = 'swarm-personal-server-key-aliases';
+const HEX64 = /^[0-9a-f]{64}$/;
+function readAliases(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(ALIAS_STORAGE) ?? '{}') as Record<string, string>; } catch { return {}; }
+}
+function writeAlias(serverId: string, key: string, hash: string): void {
+  try {
+    const all = readAliases();
+    all[`${serverId}|${key}`] = hash;
+    localStorage.setItem(ALIAS_STORAGE, JSON.stringify(all));
+  } catch { /* storage unavailable */ }
+}
+/** Resolve the server-side object hash for a logical key (null = never written). */
+export function resolveBlobKey(serverId: string, key: string): string | null {
+  if (HEX64.test(key)) return key;
+  return readAliases()[`${serverId}|${key}`] ?? null;
+}
+async function blobKeyForPut(serverId: string, key: string, body: ArrayBuffer): Promise<string> {
+  if (HEX64.test(key)) return key;
+  const hash = await sha256Hex(body);
+  writeAlias(serverId, key, hash);
+  return hash;
+}
+export function clearBlobAliases(serverId: string): void {
+  try {
+    const all = readAliases();
+    for (const k of Object.keys(all)) if (k.startsWith(`${serverId}|`)) delete all[k];
+    localStorage.setItem(ALIAS_STORAGE, JSON.stringify(all));
+  } catch { /* ignore */ }
+}
+
 export const personalServerPut = withHealth(
   'storage', 'personal-server.put',
   async (serverId: string, userId: string, hash: string, body: ArrayBuffer): Promise<void> => {
@@ -108,7 +143,7 @@ export const personalServerPut = withHealth(
 
     if (server.kind === 'https-blob') {
       const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-      await httpsBlobPut(server.url, creds, hash, body);
+      await httpsBlobPut(server.url, creds, await blobKeyForPut(serverId, hash, body), body);
     } else {
       const creds = await getCreds<S3DirectCreds>(serverId, userId);
       await s3DirectPut(s3ConfigFor(server, userId), creds, hash, body);
@@ -138,8 +173,10 @@ export const personalServerGet = withHealth(
 
     let bytes: ArrayBuffer | null;
     if (server.kind === 'https-blob') {
+      const key = resolveBlobKey(serverId, hash);
+      if (!key) return null;
       const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-      bytes = await httpsBlobGet(server.url, creds, hash);
+      bytes = await httpsBlobGet(server.url, creds, key);
     } else {
       const creds = await getCreds<S3DirectCreds>(serverId, userId);
       bytes = await s3DirectGet(s3ConfigFor(server, userId), creds, hash);
@@ -164,8 +201,10 @@ export const personalServerDelete = withHealth(
     const server = getPersonalServer(serverId);
     if (!server) throw new Error('Unknown personal server.');
     if (server.kind === 'https-blob') {
+      const key = resolveBlobKey(serverId, hash);
+      if (!key) return;
       const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-      await httpsBlobDelete(server.url, creds, hash);
+      await httpsBlobDelete(server.url, creds, key);
     } else {
       const creds = await getCreds<S3DirectCreds>(serverId, userId);
       await s3DirectDelete(s3ConfigFor(server, userId), creds, hash);
@@ -179,8 +218,10 @@ export async function personalServerHead(
   const server = getPersonalServer(serverId);
   if (!server) return false;
   if (server.kind === 'https-blob') {
+    const key = resolveBlobKey(serverId, hash);
+    if (!key) return false;
     const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-    return httpsBlobHead(server.url, creds, hash);
+    return httpsBlobHead(server.url, creds, key);
   }
   const creds = await getCreds<S3DirectCreds>(serverId, userId);
   return s3DirectHead(s3ConfigFor(server, userId), creds, hash);
@@ -312,7 +353,7 @@ export async function personalServerPutPublic(
     // The HTTPS-blob contract already serves /chunks/:hash; the owner opts
     // into anonymous GET on the server side.
     const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-    await httpsBlobPut(server.url, creds, hash, body);
+    await httpsBlobPut(server.url, creds, await blobKeyForPut(serverId, hash, body), body);
   } else {
     const creds = await getCreds<S3DirectCreds>(serverId, userId);
     await s3PublicPut(s3ConfigFor(server, userId), creds, hash, body);
@@ -326,8 +367,10 @@ export async function personalServerPublicHead(
   const server = getPersonalServer(serverId);
   if (!server || !server.sharePublic) return false;
   if (server.kind === 'https-blob') {
+    const key = resolveBlobKey(serverId, hash);
+    if (!key) return false;
     const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-    return httpsBlobHead(server.url, creds, hash);
+    return httpsBlobHead(server.url, creds, key);
   }
   const creds = await getCreds<S3DirectCreds>(serverId, userId);
   return s3PublicHead(s3ConfigFor(server, userId), creds, hash);
@@ -340,8 +383,10 @@ export async function personalServerPublicDelete(
   const server = getPersonalServer(serverId);
   if (!server) return;
   if (server.kind === 'https-blob') {
+    const key = resolveBlobKey(serverId, hash);
+    if (!key) return;
     const creds = await getCreds<HttpsBlobCreds>(serverId, userId);
-    await httpsBlobDelete(server.url, creds, hash);
+    await httpsBlobDelete(server.url, creds, key);
   } else {
     const creds = await getCreds<S3DirectCreds>(serverId, userId);
     await s3PublicDelete(s3ConfigFor(server, userId), creds, hash);

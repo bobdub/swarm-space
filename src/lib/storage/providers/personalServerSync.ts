@@ -6,7 +6,7 @@ import {
   updatePersonalServer,
   type PersonalServer,
 } from './personalServerStore';
-import {
+import { clearBlobAliases,
   personalServerGet,
   personalServerHead,
   personalServerPut,
@@ -418,7 +418,8 @@ export async function retryPersonalServerSync(serverId?: string): Promise<SyncRu
       updatedAt: Date.now(),
     });
   }
-  await processPersonalServerSyncQueue();
+  // Re-queue everything stored locally so "Sync now" actually moves data.
+  await backfillPersonalServerSync();
 
   const after = serverId
     ? diag(serverId)
@@ -449,6 +450,7 @@ export async function clearPersonalServerSync(serverId: string): Promise<void> {
     if (record.serverId === serverId) await remove('personalServerSync', record.id);
   }
   await clearRecordState(serverId);
+  clearBlobAliases(serverId);
   diagnostics.delete(serverId);
   emitDiagnostics();
 }
