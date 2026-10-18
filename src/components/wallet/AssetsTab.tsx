@@ -15,6 +15,7 @@ import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
+import { MintMeDepositDialog } from "./MintMeDepositDialog";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 
 type Layer = "native" | "metamask";
@@ -113,9 +114,19 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress }: {
       </div>
     );
   }
+  if (code === "MINTME") {
+    return (
+      <div className={cls}>
+        <MintMeDepositDialog userId={userId} label={layer === "native" ? "Receive" : "Deposit to Native"} />
+        <Button type="button" variant="outline" size="sm" disabled title="MintMe withdrawals come next.">
+          <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
+        </Button>
+      </div>
+    );
+  }
   const reason = layer === "metamask"
-    ? metaMaskAddress ? "MetaMask transfers arrive with the deposit release." : "Connect MetaMask first."
-    : "External deposits and withdrawals arrive in the next release.";
+    ? metaMaskAddress ? "Only MintMe deposits are available so far." : "Connect MetaMask first."
+    : "External deposits for this asset are not available yet.";
   return (
     <div className={cls}>
       {layer === "native"
