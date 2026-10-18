@@ -1,4 +1,11 @@
 
+## Menu and Settings cleanup (2026-10-18)
+- [ ] Move Settings below Wallet in the main menu
+- [ ] Keep Session health only in Account
+- [ ] Remove retired Dream Matching UI and unused game code
+- [ ] Put Browser Storage first, Free Up Space second, and warn at 80% usage
+- [ ] Run focused checks and verify the Settings flow
+
 ## Land plots (2026-09-03)
 - [x] Shrink land nameplates; extra shrink + shorter range in Top view
 - [x] Reject overlapping claims (own, foreign, commons)
