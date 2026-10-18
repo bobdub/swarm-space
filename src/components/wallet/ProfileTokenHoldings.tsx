@@ -12,6 +12,9 @@ export function ProfileTokenHoldings() {
 
   useEffect(() => {
     loadHoldings();
+    const refresh = () => void loadHoldings();
+    window.addEventListener("wallet-tip-updated", refresh);
+    return () => window.removeEventListener("wallet-tip-updated", refresh);
   }, [user]);
 
   const loadHoldings = async () => {

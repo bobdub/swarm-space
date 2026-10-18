@@ -3,6 +3,7 @@ import { SwarmBlock, SwarmTransaction, ChainState, SWARM_CONFIG } from "./types"
 import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
+import { verifyWalletTip } from "./wallets/tipSignature";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -146,12 +147,24 @@ export class SwarmChain {
   }
 
   addTransaction(transaction: SwarmTransaction): void {
+    if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
     if (this.hasTransaction(transaction.id)) return;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
+  }
+
+  /** Validation awaits before a synchronous balance check and append: concurrent receipts cannot overspend. */
+  async acceptWalletTip(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (!await verifyWalletTip(transaction)) return false;
+    if (this.hasTransaction(transaction.id)) return true;
+    if (this.getBalance(transaction.from) < (transaction.amount ?? 0)) return false;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
   }
 
   /** Mark state dirty and schedule an async flush (debounced) */
@@ -280,6 +293,7 @@ export class SwarmChain {
    * Types that actually move SWARM tokens and affect balance.
    */
   private static readonly BALANCE_AFFECTING_TYPES = new Set([
+    "wallet_tip",
     "token_transfer",
     "token_mint",
     "token_burn",
@@ -297,6 +311,7 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
+    if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     if (!SwarmChain.BALANCE_AFFECTING_TYPES.has(tx.type)) return 0;
     let delta = 0;
     if (tx.from === address && tx.amount) {
@@ -372,7 +387,10 @@ export class SwarmChain {
    */
   async replaceChain(incoming: SwarmBlock[]): Promise<void> {
     if (incoming.length === 0) return;
+    if (!await this.validateWalletTipLedger(incoming)) throw new Error("Invalid wallet tip in peer chain");
     this.chain = incoming;
+    const included = new Set(incoming.flatMap(block => block.transactions.map(tx => tx.id)));
+    this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
     await this.persistState();
     try { recordBlockAccepted(this.getLatestBlock()); } catch { /* non-fatal */ }
   }
@@ -392,10 +410,32 @@ export class SwarmChain {
     const target = "0".repeat(block.difficulty);
     if (block.hash.substring(0, block.difficulty) !== target) return false;
 
+    if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
+
     this.chain.push(block);
+    const included = new Set(block.transactions.map(tx => tx.id));
+    this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
     await saveBlock(block);
     await this.persistState();
     try { recordBlockAccepted(block); } catch { /* non-fatal */ }
+    return true;
+  }
+
+  private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {
+    const balances = new Map<string, number>();
+    const seen = new Set<string>();
+    for (const block of blocks) {
+      for (const tx of block.transactions) {
+        if (tx.type === "wallet_tip") {
+          if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
+          if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
+        }
+        seen.add(tx.id);
+        for (const address of new Set([tx.from, tx.to])) {
+          balances.set(address, (balances.get(address) ?? 0) + this.applyTransactionToBalance(tx, address));
+        }
+      }
+    }
     return true;
   }
 }

@@ -12,6 +12,9 @@
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 
 ## Wallet boundaries
+- Resolve native wallet aliases to existing identity ledger keys; never migrate balances or credit history merely to change displayed addresses.
+- Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
+- Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
 - Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation and local provider overrides cannot misrepresent connection state.
 - Gate external SWARM installation and switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness through a cached query, never through the local provider, because MetaMask must reach its own network RPC.

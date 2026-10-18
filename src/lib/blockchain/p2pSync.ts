@@ -217,7 +217,9 @@ export class BlockchainP2PSync {
           for (const tx of message.data.pendingTransactions) {
             if (chain.hasTransaction(tx.id)) continue;
             try {
-              chain.addTransaction(tx);
+              if (tx.type === "wallet_tip") {
+                if (!await chain.acceptWalletTip(tx)) continue;
+              } else chain.addTransaction(tx);
               await applyMarketTransaction(tx);
               acceptedPending++;
             } catch (error) {
@@ -251,7 +253,11 @@ export class BlockchainP2PSync {
         
         // Add to pending transactions if valid
         try {
-          if (!chain.hasTransaction(tx.id)) chain.addTransaction(tx);
+          if (!chain.hasTransaction(tx.id)) {
+            if (tx.type === "wallet_tip") {
+              if (!await chain.acceptWalletTip(tx)) break;
+            } else chain.addTransaction(tx);
+          }
           const { applyMarketTransaction } = await import("./coinMarket");
           await applyMarketTransaction(tx);
           const { derivePoolFromChain } = await import("./storage");

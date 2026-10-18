@@ -1,6 +1,9 @@
 ## Tip wallet transition (2026-10-18)
 - [x] Evaluate tips, currencies, native addresses, and compatibility (tips spend credits; ledger wallets currently use identity IDs; derived 0x addresses are gateway aliases only)
-- [ ] Align tip recipient handling safely with wallet addresses and test it — blocked: choose whether tips retain credits, use SWARM, or offer both
+- [x] Add asset selection, native SWARM address resolution and signed SWARM tips; retain existing game-credit history and limits
+- [x] Test amount/signature/overspend/replay rules (6 tests); send 3 SWARM through profile and read 3 SWARM in recipient wallet using two local QA accounts
+- [ ] Enable creator/sub-chain/external token tips — blocked by missing verifiable ownership settlement or external transfer bridge; shown but cannot deduct funds
+- [ ] Verify cross-device mesh delivery — requires two connected peers with synchronized sender ledger; current verification is same-browser local accounts
 
 ## SWARM public RPC installation (2026-10-18)
 - [x] Verify the advertised HTTPS RPC and trace the mesh gateway boundary (TLS/fetch failed; app origin serves HTML)

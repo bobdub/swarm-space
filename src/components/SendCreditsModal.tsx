@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
-import { Coins } from "lucide-react";
+import { Coins, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { transferCredits, getCreditBalance, CREDIT_REWARDS, tipUser } from "@/lib/credits";
-import { getCurrentUser } from "@/lib/auth";
+import { CREDIT_REWARDS } from "@/lib/credits";
+import { getCurrentUser, getCachedPrivateKey, loginUser } from "@/lib/auth";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockchain/wallets/walletTips";
+import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
 
 interface SendCreditsModalProps {
   toUserId: string;
@@ -18,8 +21,13 @@ interface SendCreditsModalProps {
 
 export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: SendCreditsModalProps) {
   const [amount, setAmount] = useState("");
+  const [assets, setAssets] = useState<TipAsset[]>([]);
+  const [assetId, setAssetId] = useState("credits");
+  const [passphrase, setPassphrase] = useState("");
+  const selectedAsset = assets.find(a => a.id === assetId);
+  const isCredits = assetId === "credits";
+  const ticker = selectedAsset?.ticker ?? "Credits";
   const [loading, setLoading] = useState(false);
-  const [userBalance, setUserBalance] = useState(0);
   const [mode, setMode] = useState<"transfer" | "tip">("transfer");
   const [message, setMessage] = useState("");
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -27,26 +35,28 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
 
   useEffect(() => {
     if (isOpen) {
-      loadBalance();
+      void loadBalance().catch(() => toast({ title: "Could not load wallet assets", variant: "destructive" }));
     }
     if (!isOpen) {
       setAmount("");
       setMessage("");
       setMode("transfer");
+      setAssetId("credits");
+      setPassphrase("");
     }
-  }, [isOpen]);
+  }, [isOpen, toUserId]);
 
   const loadBalance = async () => {
     const user = await getCurrentUser();
     if (user) {
-      const balance = await getCreditBalance(user.id);
-      setUserBalance(balance);
+      const nextAssets = await getWalletTipAssets(user.id);
+      setAssets(nextAssets);
       setCurrentUserId(user.id);
     }
   };
 
   const handleSend = async () => {
-    const numAmount = parseInt(amount);
+    const numAmount = Number(amount);
 
     if (isNaN(numAmount) || numAmount <= 0) {
       toast({
@@ -60,22 +70,22 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     if (currentUserId && currentUserId === toUserId) {
       toast({
         title: "Hold up",
-        description: "You can't send credits to yourself",
+        description: "You can't send to yourself",
         variant: "destructive",
       });
       return;
     }
 
-    if (numAmount > userBalance) {
+    if (numAmount > (selectedAsset?.balance ?? 0)) {
       toast({
-        title: "Insufficient credits",
-        description: `You only have ${userBalance} credits`,
+        title: "Insufficient balance",
+        description: `You only have ${selectedAsset?.balance ?? 0} ${ticker}`,
         variant: "destructive",
       });
       return;
     }
 
-    if (mode === "tip") {
+    if (mode === "tip" && isCredits) {
       if (numAmount < CREDIT_REWARDS.TIP_MIN || numAmount > CREDIT_REWARDS.TIP_MAX) {
         toast({
           title: "Tip amount out of range",
@@ -89,28 +99,30 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     setLoading(true);
     try {
       const note = message.trim() ? message.trim() : undefined;
-
-      if (mode === "tip") {
-        await tipUser(toUserId, numAmount, { message: note });
-      } else {
-        await transferCredits(toUserId, numAmount, { message: note });
+      if (!isCredits && !await getCachedPrivateKey()) {
+        if (!passphrase) throw new Error("Enter your account passphrase to sign this payment");
+        await loginUser(passphrase);
       }
+      setPassphrase("");
+
+      await sendWalletTip({ recipient: nativeWalletAddress(toUserId), assetId,
+        amount: numAmount, message: note, intent: mode });
 
       toast({
-        title: mode === "tip" ? "Tip sent!" : "Credits sent!",
+        title: isCredits ? (mode === "tip" ? "Tip sent!" : "Payment sent!") : "Payment recorded; peer sync queued",
         description:
           mode === "tip"
-            ? `Tipped ${numAmount} credits to @${toUsername}`
-            : `Sent ${numAmount} credits to @${toUsername}`,
+            ? `Tipped ${numAmount} ${ticker} to @${toUsername}`
+            : `Sent ${numAmount} ${ticker} to @${toUsername}`,
       });
       setAmount("");
       setMessage("");
       await loadBalance();
       onClose();
     } catch (error) {
-      console.error("Failed to send credits:", error);
+      console.error("Failed to send payment:", error);
       toast({
-        title: "Failed to send credits",
+        title: "Failed to send payment",
         description: error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
@@ -119,17 +131,16 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
     }
   };
 
-  const maxAmount = mode === "tip"
-    ? Math.min(userBalance, CREDIT_REWARDS.TIP_MAX)
-    : Math.min(userBalance, CREDIT_REWARDS.MAX_TRANSFER);
+  const balance = selectedAsset?.balance ?? 0;
+  const maxAmount = isCredits ? Math.min(balance, mode === "tip" ? CREDIT_REWARDS.TIP_MAX : CREDIT_REWARDS.MAX_TRANSFER) : balance;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="rounded-[24px] border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,8%,0.95)] backdrop-blur-2xl sm:max-w-md max-h-[85vh] overflow-y-auto">
+      <DialogContent className="rounded-[24px] border border-border bg-card backdrop-blur-2xl sm:max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl font-display uppercase tracking-[0.15em]">
-            <Coins className="h-5 w-5 text-[hsl(326,71%,62%)]" />
-            Send Credits
+            <Coins className="h-5 w-5 text-primary" />
+            Send & Tip
           </DialogTitle>
         </DialogHeader>
 
@@ -145,8 +156,8 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
                 variant={mode === "transfer" ? "default" : "outline"}
                 className={`flex-1 rounded-xl ${
                   mode === "transfer"
-                    ? "bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] text-[hsl(253,82%,6%)]"
-                    : "border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)]"
+                    ? "bg-primary text-primary-foreground"
+                    : "border-border bg-card"
                 }`}
                 disabled={loading}
               >
@@ -158,28 +169,44 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
                 variant={mode === "tip" ? "default" : "outline"}
                 className={`flex-1 rounded-xl ${
                   mode === "tip"
-                    ? "bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] text-[hsl(253,82%,6%)]"
-                    : "border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)]"
+                    ? "bg-primary text-primary-foreground"
+                    : "border-border bg-card"
                 }`}
                 disabled={loading}
               >
                 Tip
               </Button>
             </div>
-            <p className="text-xs text-foreground/55">
-              {mode === "tip"
-                ? `Send quick appreciation. Tips are capped at ${CREDIT_REWARDS.TIP_MAX} credits.`
-                : "Move larger balances or coordinate project funds."}
-            </p>
+
           </div>
 
           <div className="space-y-2">
             <Label className="text-sm font-display uppercase tracking-[0.2em] text-foreground/70">
               Recipient
             </Label>
-            <div className="rounded-xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] px-4 py-3 text-sm text-foreground">
+            <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground">
               @{toUsername}
+              <div className="mt-2 flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 break-all font-mono text-xs">{nativeWalletAddress(toUserId)}</span>
+                <Button type="button" variant="ghost" size="icon" aria-label="Copy SWARM wallet address" title="Copy SWARM wallet address"
+                  onClick={() => void navigator.clipboard.writeText(nativeWalletAddress(toUserId)).then(() => toast({ title: "Wallet address copied" })).catch(() => toast({ title: "Copy failed", variant: "destructive" }))}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="tip-asset">Asset</Label>
+            <Select value={assetId} onValueChange={value => { setAssetId(value); setAmount(""); }} disabled={loading}>
+              <SelectTrigger id="tip-asset"><SelectValue placeholder="Select asset" /></SelectTrigger>
+              <SelectContent>
+                {assets.map(asset => <SelectItem key={asset.id} value={asset.id}>
+                  {asset.ticker} · {asset.balance.toLocaleString()} · {asset.name}
+                </SelectItem>)}
+              </SelectContent>
+            </Select>
+            {selectedAsset?.unavailable && <p role="alert" className="text-xs text-destructive">{selectedAsset.unavailable}</p>}
           </div>
 
           <div className="space-y-2">
@@ -192,12 +219,14 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Enter amount"
-              className="rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)]"
-              min={mode === "tip" ? CREDIT_REWARDS.TIP_MIN : CREDIT_REWARDS.MIN_TRANSFER}
+              className="rounded-xl border-border bg-card"
+              min={isCredits ? 1 : "0.00000001"}
+              step={isCredits ? 1 : "any"}
+              disabled={loading || !!selectedAsset?.unavailable}
               max={maxAmount}
             />
             <p className="text-xs text-foreground/55">
-              Your balance: {userBalance} credits{mode === "tip" ? ` • Tip window: ${CREDIT_REWARDS.TIP_MIN}-${CREDIT_REWARDS.TIP_MAX}` : null}
+              Your balance: {balance.toLocaleString()} {ticker}{mode === "tip" && isCredits ? ` • Tip window: ${CREDIT_REWARDS.TIP_MIN}-${CREDIT_REWARDS.TIP_MAX}` : null}
             </p>
           </div>
 
@@ -211,7 +240,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
               onChange={(event) => setMessage(event.target.value)}
               placeholder="Add a note of appreciation or context"
               maxLength={CREDIT_REWARDS.MAX_MESSAGE_LENGTH}
-              className="min-h-[96px] rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)]"
+              className="min-h-[96px] rounded-xl border-border bg-card"
               disabled={loading}
             />
             <p className="text-xs text-foreground/55">
@@ -219,6 +248,13 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
             </p>
           </div>
 
+          <div className="flex gap-3 pt-2">
+            {!isCredits && !selectedAsset?.unavailable && <div className="w-full space-y-2">
+              <Label htmlFor="tip-passphrase">Account passphrase</Label>
+              <Input id="tip-passphrase" type="password" autoComplete="current-password"
+                value={passphrase} onChange={event => setPassphrase(event.target.value)} disabled={loading} />
+            </div>}
+          </div>
           <div className="flex gap-3 pt-2">
             <Button
               onClick={onClose}
@@ -231,9 +267,9 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: Send
             <Button
               onClick={handleSend}
               className="flex-1 rounded-xl"
-              disabled={loading || !amount}
+              disabled={loading || !amount || !selectedAsset || !!selectedAsset.unavailable}
             >
-              {loading ? "Sending..." : mode === "tip" ? "Send Tip" : "Send Credits"}
+              {loading ? "Sending..." : mode === "tip" ? "Send Tip" : "Send Payment"}
             </Button>
           </div>
         </div>

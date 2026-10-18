@@ -11,6 +11,13 @@ native ledger also indexes identities and the 0x doorway is only an alias.
 No funds or historical receipts were moved; the gift's currency must be chosen
 before its recipient path can change safely.
 
+The gift now names its currency and its native recipient. Six checks guard
+amounts, signatures, duplicate receipts and available funds. A local sender
+gave three SWARM; the recipient's wallet read three, without changing credits.
+Creator holdings and external records remain sealed until their settlement
+can prove ownership; signing alone cannot create a balance. Cross-device
+delivery still needs a connected peer trial.
+
 ### October 18, 2026 — A bridge must reach the far bank
 
 I tend the public doorway with care: an echo inside the browser is not a road

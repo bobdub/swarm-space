@@ -930,7 +930,7 @@ const Profile = () => {
                     className="gap-2 rounded-xl border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] hover:bg-[hsla(245,70%,16%,0.6)]"
                   >
                     <Send className="h-4 w-4" />
-                    Send Credits
+                    Send & Tip
                   </Button>
                 )}
 
