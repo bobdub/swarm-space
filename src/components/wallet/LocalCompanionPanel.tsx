@@ -21,6 +21,7 @@ export function LocalCompanionPanel({ gatewayRunning }: { gatewayRunning: boolea
   const [paired, setPaired] = useState(false);
   const [pairing, setPairing] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [rpcVerified, setRpcVerified] = useState(false);
   const controller = useRef<AbortController | null>(null);
   const readyRef = useRef(false);
   const [meshOnline, setMeshOnline] = useState(false);
@@ -49,6 +50,18 @@ export function LocalCompanionPanel({ gatewayRunning }: { gatewayRunning: boolea
     if (!ready) { controller.current?.abort(); setPaired(false); setPairing(false); }
   }, [ready]);
   useEffect(() => () => { controller.current?.abort(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    setRpcVerified(false);
+    if (paired && ready) {
+      void verifyCompanionRpc().then(() => {
+        if (!cancelled) setRpcVerified(true);
+      }).catch((error) => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : "SWARM could not be verified.");
+      });
+    }
+    return () => { cancelled = true; };
+  }, [paired, ready]);
 
   const pair = async () => {
     controller.current?.abort();
@@ -98,13 +111,15 @@ export function LocalCompanionPanel({ gatewayRunning }: { gatewayRunning: boolea
       </div>
       {!ready && <p className="text-xs text-muted-foreground">Sign in, connect MetaMask and connect to a mesh peer before pairing.</p>}
     </div>}
-    {paired && <Button type="button" size="sm" disabled={installing || !ready} onClick={() => void install()}>{installing ? "Verifying SWARM…" : "Add local SWARM network to MetaMask"}</Button>}
+    {paired && !rpcVerified && <p className="text-xs text-muted-foreground">Verifying the paired SWARM chain…</p>}
+    {paired && rpcVerified && <Button type="button" size="sm" disabled={installing || !ready} onClick={() => void install()}>{installing ? "Verifying SWARM…" : "Add local SWARM network to MetaMask"}</Button>}
     {message && <p role="status" className="break-words text-xs text-muted-foreground">{message}</p>}
     <div className="flex flex-wrap gap-2">
       <Button type="button" size="sm" variant="outline" asChild><a href="/downloads/swarm-companion-windows-x64.exe" download><Download className="mr-2 h-4 w-4" />Windows x64</a></Button>
       <Button type="button" size="sm" variant="outline" asChild><a href="/downloads/swarm-companion-linux-x64.tar.gz" download><Download className="mr-2 h-4 w-4" />Linux x64</a></Button>
+      <Button type="button" size="sm" variant="ghost" asChild><a href="/downloads/swarm-companion-source.zip" download><Download className="mr-2 h-4 w-4" />Source &amp; tests</a></Button>
     </div>
     <p className="text-xs text-muted-foreground">Windows: open the downloaded app. Linux: extract, then open the executable; your desktop may require permission to run it. These downloads are unsigned.</p>
-    <p className="text-xs text-muted-foreground">Keep SWARM and the companion open. Network reads use your online mesh; sending from MetaMask is not supported yet. No wallet keys are shared.</p>
+    <p className="text-xs text-muted-foreground">Keep this Node page and the companion open. Network reads use your online mesh; sending from MetaMask is not supported yet. No wallet keys are shared.</p>
   </section>;
 }

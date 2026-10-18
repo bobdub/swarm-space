@@ -33,7 +33,7 @@ export async function verifyCompanionRpc(http: typeof fetch = fetch): Promise<vo
 // No signing, account authorization or transaction submission through this scaffold.
 const READ_METHODS = new Set([
   "eth_chainId", "net_version", "web3_clientVersion", "eth_blockNumber",
-  "eth_getBalance", "eth_getBlockByNumber", "eth_getBlockByHash", "eth_gasPrice",
+  "eth_getBalance", "eth_getBlockByNumber", "eth_getBlockByHash",
 ]);
 export function isCompanionReadMethod(method: string): boolean { return READ_METHODS.has(method); }
 
