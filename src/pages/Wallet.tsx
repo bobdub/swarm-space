@@ -330,16 +330,16 @@ export default function Wallet() {
 
         {/* Tabs */}
         <Tabs defaultValue="assets" className="space-y-6">
-          <TabsList className="flex w-full h-auto gap-1 overflow-x-auto whitespace-nowrap justify-start sm:grid sm:grid-cols-9">
-            <TabsTrigger value="assets" className="min-w-0">Assets</TabsTrigger>
-            <TabsTrigger value="transactions" className="min-w-0">Ledger</TabsTrigger>
-            <TabsTrigger value="credits" className="min-w-0">Credits</TabsTrigger>
-            <TabsTrigger value="nfts" className="min-w-0">NFTs</TabsTrigger>
-            <TabsTrigger value="mining" className="min-w-0">Mining</TabsTrigger>
-            <TabsTrigger value="swap" className="min-w-0">Swap</TabsTrigger>
-            <TabsTrigger value="creator-token" className="min-w-0">Creator</TabsTrigger>
-            <TabsTrigger value="coins" className="min-w-0">Chain</TabsTrigger>
-            <TabsTrigger value="market" className="min-w-0">Market</TabsTrigger>
+          <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-9">
+            <TabsTrigger value="assets" className="shrink-0 px-3">Assets</TabsTrigger>
+            <TabsTrigger value="transactions" className="shrink-0 px-3">Ledger</TabsTrigger>
+            <TabsTrigger value="credits" className="shrink-0 px-3">Credits</TabsTrigger>
+            <TabsTrigger value="nfts" className="shrink-0 px-3">NFTs</TabsTrigger>
+            <TabsTrigger value="mining" className="shrink-0 px-3">Mining</TabsTrigger>
+            <TabsTrigger value="swap" className="shrink-0 px-3">Swap</TabsTrigger>
+            <TabsTrigger value="creator-token" className="shrink-0 px-3">Creator</TabsTrigger>
+            <TabsTrigger value="coins" className="shrink-0 px-3">Chain</TabsTrigger>
+            <TabsTrigger value="market" className="shrink-0 px-3">Market</TabsTrigger>
           </TabsList>
 
           {/* ── Assets ────────────────────────────────────────────── */}
