@@ -28,6 +28,7 @@ import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLaye
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
+import { MetaMaskGatewayService } from "@/components/wallet/MetaMaskGatewayService";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
@@ -149,6 +150,7 @@ function AppContent() {
       <StorageFullBanner />
       <TokenRecoveryBoot />
       <NodeDashboardEventBridge />
+      <MetaMaskGatewayService />
       <BrainChunkPreloader />
 
       <div className="pb-16 md:pb-0">

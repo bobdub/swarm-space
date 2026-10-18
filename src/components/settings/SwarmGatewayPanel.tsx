@@ -1,18 +1,16 @@
 import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DoorOpen, Radio } from "lucide-react";
 import {
   getGatewayStatus,
-  startGatewayCell,
-  stopGatewayCell,
   subscribeGatewayStatus,
   registerLocalIdentity,
   type GatewayStatus,
 } from "@/lib/blockchain/gateway/swarmGatewayCell";
 import { getCurrentUser } from "@/lib/auth";
+import { useMetaMask } from "@/hooks/useMetaMask";
 import { getGlobalCell, type GatewayPeerInfo } from "@/lib/p2p/globalCell";
 import {
   setRemoteGateway,
@@ -21,6 +19,7 @@ import {
 } from "@/lib/blockchain/wallets/swarmProvider";
 
 export function SwarmGatewayPanel() {
+  const { address } = useMetaMask();
   const [status, setStatus] = useState<GatewayStatus>(() => getGatewayStatus());
   const [evmAddr, setEvmAddr] = useState<string | null>(null);
   const [remotePeers, setRemotePeers] = useState<GatewayPeerInfo[]>([]);
@@ -44,28 +43,22 @@ export function SwarmGatewayPanel() {
   };
 
   return (
-    <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+    <Card className="space-y-4 rounded-lg border border-border bg-card p-4 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
           <h2 className="flex items-center gap-2 text-xl font-bold">
-            <DoorOpen className="h-5 w-5" /> Swarm Gateway Cell
+            <DoorOpen className="h-5 w-5 shrink-0" /> MetaMask Swarm Cell
           </h2>
           <p className="text-sm text-foreground/60">
-            A doorway that lets MetaMask visit the Swarm chain. Your local Swarm wallet
-            stays your primary wallet — this only translates outside requests into mesh messages.
+            {address ? "MetaMask connected" : "MetaMask not connected"}
           </p>
         </div>
-        <Switch
-          checked={status.running}
-          onCheckedChange={(v) => (v ? startGatewayCell() : stopGatewayCell())}
-          aria-label="Toggle Swarm gateway cell"
-        />
       </div>
       <div className="grid grid-cols-2 gap-3 text-xs text-foreground/70">
         <div>
           <div className="text-foreground/50">Status</div>
           <Badge variant={status.running ? "default" : "secondary"} className="mt-1">
-            {status.running ? "Running" : "Off"}
+            {status.running ? "Gateway active" : "Dormant"}
           </Badge>
         </div>
         <div>
@@ -90,7 +83,12 @@ export function SwarmGatewayPanel() {
         )}
       </div>
 
-      <div className="space-y-2 rounded-2xl border border-[hsla(174,59%,56%,0.12)] bg-[hsla(245,70%,6%,0.35)] p-4">
+      <p className="text-xs text-muted-foreground">
+        {status.running ? "In-browser bridge ready. " : ""}
+        Public SWARM RPC unavailable; this cell does not add the network to MetaMask.
+      </p>
+
+      <div className="space-y-2 border-t border-border pt-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <Radio className="h-4 w-4" /> Remote gateways
@@ -109,7 +107,7 @@ export function SwarmGatewayPanel() {
             {remotePeers.map((p) => {
               const isActive = activeRemote === p.peerId;
               return (
-                <li key={p.peerId} className="flex items-center justify-between gap-2 rounded-lg bg-[hsla(245,70%,4%,0.4)] px-2 py-1.5">
+                <li key={p.peerId} className="flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-2 py-1.5">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-mono text-[10px]">{p.peerId.slice(0, 20)}…</div>
                     <div className="text-[10px] text-foreground/50">
