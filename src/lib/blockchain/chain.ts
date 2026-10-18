@@ -387,11 +387,7 @@ export class SwarmChain {
    */
   async replaceChain(incoming: SwarmBlock[]): Promise<void> {
     if (incoming.length === 0) return;
-    for (const block of incoming) {
-      for (const tx of block.transactions) {
-        if (tx.type === "wallet_tip" && !await verifyWalletTip(tx)) throw new Error("Invalid wallet tip in peer chain");
-      }
-    }
+    if (!await this.validateWalletTipLedger(incoming)) throw new Error("Invalid wallet tip in peer chain");
     this.chain = incoming;
     const included = new Set(incoming.flatMap(block => block.transactions.map(tx => tx.id)));
     this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
@@ -414,9 +410,7 @@ export class SwarmChain {
     const target = "0".repeat(block.difficulty);
     if (block.hash.substring(0, block.difficulty) !== target) return false;
 
-    for (const tx of block.transactions) {
-      if (tx.type === "wallet_tip" && !await verifyWalletTip(tx)) return false;
-    }
+    if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
 
     this.chain.push(block);
     const included = new Set(block.transactions.map(tx => tx.id));
@@ -424,6 +418,24 @@ export class SwarmChain {
     await saveBlock(block);
     await this.persistState();
     try { recordBlockAccepted(block); } catch { /* non-fatal */ }
+    return true;
+  }
+
+  private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {
+    const balances = new Map<string, number>();
+    const seen = new Set<string>();
+    for (const block of blocks) {
+      for (const tx of block.transactions) {
+        if (tx.type === "wallet_tip") {
+          if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
+          if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
+        }
+        seen.add(tx.id);
+        for (const address of new Set([tx.from, tx.to])) {
+          balances.set(address, (balances.get(address) ?? 0) + this.applyTransactionToBalance(tx, address));
+        }
+      }
+    }
     return true;
   }
 }
