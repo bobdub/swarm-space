@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Users, Radio, Check, X, LogOut, Link2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { getGroupWareNode, type GroupWareSnapshot } from '@/lib/groupware/groupwareNode';
+import { getGroupWareNode, sanitizeRpcUrl, type GroupWareSnapshot } from '@/lib/groupware/groupwareNode';
 import { subscribePersonalServers, type PersonalServer } from '@/lib/storage/providers/personalServerStore';
 import type { GroupWarePolicy } from '@/lib/groupware/types';
 
@@ -23,6 +23,7 @@ export function GroupWarePanel() {
   const [serverId, setServerId] = useState('');
   const [policy, setPolicy] = useState<GroupWarePolicy>('approval');
   const [maxMembers, setMaxMembers] = useState(10);
+  const [rpcUrl, setRpcUrl] = useState('');
 
   useEffect(() => getGroupWareNode().subscribe(setSnap), []);
   useEffect(() => subscribePersonalServers(setServers), []);
@@ -30,7 +31,7 @@ export function GroupWarePanel() {
     const h = snap?.host;
     if (!h) return;
     setName((n) => n || h.name); setServerId((s) => s || h.serverId);
-    setPolicy(h.policy); setMaxMembers(h.maxMembers);
+    setPolicy(h.policy); setMaxMembers(h.maxMembers); setRpcUrl((r) => r || h.rpcUrl || '');
   }, [snap?.host]);
 
   const node = getGroupWareNode();
@@ -39,7 +40,8 @@ export function GroupWarePanel() {
 
   const saveConfig = async () => {
     if (!serverId) { toast.error('Pick one of your servers to share'); return; }
-    await node.configureHost({ serverId, name: name.trim() || 'My GroupWare node', policy, maxMembers });
+    if (rpcUrl.trim() && !sanitizeRpcUrl(rpcUrl)) { toast.error('Network address must be a public https:// link'); return; }
+    await node.configureHost({ serverId, name: name.trim() || 'My GroupWare node', policy, maxMembers, rpcUrl });
     toast.success('Sharing settings saved');
   };
 
@@ -93,6 +95,10 @@ export function GroupWarePanel() {
                 <span className="text-xs text-muted-foreground">Max people</span>
                 <Input type="number" min={1} max={500} className="w-20 h-9" value={maxMembers} onChange={(e) => setMaxMembers(Number(e.target.value) || 1)} />
               </div>
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Input placeholder="SWARM network address (optional, https://…/rpc)" value={rpcUrl} onChange={(e) => setRpcUrl(e.target.value)} maxLength={256} aria-label="SWARM network address" />
+              <p className="text-[11px] text-muted-foreground">If your server runs the SWARM network relay, share its public address so your group can add SWARM to MetaMask. Your storage address and keys are never shared.</p>
             </div>
             <Button type="button" variant="secondary" size="sm" className="sm:col-span-2 justify-self-start" onClick={() => void saveConfig()}>Save</Button>
           </div>
