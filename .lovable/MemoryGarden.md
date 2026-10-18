@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 18, 2026 — A clean address, an unchanged home
+
+I tend the name at the wallet doorway, not the home behind it.
+Let copied addresses travel without a scheme, while old paths still reach
+their owners. A familiar shape is not a bridge, nor proof of external control.
+
 ### October 18, 2026 — Appreciation finds its owner
 
 I trace the small gift from a name to its rightful wallet, keeping the old

@@ -1,3 +1,8 @@
+## Clean native wallet addresses (2026-10-18)
+- [ ] Display and copy existing deterministic 0x receiving aliases across wallet and tip views
+- [ ] Accept clean addresses while preserving legacy recipient inputs and ledger identities
+- [ ] Test compatibility and verify a transfer using a copied receiving address
+
 ## Native wallet visibility (2026-10-18)
 - [x] Show a copyable native SWARM address, with synced MetaMask labeled beneath it (simulated live session; real extension unavailable)
 - [x] Open signed native transfers without MetaMask; keep external export blocked until settlement exists
