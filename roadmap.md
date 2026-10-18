@@ -1,6 +1,7 @@
 ## Tip wallet transition (2026-10-18)
 - [x] Evaluate tips, currencies, native addresses, and compatibility (tips spend credits; ledger wallets currently use identity IDs; derived 0x addresses are gateway aliases only)
-- [ ] Align tip recipient handling safely with wallet addresses and test it — blocked: choose whether tips retain credits, use SWARM, or offer both
+- [ ] Support tips for wallet-held tokens and game credits, preserving recipient ownership and separate histories
+- [ ] Test multi-asset tipping and verify the recipient reads the correct asset back
 
 ## SWARM public RPC installation (2026-10-18)
 - [x] Verify the advertised HTTPS RPC and trace the mesh gateway boundary (TLS/fetch failed; app origin serves HTML)
