@@ -3,8 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { QCMChart } from "@/components/QCMChart";
 import { Activity, Flame } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { getQcmSeriesForUser } from "@/lib/achievementsStore";
-import type { QcmSeriesPoint } from "@/types";
+import { getAll } from "@/lib/store";
+import type { Post, QcmSeriesPoint } from "@/types";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import {
   ACTIVITY_SERIES_KEYS,
@@ -24,7 +26,11 @@ const SERIES_META: Record<string, { label: string; symbol: string; weightLabel: 
 
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
+  const { stats, getActivePeerConnections } = useP2PContext();
+  const meshPeers = Math.max(stats.connectedPeers, getActivePeerConnections().length);
+  const meshOnline = meshPeers > 0;
   const [points, setPoints] = useState<QcmSeriesPoint[]>([]);
+  const [seedPostCount, setSeedPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -37,6 +43,13 @@ export function QuantumMetricsPanel() {
           (grouped[key] ?? []).filter((p) => p.source === "activity")
         );
         setPoints(activityPoints);
+
+        // Starting chart: if the user has no recorded activity yet but is on
+        // the mesh, seed the chart from their existing profile post count.
+        if (activityPoints.length === 0) {
+          const allPosts = await getAll<Post>("posts");
+          setSeedPostCount(allPosts.filter((p) => p.author === user.id).length);
+        }
       } catch (error) {
         console.error("[QuantumMetrics] Failed to load metrics:", error);
       } finally {
@@ -49,6 +62,7 @@ export function QuantumMetricsPanel() {
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
+  const todayKey = dayKey(new Date().toISOString());
 
   const chartSeries = useMemo(() => {
     const series: Record<string, QcmSeriesPoint[]> = {};
@@ -63,10 +77,27 @@ export function QuantumMetricsPanel() {
           recordedAt: d.day,
         }));
     }
+    // Starting chart: no recorded activity yet, but the user is on the mesh
+    // and already has posts — seed the Posting line from their post count.
+    if (points.length === 0 && meshOnline && seedPostCount > 0) {
+      series.posts = [
+        {
+          id: `posts-seed-${todayKey}`,
+          userId: user?.id ?? "",
+          series: "posts",
+          value: seedPostCount * ACTIVITY_WEIGHTS.post_text,
+          recordedAt: todayKey,
+        },
+      ];
+    }
     return series;
-  }, [daily, user?.id]);
+  }, [daily, user?.id, points.length, meshOnline, seedPostCount, todayKey]);
 
-  const todayKey = dayKey(new Date().toISOString());
+  const hasChart = useMemo(
+    () => Object.values(chartSeries).some((s) => s.length > 0),
+    [chartSeries]
+  );
+
   const today = daily.find((d) => d.day === todayKey);
   const todayTotal = today?.total ?? 0;
 
@@ -97,6 +128,11 @@ export function QuantumMetricsPanel() {
           isLoading={loading}
           emptyMessage="Post, comment, mine, or join the Brain to start your activity chart"
         />
+        {hasChart && !meshOnline && (
+          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+            Not connected to the network — your chart is saved locally and will sync once a peer is online.
+          </p>
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ACTIVITY_SERIES_KEYS.map((key) => {
