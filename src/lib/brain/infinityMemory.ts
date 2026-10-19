@@ -15,6 +15,8 @@ export interface MemoryPiece {
   text: string;
   ts: number;
   authorHash: string;
+  /** True when the text was already fed to the learner live. */
+  learned?: boolean;
 }
 
 export const MEMORY_MAX_PIECES = 2000;
@@ -33,7 +35,9 @@ export function hashAuthor(author: string): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-export function toPiece(input: { id: string; kind: MemoryKind; text: string; author?: string; ts?: number }): MemoryPiece | null {
+export interface MemoryInput { id: string; kind: MemoryKind; text: string; author?: string; ts?: number; learned?: boolean }
+
+export function toPiece(input: MemoryInput): MemoryPiece | null {
   const text = (input.text ?? '').trim();
   if (!input.id || text.length < 2) return null;
   return {
@@ -42,6 +46,7 @@ export function toPiece(input: { id: string; kind: MemoryKind; text: string; aut
     text: text.slice(0, MEMORY_MAX_TEXT),
     ts: input.ts ?? Date.now(),
     authorHash: hashAuthor(input.author ?? 'anon'),
+    learned: Boolean(input.learned),
   };
 }
 
@@ -94,11 +99,13 @@ function scheduleFlush(): void {
   }, FLUSH_DELAY_MS);
 }
 
-export function enqueueMemory(input: { id: string; kind: MemoryKind; text: string; author?: string; ts?: number }): void {
+export function enqueueMemory(input: MemoryInput): void {
   try {
     if (typeof indexedDB === 'undefined') return;
     const piece = toPiece(input);
     if (!piece) return;
+    const prev = queue.get(piece.id);
+    if (prev?.learned) piece.learned = true;
     queue.set(piece.id, piece);
     scheduleFlush();
   } catch { /* passive — never throw into callers */ }
@@ -159,4 +166,41 @@ export async function readMemory(limit = 500): Promise<MemoryPiece[]> {
   } catch {
     return [];
   }
+}
+
+/** Mark pieces as learned so they are never re-ingested. */
+export async function markLearned(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      for (const id of ids) {
+        const r = store.get(id);
+        r.onsuccess = () => { const v = r.result as MemoryPiece | undefined; if (v) { v.learned = true; store.put(v); } };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch { /* best effort */ }
+}
+
+/** True if the id is already stored (used by backfill to avoid rewrites). */
+export async function hasMemory(ids: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(STORE);
+      const store = tx.objectStore(STORE);
+      for (const id of ids) {
+        const r = store.getKey(id);
+        r.onsuccess = () => { if (r.result !== undefined) found.add(id); };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch { /* ignore */ }
+  return found;
 }

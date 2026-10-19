@@ -16,6 +16,7 @@
 
 - Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
 - Infinity memory is passive ingestion of text already on the device (idle-time batched, capped, private posts skipped) and never initiates mesh requests, so it cannot compete with user connections.
+- Infinity learns from memory in small idle-time batches and marks pieces learned; text already fed live is stored pre-marked, so nothing is learned twice.
 
 ## Wallet boundaries
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
