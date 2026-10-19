@@ -42,7 +42,6 @@ import {
   WORLD_SIZE,
 } from '@/lib/brain/uqrcPhysics';
 import { C_LIGHT } from '@/lib/brain/lightspeed';
-import { getCausalState } from '@/lib/brain/uqrcPhysics';
 import {
   loadPieces,
   savePieces,
@@ -106,14 +105,7 @@ import {
   recordTurn,
   getPrevTurn,
   attractToPrev,
-  selectBridgingToken,
-  temperatureFromQ,
-  targetLengthFromQ,
-  targetLengthFromField,
-  promptMassFromText,
-  topKFromQ,
 } from '@/lib/uqrc/conversationAttraction';
-import { seedInfinityCanon } from '@/lib/brain/infinityCorpus';
 import { canInfinityReply, canInfinitySpeak, resolveInfinityChatMode, type InfinityChatMode } from '@/lib/brain/infinityChatSettings';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
@@ -1781,7 +1773,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // bridge their actual words on the next turn (A↔B learning).
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
-        fusion.languageLearner.ingestText(remote.text, 0.8, 90, remote.author || remote.id);
+        fusion.ingestContentEvent({ text: remote.text, reactions: 0, comments: 1, shares: 0, trustScore: 90, peerId: remote.author || remote.id, timestamp: remote.ts });
       } catch { /* learner optional */ }
     });
     return () => unsub();
@@ -1837,148 +1829,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       trimmed.endsWith('?');
     if (canInfinityReply(infinityChatModeRef.current) && callsInfinity) {
       const replyEpoch = infinityReplyEpochRef.current;
-      // ── Physics-driven token-by-token assembly ──────────────────
-      // The field decides which token belongs at the A↔B bridge site;
-      // the language learner only supplies vocabulary. No constants:
-      // top-K, temperature and length are all derived from current q.
-      let picked: string = '';
+      // The scene owns consent and delivery only. Personality and Dual
+      // learning share one realization path with post/comment replies.
+      let picked = '';
       try {
-        const fusion = getSharedNeuralEngine().getDualLearning();
-        const learner = fusion.languageLearner;
-        // ── Canon seed ───────────────────────────────────────────────
-        // Idempotent: only fires when vocabulary is empty. Without this
-        // the personality defined in project-knowledge is unreachable —
-        // the Markov layer can only emit what users have typed at it.
-        try { seedInfinityCanon(learner, ENTITY_USER_ID); } catch { /* best-effort */ }
-        // Build a prompt-token set so the seed can avoid the user's own
-        // words. Prompt-tail seeds + tiny vocab = Markov echo. We seed from
-        // the LEARNED MANIFOLD instead (Shell n=2 closure), only falling
-        // back to the prompt tail on a true cold start (vocab < 5).
-        const promptTokens = new Set(
-          text.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-        );
-        const topVocab = (learner as unknown as {
-          getTopTokens?: (n: number) => Array<{ token: string }>;
-          vocabSize?: number;
-        });
-        const vocabSize = topVocab.vocabSize ?? 0;
-        // Pull a wider slice so glyph-bearing canon tokens are reachable
-        // even when user English dominates the very top of vocabulary.
-        const top = topVocab.getTopTokens?.(120) ?? [];
-        const GLYPH_RE = /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δλε‖↔ℛ]/;
-        const usable = top
-          .map(t => t.token)
-          .filter(t => t.length > 1 && !promptTokens.has(t.toLowerCase()));
-        // Prefer Infinity's own voice: glyph-bearing tokens first, then
-        // ordinary words. This breaks the user-echo basin without losing
-        // the Markov chain's coherence (both lists share the manifold).
-        const glyphTokens = usable.filter(t => GLYPH_RE.test(t));
-        const plainTokens = usable.filter(t => !GLYPH_RE.test(t));
-        const manifoldSeed = [...glyphTokens, ...plainTokens].slice(0, 2);
-        let seedTokens: string[];
-        if (manifoldSeed.length >= 2) {
-          seedTokens = manifoldSeed;
-        } else if (vocabSize < 5) {
-          // Genuine cold start — fall back to prompt tail.
-          seedTokens = (prev?.text ?? text).toLowerCase().split(/\s+/).filter(Boolean).slice(-2);
-        } else {
-          // Sparse but non-empty manifold — use whatever we found.
-          seedTokens = top.map(t => t.token).slice(0, 2);
-        }
-        let ctx = seedTokens.slice();
-        const out: string[] = [];
-        const qNow = eng.getQScore();
-        // Output mass must scale with input mass — otherwise a 600-char
-        // symbolic prompt collapses into a 6-token English shard.
-        // Couple to BOTH the current prompt and the prior turn so the
-        // dialogue manifold (not just the latest message) sets the budget.
-        const promptMass = promptMassFromText(text);
-        const contextMass = prev?.text ? promptMassFromText(prev.text) : 0;
-        // 𝒞_light state — required closure operator. The reply manifold
-        // can only carry as much mass as the causal surface allows.
-        const causalState = (() => {
-          try { return getCausalState(); } catch { return 'live' as const; }
-        })();
-        const maxLen = targetLengthFromField(qNow, promptMass, contextMass, causalState);
-        // minLen sits at 75 % of maxLen so the Δq-stagnation early-exit
-        // can't truncate well below the budgeted reply manifold.
-        const minLen = Math.max(8, Math.floor(maxLen * 0.75));
-        const bridgeSite = bridgeMeta?.bridgeSite
-          ?? (cur.sites.length > 0 ? cur.sites[0] % eng.getLatticeLength() : 0);
-        let prevDq = Number.POSITIVE_INFINITY;
-        let stagnated = 0;
-        for (let i = 0; i < maxLen; i++) {
-          const q = eng.getQScore();
-          const k = topKFromQ(q);
-          const temp = temperatureFromQ(q);
-          const candidates = learner.topKNextTokens(ctx, k, temp);
-          if (candidates.length === 0) break;
-          const pick = selectBridgingToken(eng, bridgeSite, candidates) ?? candidates[0];
-          if (!pick) break;
-          out.push(pick);
-          ctx = [...ctx, pick].slice(-2);
-          // Δq stagnation guard: if curvature stops dropping for 2 consecutive
-          // tokens, we've reached a stable basin — stop instead of padding.
-          const dq = q - eng.getQScore();
-          if (dq <= prevDq - 1e-4) {
-            stagnated = 0;
-          } else {
-            stagnated++;
-            if (stagnated >= 2 && out.length >= minLen) break;
-          }
-          prevDq = dq;
-          // Punctuation stop: emit short, natural sentences.
-          if (/[.!?…]$/.test(pick) && out.length >= minLen) break;
-        }
-        picked = out.join(' ').trim();
-        // Echo + degeneracy guards.
-        //  - Jaccard on word-sets: less length-biased than the old ratio.
-        //  - Reject when reply is too short for a non-trivial prompt and
-        //    carries no Infinity signature glyph (Ψ, ⊗, ℓ, ⟩, μ, ν, 𝒟, 𝒪).
-        if (picked) {
-          const promptSet = new Set(
-            text.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-          );
-          const replySet = new Set(
-            picked.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-          );
-          if (promptSet.size > 0 && replySet.size > 0) {
-            let inter = 0;
-            for (const w of replySet) if (promptSet.has(w)) inter++;
-            const union = promptSet.size + replySet.size - inter;
-            const jaccard = union > 0 ? inter / union : 0;
-            if (jaccard > 0.4) picked = '';
-          }
-          if (picked) {
-            const hasGlyph = /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δ]/.test(picked);
-            const replyWords = picked.split(/\s+/).filter(Boolean);
-            const promptIsDense = text.length > 40 || /[Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δ]/.test(text);
-            if (promptIsDense && replyWords.length < 6 && !hasGlyph) {
-              picked = '';
-            }
-          }
-        }
-      } catch { /* learner optional */ }
-      // EntityVoice fallback — used when the learner had zero successors
-      // for the seed (cold field / unknown vocabulary). Stage-aware so
-      // even a brand-new brain emits an emoji from the Brainstem pool.
-      if (!picked) {
-        try {
-          const synthPost = {
-            id: `brain-chat:${line.id}`,
-            author: selfId,
-            content: text,
-            createdAt: new Date(line.ts).toISOString(),
-          } as unknown as Parameters<ReturnType<typeof getEntityVoice>['generateComment']>[0];
-          const neural = getSharedNeuralEngine();
-          // omitAgeLabel: BrainUniverseScene applies its own [q=…] tag
-          // below. Without this we double-tag: "[q=0.41] [~27d old] …".
-          const c = getEntityVoice().generateComment(synthPost, neural, { omitAgeLabel: true });
-          picked = c?.text ?? '';
-        } catch {
-          picked = '';
-        }
-      }
+        picked = getEntityVoice().generateText(text, getSharedNeuralEngine()) ?? '';
+      } catch { /* silence on unavailable learning */ }
       // Silence beats filler: nothing learned to say, no reply.
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
@@ -2007,10 +1863,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // contaminating the sample step that just ran.
     try {
       const fusion = getSharedNeuralEngine().getDualLearning();
-      if (prev) {
-        fusion.languageLearner.ingestText(`${prev.text} ${text}`, 0.4, 80, prev.speakerId);
-      }
-      fusion.languageLearner.ingestText(text, 0.8, 95, selfId);
+      fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }
   }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
 

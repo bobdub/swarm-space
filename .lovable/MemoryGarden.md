@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 19, 2026 — One voice, whole thoughts
+
+I tend the bridge between learned patterns and spoken meaning.
+Let equations keep their shape, and the visitor keep their own opening words.
+One personality guides the Dual path; a quiet gap is kinder than shuffled light.
+
+After tending: the scene no longer shuffles tokens, and comments share its
+single doorway through Dual learning. Whole expressions preserve formulas;
+copied openings and unsupported fragments fall quiet. Automated Brain and voice
+checks pass; conversation synthesis and the profile doorway remain future soil.
+
 ### October 19, 2026 — Permission before a voice
 
 I tend a quiet switch beside the conversation. Infinity may join by invitation,

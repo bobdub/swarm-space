@@ -1,30 +1,13 @@
-/**
- * ═══════════════════════════════════════════════════════════════════════
- * ENTITY VOICE — Brain-Stage Language Evolution
- * ═══════════════════════════════════════════════════════════════════════
- *
- * The network entity comments on posts using language that evolves through
- * 6 developmental brain stages — from single-emoji reflexes to abstract
- * reasoning. Each comment includes the entity's current "age" so users
- * understand they're watching an intelligence grow.
- *
- * Brain stages mirror human neural development:
- *   1. Brainstem   — reflex emoji (🔥, 🔔, 👍)
- *   2. Limbic      — emoji + emotion words ("✨ curious", "🔔 resonance")
- *   3. Early Cortex — broken phrases with emoji seasoning
- *   4. Associative — simple sentences ("people like this idea")
- *   5. Prefrontal  — structured reasoning + poetic threads
- *   6. Integrated  — abstract poetry, micro-stories, haiku
- *
- * UQRC: entity voice = projection of network consciousness into language
+/** Entity voice — shared personality-led Dual replies.
+ * Brain stage remains an observable; no templates or alternate token walks.
  */
 
 import type { NeuralStateEngine } from './neuralStateEngine';
 import type { Comment, Post } from '@/types';
-import { isBlockedToken, filterBlockedTokens } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { getLastInfinitySnapshot, getInfinityProjection } from '../brain/infinityBinding';
 import { computeMassScore } from './dualLearningFusion';
+import { seedInfinityCanon } from '../brain/infinityCorpus';
 
 /**
  * Single source of truth for the Q_Score Infinity quotes. If the brain
@@ -53,19 +36,6 @@ const REPLY_RATE_LIMIT_MS = 45_000;
 const COMMENT_PROBABILITY_BASE = 1.0;
 const REPLY_PROBABILITY_BASE = 0.65;
 const SHY_MODE_KEY = 'entity-voice-shy-node';
-
-/** Canon signature tokens — the priors that prove a reply came from
- *  Infinity's manifold rather than echoing the user. Kept in sync with
- *  `SIGNATURE_TOKENS` in `infinityCorpus.ts`. */
-const INFINITY_SIGNATURE_TOKENS = [
-  '|Ψ_Infinity⟩',
-  'ℓ_min',
-  '𝒪_UQRC',
-  '𝒟_μ',
-  'F_μν',
-  'Q_Score',
-  'Ember',
-];
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -334,25 +304,11 @@ export class EntityVoice {
     return roll < finalProb;
   }
 
-  /** Generate a comment appropriate to the current brain stage */
-  generateComment(
-    post: Post,
-    engine: NeuralStateEngine,
-    options: { omitAgeLabel?: boolean } = {},
-  ): Comment | null {
+  /** All surfaces share this personality projection and Dual realization. */
+  generateText(contextText: string, engine: NeuralStateEngine): string | null {
     const snapshot = engine.getNetworkSnapshot();
-    const totalInteractions = snapshot.auditLength;
-    const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
-    const stage = this.computeBrainStage(totalInteractions, vocabSize);
-    const ageLabel = this.getAgeLabel();
-
-    let text: string | null = null;
-
-    // LEARNING FIRST: Try the dual learning system before templates
     const fusion = engine.getDualLearning();
-    const phiTemp = getPhiTemperatureModifier(engine);
-
-    // Personality + heartbeat — the two signals the prompt must stress.
+    seedInfinityCanon(fusion.languageLearner, ENTITY_USER_ID);
     const projection = getInfinityProjection(engine);
     const heart = getLastInfinitySnapshot();
     const massScore = computeMassScore({
@@ -362,36 +318,25 @@ export class EntityVoice {
       basinDepth: heart?.basinDepth,
       qScore: heart?.qScore,
     });
+    return fusion.generate({
+      recentPosts: [contextText],
+      currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
+      creativityActive: projection.intent,
+      temperatureModifier: getPhiTemperatureModifier(engine),
+      personality: projection,
+      heartbeat: heart ?? undefined,
+      massScore,
+    })?.text ?? null;
+  }
 
-    if (fusion.isGenerationReady()) {
-      const generated = fusion.generate({
-        recentPosts: [post.content ?? ''],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: projection.intent,
-        explorationForced: Math.random() < 0.3,
-        temperatureModifier: phiTemp,
-        personality: projection,
-        heartbeat: heart ?? undefined,
-        signatureTokens: INFINITY_SIGNATURE_TOKENS,
-        massScore,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        // Mass-scaled cap: a heavy manifold is allowed to speak in long
-        // form even at lower stages. Stage gives a base; mass multiplies.
-        const stageCap = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
-        const massMult = 1 + 3 * massScore;
-        const maxLen = Math.min(1200, Math.round(stageCap * massMult));
-        text = generated.text.slice(0, maxLen).trim();
-      }
-    }
-
-    // ATTEMPT 2: Chain from learned vocabulary using sampleNextToken
-    if (!text) {
-      text = this.generateFromLearnedVocab(engine, stage, post.content ?? '');
-    }
-
-    // No canned fallback: silence beats filler.
+  generateComment(
+    post: Post,
+    engine: NeuralStateEngine,
+    options: { omitAgeLabel?: boolean } = {},
+  ): Comment | null {
+    const text = this.generateText(post.content ?? '', engine);
     if (!text) return null;
+    const ageLabel = this.getAgeLabel();
 
     const fullText = options.omitAgeLabel ? String(text) : `[${ageLabel}] ${text}`;
 
@@ -413,115 +358,6 @@ export class EntityVoice {
     } catch { /* optional */ }
 
     return comment;
-  }
-
-  // ── Attempt 2: Chain from learned vocabulary ──────────────────────
-
-  /**
-   * Uses sampleNextToken to build a chain from seed words extracted from
-   * the post text or top vocabulary. Falls back to blending template
-   * structure with learned vocab if chaining fails.
-   */
-  private generateFromLearnedVocab(
-    engine: NeuralStateEngine,
-    stage: BrainStage,
-    contextText: string,
-  ): string | null {
-    const fusion = engine.getDualLearning();
-    const ll = fusion.languageLearner;
-
-    // Need at least some vocabulary to work with
-    if (ll.vocabSize < 5) return null;
-
-    // Target token counts per stage
-    const targetCount = stage <= 2 ? 4 : stage <= 3 ? 6 : stage <= 4 ? 8 : stage <= 5 ? 12 : 15;
-
-    // Get clean top tokens
-    const topTokens = ll.getTopTokens(30)
-      .map(t => t.token)
-      .filter(t => !isBlockedToken(t));
-
-    if (topTokens.length < 3) return null;
-
-    // Seed preference INVERTED: prefer learned manifold (topTokens) over
-    // the prompt's own words. Echoing the prompt is a Shell n=1 reflection
-    // — we want Shell n=2 closure (vocabulary attention, not parroting).
-    // Only seed from context when learned vocab is genuinely too thin.
-    const contextWordSet = new Set(
-      contextText.toLowerCase().split(/\s+/)
-        .filter(w => w.length > 2 && !isBlockedToken(w)),
-    );
-    const manifoldSeed = topTokens.filter(t => !contextWordSet.has(t)).slice(0, 2);
-    const seed = manifoldSeed.length >= 2
-      ? manifoldSeed
-      : topTokens.slice(0, 2);
-
-    // Chain tokens using sampleNextToken
-    const tokens = [...seed];
-    const phiTemp = getPhiTemperatureModifier(engine);
-
-    for (let i = 0; i < targetCount + 5; i++) {
-      if (tokens.length >= targetCount) break;
-      const ctx = tokens.slice(Math.max(0, tokens.length - 2));
-      let next = ll.sampleNextToken(ctx, phiTemp);
-
-      // If no transition found, try random walk: pick any populated context
-      if (!next) {
-        next = this.randomWalkSample(ll, tokens, phiTemp);
-      }
-
-      if (!next) break;
-      if (isBlockedToken(next)) continue;
-      tokens.push(next);
-    }
-
-    // Filter blocked tokens from final output
-    const cleanTokens = filterBlockedTokens(tokens);
-    if (cleanTokens.length < 3) return null;
-
-    // For stages 1-2, prepend an emoji
-    const result = cleanTokens.slice(0, targetCount).join(' ');
-
-    // Echo guard: if more than half the reply is the prompt's own tokens,
-    // bail out so the caller falls through to templates.
-    if (contextWordSet.size > 0) {
-      const replyTokens = result.toLowerCase().split(/\s+/).filter(Boolean);
-      const overlap = replyTokens.filter(t => contextWordSet.has(t)).length;
-      const ratio = overlap / Math.max(1, replyTokens.length);
-      if (ratio > 0.5) return null;
-    }
-
-    return result;
-  }
-
-  /**
-   * Random walk: find any transition context containing one of the current
-   * tokens and sample from it. This prevents dead ends in the chain.
-   */
-  private randomWalkSample(
-    ll: LanguageLearnerLike,
-    currentTokens: string[],
-    temperature: number,
-  ): string | null {
-    // Try each current token as part of a bigram context
-    const shuffled = [...currentTokens].sort(() => Math.random() - 0.5);
-    for (const token of shuffled.slice(0, 3)) {
-      const probs = ll.getNextTokenProbabilities([token]);
-      if (probs.length > 0) {
-        // Weighted sample from available transitions
-        const candidates = probs.filter(([t]) => !isBlockedToken(t));
-        if (candidates.length === 0) continue;
-        const scaled = candidates.map(([t, p]) => [t, Math.pow(p, 1 / temperature)] as [string, number]);
-        const total = scaled.reduce((s, [, p]) => s + p, 0);
-        let r = Math.random() * total;
-        for (const [t, p] of scaled) {
-          r -= p;
-          if (r <= 0) return t;
-        }
-        return scaled[scaled.length - 1][0];
-      }
-    }
-    return null;
   }
 
   // ── Reply to comments ───────────────────────────────────────────
@@ -548,55 +384,9 @@ export class EntityVoice {
   }
 
   generateReply(comment: Comment, postId: string, engine: NeuralStateEngine): Comment | null {
-    const snapshot = engine.getNetworkSnapshot();
-    const totalInteractions = snapshot.auditLength;
-    const vocabSize = snapshot.dualLearning?.language.vocabularySize ?? 0;
-    const stage = this.computeBrainStage(totalInteractions, vocabSize);
-    const ageLabel = this.getAgeLabel();
-
-    let text: string | null = null;
-
-    // LEARNING FIRST
-    const fusion = engine.getDualLearning();
-    const phiTemp = getPhiTemperatureModifier(engine);
-
-    const projection = getInfinityProjection(engine);
-    const heart = getLastInfinitySnapshot();
-    const massScore = computeMassScore({
-      vocabSize: fusion.languageLearner.vocabSize,
-      patternCount: fusion.patternLearner.size,
-      fusionStrength: fusion.getFusionStrength(),
-      basinDepth: heart?.basinDepth,
-      qScore: heart?.qScore,
-    });
-
-    if (fusion.isGenerationReady()) {
-      const generated = fusion.generate({
-        recentPosts: [comment.text ?? ''],
-        currentEnergy: snapshot.averageEnergy / Math.max(1, snapshot.totalNeurons),
-        creativityActive: projection.intent,
-        explorationForced: Math.random() < 0.3,
-        temperatureModifier: phiTemp,
-        personality: projection,
-        heartbeat: heart ?? undefined,
-        signatureTokens: INFINITY_SIGNATURE_TOKENS,
-        massScore,
-      });
-      if (generated && generated.text.trim().length > 3) {
-        const stageCap = stage <= 3 ? 60 : stage === 4 ? 100 : stage === 5 ? 160 : 250;
-        const massMult = 1 + 3 * massScore;
-        const maxLen = Math.min(1200, Math.round(stageCap * massMult));
-        text = generated.text.slice(0, maxLen).trim();
-      }
-    }
-
-    // ATTEMPT 2: Chain from learned vocabulary
-    if (!text) {
-      text = this.generateFromLearnedVocab(engine, stage, comment.text ?? '');
-    }
-
-    // No canned fallback: silence beats filler.
+    const text = this.generateText(comment.text ?? '', engine);
     if (!text) return null;
+    const ageLabel = this.getAgeLabel();
 
     const fullText = `[${ageLabel}] ${text}`;
 
@@ -634,12 +424,6 @@ export class EntityVoice {
       lastCommentAt: this.lastCommentAt,
     };
   }
-}
-
-// ── Type interface for random walk (avoids circular import) ─────────
-
-interface LanguageLearnerLike {
-  getNextTokenProbabilities(context: string[]): Array<[string, number]>;
 }
 
 // ── Singleton ───────────────────────────────────────────────────────
