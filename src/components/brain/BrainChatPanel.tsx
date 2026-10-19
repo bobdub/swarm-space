@@ -304,6 +304,7 @@ export function BrainChatPanel({
   const handleSubmit = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    if (engagedAtRef.current == null) engagedAtRef.current = Date.now();
     onSend(trimmed.slice(0, MAX_LEN), replyTo ?? undefined);
     setText('');
     setReplyTo(null);
@@ -680,7 +681,31 @@ export function BrainChatPanel({
 
         {/* Messages */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-          {allLines.length === 0 ? (
+          {viewingCoin?.wrappedChat ? (
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setViewingCoin(null)}
+                className="mb-1 text-[11px] text-primary/70 hover:text-primary"
+              >
+                ← Back to live chat
+              </button>
+              <p className="text-[10px] uppercase tracking-wider text-foreground/50">
+                Saved {new Date(viewingCoin.wrappedChat.savedAt).toLocaleString()} · {viewingCoin.wrappedChat.messageCount} messages · {viewingCoin.wrappedChat.participants.length} participants
+              </p>
+              {viewingCoin.wrappedChat.messages.map((m, i) => (
+                <div key={`${m.ts}-${i}`} className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-foreground/60">
+                    <span className="truncate font-medium">{m.author}</span>
+                    <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : allLines.length === 0 ? (
             <p className="text-sm italic text-foreground/40">
               Say hi to the room.
             </p>
@@ -787,6 +812,24 @@ export function BrainChatPanel({
         </div>
       )}
 
+      {/* Save History — appears once the local user engages in chat */}
+      {!isClassic && engagedAtRef.current != null && !viewingCoin && user && roomId && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-primary/5 px-3 py-1.5 text-xs text-foreground/70">
+          <span className="min-w-0 truncate">Chat is ephemeral — seal it into a mined coin to keep it.</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={handleSaveHistory}
+            disabled={isSavingHistory}
+            className="h-7 shrink-0 gap-1 text-xs"
+            aria-label="Save chat history into a mined coin"
+          >
+            {isSavingHistory ? 'Sealing…' : 'Save History'}
+          </Button>
+        </div>
+      )}
+
       {/* Composer */}
       <div className="flex shrink-0 gap-2 border-t border-[hsla(180,80%,60%,0.18)] p-2">
         <Textarea
@@ -828,6 +871,39 @@ export function BrainChatPanel({
               <Switch checked={infinityChatMode === 'text'} onCheckedChange={(checked) => onInfinityChatModeChange?.(checked ? 'text' : 'off')} aria-label="Enable Infinity (Text Only)" />
             </label>
           </div>
+
+          <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">History</h3>
+          {historyCoins.length === 0 ? (
+            <p className="text-xs text-foreground/50">
+              No saved chats yet. Send a message in chat, then use Save History to seal the transcript into one of your mined coins.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {historyCoins.slice(0, 5).map((coin) => (
+                <button
+                  key={coin.coinId}
+                  type="button"
+                  onClick={() => { setViewingCoin(coin); }}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-white/10 bg-black/20 px-2.5 py-2 text-left text-xs transition-colors hover:bg-white/5"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-foreground/90">
+                      {coin.wrappedChat!.participants.slice(0, 3).join(', ')}{coin.wrappedChat!.participants.length > 3 ? '…' : ''}
+                    </span>
+                    <span className="block text-[10px] text-foreground/50">
+                      {new Date(coin.wrappedChat!.savedAt).toLocaleString()} · {coin.wrappedChat!.messageCount} messages
+                    </span>
+                  </span>
+                  <Badge variant="outline" className="shrink-0 text-[10px]">coin …{coin.coinId.slice(-6)}</Badge>
+                </button>
+              ))}
+              {historyCoins.length > 5 && (
+                <a href="/wallet" className="block pt-1 text-[11px] text-primary/70 hover:text-primary">
+                  View all {historyCoins.length} saved chat coins in your wallet →
+                </a>
+              )}
+            </div>
+          )}
         </TabsContent>
       )}
     </Tabs>
