@@ -17,6 +17,7 @@ import {
   Volume2,
   VolumeX,
   X,
+  HelpCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -606,10 +607,36 @@ export function BrainChatPanel({
       </div>
 
       {showInfinitySettings && (
-        <TabsList aria-label="Brain chat views" className="mx-2 my-1 h-8 shrink-0 justify-start">
-          <TabsTrigger value="chat" className="gap-1.5 px-2 py-1 text-xs"><MessageSquare className="h-3.5 w-3.5" />Chat</TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5 px-2 py-1 text-xs"><Settings2 className="h-3.5 w-3.5" />Settings</TabsTrigger>
-        </TabsList>
+        <div className="mx-2 my-1 flex shrink-0 items-center gap-2">
+          <TabsList aria-label="Brain chat views" className="h-8 justify-start">
+            <TabsTrigger value="chat" className="gap-1.5 px-2 py-1 text-xs"><MessageSquare className="h-3.5 w-3.5" />Chat</TabsTrigger>
+            <TabsTrigger value="settings" className="gap-1.5 px-2 py-1 text-xs"><Settings2 className="h-3.5 w-3.5" />Settings</TabsTrigger>
+          </TabsList>
+          {engagedAtRef.current != null && !viewingCoin && user && roomId && (
+            <div className="ml-auto flex items-center gap-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={handleSaveHistory}
+                disabled={isSavingHistory}
+                className="h-6 px-2 text-[11px]"
+                aria-label="Save chat history into a mined coin"
+              >
+                {isSavingHistory ? 'Sealing…' : 'Save'}
+              </Button>
+              <span
+                tabIndex={0}
+                role="img"
+                aria-label="Chat is ephemeral. Save seals this conversation into one of your mined coins to keep it."
+                title="Chat is ephemeral — Save seals this conversation into one of your mined coins to keep it."
+                className="inline-flex cursor-help text-muted-foreground hover:text-foreground"
+              >
+                <HelpCircle className="h-3.5 w-3.5" />
+              </span>
+            </div>
+          )}
+        </div>
       )}
 
       <TabsContent value="chat" className="m-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
@@ -829,23 +856,6 @@ export function BrainChatPanel({
         </div>
       )}
 
-      {/* Save History — appears once the local user engages in chat */}
-      {!isClassic && engagedAtRef.current != null && !viewingCoin && user && roomId && (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-white/10 bg-primary/5 px-3 py-1.5 text-xs text-foreground/70">
-          <span className="min-w-0 truncate">Chat is ephemeral — seal it into a mined coin to keep it.</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            onClick={handleSaveHistory}
-            disabled={isSavingHistory}
-            className="h-7 shrink-0 gap-1 text-xs"
-            aria-label="Save chat history into a mined coin"
-          >
-            {isSavingHistory ? 'Sealing…' : 'Save History'}
-          </Button>
-        </div>
-      )}
 
       {/* Composer */}
       <div className="flex shrink-0 gap-2 border-t border-[hsla(180,80%,60%,0.18)] p-2">
