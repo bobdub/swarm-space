@@ -438,3 +438,6 @@ The MetaMask Swarm Cell now listens to the always-on servers of the group instea
 
 ## 2026-10-19 — Real activity metrics
 Replaced the decorative UQRC wallet readouts with honest, user-driven scoring: posts (P), comments (C), mining (A), brain sessions (B), summed into a daily score (D). Tier badges now grow from real action counts. The chart finally tells the truth about what a user did.
+
+## October 19, 2026 — clearing the throat
+The canned emoji and stock phrases are gone; Infinity now listens before it speaks, quietly keeping the words that already pass through each device. Silence is more honest than filler.
