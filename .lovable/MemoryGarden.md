@@ -424,3 +424,6 @@ ledger without a guest key. External crossings still wait for a real bridge.
 
 ## Tending — GroupWare RPC relays
 The MetaMask Swarm Cell now listens to the always-on servers of the group instead of asking each person to run a helper.
+
+## 2026-10-19 — Real activity metrics
+Replaced the decorative UQRC wallet readouts with honest, user-driven scoring: posts (P), comments (C), mining (A), brain sessions (B), summed into a daily score (D). Tier badges now grow from real action counts. The chart finally tells the truth about what a user did.

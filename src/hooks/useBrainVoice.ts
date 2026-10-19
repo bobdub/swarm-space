@@ -208,6 +208,21 @@ export function useBrainVoice(
     });
   }, [rawParticipants, presenceById]);
 
+  // Record a "brain" activity point the first time a peer shares the room
+  // in a session (0 → >0 participants). Resets when the room empties.
+  const hadPeerRef = useRef(false);
+  useEffect(() => {
+    if (!user) return;
+    if (participants.length > 0 && !hadPeerRef.current) {
+      hadPeerRef.current = true;
+      void import("@/lib/activityMetrics")
+        .then((m) => m.recordActivity(user.id, "brain_peer", { roomId }))
+        .catch(() => { /* non-critical */ });
+    } else if (participants.length === 0) {
+      hadPeerRef.current = false;
+    }
+  }, [participants.length, user, roomId]);
+
   const toggleMute = useCallback(() => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
