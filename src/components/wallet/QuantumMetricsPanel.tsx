@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { QCMChart } from "@/components/QCMChart";
-import { Activity, Flame } from "lucide-react";
+import { Activity } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getQcmSeriesForUser } from "@/lib/achievementsStore";
 import { getAll } from "@/lib/store";
 import type { Post, QcmSeriesPoint } from "@/types";
-import { CREDIT_REWARDS } from "@/lib/credits";
 import {
   ACTIVITY_SERIES_KEYS,
   ACTIVITY_WEIGHTS,
@@ -24,6 +23,42 @@ const SERIES_META: Record<string, { label: string; symbol: string; weightLabel: 
   brain: { label: "Brain", symbol: "B", weightLabel: `+${ACTIVITY_WEIGHTS.brain_peer} per session` },
 };
 
+/** Number that smoothly counts toward its target and pulses when it changes. */
+function LiveNumber({ value, decimals = 0, className = "" }: { value: number; decimals?: number; className?: string }) {
+  const [shown, setShown] = useState(value);
+  const [pulse, setPulse] = useState(false);
+  const fromRef = useRef(value);
+
+  useEffect(() => {
+    const from = fromRef.current;
+    if (from === value) return;
+    setPulse(true);
+    const start = performance.now();
+    let raf = 0;
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / 600);
+      setShown(from + (value - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) raf = requestAnimationFrame(step);
+      else fromRef.current = value;
+    };
+    raf = requestAnimationFrame(step);
+    const timer = setTimeout(() => setPulse(false), 700);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      fromRef.current = value;
+    };
+  }, [value]);
+
+  return (
+    <span
+      className={`inline-block tabular-nums transition-all duration-300 ${pulse ? "scale-125 text-primary" : ""} ${className}`}
+    >
+      {shown.toFixed(decimals)}
+    </span>
+  );
+}
+
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
   const { stats, getActivePeerConnections } = useP2PContext();
@@ -33,32 +68,31 @@ export function QuantumMetricsPanel() {
   const [seedPostCount, setSeedPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadMetrics = useCallback(async () => {
     if (!user) return;
-
-    const loadMetrics = async () => {
-      try {
-        const grouped = await getQcmSeriesForUser(user.id);
-        const activityPoints = ACTIVITY_SERIES_KEYS.flatMap((key) =>
-          (grouped[key] ?? []).filter((p) => p.source === "activity")
-        );
-        setPoints(activityPoints);
-
-        // Starting chart: if the user has no recorded activity yet but is on
-        // the mesh, seed the chart from their existing profile post count.
-        if (activityPoints.length === 0) {
-          const allPosts = await getAll<Post>("posts");
-          setSeedPostCount(allPosts.filter((p) => p.author === user.id).length);
-        }
-      } catch (error) {
-        console.error("[QuantumMetrics] Failed to load metrics:", error);
-      } finally {
-        setLoading(false);
+    try {
+      const grouped = await getQcmSeriesForUser(user.id);
+      const activityPoints = ACTIVITY_SERIES_KEYS.flatMap((key) =>
+        (grouped[key] ?? []).filter((p) => p.source === "activity")
+      );
+      setPoints(activityPoints);
+      if (activityPoints.length === 0) {
+        const allPosts = await getAll<Post>("posts");
+        setSeedPostCount(allPosts.filter((p) => p.author === user.id).length);
       }
-    };
-
-    void loadMetrics();
+    } catch (error) {
+      console.error("[QuantumMetrics] Failed to load metrics:", error);
+    } finally {
+      setLoading(false);
+    }
   }, [user]);
+
+  useEffect(() => {
+    void loadMetrics();
+    const onActivity = () => void loadMetrics();
+    window.addEventListener("swarm-activity-recorded", onActivity);
+    return () => window.removeEventListener("swarm-activity-recorded", onActivity);
+  }, [loadMetrics]);
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
@@ -77,8 +111,6 @@ export function QuantumMetricsPanel() {
           recordedAt: d.day,
         }));
     }
-    // Starting chart: no recorded activity yet, but the user is on the mesh
-    // and already has posts — seed the Posting line from their post count.
     if (points.length === 0 && meshOnline && seedPostCount > 0) {
       series.posts = [
         {
@@ -93,34 +125,23 @@ export function QuantumMetricsPanel() {
     return series;
   }, [daily, user?.id, points.length, meshOnline, seedPostCount, todayKey]);
 
-  const hasChart = useMemo(
-    () => Object.values(chartSeries).some((s) => s.length > 0),
-    [chartSeries]
-  );
+  const hasChart = useMemo(() => Object.values(chartSeries).some((s) => s.length > 0), [chartSeries]);
 
   const today = daily.find((d) => d.day === todayKey);
-  const todayTotal = today?.total ?? 0;
+  const tP = today?.series.posts ?? 0;
+  const tC = today?.series.comments ?? 0;
+  const tA = today?.series.mining ?? 0;
+  const tB = today?.series.brain ?? 0;
+  const todayTotal = tP + tC + tA + tB;
 
   return (
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5 text-primary" />
-              Network Activity
-            </CardTitle>
-            <CardDescription>
-              Your daily activity score, built from real actions on the swarm
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 px-3 py-1.5">
-            <Flame className="h-4 w-4 text-destructive" />
-            <span className="text-sm font-medium text-destructive">
-              -{CREDIT_REWARDS.DAILY_BURN} SWARM/day
-            </span>
-          </div>
-        </div>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-primary" />
+          Network Activity
+        </CardTitle>
+        <CardDescription>Your daily activity score, built from real actions on the swarm</CardDescription>
       </CardHeader>
       <CardContent>
         <QCMChart
@@ -128,11 +149,6 @@ export function QuantumMetricsPanel() {
           isLoading={loading}
           emptyMessage="Post, comment, mine, or join the Brain to start your activity chart"
         />
-        {hasChart && !meshOnline && (
-          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
-            Not connected to the network — your chart is saved locally and will sync once a peer is online.
-          </p>
-        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ACTIVITY_SERIES_KEYS.map((key) => {
@@ -140,14 +156,13 @@ export function QuantumMetricsPanel() {
             const count = counts[key] ?? 0;
             const tier = nextTier(count);
             return (
-              <div
-                key={key}
-                className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2"
-              >
+              <div key={key} className="rounded-lg border border-border/40 bg-muted/30 px-3 py-2">
                 <p className="text-xs font-semibold text-foreground">
                   <span className="text-primary">{meta.symbol}</span> · {meta.label}
                 </p>
-                <p className="mt-0.5 text-lg font-bold text-foreground">{count}</p>
+                <p className="mt-0.5 text-lg font-bold text-foreground">
+                  <LiveNumber value={count} />
+                </p>
                 <p className="text-[10px] text-muted-foreground">{meta.weightLabel}</p>
                 {tier !== null && (
                   <p className="mt-1 text-[10px] text-muted-foreground">
@@ -159,15 +174,43 @@ export function QuantumMetricsPanel() {
           })}
         </div>
 
+        {hasChart && !meshOnline && (
+          <p className="mt-4 rounded-md border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs text-accent-foreground">
+            Not connected to the network — your chart is saved locally and will sync once a peer is online.
+          </p>
+        )}
+
         <p className="mt-4 text-xs text-muted-foreground">
           Today's activity score (D):{" "}
-          <span className="font-semibold text-foreground">{todayTotal.toFixed(2)}</span>
-          {" "}— the weighted sum of everything you did today. Badges unlock automatically at
-          25, 50, 100, 250, 500, and 1000 actions in each category.
+          <span className="font-semibold text-foreground">{todayTotal.toFixed(2)}</span> — the weighted sum of
+          everything you did today. Badges unlock automatically at 25, 50, 100, 250, 500, and 1000 actions in each
+          category.
         </p>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Daily network maintenance costs {CREDIT_REWARDS.DAILY_BURN} SWARM tokens.
-        </p>
+
+        <div className="mt-4 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-background/40 to-accent/10 px-4 py-3">
+          <p className="text-center font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+            The Swarm Pulse
+          </p>
+          <p className="mt-1 text-center font-mono text-sm text-foreground/80">
+            D = (T + 2M) + C/20 + A/100 + B/50
+          </p>
+          <p className="mt-2 flex flex-wrap items-baseline justify-center gap-x-1.5 gap-y-1 font-mono text-base">
+            <span className="font-bold text-primary">D</span>
+            <span className="text-muted-foreground">=</span>
+            <LiveNumber value={tP} decimals={2} />
+            <span className="text-muted-foreground">+</span>
+            <LiveNumber value={tC} decimals={2} />
+            <span className="text-muted-foreground">+</span>
+            <LiveNumber value={tA} decimals={2} />
+            <span className="text-muted-foreground">+</span>
+            <LiveNumber value={tB} decimals={2} />
+            <span className="text-muted-foreground">=</span>
+            <LiveNumber value={todayTotal} decimals={2} className="text-lg font-bold text-primary" />
+          </p>
+          <p className="mt-1 text-center text-[10px] text-muted-foreground">
+            P · C · A · B today {meshOnline ? `· live on the mesh (${meshPeers} peer${meshPeers === 1 ? "" : "s"})` : "· waiting for peers"}
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
