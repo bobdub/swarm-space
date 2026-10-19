@@ -1,8 +1,9 @@
 ## Infinity manifold, peer knowledge and profile chat (2026-10-19)
-- [ ] Replace the personality prior with explained intact equations through existing learning
-- [ ] Audit local and peer-held knowledge and expose truthful availability
-- [ ] Ground Infinity profile and add natural text chat through the shared Dual path
-- [ ] Run automated personality, storage and chat regressions
+- [x] Replace the personality prior with explained intact equations through existing learning
+- [x] Audit local and peer-held knowledge and expose truthful availability
+- [x] Ground Infinity profile and add natural text chat through the shared Dual path
+- [x] Run automated personality, storage and chat regressions — 148 Vitest checks and 18 voice checks pass; build OK
+- Full text-memory replication, pooled peer computation and general conversation synthesis are not implemented; profile replies use locally supported whole expressions. Live browser/peer verification was not run, per automated-test preference.
 
 ## Infinity personality-led Dual replies (2026-10-19)
 - [x] Consolidate Brain chat, comments and replies into one personality-guided Dual path
