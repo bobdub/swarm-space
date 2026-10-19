@@ -41,7 +41,6 @@ import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
-import { initializeDailyBurn } from "@/lib/blockchain/burn";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 import { ChainSwitcher } from "@/components/wallet/ChainSwitcher";
 import { CrossChainSwapPanel } from "@/components/wallet/CrossChainSwapPanel";
@@ -196,7 +195,6 @@ export default function Wallet() {
       const currentUser = user || await getCurrentUser();
       if (!currentUser) { navigate("/auth"); return; }
 
-      initializeDailyBurn(currentUser.id);
 
       const chain = getActiveChain();
 

@@ -117,6 +117,9 @@ export async function recordActivity(
     meta: { kind, ...meta },
   });
 
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("swarm-activity-recorded", { detail: { userId, kind } }));
+  }
   try {
     await checkTierMilestones(userId, series);
   } catch (error) {
