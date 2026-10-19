@@ -369,9 +369,10 @@ export class DualLearningFusion {
    * Whole learned expressions are a conservative local baseline, not an LLM.
    * Geometry ranks candidates only after relevance and echo checks pass.
    */
-  generateText(_pattern: PatternEventType[], context: GenerationContext): string {
+  generateText(pattern: PatternEventType[], context: GenerationContext): string {
     const mass = clamp01(context.massScore ?? 0);
-    const maxChars = Math.min(1200, 400 + Math.round(800 * mass));
+    const patternSupport = clamp01(this.patternLearner.scorePattern(pattern));
+    const maxChars = Math.min(1200, 400 + Math.round(800 * mass * (0.5 + 0.5 * patternSupport)));
     const candidates = rankExpressions(this.languageLearner.getExpressions(), {
       recentPosts: context.recentPosts,
       personality: context.personality,
@@ -381,8 +382,6 @@ export class DualLearningFusion {
     // Keep candidates within the strongest lexical-relevance band before
     // comparing field curvature. Low Q does not prove linguistic coherence.
     const first = candidates[0];
-    const strongest = rankExpressions([first], { recentPosts: context.recentPosts, maxChars });
-    if (!strongest.length) return '';
     try {
       const picked = selectByMinCurvature(candidates, getSharedFieldEngine(), candidate => candidate.text);
       if (picked) return picked.text;

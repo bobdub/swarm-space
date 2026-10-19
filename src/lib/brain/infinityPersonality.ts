@@ -18,8 +18,8 @@ const topics = (text: string): Set<string> => new Set(words(text).filter(w => w.
 export function extractExpressions(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split(/\n+/).map(s => s.trim())) {
-    const symbolic = /[=Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δλε‖↔ℛ]/u.test(line);
-    const segments = symbolic ? [line] : line.match(/[^.!?]+(?:[.!?]+[”’"']?(?=\s|$))/g) ?? [];
+    const symbolic = /[=Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δλε‖↔ℛ]/u.test(line) || /^Ember\s+\d+\.\d+/i.test(line);
+    const segments = symbolic ? [line] : line.match(/(?:[^.!?]|\.(?=\d))+(?:[.!?]+[”’"']?(?=\s|$))/g) ?? [];
     for (const segment of segments) {
       const expression = segment.trim();
       if (expression.length < 8 || expression.length > MAX_EXPRESSION_LENGTH) continue;
@@ -79,6 +79,8 @@ export function rankExpressions(expressions: LearnedExpression[], context: Reali
     const score = coverage * 4 + support * 0.3 + cadence * coherence * 0.2;
     return [{ expression, score }];
   });
-  return ranked.sort((a, b) => b.score - a.score || a.expression.text.localeCompare(b.expression.text))
+  const bestCoverage = Math.max(0, ...ranked.map(item => [...wanted].filter(t => topics(item.expression.text).has(t)).length));
+  return ranked.filter(item => [...wanted].filter(t => topics(item.expression.text).has(t)).length === bestCoverage)
+    .sort((a, b) => b.score - a.score || a.expression.text.localeCompare(b.expression.text))
     .slice(0, 4).map(item => item.expression);
 }

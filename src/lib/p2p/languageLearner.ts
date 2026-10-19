@@ -498,7 +498,9 @@ export class LanguageLearner {
   /** Whole expressions are local-only; never added to the peer vocabulary digest. */
   rememberExpressions(text: string, weight = 0.5, source: LearnedExpression['source'] = 'memory'): void {
     for (const expression of extractExpressions(text)) {
-      if (expression.split(/\s+/).some(isBlockedToken)) continue;
+      // Token-level noise filtering rejects ordinary "a", "in", and formula
+      // variables. For intact expressions reject protocol artifacts instead.
+      if (/\b(?:post_created|post_replied|gossip_sent|chunk_transferred|peer-[a-z0-9-]+)\b|\b0x[0-9a-f]{16,}\b/i.test(expression)) continue;
       const previous = this.expressions.get(expression);
       this.expressions.delete(expression);
       this.expressions.set(expression, {
