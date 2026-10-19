@@ -86,6 +86,20 @@ describe('chatCoinWrap', () => {
     ledger.balance = 0;
     expect(await canWrapChatHistory(USER)).toBe(false);
   });
+
+  it('does not wrap coins carrying tokens, artifacts, or spent state', async () => {
+    await put('swarmCoins', makeCoin({ coinId: 'artifact', firstArtifactNftId: 'nft' }));
+    await put('swarmCoins', makeCoin({ coinId: 'spent', fillState: 'spent' }));
+    await put('swarmCoins', makeCoin({ coinId: 'vault', vaultAddress: 'vault' }));
+    expect(await canWrapChatHistory(USER)).toBe(false);
+  });
+
+  it('concurrent eligibility checks recover only one container', async () => {
+    ledger.balance = 5;
+    ledger.transactions = [{ id: 'reward', type: 'mining_reward', to: USER, amount: 5, timestamp: '2026-10-19T00:00:00Z' }];
+    expect(await Promise.all([canWrapChatHistory(USER), canWrapChatHistory(USER)])).toEqual([true, true]);
+    expect(s('swarmCoins').size).toBe(1);
+  });
   it('finds only free, unlocked, fungible wallet coins owned by the user', async () => {
     await put('swarmCoins', makeCoin({ coinId: 'eligible' }));
     await put('swarmCoins', makeCoin({ coinId: 'locked', locked: true }));

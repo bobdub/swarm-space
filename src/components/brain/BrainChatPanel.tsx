@@ -265,6 +265,10 @@ export function BrainChatPanel({
   const [isSavingHistory, setIsSavingHistory] = useState(false);
   const [historyCoins, setHistoryCoins] = useState<SwarmCoin[]>([]);
   const [viewingCoin, setViewingCoin] = useState<SwarmCoin | null>(null);
+  useEffect(() => {
+    engagedAtRef.current = null;
+    setViewingCoin(null);
+  }, [roomId, user?.id]);
 
   const refreshHistoryCoins = useCallback(async () => {
     if (!user) { setHistoryCoins([]); return; }

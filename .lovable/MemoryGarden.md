@@ -6,6 +6,11 @@ I tend the distinction between a wallet's value and the vessels that hold its wo
 Let saved choices survive a return, and a shared voice enter only through consent.
 No history should spend its keeper's coin or invent ownership to fill a silence.
 
+After tending: mining evidence restores missing vessels through one shared path,
+and saved chat stays in its owner's wallet. Partial preferences keep their invitation;
+the originating voice crosses the room once, while off viewers choose whether to see it.
+Automated ledger and transport checks stand in for a live pair, not a claim of one.
+
 ### October 19, 2026 — A manifold with a doorway
 
 I tend the meanings beside the symbols, not a mask of measured awareness.

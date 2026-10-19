@@ -1269,7 +1269,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   useEffect(() => () => {
     infinityReplyEpochRef.current += 1;
     cancelInfinity();
-  }, []);
+  }, [roomId]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const {
