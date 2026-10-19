@@ -165,7 +165,7 @@ describe('earth (UQRC pure)', () => {
     // share the SAME radius (the rendered Earth surface). Body centre
     // sits one half-body-height above that.
     expect(STRUCTURE_SHELL_RADIUS).toBeLessThanOrEqual(EARTH_RADIUS);
-    expect(BODY_SHELL_RADIUS - STRUCTURE_SHELL_RADIUS).toBeCloseTo(HUMAN_HEIGHT / 2, 5);
+    expect(BODY_SHELL_RADIUS - EARTH_RADIUS).toBeCloseTo(HUMAN_HEIGHT / 2, 5);
   });
 
   it('projectToBodyShell / projectToStructureShell land on their target radii', () => {
