@@ -26,7 +26,11 @@ const SERIES_META: Record<string, { label: string; symbol: string; weightLabel: 
 
 export function QuantumMetricsPanel() {
   const { user } = useAuth();
+  const { stats, getActivePeerConnections } = useP2PContext();
+  const meshPeers = Math.max(stats.connectedPeers, getActivePeerConnections().length);
+  const meshOnline = meshPeers > 0;
   const [points, setPoints] = useState<QcmSeriesPoint[]>([]);
+  const [seedPostCount, setSeedPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,6 +43,13 @@ export function QuantumMetricsPanel() {
           (grouped[key] ?? []).filter((p) => p.source === "activity")
         );
         setPoints(activityPoints);
+
+        // Starting chart: if the user has no recorded activity yet but is on
+        // the mesh, seed the chart from their existing profile post count.
+        if (activityPoints.length === 0) {
+          const allPosts = await getAll<Post>("posts");
+          setSeedPostCount(allPosts.filter((p) => p.author === user.id).length);
+        }
       } catch (error) {
         console.error("[QuantumMetrics] Failed to load metrics:", error);
       } finally {
