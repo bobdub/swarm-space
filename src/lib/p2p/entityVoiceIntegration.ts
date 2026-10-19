@@ -32,7 +32,7 @@ export function initEntityVoiceListener(): void {
     if (!postData || !postData.id) return;
     // Passive piggyback: remember text already on this device (no mesh requests).
     if (!isPrivatePost(postData) && postData.author !== ENTITY_USER_ID) {
-      enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? '') });
+      enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? ''), learned: true });
     }
     const forceEntity = Boolean(postData._forceEntityReply);
     if (getShyMode() && !forceEntity) return;
@@ -45,7 +45,7 @@ export function initEntityVoiceListener(): void {
     if (!detail || !detail.comment) return;
     const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
     if (comment.author !== ENTITY_USER_ID) {
-      enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author });
+      enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author, learned: true });
     }
     const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
     if (getShyMode() && !forceEntity) return;
@@ -53,6 +53,7 @@ export function initEntityVoiceListener(): void {
     setTimeout(() => evaluateAndReply(comment, forceEntity), 2000 + Math.random() * 3000);
   });
 
+  void import('@/lib/brain/memoryLearning').then((m) => m.startMemoryLearning()).catch(() => {});
   console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 

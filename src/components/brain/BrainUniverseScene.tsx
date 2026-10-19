@@ -1770,7 +1770,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         };
         return [...prev, line].slice(-100);
       });
-      enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.author || remote.id });
+      enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.author || remote.id, learned: true });
       // Record the remote turn into the conversation ring + apply attraction.
       try {
         const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
@@ -1806,7 +1806,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       text, ts: Date.now(),
     };
     setChatLines((prev) => [...prev, line].slice(-100));
-    enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId });
+    enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId, learned: true });
     // Broadcast to every other peer in the brain room.
     try { sendChatLine(text, line.id); } catch { /* ignore */ }
 
