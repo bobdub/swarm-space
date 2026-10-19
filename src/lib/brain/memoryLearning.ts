@@ -89,6 +89,13 @@ export function startMemoryLearning(): void {
   const tick = () => idle(() => { void learnFromMemory(); });
   setTimeout(() => idle(async () => {
     await backfillMemory();
+    // Upgrade existing learned memory into whole-expression realization
+    // without replaying pattern/vocabulary ingestion or learned markers.
+    const { getSharedNeuralEngine } = await import('@/lib/p2p/sharedNeuralEngine');
+    const learner = getSharedNeuralEngine().getDualLearning().languageLearner;
+    for (const piece of (await readMemory(256)).reverse()) {
+      if (piece.learned) learner.rememberExpressions(piece.text);
+    }
     tick();
     setInterval(tick, INTERVAL_MS);
   }), FIRST_DELAY_MS);

@@ -1157,6 +1157,8 @@ export class NeuralStateEngine {
     try {
       const digest = this.exportDigest();
       localStorage.setItem(NeuralStateEngine.STORAGE_KEY, JSON.stringify(digest));
+      // Expressions stay on-device, separate from the mesh digest.
+      localStorage.setItem('infinity-local-expressions', JSON.stringify(this.dualLearning.languageLearner.getExpressions()));
     } catch (err) {
       console.warn('[NeuralEngine] Failed to persist brain state:', err);
     }
@@ -1165,6 +1167,8 @@ export class NeuralStateEngine {
   /** Restore brain state from localStorage (call in constructor or on boot) */
   restoreFromStorage(): void {
     try {
+      const expressions = localStorage.getItem('infinity-local-expressions');
+      if (expressions) this.dualLearning.languageLearner.restoreExpressions(JSON.parse(expressions));
       const raw = localStorage.getItem(NeuralStateEngine.STORAGE_KEY);
       if (!raw) return;
       const digest = JSON.parse(raw) as NeuralStateDigest;
