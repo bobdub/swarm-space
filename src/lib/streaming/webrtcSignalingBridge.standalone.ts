@@ -55,6 +55,8 @@ export interface RoomChatMessage {
   replyToId?: string;
   replyToUsername?: string;
   replyToPreview?: string;
+  /** Prompt correlation; transport sender remains the generating user. */
+  infinityReplyTo?: string;
 }
 type RoomChatHandler = (message: RoomChatMessage) => void;
 
@@ -217,7 +219,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
 
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string };
+      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string; infinityReplyTo?: string };
       const text = typeof data.text === 'string' ? data.text.trim() : '';
       if (!text) return;
       const message: RoomChatMessage = {
@@ -232,6 +234,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
         replyToId: typeof data.replyToId === 'string' ? data.replyToId : undefined,
         replyToUsername: typeof data.replyToUsername === 'string' ? data.replyToUsername : undefined,
         replyToPreview: typeof data.replyToPreview === 'string' ? data.replyToPreview : undefined,
+        infinityReplyTo: typeof data.infinityReplyTo === 'string' ? data.infinityReplyTo.slice(0, 200) : undefined,
       };
       appendRoomChatMessage(message);
       break;
@@ -569,6 +572,7 @@ export function sendRoomChatMessage(
   username?: string,
   avatarRef?: string,
   replyTo?: { id: string; username: string; preview: string },
+  infinityReplyTo?: string,
 ): void {
   if (!meshRef) return;
   const trimmed = text.trim();
@@ -586,6 +590,7 @@ export function sendRoomChatMessage(
     replyToId: replyTo?.id,
     replyToUsername: replyTo?.username,
     replyToPreview: replyTo?.preview,
+    infinityReplyTo,
   };
   appendRoomChatMessage(message);
   meshRef.broadcast(SIGNAL_CHANNEL, {
@@ -603,6 +608,7 @@ export function sendRoomChatMessage(
       replyToId: replyTo?.id,
       replyToUsername: replyTo?.username,
       replyToPreview: replyTo?.preview,
+      infinityReplyTo,
     },
     ts: message.ts,
   } satisfies SignalEnvelope);

@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const stores = new Map<string, Map<string, unknown>>();
 const s = (n: string) => {
   if (!stores.has(n)) stores.set(n, new Map());
-  return stores.get(n)!;
+  const store = stores.get(n);
+  if (!store) throw new Error('Missing test store');
+  return store;
 };
 
 vi.mock('../../store', () => ({
@@ -13,12 +15,14 @@ vi.mock('../../store', () => ({
   remove: async (n: string, k: string) => { s(n).delete(k); },
 }));
 
+const ledger = vi.hoisted(() => ({ balance: 0, transactions: [] as Array<{ id: string; type: string; to: string; amount: number; timestamp: string; meta?: Record<string, unknown> }> }));
 vi.mock('../chain', () => ({
   getSwarmChain: () => ({
     addTransaction: () => {},
     whenReady: async () => {},
-    getPendingTransactions: () => [],
+    getPendingTransactions: () => ledger.transactions,
     getChain: () => [],
+    getBalance: () => ledger.balance,
   }),
 }));
 
@@ -50,9 +54,52 @@ function makeCoin(overrides: Partial<SwarmCoin> = {}): SwarmCoin {
 
 beforeEach(() => {
   stores.clear();
+  ledger.balance = 0;
+  ledger.transactions = [];
 });
 
 describe('chatCoinWrap', () => {
+  it('recovers a mined wallet coin from reward evidence and returns it with history', async () => {
+    ledger.balance = 25;
+    ledger.transactions = [{ id: 'reward-1', type: 'mining_reward', to: USER, amount: 25, timestamp: '2026-10-19T00:00:00Z' }];
+    const { coin } = await wrapChatHistoryIntoCoin(USER, 'room-1', [{ author: 'alice', text: 'saved', ts: 1 }]);
+    expect(coin.coinId).toBe(`mined:${USER}:0`);
+    expect(coin.ownerId).toBe(USER);
+    expect(coin.status).toBe('wallet');
+    expect(ledger.balance).toBe(25);
+    expect((await getChatHistoryCoins(USER))[0]?.wrappedChat?.messages[0]?.text).toBe('saved');
+  });
+
+  it('does not create a coin from non-mining balance', async () => {
+    ledger.balance = 100;
+    ledger.transactions = [{ id: 'gift', type: 'token_mint', to: USER, amount: 100, timestamp: '2026-10-19T00:00:00Z' }];
+    expect(await canWrapChatHistory(USER)).toBe(false);
+    expect(s('swarmCoins').size).toBe(0);
+  });
+
+  it('does not recreate a vaulted mining coin or spent mining balance', async () => {
+    ledger.balance = 1;
+    ledger.transactions = [{ id: 'reward', type: 'mining_reward', to: USER, amount: 1, timestamp: '2026-10-19T00:00:00Z' }];
+    await put('swarmCoins', makeCoin({ coinId: `mined:${USER}:0`, ownerId: 'vault', status: 'vaulted', locked: true }));
+    expect(await canWrapChatHistory(USER)).toBe(false);
+    stores.clear();
+    ledger.balance = 0;
+    expect(await canWrapChatHistory(USER)).toBe(false);
+  });
+
+  it('does not wrap coins carrying tokens, artifacts, or spent state', async () => {
+    await put('swarmCoins', makeCoin({ coinId: 'artifact', firstArtifactNftId: 'nft' }));
+    await put('swarmCoins', makeCoin({ coinId: 'spent', fillState: 'spent' }));
+    await put('swarmCoins', makeCoin({ coinId: 'vault', vaultAddress: 'vault' }));
+    expect(await canWrapChatHistory(USER)).toBe(false);
+  });
+
+  it('concurrent eligibility checks recover only one container', async () => {
+    ledger.balance = 5;
+    ledger.transactions = [{ id: 'reward', type: 'mining_reward', to: USER, amount: 5, timestamp: '2026-10-19T00:00:00Z' }];
+    expect(await Promise.all([canWrapChatHistory(USER), canWrapChatHistory(USER)])).toEqual([true, true]);
+    expect(s('swarmCoins').size).toBe(1);
+  });
   it('finds only free, unlocked, fungible wallet coins owned by the user', async () => {
     await put('swarmCoins', makeCoin({ coinId: 'eligible' }));
     await put('swarmCoins', makeCoin({ coinId: 'locked', locked: true }));

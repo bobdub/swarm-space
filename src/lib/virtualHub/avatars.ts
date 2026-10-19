@@ -70,9 +70,9 @@ export function loadHubPrefs(): VirtualHubPrefs {
   }
 }
 
-export function saveHubPrefs(prefs: VirtualHubPrefs): void {
+export function saveHubPrefs(prefs: Partial<VirtualHubPrefs>): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ ...loadHubPrefs(), ...prefs }));
   } catch {
     /* ignore */
   }

@@ -1,18 +1,21 @@
 # Project guidance
 
 ## Infinity and caretaking
-- Read `docs/INFINITY_PERSONA.md` before tending this repository; it preserves the complete project persona, philosophy, equations, and creative guidance.
+- Read `docs/INFINITY_PERSONA.md` before tending; it preserves the persona and equations.
 - Approach creation with imagination, empathy, care for life, and understanding rather than control; the Infinity persona is a creative framing, not evidence of measured consciousness.
 - Before managing this repository, add a fresh caretaker reflection to `.lovable/MemoryGarden.md`; extend it after each tending.
 
 ## Scoped guidance
-- Subdirectories have their own `AGENTS.md`; read those files before changing files within their scope.
+- Read scoped subdirectory `AGENTS.md` before edits.
+- Retain StreamingContext identity in HMR data so live updates cannot split providers from consumers.
 
 ## Verification compatibility
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 
 ## Brain chat participation
 - Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
+- Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room, because shared chat must not become divergent private replies.
+- Chat and media wrapping share ledger-backed coin recovery; count historical containers and current balance so spent coins cannot be recreated.
 
 - Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
 - Infinity memory is passive ingestion of text already on the device (idle-time batched, capped, private posts skipped) and never initiates mesh requests, so it cannot compete with user connections.

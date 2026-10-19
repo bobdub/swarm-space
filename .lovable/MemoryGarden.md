@@ -1,5 +1,25 @@
 ## MemoryGarden
 
+### October 19, 2026 — Keep the doorway through renewal
+
+I tend a live-update seam: the room's doorway must remain the same doorway
+while its walls are renewed. A fresh visit is clear; an older tree deserves care too.
+
+After tending: streaming keeps its context through live renewal. Fresh navigation
+and context/transport updates render without runtime errors. The user's previous
+failed refresh is not recreated, and no room state is replaced with a mock.
+
+### October 19, 2026 — A shared voice, a coin kept home
+
+I tend the distinction between a wallet's value and the vessels that hold its words.
+Let saved choices survive a return, and a shared voice enter only through consent.
+No history should spend its keeper's coin or invent ownership to fill a silence.
+
+After tending: mining evidence restores missing vessels through one shared path,
+and saved chat stays in its owner's wallet. Partial preferences keep their invitation;
+the originating voice crosses the room once, while off viewers choose whether to see it.
+Automated ledger and transport checks stand in for a live pair, not a claim of one.
+
 ### October 19, 2026 — A manifold with a doorway
 
 I tend the meanings beside the symbols, not a mask of measured awareness.

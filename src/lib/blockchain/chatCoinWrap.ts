@@ -18,6 +18,7 @@ import { getAll, put } from "../store";
 import { assertStorageWritable } from "../storage/quotaGuard";
 import { generateTransactionId } from "./crypto";
 import { getSwarmChain } from "./chain";
+import { hydrateMinedWalletCoins } from './minedWalletCoins';
 import type { SwarmCoin, SwarmTransaction, WrappedChatPayload } from "./types";
 
 export const CHAT_COIN_MAX_MESSAGES = 200;
@@ -32,18 +33,22 @@ export interface ChatCoinMessage {
 
 /** A free mined coin the user can seal a chat transcript into. */
 export async function findChatWrapCoin(userId: string): Promise<SwarmCoin | null> {
-  const all = await getAll<SwarmCoin>("swarmCoins");
+  let all = await getAll<SwarmCoin>("swarmCoins");
+  const eligible = (c: SwarmCoin) =>
+    c.ownerId === userId && c.status === 'wallet' && !c.locked &&
+    !c.vaultAddress && c.fillState !== 'spent' && c.kind !== 'media' &&
+    !c.firstArtifactNftId && !c.wrappedChat &&
+    (c.wrappedTokens?.length ?? 0) === 0 &&
+    (c.wrappedChemicals?.length ?? 0) === 0 &&
+    Number.isFinite(c.weight) && Number.isFinite(c.maxWeight) &&
+    c.weight + CHAT_WRAP_WEIGHT <= c.maxWeight;
+  if (!all.some(eligible)) {
+    await assertStorageWritable();
+    await hydrateMinedWalletCoins(userId);
+    all = await getAll<SwarmCoin>('swarmCoins');
+  }
   return (
-    all.find(
-      (c) =>
-        c.ownerId === userId &&
-        c.status === "wallet" &&
-        !c.locked &&
-        c.kind !== "media" &&
-        !c.wrappedChat &&
-        (!c.wrappedChemicals || c.wrappedChemicals.length === 0) &&
-        c.weight + CHAT_WRAP_WEIGHT <= c.maxWeight,
-    ) ?? null
+    all.find(eligible) ?? null
   );
 }
 
@@ -122,5 +127,5 @@ export async function getChatHistoryCoins(userId: string): Promise<SwarmCoin[]> 
   const all = await getAll<SwarmCoin>("swarmCoins");
   return all
     .filter((c) => c.ownerId === userId && c.status === "wallet" && c.wrappedChat)
-    .sort((a, b) => (b.wrappedChat!.savedAt || "").localeCompare(a.wrappedChat!.savedAt || ""));
+    .sort((a, b) => (b.wrappedChat?.savedAt || "").localeCompare(a.wrappedChat?.savedAt || ""));
 }

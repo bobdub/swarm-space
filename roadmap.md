@@ -1,3 +1,10 @@
+## Shared Brain chat and history repair (2026-10-19)
+- [x] Repair Save History by recovering missing containers from mining ledger evidence without spending balance or recreating vaulted coins
+- [x] Keep Infinity mode across Brain entry and avatar changes
+- [x] Broadcast the opted-in sender's single Infinity reply; enabled peers see it and off viewers choose once per room
+- [x] Automated coin recovery, persistence, consent and room transport checks pass
+- Live multi-peer and the user's wallet verification were not run; automated checks use isolated ledger fixtures. An off sender does not elect a remote generator in this implementation.
+
 ## Brain chat history coins (2026-10-19)
 - [x] Seal engaged chat transcripts into owned mined SWARM coins via Save History
 - [x] List the last five chat coins under Settings → History with click-to-preview and a wallet link

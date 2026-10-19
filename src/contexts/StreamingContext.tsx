@@ -4,6 +4,7 @@ import {
   useContext,
   useMemo,
   type ReactNode,
+  type Context,
   useReducer,
   useRef,
   useCallback,
@@ -105,7 +106,12 @@ const STREAMING_ENABLED = (() => {
 
 const STREAMING_SOCKET_URL = import.meta.env?.VITE_STREAMING_SOCKET_URL ?? "/api/signaling/ws";
 
-const StreamingContext = createContext<StreamingContextValue | null>(null);
+// A dependency update can re-evaluate this module before React remounts
+// the existing provider. Keep the context identity across that HMR seam:
+// old providers and refreshed consumers must still share the same context.
+const StreamingContext: Context<StreamingContextValue | null> =
+  import.meta.hot?.data.streamingContext ?? createContext<StreamingContextValue | null>(null);
+if (import.meta.hot) import.meta.hot.data.streamingContext = StreamingContext;
 
 function isRoomEnded(room: StreamRoom | undefined): boolean {
   if (!room) return false;

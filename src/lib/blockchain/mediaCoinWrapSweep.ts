@@ -12,7 +12,7 @@
  */
 import { getAll, put } from "@/lib/store";
 import type { SwarmCoin } from "./types";
-import { COIN_MAX_WEIGHT } from "./types";
+import { hydrateMinedWalletCoins } from './minedWalletCoins';
 import {
   engraveFileOntoCoin,
   listAwaitingFiles,
@@ -27,86 +27,11 @@ let followUpTimer: ReturnType<typeof setTimeout> | null = null;
 
 const ENGRAVE_BATCH_SIZE = 24;
 
-function isMineBackedTransaction(tx: { type?: string; meta?: Record<string, unknown> }): boolean {
-  if (tx.type === "mining_reward") return true;
-  if (tx.type !== "token_mint") return false;
-  const reason = String(tx.meta?.reason ?? "").toLowerCase();
-  return reason.includes("confirmed mesh work") || reason.includes("network service unit");
-}
-
-function minedCoinId(userId: string, index: number): string {
-  return `mined:${userId}:${index}`;
-}
-
-function buildMinedWalletCoin(params: {
-  coinId: string;
-  ownerId: string;
-  minedAt: string;
-  minedInBlock?: number;
-}): SwarmCoin {
-  return {
-    coinId: params.coinId,
-    weight: 0,
-    maxWeight: COIN_MAX_WEIGHT,
-    wrappedTokens: [],
-    ownerId: params.ownerId,
-    status: "wallet",
-    minedAt: params.minedAt,
-    minedInBlock: params.minedInBlock,
-  };
-}
-
 async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
   if (limit <= 0 || typeof window === "undefined") return 0;
-  try {
-    const [{ getCurrentUser }, { getSwarmChain }] = await Promise.all([
-      import("@/lib/auth"),
-      import("./chain"),
-    ]);
-    const user = getCurrentUser();
-    if (!user) return 0;
-
-    const existing = await getAll<SwarmCoin>("swarmCoins");
-    const existingIds = new Set(existing.map((coin) => coin.coinId));
-    const chain = getSwarmChain();
-    await chain.whenReady();
-
-    const records: SwarmCoin[] = [];
-    const pending = chain.getPendingTransactions().map((tx) => ({ tx, height: undefined as number | undefined }));
-    const mined = chain.getChain().flatMap((block) =>
-      (block.transactions ?? []).map((tx) => ({ tx, height: block.index })),
-    );
-    const ledger = [...mined, ...pending].filter(({ tx }) => tx.to === user.id && isMineBackedTransaction(tx));
-    const minedBalance = Math.floor(
-      ledger.reduce((sum, { tx }) => {
-        const amount = Number(tx.amount ?? 0);
-        return Number.isFinite(amount) && amount > 0 ? sum + amount : sum;
-      }, 0),
-    );
-    if (minedBalance <= 0) return 0;
-
-    const representedWalletCoins = existing.filter((coin) => coin.ownerId === user.id && coin.status === "wallet").length;
-    const missing = Math.max(0, minedBalance - representedWalletCoins);
-    if (missing <= 0) return 0;
-
-    const latestProof = ledger[ledger.length - 1];
-    for (let i = representedWalletCoins; records.length < Math.min(limit, missing); i += 1) {
-      const coinId = minedCoinId(user.id, i);
-      if (existingIds.has(coinId)) continue;
-      existingIds.add(coinId);
-      records.push(buildMinedWalletCoin({
-        coinId,
-        ownerId: user.id,
-        minedAt: latestProof?.tx.timestamp ?? new Date().toISOString(),
-        minedInBlock: latestProof?.height,
-      }));
-    }
-
-    for (const coin of records) await put("swarmCoins", coin);
-    return records.length;
-  } catch {
-    return 0;
-  }
+  const { getCurrentUser } = await import('@/lib/auth');
+  const user = getCurrentUser();
+  return user ? hydrateMinedWalletCoins(user.id, limit) : 0;
 }
 
 async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
@@ -129,6 +54,7 @@ async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
         (c.wrappedTokens?.length ?? 0) === 0 &&
         (c.wrappedChemicals?.length ?? 0) === 0 &&
         !c.firstArtifactNftId &&
+        !c.wrappedChat &&
         (c.weight ?? 0) <= 0,
     );
     usable.sort((a, b) => (a.wrappedTokens?.length ?? 0) - (b.wrappedTokens?.length ?? 0));
