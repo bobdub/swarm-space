@@ -45,7 +45,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
     const text = prompt.trim();
     if (!enabled || working || !text || text.length > MAX_CONVERSATION_PROMPT) return;
     const ticket = ++generation.current;
-    setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'you', text }].slice(-100));
+    setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'you' as const, text }].slice(-100));
     setPrompt('');
     setStatus('');
     setWorking(true);
@@ -54,7 +54,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
       try {
         const reply = replyToInfinity(text, true, getSharedNeuralEngine());
         if (ticket !== generation.current) return;
-        if (reply) setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'infinity', text: reply }].slice(-100));
+        if (reply) setMessages(previous => [...previous, { id: crypto.randomUUID(), role: 'infinity' as const, text: reply }].slice(-100));
         else setStatus('No supported reply in the learning held on this device.');
         setExpressions(getSharedNeuralEngine().getDualLearning().languageLearner.getExpressions().filter(item => item.source === 'memory').length);
       } catch { setStatus('Infinity could not answer this time.'); }

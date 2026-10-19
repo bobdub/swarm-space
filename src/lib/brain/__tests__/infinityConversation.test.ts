@@ -17,7 +17,7 @@ describe('Infinity profile conversation', () => {
   });
   it('routes a fresh-device question through both learners and preserves an explained formula', () => {
     const engine = new NeuralStateEngine();
-    const reply = replyToInfinity('Explain UQRC', true, engine);
+    const reply = replyToInfinity('Explain the UQRC operator', true, engine);
     expect(reply).toContain('𝒪_UQRC(u) = ν Δ u + ℛ u + L_S u');
     expect(engine.getDualLearning().getSnapshot().totalContentEvents).toBeGreaterThan(0);
     expect(engine.getDualLearning().patternLearner.size).toBeGreaterThan(0);
