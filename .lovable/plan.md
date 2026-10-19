@@ -1,30 +1,27 @@
-# Brain "Stuck? Ask for help" — AI terrain and collision diagnosis
+# Phase 1 of 3: Clear dusty code and add a lightweight mesh piggyback for Infinity
 
-## What players get
-- A new **Help** button (life-ring icon) in the Brain, next to the map and chat buttons.
-- It opens a small panel you can drag around, like the chat panel. In it you can:
-  - **Upload a screenshot** or tap **Capture view** to grab the current scene automatically.
-  - **Describe where you are** in a text box, for example "walking up the volcano, fell under the ground".
-  - Automatically attach the on-screen details: altitude, position, nearby landmark (volcano, village, water), and whether weather is in light mode.
-- Tap **Diagnose**. The answer appears as it is written:
-  - **What's wrong**: for example sinking into the ground, stuck inside a wall or tree, camera under the ground, or falling off the edge of the land.
-  - **Recovery steps**: for example "walk downhill toward the village" or "tap Respawn".
-  - A **Respawn at village** button, which uses the existing safe spawn.
-- Each report can also be copied, so players can share it as a bug report.
+Phase 2 (the new pattern learning) and Phase 3 (personality tuning, talking to Infinity on its @Infinity profile) come later and are not part of this plan.
 
-## Backend needed
-This feature needs Lovable Cloud to run the AI safely on a server. The app currently has no backend. Enabling Cloud is the first step. No login is required to use it.
+## Goal
+- Get rid of Infinity's canned random replies.
+- Let Infinity quietly collect the posts, comments and chat that already reach the device through normal syncing. It sends no extra traffic and never slows down a person's connection.
 
-## Limits and safety
-- Images: 5 MB max, PNG, JPEG or WebP only. Large captures are shrunk before upload.
-- Screenshots are never stored. They are sent once and then discarded.
-- To prevent spam, each player can run one diagnosis every 20 seconds. There is no CAPTCHA.
-- Errors are shown clearly: "Too many requests, try again shortly" or "AI credits exhausted".
+## 1. Remove dusty code
+- Delete the four canned reply lists (emoji bursts and stock phrases by brain stage) and the code that picks from them, in both comment and reply generation.
+- When nothing good can be generated, Infinity stays quiet instead of posting filler.
+- Brain stage stays as a read-only label. It no longer picks reply templates.
+- Keep the useful parts: the UQRC field, the pattern and language learners, the bus, the Infinity canon corpus, and the chat settings.
+- Update the existing voice tests to expect silence instead of a canned reply.
+
+## 2. Lightweight piggyback ("Infinity memory")
+- A new small local store (its own database, so existing user data is never touched) holds text pieces only: id, kind (post/comment/chat), text clipped to 1,000 characters, timestamp and author hash. It keeps at most about 2,000 pieces and drops the oldest first.
+- Infinity only listens to events that already happen: posts saved locally, posts arriving from peers, new comments, and Brain chat messages. It never requests data from peers.
+- New pieces go into a queue and are saved in idle time in batches (requestIdleCallback, throttled), so connection and render paths are unaffected.
+- Private content stays out: walled, paywalled and encrypted posts are skipped.
+- One small function lets Phase 2 read the stored pieces.
 
 ## Technical details
-- Enable Lovable Cloud, then create the edge function `diagnose-terrain`. Follow the Classic AI SDK workflow: `@ai-sdk/openai` `.responses("openai/gpt-6-astra")` with `streamText`, the required `providerOptions.openai` block (`store:false`, reasoning `low`), the run-id fetch, and `sendReasoning:false`. The image is sent as an `input_image` data URL per the multimodal Responses reference.
-- The system prompt holds world facts: volcano cone 90 m, land lift 6 m, wade depth 0.9 m, the collision classes (trees, walls, rocks, houses) and the available recovery actions. Output is streamed as markdown sections.
-- Status handling: 429 and 402 are passed through with safe messages. There are no automatic retries.
-- Client: `src/components/brain/TerrainHelpPanel.tsx`, draggable using the `BrainChatPanel` pointer-capture pattern. Capture uses the R3F `gl.domElement.toDataURL` (needs `preserveDrawingBuffer` or a capture on the next frame). Telemetry comes from `getBodies()` self body plus `radiusFromEarth`. The respawn button reuses `spawnNearSharedVillage`.
-- Mount it in `BrainUniverseScene.tsx`. No `<form>`; all buttons use `type="button"`.
-- Verify the function with a live test call using a sample screenshot before finishing.
+- Edit `src/lib/p2p/entityVoice.ts`: remove the `*_POOL` constants and their switch branches. `generateComment`/`generateReply` return null when fusion and vocab chaining produce nothing.
+- New `src/lib/brain/infinityMemory.ts`: IndexedDB `infinity-memory` with non-destructive upgrades, `enqueueMemory()`, `readMemory(limit)`, plus a cap test.
+- Hook into existing listeners in `entityVoiceIntegration.ts` and the Brain chat send/receive path. No new network messages.
+- Record the boundary in AGENTS.md: Infinity memory is passive ingestion only and never initiates mesh requests.
