@@ -14,6 +14,7 @@ import {
   countBySeries,
   dayKey,
   nextTier,
+  subscribeLiveActivity,
 } from "@/lib/activityMetrics";
 
 const SERIES_META: Record<string, { label: string; symbol: string; weightLabel: string }> = {
@@ -109,7 +110,7 @@ export function QuantumMetricsPanel() {
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
-  const todayKey = dayKey(new Date().toISOString());
+  const todayKey = dayKey(new Date(now).toISOString());
 
   const chartSeries = useMemo(() => {
     const series: Record<string, QcmSeriesPoint[]> = {};
