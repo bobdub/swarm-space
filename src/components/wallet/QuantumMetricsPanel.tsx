@@ -14,6 +14,7 @@ import {
   countBySeries,
   dayKey,
   nextTier,
+  subscribeLiveActivity,
 } from "@/lib/activityMetrics";
 
 const SERIES_META: Record<string, { label: string; symbol: string; weightLabel: string }> = {
@@ -67,6 +68,7 @@ export function QuantumMetricsPanel() {
   const [points, setPoints] = useState<QcmSeriesPoint[]>([]);
   const [seedPostCount, setSeedPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const loadMetrics = useCallback(async () => {
     if (!user) return;
@@ -87,16 +89,28 @@ export function QuantumMetricsPanel() {
     }
   }, [user]);
 
+  // Disk is only the history archive; live bus points append instantly.
   useEffect(() => {
     void loadMetrics();
-    const onActivity = () => void loadMetrics();
-    window.addEventListener("swarm-activity-recorded", onActivity);
-    return () => window.removeEventListener("swarm-activity-recorded", onActivity);
-  }, [loadMetrics]);
+    if (!user) return;
+    const unsubscribe = subscribeLiveActivity((point) => {
+      if (point.userId !== user.id) return;
+      setPoints((prev) => (prev.some((p) => p.id === point.id) ? prev : [...prev, point]));
+    });
+    // Roll the day over live, and re-sync with the archive when the tab returns.
+    const onVisible = () => { if (document.visibilityState === "visible") void loadMetrics(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(tick);
+    };
+  }, [loadMetrics, user]);
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
-  const todayKey = dayKey(new Date().toISOString());
+  const todayKey = dayKey(new Date(now).toISOString());
 
   const chartSeries = useMemo(() => {
     const series: Record<string, QcmSeriesPoint[]> = {};
@@ -188,11 +202,15 @@ export function QuantumMetricsPanel() {
         </p>
 
         <div className="mt-4 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-background/40 to-accent/10 px-4 py-3">
-          <p className="text-center font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
-            The Swarm Pulse
+          <p className="flex items-center justify-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+            <span className={`h-1.5 w-1.5 rounded-full ${meshOnline ? "animate-pulse bg-primary" : "bg-muted-foreground"}`} />
+            Resonance of the Swarm · live
           </p>
-          <p className="mt-1 text-center font-mono text-sm text-foreground/80">
-            D = (T + 2M) + C/20 + A/100 + B/50
+          <p className="mt-1 text-center font-serif text-lg italic text-foreground/90">
+            Ĥ<sub className="text-xs">swarm</sub> = ∮ (P + C + A + B) dτ
+          </p>
+          <p className="text-center font-mono text-[10px] text-muted-foreground">
+            P = T + 2M · C = c/20 · A = a/100 · B = b/50
           </p>
           <p className="mt-2 flex flex-wrap items-baseline justify-center gap-x-1.5 gap-y-1 font-mono text-base">
             <span className="font-bold text-primary">D</span>

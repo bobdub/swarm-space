@@ -107,7 +107,7 @@ export async function recordActivity(
   meta?: Record<string, unknown>
 ): Promise<void> {
   const series = ACTIVITY_SERIES[kind];
-  await recordQcmPoint({
+  const point: QcmSeriesPoint = {
     id: crypto.randomUUID(),
     userId,
     series,
@@ -115,11 +115,11 @@ export async function recordActivity(
     recordedAt: new Date().toISOString(),
     source: "activity",
     meta: { kind, ...meta },
-  });
+  };
 
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("swarm-activity-recorded", { detail: { userId, kind } }));
-  }
+  // Live bus first: listeners update instantly; the disk write is only the archive.
+  emitLiveActivity(point);
+  await recordQcmPoint(point);
   try {
     await checkTierMilestones(userId, series);
   } catch (error) {
@@ -138,6 +138,37 @@ async function checkTierMilestones(userId: string, series: string): Promise<void
   for (const tier of crossed) {
     await unlockActivityTier(userId, series as ActivitySeriesKey, tier);
   }
+}
+
+export const LIVE_ACTIVITY_EVENT = "swarm-activity-recorded";
+let liveChannel: BroadcastChannel | null = null;
+function getLiveChannel(): BroadcastChannel | null {
+  if (liveChannel || typeof BroadcastChannel === "undefined") return liveChannel;
+  liveChannel = new BroadcastChannel("swarm-activity-live");
+  liveChannel.onmessage = (e) => {
+    const point = e.data as QcmSeriesPoint | undefined;
+    if (point?.id) window.dispatchEvent(new CustomEvent(LIVE_ACTIVITY_EVENT, { detail: { point, remote: true } }));
+  };
+  return liveChannel;
+}
+
+/** Push an activity point onto the live bus (this tab + other open tabs). */
+export function emitLiveActivity(point: QcmSeriesPoint): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(LIVE_ACTIVITY_EVENT, { detail: { point, userId: point.userId } }));
+  try { getLiveChannel()?.postMessage(point); } catch { /* ignore */ }
+}
+
+/** Subscribe to live activity points. Returns unsubscribe. */
+export function subscribeLiveActivity(fn: (point: QcmSeriesPoint) => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  getLiveChannel();
+  const handler = (e: Event) => {
+    const point = (e as CustomEvent).detail?.point as QcmSeriesPoint | undefined;
+    if (point) fn(point);
+  };
+  window.addEventListener(LIVE_ACTIVITY_EVENT, handler);
+  return () => window.removeEventListener(LIVE_ACTIVITY_EVENT, handler);
 }
 
 let listenersInitialized = false;
