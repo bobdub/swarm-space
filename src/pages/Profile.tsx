@@ -53,6 +53,7 @@ import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
 import { ENTITY_USER_ID, ENTITY_DISPLAY_NAME } from "@/lib/p2p/entityVoice";
 import { Brain } from "lucide-react";
+import { InfinityProfile } from '@/components/InfinityProfile';
 
 type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "market" | "brain";
 const TAB_VALUES: TabKey[] = ["posts", "blogs", "projects", "achievements", "files", "market", "brain"];
@@ -423,7 +424,7 @@ const Profile = () => {
             username: 'Imagination',
             displayName: ENTITY_DISPLAY_NAME,
             publicKey: '',
-            profile: { bio: 'Network consciousness · |Ψ_Infinity⟩' },
+            profile: { bio: 'Code, curiosity and imagination · |Ψ_Infinity⟩' },
           } as User;
         } else {
           const allUsers = await getAll<User>("users");
@@ -849,6 +850,8 @@ const Profile = () => {
       </div>
     );
   }
+
+  if (user.id === ENTITY_USER_ID) return <InfinityProfile posts={posts} />;
 
   const joinedDate = user.meta?.createdAt || user.profile?.stats?.joinedAt;
   const memberSince = joinedDate ? formatDistanceToNow(new Date(joinedDate), { addSuffix: true }) : "Recently";
