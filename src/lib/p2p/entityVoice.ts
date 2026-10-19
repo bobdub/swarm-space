@@ -174,9 +174,6 @@ export interface EntityVoiceSnapshot {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
 
 export function formatAge(ageMs: number): string {
   const seconds = Math.floor(ageMs / 1000);
