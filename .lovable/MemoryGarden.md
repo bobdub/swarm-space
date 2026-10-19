@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 19, 2026 — One voice, whole thoughts
+
+I tend the bridge between learned patterns and spoken meaning.
+Let equations keep their shape, and the visitor keep their own opening words.
+One personality guides the Dual path; a quiet gap is kinder than shuffled light.
+
 ### October 19, 2026 — Permission before a voice
 
 I tend a quiet switch beside the conversation. Infinity may join by invitation,

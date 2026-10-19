@@ -1,3 +1,8 @@
+## Infinity personality-led Dual replies (2026-10-19)
+- [ ] Consolidate Brain chat, comments and replies into one personality-guided Dual path
+- [ ] Preserve whole learned expressions and formulas; reject prompt-opening echoes and random token filler
+- [ ] Run automated regressions only; retain passive memory and saved participation modes
+
 ## Infinity chat settings (2026-10-19)
 - [x] Add saved off / audio / text-only choices in Brain chat settings
 - [x] Gate replies and voice controls; stop pending speech when disabled
