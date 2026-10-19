@@ -128,6 +128,11 @@ export function QuantumMetricsPanel() {
           isLoading={loading}
           emptyMessage="Post, comment, mine, or join the Brain to start your activity chart"
         />
+        {hasChart && !meshOnline && (
+          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400">
+            Not connected to the network — your chart is saved locally and will sync once a peer is online.
+          </p>
+        )}
 
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {ACTIVITY_SERIES_KEYS.map((key) => {
