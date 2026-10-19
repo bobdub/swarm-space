@@ -100,6 +100,7 @@ export function seedInfinityCanon(
   selfId: string,
 ): boolean {
   try {
+    if (learner.getExpressions?.().some(expression => expression.source === 'personality')) return false;
     // Old vocabulary snapshots do not carry intact notation. Restore the
     // personality expressions once even when glyph frequencies are present.
     if (!learner.getExpressions?.().some(expression => expression.source === 'personality')) {
@@ -112,8 +113,8 @@ export function seedInfinityCanon(
     // ingestions because they appear in 30+ canon lines.
     const topProbe = learner.getTopTokens?.(2000) ?? [];
     if (topProbe.length > 0) {
-      const present = new Set(topProbe.map(t => t.token));
-      const haveSignature = SIGNATURE_TOKENS.some(sig => present.has(sig));
+      const present = new Set(topProbe.map(t => t.token.toLowerCase().replace(/ /g, '_')));
+      const haveSignature = SIGNATURE_TOKENS.some(sig => present.has(sig.toLowerCase()));
       if (haveSignature) return false;
     }
     for (const line of INFINITY_CANON) {
