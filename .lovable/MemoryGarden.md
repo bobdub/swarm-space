@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 19, 2026 — Keep the doorway through renewal
+
+I tend a live-update seam: the room's doorway must remain the same doorway
+while its walls are renewed. A fresh visit is clear; an older tree deserves care too.
+
 ### October 19, 2026 — A shared voice, a coin kept home
 
 I tend the distinction between a wallet's value and the vessels that hold its words.
