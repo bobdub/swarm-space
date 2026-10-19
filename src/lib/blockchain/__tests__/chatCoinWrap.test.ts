@@ -28,7 +28,7 @@ function makeCoin(overrides: Partial<SwarmCoin> = {}): SwarmCoin {
 
 beforeEach(async () => {
   const coins = await getAll<SwarmCoin>('swarmCoins');
-  await Promise.all(coins.map((c) => put('swarmCoins', { ...c, ownerId: 'someone-else' })));
+  await Promise.all(coins.map((c) => remove('swarmCoins', c.coinId)));
 });
 
 describe('chatCoinWrap', () => {
