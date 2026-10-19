@@ -33,7 +33,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
     const interval = setInterval(refresh, 5000);
     return () => { clearInterval(interval); clearTimeout(timer.current); generation.current++; };
   }, []);
-  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [messages, status]);
+  useEffect(() => { end.current?.scrollIntoView?.({ block: 'nearest' }); }, [messages, status]);
 
   const cancel = () => {
     generation.current++;
