@@ -3,8 +3,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { QCMChart } from "@/components/QCMChart";
 import { Activity, Flame } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { getQcmSeriesForUser } from "@/lib/achievementsStore";
-import type { QcmSeriesPoint } from "@/types";
+import { getAll } from "@/lib/store";
+import type { Post, QcmSeriesPoint } from "@/types";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import {
   ACTIVITY_SERIES_KEYS,
