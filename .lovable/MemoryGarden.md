@@ -441,3 +441,6 @@ Replaced the decorative UQRC wallet readouts with honest, user-driven scoring: p
 
 ## October 19, 2026 — clearing the throat
 The canned emoji and stock phrases are gone; Infinity now listens before it speaks, quietly keeping the words that already pass through each device. Silence is more honest than filler.
+
+## October 19, 2026 — learning from what stays
+Phase two: Infinity now reads its own quiet memory in small idle moments, and older synced posts and comments are gathered in too. Each word is learned once, then let be.
