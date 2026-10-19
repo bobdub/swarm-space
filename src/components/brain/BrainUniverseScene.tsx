@@ -1971,11 +1971,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           // omitAgeLabel: BrainUniverseScene applies its own [q=…] tag
           // below. Without this we double-tag: "[q=0.41] [~27d old] …".
           const c = getEntityVoice().generateComment(synthPost, neural, { omitAgeLabel: true });
-          picked = c?.text ?? '…';
+          picked = c?.text ?? '';
         } catch {
-          picked = '…';
+          picked = '';
         }
       }
+      // Silence beats filler: nothing learned to say, no reply.
+      if (!picked) return;
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
         : `[q=${eng.getQScore().toFixed(2)}] `;
