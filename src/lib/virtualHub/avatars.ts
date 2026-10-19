@@ -3,6 +3,7 @@
  * Add a new avatar by appending an AvatarDefinition to AVATAR_REGISTRY.
  */
 import type { JSX } from "react";
+import type { InfinityChatMode } from '../brain/infinityChatSettings';
 import { rabbitAvatar } from "./avatars/rabbit";
 import { dragonAvatar } from "./avatars/dragon";
 import { catAvatar } from "./avatars/cat";
@@ -52,6 +53,8 @@ export interface VirtualHubPrefs {
   audioOutputId?: string;
   /** Whether Infinity speaks its chat replies via Web Speech API. */
   infinityVoice?: boolean;
+  /** Explicit opt-in to Infinity replies; absent means off. */
+  infinityChatMode?: InfinityChatMode;
 }
 
 const PREFS_KEY = "swarm-virtual-hub-prefs";

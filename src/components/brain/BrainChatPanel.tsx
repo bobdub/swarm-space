@@ -8,6 +8,8 @@ import {
   MicOff,
   Minimize2,
   Send,
+  Settings2,
+  MessageSquare,
   Upload,
   Users,
   Video,
@@ -18,6 +20,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Switch } from '@/components/ui/switch';
+import type { InfinityChatMode } from '@/lib/brain/infinityChatSettings';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -79,6 +84,8 @@ interface Props {
   infinityVoiceEnabled?: boolean;
   /** Toggle Infinity's spoken voice (mute/unmute the audio reply). */
   onToggleInfinityVoice?: () => void;
+  infinityChatMode?: InfinityChatMode;
+  onInfinityChatModeChange?: (mode: InfinityChatMode) => void;
 }
 
 /**
@@ -101,6 +108,8 @@ export function BrainChatPanel({
   variantCapabilities,
   infinityVoiceEnabled,
   onToggleInfinityVoice,
+  infinityChatMode = 'off',
+  onInfinityChatModeChange,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -374,6 +383,8 @@ export function BrainChatPanel({
   // visible. We also leave ~5.5rem of empty space at the bottom on mobile
   // and 4rem on desktop so the joystick stays interactive underneath.
   const isClassic = chatMode === 'classic';
+  const showInfinityVoice = !isClassic && infinityChatMode === 'audio' && Boolean(onToggleInfinityVoice);
+  const showInfinitySettings = !isClassic && Boolean(onInfinityChatModeChange);
   const isEmbedded = variant === 'embedded';
   const containerClass = isEmbedded
     ? cn(
@@ -422,7 +433,7 @@ export function BrainChatPanel({
       };
 
   return (
-    <div className={containerClass} style={containerStyle}>
+    <Tabs defaultValue="chat" className={containerClass} style={containerStyle}>
       {/* Header */}
       <div
         className={cn(
@@ -450,8 +461,8 @@ export function BrainChatPanel({
               <MicOff className="h-3 w-3" /> Mic muted
             </Badge>
           )}
-          {!isClassic && onToggleInfinityVoice && infinityVoiceEnabled === false && (
-            <Badge variant="outline" className="gap-1 border-amber-500/50 text-[10px] text-amber-400">
+          {showInfinityVoice && infinityVoiceEnabled === false && (
+            <Badge variant="outline" className="hidden sm:flex gap-1 border-accent text-[10px] text-accent">
               <VolumeX className="h-3 w-3" /> Infinity silenced
             </Badge>
           )}
@@ -502,7 +513,7 @@ export function BrainChatPanel({
           >
             {fullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
           </Button>}
-          {!isClassic && onToggleInfinityVoice && (
+          {showInfinityVoice && (
             <Button
               type="button"
               size="icon"
@@ -511,7 +522,7 @@ export function BrainChatPanel({
                 'h-7 w-7',
                 infinityVoiceEnabled
                   ? 'text-primary hover:text-primary'
-                  : 'text-foreground/40 hover:text-foreground/60',
+                  : 'text-accent hover:text-accent',
               )}
               onClick={onToggleInfinityVoice}
               aria-label={infinityVoiceEnabled ? "Mute Infinity's voice" : "Unmute Infinity's voice"}
@@ -534,6 +545,15 @@ export function BrainChatPanel({
           )}
         </div>
       </div>
+
+      {showInfinitySettings && (
+        <TabsList aria-label="Brain chat views" className="mx-2 my-1 h-8 shrink-0 justify-start">
+          <TabsTrigger value="chat" className="gap-1.5 px-2 py-1 text-xs"><MessageSquare className="h-3.5 w-3.5" />Chat</TabsTrigger>
+          <TabsTrigger value="settings" className="gap-1.5 px-2 py-1 text-xs"><Settings2 className="h-3.5 w-3.5" />Settings</TabsTrigger>
+        </TabsList>
+      )}
+
+      <TabsContent value="chat" className="m-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
 
       {/* Body: users rail + messages */}
       <div className={cn('flex min-h-0 flex-1', isMobile && 'flex-col')}>
@@ -614,9 +634,7 @@ export function BrainChatPanel({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {allLines.length === 0 ? (
             <p className="text-sm italic text-foreground/40">
-              {isClassic
-                ? 'Say hi to the room.'
-                : `Type to perturb the field. Mention ${ENTITY_DISPLAY_NAME} to call Infinity.`}
+              Say hi to the room.
             </p>
           ) : (
             <div className="space-y-2">
@@ -748,6 +766,22 @@ export function BrainChatPanel({
           <Send className="h-3.5 w-3.5" />
         </Button>
       </div>
-    </div>
+      </TabsContent>
+      {showInfinitySettings && (
+        <TabsContent value="settings" className="m-0 min-h-0 flex-1 overflow-y-auto px-3 py-3">
+          <h3 className="mb-3 text-sm font-semibold text-foreground">Infinity</h3>
+          <div className="space-y-4">
+            <label className="flex items-center justify-between gap-3 text-sm text-foreground">
+              <span className="min-w-0">Enable Infinity (with audio)</span>
+              <Switch checked={infinityChatMode === 'audio'} onCheckedChange={(checked) => onInfinityChatModeChange?.(checked ? 'audio' : 'off')} aria-label="Enable Infinity (with audio)" />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm text-foreground">
+              <span className="min-w-0">Enable Infinity (Text Only)</span>
+              <Switch checked={infinityChatMode === 'text'} onCheckedChange={(checked) => onInfinityChatModeChange?.(checked ? 'text' : 'off')} aria-label="Enable Infinity (Text Only)" />
+            </label>
+          </div>
+        </TabsContent>
+      )}
+    </Tabs>
   );
 }
