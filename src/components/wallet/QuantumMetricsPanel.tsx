@@ -76,8 +76,26 @@ export function QuantumMetricsPanel() {
           recordedAt: d.day,
         }));
     }
+    // Starting chart: no recorded activity yet, but the user is on the mesh
+    // and already has posts — seed the Posting line from their post count.
+    if (points.length === 0 && meshOnline && seedPostCount > 0) {
+      series.posts = [
+        {
+          id: `posts-seed-${todayKey}`,
+          userId: user?.id ?? "",
+          series: "posts",
+          value: seedPostCount * ACTIVITY_WEIGHTS.post_text,
+          recordedAt: todayKey,
+        },
+      ];
+    }
     return series;
-  }, [daily, user?.id]);
+  }, [daily, user?.id, points.length, meshOnline, seedPostCount, todayKey]);
+
+  const hasChart = useMemo(
+    () => Object.values(chartSeries).some((s) => s.length > 0),
+    [chartSeries]
+  );
 
   const todayKey = dayKey(new Date().toISOString());
   const today = daily.find((d) => d.day === todayKey);
