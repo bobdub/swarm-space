@@ -62,6 +62,7 @@ export function QuantumMetricsPanel() {
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
+  const todayKey = dayKey(new Date().toISOString());
 
   const chartSeries = useMemo(() => {
     const series: Record<string, QcmSeriesPoint[]> = {};
