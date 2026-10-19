@@ -25,16 +25,16 @@ export const ACTIVITY_WEIGHTS: Record<ActivityKind, number> = {
 };
 
 /** Chart series each activity kind feeds. */
-export const ACTIVITY_SERIES: Record<ActivityKind, string> = {
+export const ACTIVITY_SERIES_KEYS = ["posts", "comments", "mining", "brain"] as const;
+export type ActivitySeriesKey = (typeof ACTIVITY_SERIES_KEYS)[number];
+
+export const ACTIVITY_SERIES: Record<ActivityKind, ActivitySeriesKey> = {
   post_text: "posts",
   post_media: "posts",
   comment: "comments",
   block_mined: "mining",
-  brain: "brain",
-} as unknown as Record<ActivityKind, string>;
-
-export const ACTIVITY_SERIES_KEYS = ["posts", "comments", "mining", "brain"] as const;
-export type ActivitySeriesKey = (typeof ACTIVITY_SERIES_KEYS)[number];
+  brain_peer: "brain",
+};
 
 /** Tier milestones per category (count of actions, not weighted points). */
 export const ACTIVITY_TIERS = [25, 50, 100, 250, 500, 1000] as const;
