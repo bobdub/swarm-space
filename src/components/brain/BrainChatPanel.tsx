@@ -40,6 +40,12 @@ import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import type { BrainVariantCapabilities } from '@/lib/brain/variants';
 import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import {
+  canWrapChatHistory,
+  getChatHistoryCoins,
+  wrapChatHistoryIntoCoin,
+} from '@/lib/blockchain/chatCoinWrap';
+import type { SwarmCoin } from '@/lib/blockchain/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
@@ -122,6 +128,48 @@ export function BrainChatPanel({
   const [seededLines, setSeededLines] = useState<BrainChatLine[]>([]);
   const [isPromoting, setIsPromoting] = useState(false);
   const [isPromoted, setIsPromoted] = useState(false);
+  // ── Chat history coins ───────────────────────────────────────────
+  // Engagement anchors when the local user first sends a message; saving
+  // seals everything from that point into a mined SWARM coin they own.
+  const engagedAtRef = useRef<number | null>(null);
+  const [isSavingHistory, setIsSavingHistory] = useState(false);
+  const [historyCoins, setHistoryCoins] = useState<SwarmCoin[]>([]);
+  const [viewingCoin, setViewingCoin] = useState<SwarmCoin | null>(null);
+
+  const refreshHistoryCoins = useCallback(async () => {
+    if (!user) { setHistoryCoins([]); return; }
+    try { setHistoryCoins(await getChatHistoryCoins(user.id)); } catch { setHistoryCoins([]); }
+  }, [user]);
+
+  useEffect(() => { void refreshHistoryCoins(); }, [refreshHistoryCoins]);
+
+  const handleSaveHistory = useCallback(async () => {
+    if (!user || !roomId || engagedAtRef.current == null || isSavingHistory) return;
+    setIsSavingHistory(true);
+    try {
+      if (!(await canWrapChatHistory(user.id))) {
+        toast.error('You need 1 free mined SWARM coin to save chat history. Mine one on the Node page or pick one up on the Peer Market.');
+        return;
+      }
+      const engaged = allLines.filter((l) => l.ts >= engagedAtRef.current!);
+      if (!engaged.length) {
+        toast.error('Nothing to save yet — send a message first.');
+        return;
+      }
+      const { coin } = await wrapChatHistoryIntoCoin(
+        user.id,
+        roomId,
+        engaged.map((l) => ({ author: l.author, text: l.text, ts: l.ts })),
+      );
+      engagedAtRef.current = null;
+      await refreshHistoryCoins();
+      toast.success(`Chat history sealed into coin ${coin.coinId.slice(-6)} — it stays in your wallet.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save chat history');
+    } finally {
+      setIsSavingHistory(false);
+    }
+  }, [user, roomId, isSavingHistory, allLines, refreshHistoryCoins]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
