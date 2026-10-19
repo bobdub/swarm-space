@@ -6,6 +6,7 @@
 import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
 import { containsEntityMention } from '@/lib/mentions';
+import { enqueueMemory, isPrivatePost } from '@/lib/brain/infinityMemory';
 import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
@@ -29,6 +30,10 @@ export function initEntityVoiceListener(): void {
   window.addEventListener('p2p-entity-voice-evaluate', async (e: Event) => {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
+    // Passive piggyback: remember text already on this device (no mesh requests).
+    if (!isPrivatePost(postData) && postData.author !== ENTITY_USER_ID) {
+      enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? '') });
+    }
     const forceEntity = Boolean(postData._forceEntityReply);
     if (getShyMode() && !forceEntity) return;
     await evaluateAndComment(postData as unknown as Post, forceEntity);
@@ -39,6 +44,9 @@ export function initEntityVoiceListener(): void {
     const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
     if (!detail || !detail.comment) return;
     const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
+    if (comment.author !== ENTITY_USER_ID) {
+      enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author });
+    }
     const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
     if (getShyMode() && !forceEntity) return;
     // Small delay so the original comment settles in the UI

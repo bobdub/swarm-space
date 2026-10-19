@@ -14,6 +14,9 @@
 ## Brain chat participation
 - Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
 
+- Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
+- Infinity memory is passive ingestion of text already on the device (idle-time batched, capped, private posts skipped) and never initiates mesh requests, so it cannot compete with user connections.
+
 ## Wallet boundaries
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases to existing identity ledger keys through the shared asynchronous address resolver and race-safe display hook; never migrate balances or credit history merely to change displayed addresses, because aliases are not new wallet ownership.

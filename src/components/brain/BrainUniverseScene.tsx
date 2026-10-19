@@ -190,6 +190,7 @@ import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
 import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
+import { enqueueMemory } from '@/lib/brain/infinityMemory';
 import {
   isOverheadView,
   SPECTATOR_BACK_M,
@@ -1769,6 +1770,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         };
         return [...prev, line].slice(-100);
       });
+      enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.author || remote.id });
       // Record the remote turn into the conversation ring + apply attraction.
       try {
         const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
@@ -1804,6 +1806,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       text, ts: Date.now(),
     };
     setChatLines((prev) => [...prev, line].slice(-100));
+    enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId });
     // Broadcast to every other peer in the brain room.
     try { sendChatLine(text, line.id); } catch { /* ignore */ }
 
@@ -1971,16 +1974,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           // omitAgeLabel: BrainUniverseScene applies its own [q=…] tag
           // below. Without this we double-tag: "[q=0.41] [~27d old] …".
           const c = getEntityVoice().generateComment(synthPost, neural, { omitAgeLabel: true });
-          picked = c?.text ?? '…';
+          picked = c?.text ?? '';
         } catch {
-          picked = '…';
+          picked = '';
         }
       }
+      // Silence beats filler: nothing learned to say, no reply.
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
         : `[q=${eng.getQScore().toFixed(2)}] `;
       const pick = `${tag}${picked}`;
-      setTimeout(() => {
+      if (picked) setTimeout(() => {
         if (replyEpoch !== infinityReplyEpochRef.current || !canInfinityReply(infinityChatModeRef.current)) return;
         const reply: BrainChatLine = {
           id: crypto.randomUUID(),
