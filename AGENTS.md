@@ -11,6 +11,9 @@
 ## Verification compatibility
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 
+## Brain chat participation
+- Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
+
 ## Wallet boundaries
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases to existing identity ledger keys through the shared asynchronous address resolver and race-safe display hook; never migrate balances or credit history merely to change displayed addresses, because aliases are not new wallet ownership.

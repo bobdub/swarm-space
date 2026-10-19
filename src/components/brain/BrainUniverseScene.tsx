@@ -114,6 +114,7 @@ import {
   topKFromQ,
 } from '@/lib/uqrc/conversationAttraction';
 import { seedInfinityCanon } from '@/lib/brain/infinityCorpus';
+import { canInfinityReply, canInfinitySpeak, resolveInfinityChatMode, type InfinityChatMode } from '@/lib/brain/infinityChatSettings';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { updateEarthCorePin } from '@/lib/brain/earthCore';
@@ -1256,8 +1257,17 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Mirror voiceEnabled into a ref so the chat handler never has to depend on
   // it. This guarantees that toggling mute can NEVER affect text emission —
   // the speak() call simply reads the latest value at fire time.
-  const voiceEnabledRef = useRef<boolean>(true);
+  const voiceEnabledRef = useRef<boolean>(voiceEnabled);
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
+  const [infinityChatMode, setInfinityChatMode] = useState<InfinityChatMode>(() =>
+    resolveInfinityChatMode(loadHubPrefs().infinityChatMode),
+  );
+  const infinityChatModeRef = useRef(infinityChatMode);
+  const infinityReplyEpochRef = useRef(0);
+  useEffect(() => () => {
+    infinityReplyEpochRef.current += 1;
+    cancelInfinity();
+  }, []);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
   const {
@@ -1449,6 +1459,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [ready, user]);
 
   const toggleInfinityVoice = useCallback(() => {
+    voiceEnabledRef.current = !voiceEnabledRef.current;
     setVoiceEnabled((prev) => {
       const next = !prev;
       try {
@@ -1458,6 +1469,20 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       if (!next) cancelInfinity();
       return next;
     });
+  }, []);
+
+  const changeInfinityChatMode = useCallback((mode: InfinityChatMode) => {
+    infinityChatModeRef.current = mode;
+    setInfinityChatMode(mode);
+    if (mode === 'off') infinityReplyEpochRef.current += 1;
+    if (mode !== 'audio') cancelInfinity();
+    // Selecting audio explicitly re-enables sound; header mute stays separate.
+    if (mode === 'audio') {
+      voiceEnabledRef.current = true;
+      setVoiceEnabled(true);
+    }
+    const prefs = loadHubPrefs();
+    saveHubPrefs({ ...prefs, infinityChatMode: mode, infinityVoice: voiceEnabledRef.current });
   }, []);
 
   // ── Bootstrap: load user, restore field, create self body ─────────
@@ -1807,7 +1832,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       /infinity|imagination|orb|brain/i.test(text) ||
       /^@(infinity|imagination)\b/i.test(trimmed) ||
       trimmed.endsWith('?');
-    if (callsInfinity) {
+    if (canInfinityReply(infinityChatModeRef.current) && callsInfinity) {
+      const replyEpoch = infinityReplyEpochRef.current;
       // ── Physics-driven token-by-token assembly ──────────────────
       // The field decides which token belongs at the A↔B bridge site;
       // the language learner only supplies vocabulary. No constants:
@@ -1955,6 +1981,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         : `[q=${eng.getQScore().toFixed(2)}] `;
       const pick = `${tag}${picked}`;
       setTimeout(() => {
+        if (replyEpoch !== infinityReplyEpochRef.current || !canInfinityReply(infinityChatModeRef.current)) return;
         const reply: BrainChatLine = {
           id: crypto.randomUUID(),
           author: ENTITY_DISPLAY_NAME,
@@ -1964,7 +1991,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // Speech is fire-and-forget and fully decoupled from text emission.
         // Read the latest mute state via ref so toggling never rebuilds this
         // handler or affects the text reply that already rendered above.
-        try { if (voiceEnabledRef.current) speakInfinity(pick); } catch { /* ignore */ }
+        try { if (canInfinitySpeak(infinityChatModeRef.current, voiceEnabledRef.current)) speakInfinity(pick); } catch { /* ignore */ }
         // Infinity's reply also perturbs the field at the orb
         physics.injectAt([0, 0, 0], 0.5, 1);
       }, 600 + Math.random() * 800);
@@ -2357,7 +2384,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           >
             {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
-          <Button
+          {infinityChatMode === 'audio' && <Button
             type="button"
             variant={voiceEnabled ? 'outline' : 'secondary'}
             size="sm"
@@ -2371,7 +2398,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             title={voiceEnabled ? "Silence Infinity" : "Infinity silenced"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </Button>
+          </Button>}
           <Button
             type="button"
             variant="outline"
@@ -2570,6 +2597,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           variant="floating"
           infinityVoiceEnabled={voiceEnabled}
           onToggleInfinityVoice={toggleInfinityVoice}
+          infinityChatMode={infinityChatMode}
+          onInfinityChatModeChange={changeInfinityChatMode}
         />
       )}
 

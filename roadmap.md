@@ -1,3 +1,8 @@
+## Infinity chat settings (2026-10-19)
+- [x] Add saved off / audio / text-only choices in Brain chat settings
+- [x] Gate replies and voice controls; stop pending speech when disabled
+- [x] Four mode tests pass; real local account verifies audio/mute, text replies, off suppression and reload persistence; desktop/mobile settings inspected
+
 ## Local companion (2026-10-18)
 - [x] Add loopback detection, explicit pairing and live browser-mesh read relay to MetaMask Swarm Cell
 - [x] Ship standalone Windows and Linux x64 downloads, with no hosted server dependency
