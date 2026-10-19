@@ -8,7 +8,7 @@ import {
   CHAT_COIN_MAX_MESSAGES,
   CHAT_WRAP_WEIGHT,
 } from '../chatCoinWrap';
-import { put, getAll } from '../../store';
+import { put, getAll, remove } from '../../store';
 import type { SwarmCoin } from '../types';
 
 const USER = 'user-alice';
