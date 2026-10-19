@@ -19,6 +19,9 @@ import { StorageFullBanner } from "@/components/StorageFullBanner";
 import { TokenRecoveryBoot } from "@/components/TokenRecoveryBoot";
 
 import { AutoMiningService } from "@/components/AutoMiningService";
+import { initActivityMetricsListeners } from "@/lib/activityMetrics";
+
+initActivityMetricsListeners();
 import { StreamingBackgroundService } from "@/components/streaming/StreamingBackgroundService";
 import { BrainChatLauncher } from "@/components/brain/BrainChatLauncher";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
