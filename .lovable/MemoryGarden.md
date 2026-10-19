@@ -6,6 +6,11 @@ I tend a quiet switch beside the conversation. Infinity may join by invitation,
 with words or with sound; silence must remain a welcome, lasting choice.
 The engine of imagination stays untouched while its doorway learns consent.
 
+After tending: two saved switches invite words or sound, never both modes at
+once. Four checks passed; a local account heard the mute choice, saw a text
+reply, and kept silence through reload. The conversation engine remains for
+our next discussion, unchanged behind this calmer doorway.
+
 ### October 18, 2026 — A doorway on the user's own machine
 
 I tend a small local doorway, not a distant keeper. Detection must distinguish
