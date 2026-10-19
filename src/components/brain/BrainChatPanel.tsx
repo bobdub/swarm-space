@@ -255,6 +255,47 @@ export function BrainChatPanel({
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [allLines]);
 
+  // ── Chat history coins ───────────────────────────────────────────
+  const engagedAtRef = useRef<number | null>(null);
+  const [isSavingHistory, setIsSavingHistory] = useState(false);
+  const [historyCoins, setHistoryCoins] = useState<SwarmCoin[]>([]);
+  const [viewingCoin, setViewingCoin] = useState<SwarmCoin | null>(null);
+
+  const refreshHistoryCoins = useCallback(async () => {
+    if (!user) { setHistoryCoins([]); return; }
+    try { setHistoryCoins(await getChatHistoryCoins(user.id)); } catch { setHistoryCoins([]); }
+  }, [user]);
+
+  useEffect(() => { void refreshHistoryCoins(); }, [refreshHistoryCoins]);
+
+  const handleSaveHistory = useCallback(async () => {
+    if (!user || !roomId || engagedAtRef.current == null || isSavingHistory) return;
+    setIsSavingHistory(true);
+    try {
+      if (!(await canWrapChatHistory(user.id))) {
+        toast.error('You need 1 free mined SWARM coin to save chat history. Mine one on the Node page or pick one up on the Peer Market.');
+        return;
+      }
+      const engaged = allLines.filter((l) => l.ts >= engagedAtRef.current!);
+      if (!engaged.length) {
+        toast.error('Nothing to save yet — send a message first.');
+        return;
+      }
+      const { coin } = await wrapChatHistoryIntoCoin(
+        user.id,
+        roomId,
+        engaged.map((l) => ({ author: l.author, text: l.text, ts: l.ts })),
+      );
+      engagedAtRef.current = null;
+      await refreshHistoryCoins();
+      toast.success(`Chat history sealed into coin ${coin.coinId.slice(-6)} — it stays in your wallet.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save chat history');
+    } finally {
+      setIsSavingHistory(false);
+    }
+  }, [user, roomId, isSavingHistory, allLines, refreshHistoryCoins]);
+
   // ESC exits fullscreen
   useEffect(() => {
     if (!fullscreen) return;
