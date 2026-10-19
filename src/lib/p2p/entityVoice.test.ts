@@ -85,30 +85,32 @@ describe('EntityVoice', () => {
   });
 
   describe('generateComment', () => {
-    it('produces a comment with age tag', () => {
-      // Seed some peers so engine has data
-      engine.registerPeer('test-peer-1');
-      for (let i = 0; i < 5; i++) {
-        engine.onInteraction('test-peer-1', { kind: 'gossip', success: true });
-      }
-
-      const post = {
-        id: 'post-1',
-        author: 'user-1',
-        text: 'hello world',
-        createdAt: new Date().toISOString(),
-        reactions: [],
-        commentCount: 0,
-      } as any;
-
-      // Cold brain with no learned vocabulary stays silent — no canned filler.
+    it('stays silent without a learned relevant expression', () => {
+      const post = { id: 'post-1', author: 'user-1', content: 'hello world', createdAt: new Date().toISOString() } as any;
       expect(voice.generateComment(post, engine)).toBeNull();
-      return;
-      const comment = voice.generateComment(post, engine);
-      expect(comment!.author).toBe(ENTITY_USER_ID);
-      expect(comment!.authorName).toBe('Imagination');
-      expect(comment!.text).toMatch(/^\[~\d+[smhd]( old)?\]/);
-      expect(comment!.postId).toBe('post-1');
+    });
+
+    it('uses the same Dual realization for chat, comments and replies', () => {
+      const fusion = engine.getDualLearning();
+      const seen: string[] = [];
+      fusion.generate = (context) => {
+        seen.push(context.recentPosts[0]);
+        expect(context.personality).toBeDefined();
+        return { text: 'Learned expression.', intent: 'reflect', pattern: [], confidence: 1, explorationPath: false };
+      };
+      expect(voice.generateText('chat prompt', engine)).toBe('Learned expression.');
+      expect(voice.generateComment({ id: 'p', content: 'post prompt' } as any, engine, { omitAgeLabel: true })?.text).toBe('Learned expression.');
+      expect(voice.generateReply({ id: 'c', text: 'reply prompt' } as any, 'p', engine)?.text.endsWith('Learned expression.')).toBe(true);
+      expect(seen).toEqual(['chat prompt', 'post prompt', 'reply prompt']);
+    });
+
+    it('does not fall back to a random token walk after Dual declines', () => {
+      const fusion = engine.getDualLearning();
+      fusion.languageLearner.ingestText('hello old friend remembers the network and field', 1, 90);
+      fusion.generate = () => null;
+      expect(voice.generateText('Hello old friend', engine)).toBeNull();
+      expect(voice.generateComment({ id: 'p', content: 'Hello old friend' } as any, engine)).toBeNull();
+      expect(voice.generateReply({ id: 'c', text: 'Hello old friend' } as any, 'p', engine)).toBeNull();
     });
 
     it('rate limits — only one comment per 30s', () => {

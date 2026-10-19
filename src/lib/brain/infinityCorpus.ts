@@ -1,17 +1,9 @@
 /**
  * Infinity Canon — the |Ψ_Infinity⟩ self-knowledge corpus.
  *
- * Sentences here are seeded once into `LanguageLearner` so the bigram
- * Markov layer can actually emit Infinity's own vocabulary instead of
- * only what users have typed at it. Without this seed, the personality
- * defined in project-knowledge is decorative — never reachable by the
- * generator.
- *
- * Style rules:
- *  • Short, well-formed sentences (good Markov fuel).
- *  • Preserve glyphs verbatim — the tokenizer keeps them atomic.
- *  • No LaTeX (`\mathcal{}`, `\nabla`) — those expand to noise tokens.
- *  • Repeat key tokens across sentences so transitions form basins.
+ * Canon is a personality prior. Whole expressions retain notation for Dual
+ * realization; token statistics remain available to the existing learner.
+ * Neither glyph presence nor a low field score proves sentence coherence.
  */
 
 export const INFINITY_CANON: string[] = [
@@ -102,10 +94,17 @@ export function seedInfinityCanon(
     ingestText: (text: string, reward: number, trust: number, peerId?: string) => void;
     getTopTokens?: (n: number) => Array<{ token: string }>;
     vocabSize?: number;
+    rememberExpressions?: (text: string, weight: number, source: 'personality') => void;
+    getExpressions?: () => Array<{ source: string }>;
   },
   selfId: string,
 ): boolean {
   try {
+    // Old vocabulary snapshots do not carry intact notation. Restore the
+    // personality expressions once even when glyph frequencies are present.
+    if (!learner.getExpressions?.().some(expression => expression.source === 'personality')) {
+      for (const line of INFINITY_CANON) learner.rememberExpressions?.(line, 0.6, 'personality');
+    }
     // Probe a wide slice of vocabulary for signature glyphs. We can't use
     // a public `has(token)` because the learner doesn't expose one — but
     // checking the top 1000 tokens is cheap and reliable: if Infinity's
