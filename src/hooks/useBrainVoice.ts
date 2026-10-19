@@ -14,6 +14,7 @@ import {
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 import { BRAIN_PHYSICS_VERSION } from "@/lib/brain/brainPersistence";
+import { ENTITY_DISPLAY_NAME, ENTITY_USER_ID } from '@/lib/p2p/entityVoice';
 
 /** Default shared room so every visitor to /brain hears every other visitor.
  *  Project universes pass their own room id, e.g. `brain-project-${id}`. */
@@ -259,7 +260,7 @@ export function useBrainVoice(
 
   /** Broadcast a chat line to every peer in the Brain room over the mesh. */
   const sendChatLine = useCallback(
-    (text: string, lineId: string) => {
+    (text: string, lineId: string, infinityReplyTo?: string) => {
       if (!user) return;
       try {
         sendRoomChatMessage(
@@ -269,6 +270,9 @@ export function useBrainVoice(
           `${lineId}\u0001${text}`,
           user.id,
           user.username,
+          undefined,
+          undefined,
+          infinityReplyTo,
         );
       } catch (err) {
         console.warn("[BrainVoice] chat broadcast failed", err);
@@ -286,6 +290,8 @@ export function useBrainVoice(
         text: string;
         ts: number;
         peerId: string;
+        authorId?: string;
+        infinityReplyTo?: string;
       }) => void,
     ) => {
       return onRoomChatMessage((msg: RoomChatMessage) => {
@@ -297,7 +303,9 @@ export function useBrainVoice(
         const text = sep > 0 ? msg.text.slice(sep + 1) : msg.text;
         handler({
           id,
-          author: msg.senderUsername || msg.senderPeerId.slice(0, 8),
+          author: msg.infinityReplyTo ? ENTITY_DISPLAY_NAME : msg.senderUsername || msg.senderPeerId.slice(0, 8),
+          authorId: msg.infinityReplyTo ? ENTITY_USER_ID : msg.senderUserId,
+          infinityReplyTo: msg.infinityReplyTo,
           text,
           ts: msg.ts,
           peerId: msg.senderPeerId,

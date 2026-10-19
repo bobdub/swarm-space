@@ -107,6 +107,7 @@ import {
   attractToPrev,
 } from '@/lib/uqrc/conversationAttraction';
 import { canInfinityReply, canInfinitySpeak, resolveInfinityChatMode, type InfinityChatMode } from '@/lib/brain/infinityChatSettings';
+import { InfinityRoomConsent } from '@/lib/brain/infinityRoomConsent';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
 import { updateEarthCorePin } from '@/lib/brain/earthCore';
@@ -1257,6 +1258,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   );
   const infinityChatModeRef = useRef(infinityChatMode);
   const infinityReplyEpochRef = useRef(0);
+  const roomConsent = useMemo(() => new InfinityRoomConsent<BrainChatLine>(), [roomId]);
+  const [infinitySyncRequested, setInfinitySyncRequested] = useState(false);
+  useEffect(() => { setInfinitySyncRequested(false); }, [roomId]);
+  const chooseInfinitySync = useCallback((accept: boolean) => {
+    const accepted = roomConsent.choose(accept);
+    if (accepted.length) setChatLines((prev) => [...prev, ...accepted].sort((a, b) => a.ts - b.ts).slice(-100));
+    setInfinitySyncRequested(false);
+  }, [roomConsent]);
   useEffect(() => () => {
     infinityReplyEpochRef.current += 1;
     cancelInfinity();
@@ -1752,6 +1761,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     if (!ready) return;
     const eng = getSharedFieldEngine();
     const unsub = onChatLine((remote) => {
+      if (remote.infinityReplyTo) {
+        const delivery = roomConsent.receive({ ...remote }, infinityChatModeRef.current);
+        if (delivery.ask) setInfinitySyncRequested(true);
+        if (delivery.visible.length) {
+          setChatLines((prev) => [...prev, ...delivery.visible].slice(-100));
+          if (canInfinitySpeak(infinityChatModeRef.current, voiceEnabledRef.current)) speakInfinity(remote.text);
+        }
+        return; // No second generation or learning from the broadcast reply.
+      }
       setChatLines((prev) => {
         if (prev.some((l) => l.id === remote.id)) return prev;
         const line: BrainChatLine = {
@@ -1759,6 +1777,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           author: remote.author,
           text: remote.text,
           ts: remote.ts,
+          authorId: remote.authorId,
         };
         return [...prev, line].slice(-100);
       });
@@ -1777,7 +1796,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       } catch { /* learner optional */ }
     });
     return () => unsub();
-  }, [ready, onChatLine]);
+  }, [ready, onChatLine, roomConsent]);
 
   // ── Pub events (drinks) drop a line into Brain chat ───────────────
   useEffect(() => {
@@ -1843,11 +1862,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       if (picked) setTimeout(() => {
         if (replyEpoch !== infinityReplyEpochRef.current || !canInfinityReply(infinityChatModeRef.current)) return;
         const reply: BrainChatLine = {
-          id: crypto.randomUUID(),
+          id: `infinity:${line.id}`,
           author: ENTITY_DISPLAY_NAME,
+          authorId: ENTITY_USER_ID,
+          infinityReplyTo: line.id,
           text: pick, ts: Date.now(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
+        // The originating opted-in client generates; peers only consume it.
+        sendChatLine(pick, reply.id, line.id);
         // Speech is fire-and-forget and fully decoupled from text emission.
         // Read the latest mute state via ref so toggling never rebuilds this
         // handler or affects the text reply that already rendered above.
@@ -2456,6 +2479,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onToggleInfinityVoice={toggleInfinityVoice}
           infinityChatMode={infinityChatMode}
           onInfinityChatModeChange={changeInfinityChatMode}
+          infinitySyncRequested={infinitySyncRequested}
+          onInfinitySyncChoice={chooseInfinitySync}
         />
       )}
 

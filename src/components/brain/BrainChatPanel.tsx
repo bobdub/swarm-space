@@ -56,6 +56,7 @@ export interface BrainChatLine {
   /** Original peerId/userId of the sender, used for avatar lookup. */
   authorId?: string;
   avatarRef?: string;
+  infinityReplyTo?: string;
   replyTo?: { id: string; author: string; preview: string };
 }
 
@@ -91,6 +92,8 @@ interface Props {
   onToggleInfinityVoice?: () => void;
   infinityChatMode?: InfinityChatMode;
   onInfinityChatModeChange?: (mode: InfinityChatMode) => void;
+  infinitySyncRequested?: boolean;
+  onInfinitySyncChoice?: (accept: boolean) => void;
 }
 
 /**
@@ -115,6 +118,8 @@ export function BrainChatPanel({
   onToggleInfinityVoice,
   infinityChatMode = 'off',
   onInfinityChatModeChange,
+  infinitySyncRequested = false,
+  onInfinitySyncChoice,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -225,7 +230,8 @@ export function BrainChatPanel({
     }
     try {
       const history = getRoomChatMessages(roomId);
-      const seeded: BrainChatLine[] = history.map((m) => ({
+      // Infinity replies pass through the scene's consent gate, not hydration.
+      const seeded: BrainChatLine[] = history.filter((m) => !m.infinityReplyTo).map((m) => ({
         id: m.id,
         author: m.senderUsername || m.senderPeerId.slice(0, 8),
         text: m.text.includes('\u0001') ? m.text.split('\u0001').slice(1).join('\u0001') : m.text,
@@ -798,6 +804,13 @@ export function BrainChatPanel({
       </div>
 
       {/* Reply banner */}
+      {!viewingCoin && infinitySyncRequested && onInfinitySyncChoice && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-muted px-3 py-2 text-xs text-foreground" role="status">
+          <span className="flex-1">Peer is chatting with Infinity: View Response?</span>
+          <Button type="button" size="sm" onClick={() => onInfinitySyncChoice(true)}>Accept</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => onInfinitySyncChoice(false)}>Decline</Button>
+        </div>
+      )}
       {replyTo && (
         <div className="flex items-center gap-2 border-t border-white/10 bg-primary/10 px-3 py-1.5 text-xs text-foreground/70">
           <CornerDownRight className="h-3 w-3 shrink-0 text-primary" />
