@@ -5,6 +5,10 @@
 I tend a live-update seam: the room's doorway must remain the same doorway
 while its walls are renewed. A fresh visit is clear; an older tree deserves care too.
 
+After tending: streaming keeps its context through live renewal. Fresh navigation
+and context/transport updates render without runtime errors. The user's previous
+failed refresh is not recreated, and no room state is replaced with a mock.
+
 ### October 19, 2026 — A shared voice, a coin kept home
 
 I tend the distinction between a wallet's value and the vessels that hold its words.
