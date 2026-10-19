@@ -1,3 +1,9 @@
+## Brain chat history coins (2026-10-19)
+- [x] Seal engaged chat transcripts into owned mined SWARM coins via Save History
+- [x] List the last five chat coins under Settings → History with click-to-preview and a wallet link
+- [x] Six automated wrap/query checks pass; build OK
+- Live browser/peer verification not run, per automated-test preference.
+
 ## Infinity manifold, peer knowledge and profile chat (2026-10-19)
 - [x] Replace the personality prior with explained intact equations through existing learning
 - [x] Audit local and peer-held knowledge and expose truthful availability

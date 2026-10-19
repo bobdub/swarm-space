@@ -438,6 +438,8 @@ export interface SwarmCoin {
   sealedAt?: string;
   /** Crafted chemical payload — atoms condensed into the coin via the Forge. */
   wrappedChemicals?: { symbol: string; count: number }[];
+  /** Sealed chat transcript — wrapped by "Save History" in Brain chat. */
+  wrappedChat?: WrappedChatPayload;
   // ── Media Coin flavor (Sync Vault container) ─────────────────────────
   /** When set to "media", this coin is a Sync Vault container and is
    *  excluded from the fungible pool, the market, the lab smelter, and
@@ -489,6 +491,19 @@ export interface WrappedTokenPayload {
   wrappedBy: string;
   /** Original creator of the token — used for attribution on extraction */
   creatorUserId?: string;
+}
+
+/**
+ * Chat transcript sealed inside a mined SWARM coin via "Save History".
+ * The coin stays in the saver's wallet — history is owned, not spent.
+ */
+export interface WrappedChatPayload {
+  roomId: string;
+  savedAt: string;
+  savedBy: string;
+  messageCount: number;
+  participants: string[];
+  messages: { author: string; text: string; ts: number }[];
 }
 
 export const SWARM_CONFIG: BlockchainConfig = {
