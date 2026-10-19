@@ -16,6 +16,7 @@ import {
 } from "./achievementsStore";
 import { getAll, getAllByIndex } from "./store";
 import type { P2PStats } from "./p2p/manager";
+import { recordActivity, type ActivitySeriesKey } from "./activityMetrics";
 
 export type AchievementEvent =
   | { type: "post:created"; userId: string; post: Post }
@@ -456,7 +457,82 @@ const ACHIEVEMENT_RULES: AchievementRule[] = [
   },
 ];
 
+const TIER_ACHIEVEMENT_META: Record<ActivitySeriesKey, { noun: string; category: AchievementDefinition["category"] }> = {
+  posts: { noun: "posts", category: "content" },
+  comments: { noun: "comments", category: "social" },
+  mining: { noun: "blocks mined", category: "node" },
+  brain: { noun: "brain sessions", category: "node" },
+};
+
+function tierAchievementId(series: ActivitySeriesKey, tier: number): string {
+  return `achv-tier-${series}-${tier}`;
+}
+
+/**
+ * Unlock a tier milestone achievement (25/50/100/... actions in a series).
+ * Called by activityMetrics when a recorded action crosses a tier.
+ */
+export async function unlockActivityTier(
+  userId: string,
+  series: ActivitySeriesKey,
+  tier: number
+): Promise<void> {
+  const meta = TIER_ACHIEVEMENT_META[series];
+  if (!meta) return;
+  const id = tierAchievementId(series, tier);
+  const existing = await getAchievementProgressRecord(userId, id);
+  if (existing?.unlocked) return;
+
+  const now = new Date().toISOString();
+  const title = `${tier} ${meta.noun.charAt(0).toUpperCase()}${meta.noun.slice(1)}`;
+
+  // Register the definition so galleries can display it.
+  await saveAchievementDefinitions([
+    {
+      id,
+      slug: `tier-${series}-${tier}`,
+      title,
+      description: `Reach ${tier} ${meta.noun} on the swarm.`,
+      creditReward: 0,
+      qcmImpact: `+${tier} ${series} milestone`,
+      category: meta.category,
+      rarity: tier >= 500 ? "legendary" : tier >= 100 ? "epic" : tier >= 50 ? "rare" : "uncommon",
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  resetAchievementDefinitionCache();
+
+  await markAchievementUnlocked({
+    id: crypto.randomUUID(),
+    userId,
+    achievementId: id,
+    unlockedAt: now,
+    meta: { series, tier },
+  });
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("achievement-unlocked", {
+        detail: { achievement: { id, title }, progress: { userId, achievementId: id } },
+      })
+    );
+  }
+}
+
 export async function evaluateAchievementEvent(event: AchievementEvent): Promise<void> {
+  // Record the raw activity point first — this feeds the daily chart.
+  try {
+    if (event.type === "post:created") {
+      const hasMedia = (event.post.manifestIds?.length ?? 0) > 0;
+      await recordActivity(event.userId, hasMedia ? "post_media" : "post_text", { postId: event.post.id });
+    } else if (event.type === "social:comment") {
+      await recordActivity(event.userId, "comment", { postId: event.postId, commentId: event.commentId });
+    }
+  } catch (error) {
+    console.warn("[achievements] Failed to record activity point", error);
+  }
+
   const definitions = await ensureAchievementDefinitions();
   const relevantRules = ACHIEVEMENT_RULES.filter((rule) =>
     rule.supportedEvents.includes(event.type)
