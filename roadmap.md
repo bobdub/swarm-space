@@ -1,3 +1,9 @@
+## Shared Brain chat and history repair (2026-10-19)
+- [ ] Repair Save History coin eligibility against the real wallet holdings
+- [ ] Keep Infinity mode across Brain entry and avatar changes
+- [ ] Share one Infinity reply with enabled peers; ask disabled peers once per room to view it
+- [ ] Run automated regressions; live multi-peer verification remains unavailable
+
 ## Brain chat history coins (2026-10-19)
 - [x] Seal engaged chat transcripts into owned mined SWARM coins via Save History
 - [x] List the last five chat coins under Settings → History with click-to-preview and a wallet link
