@@ -67,6 +67,7 @@ export function QuantumMetricsPanel() {
   const [points, setPoints] = useState<QcmSeriesPoint[]>([]);
   const [seedPostCount, setSeedPostCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
 
   const loadMetrics = useCallback(async () => {
     if (!user) return;
@@ -87,12 +88,24 @@ export function QuantumMetricsPanel() {
     }
   }, [user]);
 
+  // Disk is only the history archive; live bus points append instantly.
   useEffect(() => {
     void loadMetrics();
-    const onActivity = () => void loadMetrics();
-    window.addEventListener("swarm-activity-recorded", onActivity);
-    return () => window.removeEventListener("swarm-activity-recorded", onActivity);
-  }, [loadMetrics]);
+    if (!user) return;
+    const unsubscribe = subscribeLiveActivity((point) => {
+      if (point.userId !== user.id) return;
+      setPoints((prev) => (prev.some((p) => p.id === point.id) ? prev : [...prev, point]));
+    });
+    // Roll the day over live, and re-sync with the archive when the tab returns.
+    const onVisible = () => { if (document.visibilityState === "visible") void loadMetrics(); };
+    document.addEventListener("visibilitychange", onVisible);
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(tick);
+    };
+  }, [loadMetrics, user]);
 
   const daily = useMemo(() => aggregateDaily(points), [points]);
   const counts = useMemo(() => countBySeries(points), [points]);
