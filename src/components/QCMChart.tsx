@@ -9,12 +9,20 @@ const SERIES_LABELS: Record<string, string> = {
   content: "Content",
   node: "Node",
   social: "Social",
+  posts: "Posts (P)",
+  comments: "Comments (C)",
+  mining: "Axe (A)",
+  brain: "Brain (B)",
 };
 
 const SERIES_COLORS: Record<string, string> = {
   content: "hsl(326,71%,62%)",
   node: "hsl(174,59%,56%)",
   social: "hsl(208,88%,62%)",
+  posts: "hsl(326,71%,62%)",
+  comments: "hsl(208,88%,62%)",
+  mining: "hsl(38,92%,55%)",
+  brain: "hsl(174,59%,56%)",
 };
 
 interface QCMChartProps {
