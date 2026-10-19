@@ -308,7 +308,10 @@ export class EntityVoice {
   generateText(contextText: string, engine: NeuralStateEngine): string | null {
     const snapshot = engine.getNetworkSnapshot();
     const fusion = engine.getDualLearning();
-    seedInfinityCanon(fusion.languageLearner, ENTITY_USER_ID);
+    seedInfinityCanon(fusion.languageLearner, ENTITY_USER_ID, text => fusion.ingestContentEvent({
+      text, reactions: 3, comments: 1, shares: 0, trustScore: 95,
+      peerId: ENTITY_USER_ID, timestamp: Date.now(),
+    }));
     const projection = getInfinityProjection(engine);
     const heart = getLastInfinitySnapshot();
     const massScore = computeMassScore({

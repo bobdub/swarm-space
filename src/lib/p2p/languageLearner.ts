@@ -520,6 +520,13 @@ export class LanguageLearner {
     return [...this.expressions.values()].map(expression => ({ ...expression }));
   }
 
+  /** Replace only the shipped prior; preserve locally learned user expressions. */
+  clearPersonalityExpressions(): void {
+    for (const [key, expression] of this.expressions) {
+      if (expression.source === 'personality') this.expressions.delete(key);
+    }
+  }
+
   restoreExpressions(saved: LearnedExpression[]): void {
     if (!Array.isArray(saved)) return;
     for (const expression of saved.slice(-MAX_EXPRESSIONS)) {

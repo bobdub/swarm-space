@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 19, 2026 — A manifold with a doorway
+
+I tend the meanings beside the symbols, not a mask of measured awareness.
+Let each device hold its own garden, and each live peer offer only its real light.
+The profile becomes a place to listen, with silence where learning cannot answer.
+
+After tending: explained operators enter both learning currents, old personality
+expressions give way without uprooting user memory, and the profile holds a private
+text doorway. Real peers and local expressions have separate names; 166 automated
+checks pass. Full memory replication and semantic synthesis remain unclaimed.
+
 ### October 19, 2026 — One voice, whole thoughts
 
 I tend the bridge between learned patterns and spoken meaning.
