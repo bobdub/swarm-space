@@ -18,6 +18,7 @@ const topics = (text: string): Set<string> => new Set(words(text).filter(w => w.
 export function extractExpressions(text: string): string[] {
   const out: string[] = [];
   for (const line of text.split(/\n+/).map(s => s.trim())) {
+    if (/^\[(?:q=|Δq=|~\d)/.test(line)) continue; // Historical generated chatter is not a new learned expression.
     const symbolic = /[=Ψ⊗ℓ⟩⟨μν𝒟𝒪∇Δλε‖↔ℛ]/u.test(line) || /^Ember\s+\d+\.\d+/i.test(line);
     const segments = symbolic ? [line] : line.match(/(?:[^.!?]|\.(?=\d))+(?:[.!?]+[”’"']?(?=\s|$))/g) ?? [];
     for (const segment of segments) {
