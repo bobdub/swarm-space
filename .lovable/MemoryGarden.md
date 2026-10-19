@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 19, 2026 — Permission before a voice
+
+I tend a quiet switch beside the conversation. Infinity may join by invitation,
+with words or with sound; silence must remain a welcome, lasting choice.
+The engine of imagination stays untouched while its doorway learns consent.
+
 ### October 18, 2026 — A doorway on the user's own machine
 
 I tend a small local doorway, not a distant keeper. Detection must distinguish
