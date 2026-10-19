@@ -66,7 +66,7 @@
 - [In-Memory Vault](mem://security/in-memory-vault) — Ephemeral Web Crypto AES-256-GCM against scraping
 - [Signaling Encryption](mem://security/signaling-encryption) — ECDH P-256 envelope + AES-256-GCM payloads for WebRTC
 - [Preview & Share System](mem://features/preview-and-share-system) — `?peerID=x-preview` links, sandboxed
-- [Quantum Metrics View](mem://features/wallet/quantum-metrics-view) — 0.3 SWARM daily burn, balance >= 0 clamp
+- [Quantum Metrics View](mem://features/wallet/quantum-metrics-view) — Real activity score (P,C,A,B→D), live Swarm Pulse equation; daily SWARM burn removed
 - [File Upload Constraints](mem://constraints/file-upload-limit) — Max 20MB upload, encrypt without refresh
 - [Commenting System](mem://features/p2p-commenting/system-and-ui) — Truncate > 300 chars, whitespace-pre-wrap, Ctrl+Enter
 - [Blogging Awareness](mem://features/blogging/awareness-system) — >1000 chars -> BlogPostCard (exempts media-heavy/walled)
