@@ -1804,6 +1804,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       text, ts: Date.now(),
     };
     setChatLines((prev) => [...prev, line].slice(-100));
+    enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId });
     // Broadcast to every other peer in the brain room.
     try { sendChatLine(text, line.id); } catch { /* ignore */ }
 
@@ -1977,12 +1978,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         }
       }
       // Silence beats filler: nothing learned to say, no reply.
-      if (!picked) return;
       const tag = bridgeMeta
         ? `[Δq=${bridgeMeta.dq >= 0 ? '+' : ''}${bridgeMeta.dq.toFixed(3)} · q=${eng.getQScore().toFixed(2)} · ↔@s${bridgeMeta.bridgeSite}] `
         : `[q=${eng.getQScore().toFixed(2)}] `;
       const pick = `${tag}${picked}`;
-      setTimeout(() => {
+      if (picked) setTimeout(() => {
         if (replyEpoch !== infinityReplyEpochRef.current || !canInfinityReply(infinityChatModeRef.current)) return;
         const reply: BrainChatLine = {
           id: crypto.randomUUID(),
