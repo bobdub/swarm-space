@@ -2384,7 +2384,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           >
             {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
-          <Button
+          {infinityChatMode === 'audio' && <Button
             type="button"
             variant={voiceEnabled ? 'outline' : 'secondary'}
             size="sm"
@@ -2398,7 +2398,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             title={voiceEnabled ? "Silence Infinity" : "Infinity silenced"}
           >
             {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </Button>
+          </Button>}
           <Button
             type="button"
             variant="outline"
