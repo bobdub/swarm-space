@@ -1,5 +1,27 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import 'fake-indexeddb/auto';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const stores = new Map<string, Map<string, unknown>>();
+const s = (n: string) => {
+  if (!stores.has(n)) stores.set(n, new Map());
+  return stores.get(n)!;
+};
+
+vi.mock('../../store', () => ({
+  put: async (n: string, v: { coinId?: string }) => { s(n).set(v.coinId as string, v); },
+  get: async (n: string, k: string) => s(n).get(k),
+  getAll: async (n: string) => Array.from(s(n).values()),
+  remove: async (n: string, k: string) => { s(n).delete(k); },
+}));
+
+vi.mock('../chain', () => ({
+  getSwarmChain: () => ({
+    addTransaction: () => {},
+    whenReady: async () => {},
+    getPendingTransactions: () => [],
+    getChain: () => [],
+  }),
+}));
+
 import {
   canWrapChatHistory,
   findChatWrapCoin,
@@ -8,7 +30,7 @@ import {
   CHAT_COIN_MAX_MESSAGES,
   CHAT_WRAP_WEIGHT,
 } from '../chatCoinWrap';
-import { put, getAll, remove } from '../../store';
+import { put } from '../../store';
 import type { SwarmCoin } from '../types';
 
 const USER = 'user-alice';
@@ -26,9 +48,8 @@ function makeCoin(overrides: Partial<SwarmCoin> = {}): SwarmCoin {
   };
 }
 
-beforeEach(async () => {
-  const coins = await getAll<SwarmCoin>('swarmCoins');
-  await Promise.all(coins.map((c) => remove('swarmCoins', c.coinId)));
+beforeEach(() => {
+  stores.clear();
 });
 
 describe('chatCoinWrap', () => {
@@ -61,7 +82,7 @@ describe('chatCoinWrap', () => {
     expect(coin.status).toBe('wallet');
   });
 
-  it('clips transcripts to the max message count', async () => {
+  it('clips transcripts to the max message count, keeping the most recent', async () => {
     await put('swarmCoins', makeCoin({ coinId: 'big' }));
     const messages = Array.from({ length: CHAT_COIN_MAX_MESSAGES + 50 }, (_, i) => ({
       author: 'alice',
@@ -71,7 +92,6 @@ describe('chatCoinWrap', () => {
 
     const { coin } = await wrapChatHistoryIntoCoin(USER, 'room-1', messages);
     expect(coin.wrappedChat?.messageCount).toBe(CHAT_COIN_MAX_MESSAGES);
-    // Keeps the most recent messages, not the oldest.
     expect(coin.wrappedChat?.messages.at(-1)?.text).toBe(`msg ${CHAT_COIN_MAX_MESSAGES + 49}`);
   });
 
