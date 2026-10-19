@@ -190,6 +190,7 @@ import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
 import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
+import { enqueueMemory } from '@/lib/brain/infinityMemory';
 import {
   isOverheadView,
   SPECTATOR_BACK_M,
@@ -1769,6 +1770,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         };
         return [...prev, line].slice(-100);
       });
+      enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.author || remote.id });
       // Record the remote turn into the conversation ring + apply attraction.
       try {
         const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
