@@ -41,7 +41,6 @@ import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import type { BrainVariantCapabilities } from '@/lib/brain/variants';
 import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import {
-  canWrapChatHistory,
   getChatHistoryCoins,
   wrapChatHistoryIntoCoin,
 } from '@/lib/blockchain/chatCoinWrap';
@@ -272,11 +271,9 @@ export function BrainChatPanel({
     if (!user || !roomId || engagedAtRef.current == null || isSavingHistory) return;
     setIsSavingHistory(true);
     try {
-      if (!(await canWrapChatHistory(user.id))) {
-        toast.error('You need 1 free mined SWARM coin to save chat history. Mine one on the Node page or pick one up on the Peer Market.');
-        return;
-      }
-      const engaged = allLines.filter((l) => l.ts >= engagedAtRef.current!);
+      const engagedAt = engagedAtRef.current;
+      if (engagedAt == null) return;
+      const engaged = allLines.filter((l) => l.ts >= engagedAt);
       if (!engaged.length) {
         toast.error('Nothing to save yet — send a message first.');
         return;
