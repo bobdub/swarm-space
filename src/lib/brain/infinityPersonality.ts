@@ -10,7 +10,7 @@ export interface LearnedExpression {
 
 export const MAX_EXPRESSIONS = 256;
 const MAX_EXPRESSION_LENGTH = 1000;
-const STOP_WORDS = new Set('a an the is are was were be been to of in on at and or for from with it this that i you my your me we our how what why can do does tell about'.split(' '));
+const STOP_WORDS = new Set('a an the is are was were be been to of in on at and or for from with it this that i you my your me we our how what why can do does tell about hello hi hey old friend world explain'.split(' '));
 const words = (text: string): string[] => text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
 const topics = (text: string): Set<string> => new Set(words(text).filter(w => w.length > 2 && !STOP_WORDS.has(w)));
 
