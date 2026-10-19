@@ -98,7 +98,6 @@ export function QuantumMetricsPanel() {
     [chartSeries]
   );
 
-  const todayKey = dayKey(new Date().toISOString());
   const today = daily.find((d) => d.day === todayKey);
   const todayTotal = today?.total ?? 0;
 
