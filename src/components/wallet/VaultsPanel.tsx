@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Vault as VaultIcon, Wallet as WalletIcon, ShieldCheck, TrendingUp, Coins, Info, Plus, ExternalLink } from "lucide-react";
+import { Vault as VaultIcon, TrendingUp, Coins, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
@@ -14,16 +13,12 @@ import { getCreatorVault, ladderState } from "@/lib/blockchain/creatorVault";
 import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
-import { getMetaMaskAccount, getMetaMaskChainId, onMetaMaskChange, isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
-import { readMintMeBalance } from "@/lib/blockchain/wallets/mintmeBridge";
-import { isMintMeChain, switchToMintMeNetwork, MINTME_NETWORK } from "@/lib/blockchain/wallets/mintmeNetwork";
 
 function pct(n: number, d: number) {
   if (!d || !Number.isFinite(d)) return 0;
   return Math.max(0, Math.min(100, (n / d) * 100));
 }
 function fmt(n: number, d = 4) { return Number(n).toLocaleString(undefined, { maximumFractionDigits: d }); }
-function shortAddr(a: string | null) { return a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—"; }
 
 export function VaultsPanel() {
   const user = getCurrentUser();
@@ -32,10 +27,6 @@ export function VaultsPanel() {
   const [swarmBal, setSwarmBal] = useState(0);
   const [addAmount, setAddAmount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [mmAccount, setMmAccount] = useState<string | null>(null);
-  const [mmChain, setMmChain] = useState<string | null>(null);
-  const [mintmeBal, setMintmeBal] = useState<number | null>(null);
-  const mmAvailable = useMemo(() => isMetaMaskAvailable(), []);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -51,18 +42,7 @@ export function VaultsPanel() {
     }
   }, [user?.id]);
 
-  const refreshMm = useCallback(async () => {
-    const [a, c] = await Promise.all([getMetaMaskAccount(), getMetaMaskChainId()]);
-    setMmAccount(a);
-    setMmChain(c);
-  }, []);
-
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => {
-    if (!mmAvailable) return;
-    void refreshMm();
-    return onMetaMaskChange(refreshMm);
-  }, [mmAvailable, refreshMm]);
 
   useEffect(() => {
     const h = () => { void refresh(); };
@@ -73,14 +53,6 @@ export function VaultsPanel() {
       window.removeEventListener("blockchain-transaction", h);
     };
   }, [refresh]);
-
-  const loadMintMe = useCallback(async () => {
-    if (!mmAccount) { setMintmeBal(null); return; }
-    const b = await readMintMeBalance(mmAccount);
-    setMintmeBal(b);
-  }, [mmAccount]);
-
-  useEffect(() => { if (isMintMeChain(mmChain)) void loadMintMe(); }, [mmChain, loadMintMe]);
 
   const onAddLiquidity = async () => {
     if (!user?.id || !token) return;
@@ -171,75 +143,6 @@ export function VaultsPanel() {
           )}
         </CardContent>
       </Card>
-
-      {/* Peer bridge vault (MetaMask on MintMe) */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <WalletIcon className="h-5 w-5 text-primary" /> Peer Bridge Vault · MintMe
-              </CardTitle>
-              <CardDescription>
-                Your MetaMask account IS the vault. No custodian, no cloud — you sign every move.
-              </CardDescription>
-            </div>
-            <Badge variant={mmAccount ? "default" : "secondary"}>
-              {mmAccount ? shortAddr(mmAccount) : "MetaMask not connected"}
-            </Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">Chain</div>
-              <div className="font-medium">{isMintMeChain(mmChain) ? MINTME_NETWORK.chainName : "Not on MintMe"}</div>
-              {!isMintMeChain(mmChain) && mmAccount && (
-                <Button size="sm" variant="outline" className="mt-2" onClick={() => switchToMintMeNetwork().catch(() => {})}>
-                  Switch to MintMe
-                </Button>
-              )}
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-muted-foreground">On-chain balance</div>
-              <div className="font-semibold">
-                {mintmeBal == null ? "—" : `${fmt(mintmeBal, 6)} MINTME`}
-              </div>
-              <Button size="sm" variant="ghost" className="mt-1 h-7 px-2 text-xs" onClick={() => void loadMintMe()}>
-                Refresh
-              </Button>
-            </div>
-          </div>
-
-          <Alert>
-            <ShieldCheck className="h-4 w-4" />
-            <AlertTitle>Move MintMe with MetaMask</AlertTitle>
-            <AlertDescription className="text-xs">
-              Use the <span className="font-medium">Bridge</span> panel in the Assets tab to send / receive MintMe.
-              Your MetaMask signs every transaction — the app never holds your keys.
-            </AlertDescription>
-          </Alert>
-
-          <a
-            href={MINTME_NETWORK.blockExplorerUrls[0] + (mmAccount ? `/address/${mmAccount}` : "")}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-          >
-            View on MintMe explorer <ExternalLink className="h-3 w-3" />
-          </a>
-        </CardContent>
-      </Card>
-
-      <Alert>
-        <Info className="h-4 w-4" />
-        <AlertTitle>Why two vaults?</AlertTitle>
-        <AlertDescription className="text-xs">
-          The <span className="font-medium">Creator Vault</span> holds SWARM liquidity that backs your token's Buyback Ladder.
-          The <span className="font-medium">Peer Bridge Vault</span> is your MetaMask account on external chains (MintMe first).
-          Top up your Creator Vault from your SWARM balance above; use MetaMask to move MintMe peer-to-peer.
-        </AlertDescription>
-      </Alert>
     </div>
   );
 }
