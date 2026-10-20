@@ -1,5 +1,5 @@
 ## Weather & celestial time plan (2026-10-20)
-- [ ] Document the weather pacing and shared-epoch celestial fixes as a plan doc only (no code yet)
+- [x] Document the weather pacing and shared-epoch celestial fixes as a plan doc only (no code yet) — docs/project-plans/weather-celestial-time-plan.md
 
 ## Brain builder protections (2026-10-20)
 - [x] Restrict placement move, decoration, deletion and pickup to the owner
