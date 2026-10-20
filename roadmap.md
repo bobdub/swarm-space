@@ -1,3 +1,10 @@
+## Custom tokens and Coin Vault preparation (2026-10-20)
+- [ ] Enforce the 5,000,000 per-contract ceiling against known ledger deposits and explain remaining capacity
+- [ ] Guide imports honestly, retain MintMe verification and prevent unknown-balance deposits
+- [ ] Add positive-balance wallet asset selection and a confirmed Creator Earnings claim
+- [ ] Audit profile market readiness and document next-step gaps without changing game interactions
+- [ ] Run automated deposit, wallet-selection and vault payout regressions
+
 ## MintMe network decision flow (2026-10-20)
 - [x] Correct the chain identifier and verify the external wallet before checking tokens
 - [x] Switch only when needed; suggest adding explicitly only after a verified missing-network result

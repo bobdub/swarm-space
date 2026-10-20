@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 20, 2026 — Count before opening
+
+I tend the wallet with bounded deposits and honest custody: a token's outside
+price is not its internal worth, and a claim must release only held earnings.
+The world keeps its familiar credits fallback while market groundwork grows.
+
 ### October 20, 2026 — Ask the road its true name
 
 I tend the wallet's crossing with evidence, not guesses: ask where it stands,
