@@ -104,15 +104,11 @@ async function depositUnlocked(params: {
   let wraps = Math.floor(staged / CREDIT_TO_SWARM_RATIO);
   let liquid = 0;
   if (wraps > 0) {
-    const { getRewardPool } = await import("./storage");
-    const pool = await getRewardPool();
-    wraps = Math.min(wraps, Math.floor(pool?.balance ?? 0));
+    const { getMinedPoolBalance, releaseMinedPoolSwarm } = await import("./creditWrapping");
+    wraps = Math.min(wraps, Math.floor(await getMinedPoolBalance()));
     if (wraps > 0) {
-      const { deductFromRewardPool } = await import("./creditWrapping");
-      const { mintSwarm } = await import("./token");
       const { splitTopUp } = await import("./creatorVaultLiquidity");
-      await deductFromRewardPool(wraps);
-      await mintSwarm({ to: vaultAddress, amount: wraps, reason: `Wrapped ${wraps * CREDIT_TO_SWARM_RATIO} vault credits → ${wraps} SWARM` });
+      await releaseMinedPoolSwarm({ to: vaultAddress, amount: wraps, creditsLocked: wraps * CREDIT_TO_SWARM_RATIO, reason: `Wrapped ${wraps * CREDIT_TO_SWARM_RATIO} vault credits → ${wraps} SWARM` });
       const split = splitTopUp(wraps);
       vault.buybackReserve = round6(vault.buybackReserve + split.buyback);
       vault.stabilityFloor = round6(vault.stabilityFloor + split.stability);
@@ -123,7 +119,7 @@ async function depositUnlocked(params: {
       staged = round6(staged - wraps * CREDIT_TO_SWARM_RATIO);
       liquid = wraps;
       const coin = await ensureCreatorVaultCoin(tokenId, vault.creatorUserId);
-      coin.custodyChain = [...(coin.custodyChain ?? []), { at: nowIso(), from: "reward-pool", to: vaultAddress, reason: `Wrapped ${wraps * CREDIT_TO_SWARM_RATIO} credits → ${wraps} SWARM (40/40/15/5)` }];
+      coin.custodyChain = [...(coin.custodyChain ?? []), { at: nowIso(), from: "community-pool", to: vaultAddress, reason: `Wrapped ${wraps * CREDIT_TO_SWARM_RATIO} credits → ${wraps} SWARM (40/40/15/5)` }];
       await put("swarmCoins", coin);
     }
   }

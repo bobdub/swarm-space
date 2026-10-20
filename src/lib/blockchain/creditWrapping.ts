@@ -4,7 +4,6 @@
 import { get, put, getAll } from "../store";
 import { CREDIT_TO_SWARM_RATIO } from "./types";
 import { getRewardPoolBalance } from "./miningRewards";
-import { mintSwarm } from "./token";
 import { validateMineHealth } from "./mineHealthValidator";
 import type { CreditTransaction } from "@/types";
 
@@ -77,7 +76,7 @@ export async function requestCreditWrap(userId: string, creditAmount: number): P
  * Process pending wrap requests from the queue
  */
 export async function processWrapQueue(): Promise<void> {
-  const poolBalance = await getRewardPoolBalance();
+  const poolBalance = await getMinedPoolBalance();
   const pendingRequests = await getAll<WrapRequest>("wrapRequests");
   const pending = pendingRequests
     .filter(r => r.status === "pending")
@@ -106,46 +105,26 @@ export async function processWrapQueue(): Promise<void> {
  */
 async function executeWrap(request: WrapRequest): Promise<void> {
   const { deductCredits } = await import("../credits");
-  
-  // Deduct credits
+
+  // Pool must already hold mined SWARM — nothing is ever minted for a wrap.
+  const available = await getMinedPoolBalance();
+  if (available < request.swarmAmount) {
+    throw new Error("Community pool has not mined enough SWARM yet");
+  }
+
   await deductCredits(request.userId, request.creditAmount, `Locked ${request.creditAmount} credits → ${request.swarmAmount} SWARM`);
-  
-  // Mint SWARM tokens from pool
-  await mintSwarm({
+
+  await releaseMinedPoolSwarm({
     to: request.userId,
     amount: request.swarmAmount,
+    creditsLocked: request.creditAmount,
     reason: `Wrapped ${request.creditAmount} credits → ${request.swarmAmount} SWARM`,
   });
 
-  // Deduct from pool
-  await deductFromRewardPool(request.swarmAmount);
-
-  // Mark as completed
   request.status = "completed";
   request.completedAt = new Date().toISOString();
   await put("wrapRequests", request);
 
-  // Record as credit_lock transaction on chain
-  const { getSwarmChain } = await import("./chain");
-  const { generateTransactionId } = await import("./crypto");
-  const chain = getSwarmChain();
-  chain.addTransaction({
-    id: generateTransactionId(),
-    type: "credit_lock",
-    from: request.userId,
-    to: "community-pool",
-    amount: request.swarmAmount,
-    timestamp: new Date().toISOString(),
-    signature: "",
-    publicKey: request.userId,
-    nonce: Date.now(),
-    fee: 0,
-    meta: {
-      creditsLocked: request.creditAmount,
-      swarmMinted: request.swarmAmount,
-      ratio: CREDIT_TO_SWARM_RATIO,
-    },
-  });
 
   // Create transaction record
   const transaction: CreditTransaction = {
@@ -168,6 +147,57 @@ async function executeWrap(request: WrapRequest): Promise<void> {
   }
 
   console.log(`[CreditWrap] Locked ${request.creditAmount} credits → ${request.swarmAmount} SWARM for user ${request.userId}`);
+}
+
+/**
+ * Mined SWARM the community pool can actually pay out: the smaller of the
+ * pool record and the on-chain "community-pool" ledger balance.
+ */
+export async function getMinedPoolBalance(): Promise<number> {
+  const recorded = await getRewardPoolBalance();
+  const { getSwarmBalance } = await import("./token");
+  const onChain = await getSwarmBalance(COMMUNITY_POOL_ADDRESS);
+  return Math.max(0, Math.min(recorded, onChain));
+}
+
+export const COMMUNITY_POOL_ADDRESS = "community-pool";
+
+/**
+ * Move already-mined SWARM out of the community pool to a recipient.
+ * Records a credit_lock from community-pool → recipient and lowers the pool
+ * record. Never mints.
+ */
+export async function releaseMinedPoolSwarm(params: {
+  to: string;
+  amount: number;
+  creditsLocked: number;
+  reason: string;
+}): Promise<void> {
+  if (!Number.isFinite(params.amount) || params.amount <= 0) throw new Error("Invalid pool release amount");
+  const available = await getMinedPoolBalance();
+  if (available < params.amount) throw new Error("Community pool has not mined enough SWARM yet");
+  const { getSwarmChain } = await import("./chain");
+  const { generateTransactionId } = await import("./crypto");
+  getSwarmChain().addTransaction({
+    id: generateTransactionId(),
+    type: "credit_lock",
+    from: COMMUNITY_POOL_ADDRESS,
+    to: params.to,
+    amount: params.amount,
+    timestamp: new Date().toISOString(),
+    signature: "",
+    publicKey: COMMUNITY_POOL_ADDRESS,
+    nonce: Date.now(),
+    fee: 0,
+    meta: {
+      reason: params.reason,
+      creditsLocked: params.creditsLocked,
+      swarmReleased: params.amount,
+      ratio: CREDIT_TO_SWARM_RATIO,
+      minted: false,
+    },
+  });
+  await deductFromRewardPool(params.amount);
 }
 
 /**
@@ -196,7 +226,7 @@ export async function deductFromRewardPool(amount: number): Promise<void> {
  * Get wrap statistics
  */
 export async function getWrapStats(userId?: string): Promise<WrapStats> {
-  const poolBalance = await getRewardPoolBalance();
+  const poolBalance = await getMinedPoolBalance();
   const allRequests = await getAll<WrapRequest>("wrapRequests");
   const pending = allRequests.filter(r => r.status === "pending");
   
