@@ -78,6 +78,12 @@ export async function estimateLocalUsage(): Promise<UsageBreakdown> {
   };
 }
 
+/** Stores removed for a scope: media always; posts/comments only on full export. */
+export function clearableStoresFor(scope: ExportScope): string[] {
+  const extra = scope === 'everything' ? ['posts', 'comments'] : [];
+  return [...CLEARABLE_STORES, ...extra].filter((n) => !(NEVER_CLEAR_STORES as readonly string[]).includes(n));
+}
+
 export interface UserDataExport {
   version: 1;
   exportedAt: string;
@@ -151,13 +157,13 @@ export interface ClearResult {
  */
 export async function clearBulkLocal(
   onProgress?: (done: number, total: number) => void,
+  scope: ExportScope = 'media',
 ): Promise<ClearResult> {
   const db = await openDB();
   const available = new Set<string>(Array.from(db.objectStoreNames));
 
   const targets: { store: string; key: string; bytes: number }[] = [];
-  for (const store of CLEARABLE_STORES) {
-    if (STORE_TIER_MAP[store] === 'critical') continue; // belt and braces
+  for (const store of clearableStoresFor(scope)) {
     const rows = await safeGetAll<Record<string, unknown>>(store, available);
     for (const row of rows) {
       const key =

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -6,7 +6,6 @@ import { Download, Trash2, RefreshCw, Server, ShieldCheck, FileCheck, CheckCircl
 import {
   estimateLocalUsage,
   downloadUserData,
-  verifyDownloadedFile,
   clearBulkLocal,
   formatBytes,
   type UsageBreakdown,
@@ -18,19 +17,18 @@ import { backfillPersonalServerSync, retryPersonalServerSync } from '@/lib/stora
 import { toast } from 'sonner';
 
 type Step = 1 | 2 | 3 | 4 | 5;
-const STEP_LABELS = ['Scan', 'Choose', 'Download', 'Verify', 'Clear'];
+const STEP_LABELS = ['Scan', 'Choose', 'Download', 'Confirm', 'Clear'];
 
 export function FreeUpSpacePanel() {
   const [step, setStep] = useState<Step>(1);
   const [usage, setUsage] = useState<UsageBreakdown | null>(null);
   const [scope, setScope] = useState<ExportScope>('media');
   const [receipt, setReceipt] = useState<DownloadReceipt | null>(null);
-  const [verified, setVerified] = useState(false);
+  const [received, setReceived] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [freed, setFreed] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const target = activeBulkTarget();
 
   const refresh = useCallback(async () => {
@@ -39,43 +37,30 @@ export function FreeUpSpacePanel() {
   useEffect(() => { void refresh(); }, [refresh]);
 
   const reset = () => {
-    setStep(1); setReceipt(null); setVerified(false); setConfirmed(false); setFreed(null); void refresh();
+    setStep(1); setReceipt(null); setReceived(false); setConfirmed(false); setFreed(null); void refresh();
   };
 
   const estimate = usage
     ? scope === 'everything' ? usage.mediaBytes + usage.postBytes : usage.mediaBytes
     : 0;
+  const clearWhat = scope === 'everything' ? 'media, posts and comments' : 'media';
 
   const handleDownload = async () => {
     setBusy(true);
     try {
       const r = await downloadUserData(scope);
-      setReceipt(r); setVerified(false); setStep(4);
-      toast.success('Download started — now confirm the saved file.');
+      setReceipt(r); setReceived(false); setStep(4);
+      toast.success('Download started — check the file, then confirm.');
     } catch (err) {
       toast.error(`Download failed: ${(err as Error).message}`);
     } finally { setBusy(false); }
   };
 
-  const handleVerify = async (file: File | undefined) => {
-    if (!file || !receipt) return;
-    setBusy(true);
-    try {
-      const ok = await verifyDownloadedFile(file, receipt);
-      setVerified(ok);
-      if (ok) { toast.success('File verified — it matches exactly.'); setStep(5); }
-      else toast.error('That file does not match the download. Nothing will be cleared.');
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
   const handleClear = async () => {
-    if (!verified || !confirmed) return;
+    if (!received || !confirmed) return;
     setBusy(true);
     try {
-      const result = await clearBulkLocal((done, total) => setProgress(`Clearing ${done} of ${total}…`));
+      const result = await clearBulkLocal((done, total) => setProgress(`Clearing ${done} of ${total}…`), scope);
       setFreed(`Removed ${result.removed} items — about ${formatBytes(result.freedBytes)} freed.`);
       await refresh();
     } catch (err) {
@@ -117,7 +102,7 @@ export function FreeUpSpacePanel() {
       <div className="mb-4 flex items-start gap-2 rounded-2xl border border-border/40 px-3 py-2 text-sm">
         <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="text-foreground/80">
-          Your account, identity keys, wallet, coins and posts always stay on this device. Only media is cleared.
+          Your account, identity keys, wallet and coins always stay on this device. Exporting moves your data off this device — it is not a copy.
         </span>
       </div>
 
@@ -126,7 +111,7 @@ export function FreeUpSpacePanel() {
           {usage ? (
             <ul className="space-y-1 text-sm text-foreground/80">
               <li>Media &amp; file records: <b>{formatBytes(usage.mediaBytes)}</b> ({usage.mediaCount} items) — can be cleared</li>
-              <li>Posts &amp; comments: <b>{formatBytes(usage.postBytes)}</b> ({usage.postCount} posts) — kept</li>
+              <li>Posts &amp; comments: <b>{formatBytes(usage.postBytes)}</b> ({usage.postCount} posts) — cleared with Export everything</li>
               <li>Account, keys &amp; wallet: <b>{formatBytes(usage.accountBytes)}</b> — kept</li>
             </ul>
           ) : <p className="text-sm text-muted-foreground">Scanning…</p>}
@@ -150,8 +135,8 @@ export function FreeUpSpacePanel() {
         <div className="space-y-3">
           <p className="text-sm font-medium">What should the download contain?</p>
           {([
-            ['media', 'Condense & download large files', 'Media and file records only — smallest file.'],
-            ['everything', 'Export everything', 'Media plus your posts and comments, for a full copy.'],
+            ['media', 'Condense & download large files', 'Clears media only; your posts stay.'],
+            ['everything', 'Export everything', 'Moves media, posts and comments off this device. Saved posts keep syncing from peers; others slowly fade from the network.'],
           ] as const).map(([value, title, desc]) => (
             <button
               key={value}
@@ -165,7 +150,7 @@ export function FreeUpSpacePanel() {
           ))}
           <p className="text-xs text-muted-foreground">
             Estimated size before compression: <b>{formatBytes(estimate)}</b>. Space freed afterwards: about{' '}
-            <b>{formatBytes(usage?.mediaBytes ?? 0)}</b>.
+            <b>{formatBytes(estimate)}</b>.
           </p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setStep(1)}>Back</Button>
@@ -176,7 +161,7 @@ export function FreeUpSpacePanel() {
 
       {step === 3 && (
         <div className="space-y-3">
-          <p className="text-sm">Save the file somewhere safe. Next you'll pick it again so we can check it arrived intact.</p>
+          <p className="text-sm">Save the file somewhere safe. Next you'll confirm you received it.</p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => setStep(2)} disabled={busy}>Back</Button>
             <Button type="button" className="flex-1 gap-2" onClick={handleDownload} disabled={busy}>
@@ -188,21 +173,18 @@ export function FreeUpSpacePanel() {
 
       {step === 4 && receipt && (
         <div className="space-y-3">
-          <p className="text-sm">
-            Choose the file you just saved (<b className="break-all">{receipt.filename}</b>, {formatBytes(receipt.size)}).
-            We compare it byte-for-byte; nothing is cleared unless it matches.
+          <p className="text-sm font-medium">Check, unzip and confirm you received the data to clear your local storage.</p>
+          <p className="text-sm text-muted-foreground">
+            Look for <b className="break-all">{receipt.filename}</b> ({formatBytes(receipt.size)}) in your downloads and open it to make sure it's complete.
           </p>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".gz,.json,application/gzip,application/json"
-            className="hidden"
-            onChange={(e) => void handleVerify(e.target.files?.[0])}
-          />
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={received} onChange={(e) => setReceived(e.target.checked)} />
+            I opened the file and my data is there.
+          </label>
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="button" variant="outline" onClick={handleDownload} disabled={busy}>Download again</Button>
-            <Button type="button" className="flex-1 gap-2" onClick={() => fileRef.current?.click()} disabled={busy}>
-              <FileCheck className="h-4 w-4" /> {busy ? 'Checking…' : 'Verify saved file'}
+            <Button type="button" className="flex-1 gap-2" onClick={() => setStep(5)} disabled={busy || !received}>
+              <FileCheck className="h-4 w-4" /> Confirm
             </Button>
           </div>
         </div>
@@ -218,12 +200,12 @@ export function FreeUpSpacePanel() {
           ) : (
             <>
               <p className="text-sm">
-                Verified. This removes about <b>{formatBytes(usage?.mediaBytes ?? 0)}</b> of media from this browser.
+                This removes about <b>{formatBytes(estimate)}</b> of {clearWhat} from this browser.
                 Anything other people on the network still hold can be fetched again later.
               </p>
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" className="mt-1" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-                I have my verified copy and want to clear local media.
+                I have my copy and want to clear local {clearWhat}.
               </label>
               {progress && <p className="text-xs text-muted-foreground">{progress}</p>}
               <Button
@@ -231,9 +213,9 @@ export function FreeUpSpacePanel() {
                 variant="destructive"
                 className="w-full gap-2"
                 onClick={handleClear}
-                disabled={busy || !verified || !confirmed}
+                disabled={busy || !received || !confirmed}
               >
-                <Trash2 className="h-4 w-4" /> Clear local media
+                <Trash2 className="h-4 w-4" /> Clear local {clearWhat}
               </Button>
             </>
           )}
