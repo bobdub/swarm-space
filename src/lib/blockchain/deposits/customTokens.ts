@@ -10,7 +10,7 @@ import { Interface, verifyMessage } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
 import type { SwarmTransaction } from "../types";
-import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "../wallets/metaMaskBridge";
+import { getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
 
