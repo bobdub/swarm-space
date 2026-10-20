@@ -1,3 +1,6 @@
+## Weather & celestial time plan (2026-10-20)
+- [ ] Document the weather pacing and shared-epoch celestial fixes as a plan doc only (no code yet)
+
 ## Brain builder protections (2026-10-20)
 - [x] Restrict placement move, decoration, deletion and pickup to the owner
 - [x] Scope saved unfinished previews and controls to their maker and room; armed previews already have no peer transport
