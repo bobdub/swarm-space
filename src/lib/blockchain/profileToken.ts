@@ -69,12 +69,6 @@ export async function deployProfileToken(params: {
 
   // Deduct deployment cost
   await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
-  // Burn SWARM to launch the market — routed through the creator vault below.
-  await burnSwarm({
-    from: params.userId,
-    amount: pricing.creatorTokenSwarm,
-    reason: "Creator Token market launch fee",
-  });
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
