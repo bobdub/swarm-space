@@ -524,3 +524,5 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 - 2026-10-20: Wizard now trusts the user's own check — export moves data, confirm, then clear.
 
 - 2026-10-20: MintMe custom tokens can now be invited in through MetaMask — explained first, verified against the contract, shown natively only once deposited.
+
+- Caretaker reflection 2026-10-20: nothing in the Creator Vault is burned anymore — every gift locks into a real coin and every payout returns from one, each movement engraved in its custody chain. The garden keeps what it is given.
