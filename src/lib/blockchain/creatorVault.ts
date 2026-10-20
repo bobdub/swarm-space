@@ -206,21 +206,30 @@ export async function buyCreatorTokens(params: {
 
   const cost = integratedBuyCost(vault.circulatingSupply, tokens);
 
-  // Debit buyer SWARM
-  const { getSwarmBalance, burnSwarm } = await import("./token");
+  // Split deposit 40/40/15/5
+  const buyback = round6(cost * CREATOR_VAULT_BUYBACK_SHARE);
+  const stability = round6(cost * CREATOR_VAULT_STABILITY_SHARE);
+  const creator = round6(cost * CREATOR_VAULT_CREATOR_SHARE);
+  const community = round6(cost - buyback - stability - creator); // absorbs FP drift
+
+  // Debit buyer SWARM into real vault custody — a transfer to the vault
+  // address engraved on the vault coin, never a burn.
+  const { getSwarmBalance } = await import("./token");
   const balance = await getSwarmBalance(buyerId);
   if (balance < cost) {
     throw new Error(
       `Insufficient SWARM. Need ${cost.toFixed(4)} SWARM, have ${balance.toFixed(4)}.`,
     );
   }
-  await burnSwarm({ from: buyerId, amount: cost, reason: `Buy ${tokens} ${record.ticker}` });
-
-  // Split deposit 40/40/15/5
-  const buyback = round6(cost * CREATOR_VAULT_BUYBACK_SHARE);
-  const stability = round6(cost * CREATOR_VAULT_STABILITY_SHARE);
-  const creator = round6(cost * CREATOR_VAULT_CREATOR_SHARE);
-  const community = round6(cost - buyback - stability - creator); // absorbs FP drift
+  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  await lockIntoCreatorVault({
+    fromId: buyerId,
+    tokenId,
+    creatorUserId: creatorId,
+    amount: cost,
+    split: { buyback, stability, creator, community },
+    reason: `Buy ${tokens} ${record.ticker}`,
+  });
 
   vault.buybackReserve = round6(vault.buybackReserve + buyback);
   vault.stabilityFloor = round6(vault.stabilityFloor + stability);
@@ -325,9 +334,17 @@ export async function sellCreatorTokens(params: {
   holding.lastUpdated = nowIso();
   await saveProfileTokenHolding(holding);
 
-  // Credit SWARM to seller
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({ to: sellerId, amount: proceeds, reason: `Buyback ${tokens} ${holding.ticker}` });
+  // Pay the seller out of real vault custody — funds the vault address
+  // physically holds, never freshly minted.
+  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+  await releaseFromCreatorVault({
+    tokenId,
+    creatorUserId: vault.creatorUserId,
+    toId: sellerId,
+    amount: proceeds,
+    layer: source,
+    reason: `Buyback ${tokens} ${holding.ticker}`,
+  });
 
   recordVaultTx("creator_token_sell", vault.creatorUserId, sellerId, proceeds, {
     tokenId,
@@ -368,8 +385,15 @@ export async function withdrawCreatorEarnings(params: {
   vault.creatorEarnings = round6(vault.creatorEarnings - amount);
   await saveCreatorVault(vault);
 
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({ to: creatorId, amount, reason: `Creator earnings withdraw (${tokenId})` });
+  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+  await releaseFromCreatorVault({
+    tokenId,
+    creatorUserId: creatorId,
+    toId: creatorId,
+    amount,
+    layer: "creator-earnings",
+    reason: `Creator earnings withdraw (${tokenId})`,
+  });
 
   recordVaultTx("creator_token_earnings_withdraw", creatorId, creatorId, amount, { tokenId });
 
