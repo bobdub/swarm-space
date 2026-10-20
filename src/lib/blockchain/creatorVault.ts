@@ -371,16 +371,24 @@ export async function sellCreatorTokens(params: {
 }
 
 /** Creator withdraws accumulated earnings to their SWARM wallet. */
+const earningsClaims = new Set<string>();
 export async function withdrawCreatorEarnings(params: {
   creatorId: string;
   tokenId: string;
   amount: number;
 }): Promise<CreatorVault> {
+  if (earningsClaims.has(params.tokenId)) throw new Error("An earnings claim is already in progress for this vault");
+  earningsClaims.add(params.tokenId);
+  try { return await releaseCreatorEarnings(params); }
+  finally { earningsClaims.delete(params.tokenId); }
+}
+
+async function releaseCreatorEarnings(params: { creatorId: string; tokenId: string; amount: number }): Promise<CreatorVault> {
   const { creatorId, tokenId, amount } = params;
   const vault = await getCreatorVault(tokenId);
   if (!vault) throw new Error("Vault not initialized");
   if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can withdraw");
-  if (amount <= 0) throw new Error("Amount must be positive");
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be positive and finite");
   if (amount > vault.creatorEarnings) throw new Error("Insufficient earnings");
 
   // Release custody before touching the earnings bucket, so a vault with

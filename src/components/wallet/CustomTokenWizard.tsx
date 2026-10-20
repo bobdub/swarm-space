@@ -12,6 +12,7 @@ import { MINTME_NETWORK, MintMeNetworkMissingError, addMintMeToMetaMask, isMintM
 import {
   addCustomToken, canHideToken, depositCustomToken, ensureMintMe, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
+  CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity,
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
 
@@ -112,8 +113,10 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
           <ul className="list-disc space-y-1.5 pl-5 text-muted-foreground">
             <li>You can add custom tokens from the <b className="text-foreground">MintMe blockchain only</b>.</li>
             <li>Custom tokens are imported through <b className="text-foreground">MetaMask</b>.</li>
-            <li>Once deposited, they appear in your native SWARM wallet and can move freely around the network.</li>
+            <li>Deposited tokens appear in your native wallet. Custom-token peer transfers and market payments are not available yet.</li>
             <li>Your native wallet only shows tokens you have <b className="text-foreground">deposited</b> to the network.</li>
+            <li>Each contract has a <b className="text-foreground">{CUSTOM_TOKEN_DEPOSIT_MAX.toLocaleString()} total deposit ceiling</b> across the synced ledger, shared by all users — not a personal allowance.</li>
+            <li>MintMe trading prices do not assign a SWARM value. Importing a token does not create liquidity or an exchange rate.</li>
           </ul>
           <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={MINTME_NETWORK.blockExplorerUrls[0]} target="_blank" rel="noreferrer">
             Find a contract address on the MintMe explorer <ExternalLink className="h-3 w-3" />
@@ -141,6 +144,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
           <div className="space-y-1"><Label htmlFor="ct-dec">Decimals {found.read ? "(from contract)" : "(enter manually — usually 18)"}</Label>
             <Input id="ct-dec" type="number" min="0" max="36" value={decimalsIn} disabled={found.read} onChange={(e) => setDecimalsIn(e.target.value)} /></div>
           <p className="text-xs text-muted-foreground">MetaMask will ask to add this token to its list. Nothing is sent.</p>
+          <p className="text-xs text-muted-foreground">Remaining deposit capacity on this device's synced ledger: {getCustomTokenDepositCapacity(address).remaining.toLocaleString()} {found.symbol}. Withdrawals do not reset the ceiling; disconnected peers may have newer records.</p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
             <Button type="button" disabled={busy || !decOk} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
@@ -172,7 +176,8 @@ function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: str
   }, [open, userId, address, token]);
   const same = !!address && linked === address.toLowerCase();
   const n = Number(amount);
-  const invalid = !Number.isFinite(n) || n <= 0 || (held != null && n > held);
+  const capacity = getCustomTokenDepositCapacity(token.address);
+  const invalid = !Number.isFinite(n) || n <= 0 || held == null || n > held || n > capacity.remaining;
   const run = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); } };
   return <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
     <DialogContent className="max-w-md">
@@ -184,6 +189,8 @@ function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: str
         <p className="text-sm">In MetaMask: <b className="tabular-nums">{held == null ? "checking…" : `${held} ${token.symbol}`}</b></p>
         <Label htmlFor="ct-amt">Amount ({token.symbol})</Label>
         <Input id="ct-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <p className="text-xs text-muted-foreground">{capacity.deposited.toLocaleString()} of {capacity.max.toLocaleString()} deposited across the known ledger. Remaining: {capacity.remaining.toLocaleString()} {token.symbol}. This is shared across accounts, not per wallet.</p>
+        {n > capacity.remaining && <p role="alert" className="text-sm text-destructive">Amount exceeds the remaining deposit capacity.</p>}
         <p className="text-xs text-muted-foreground">MetaMask confirms a transfer to your own linked address, then signs the deposit record. MetaMask is the only witness until a MintMe node can re-check it.</p>
         <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void run(async () => {
           await depositCustomToken({ swarmId: userId, token, amount: n });

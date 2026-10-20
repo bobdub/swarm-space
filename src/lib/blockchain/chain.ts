@@ -4,6 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 import { verifyWalletTip } from "./wallets/tipSignature";
+import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -152,6 +153,14 @@ export class SwarmChain {
       throw new Error("Invalid transaction");
     }
     if (this.hasTransaction(transaction.id)) return;
+    const currency = String(transaction.meta?.currency ?? "");
+    if (transaction.type === "external_deposit" && /^MINTME:0x[\da-f]{40}$/i.test(currency)) {
+      assertCustomTokenDepositCapacity(
+        [...this.chain.flatMap((block) => block.transactions ?? []), ...this.pendingTransactions],
+        currency.slice("MINTME:".length),
+        Number(transaction.amount),
+      );
+    }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
   }
@@ -390,10 +399,12 @@ export class SwarmChain {
    */
   async replaceChain(incoming: SwarmBlock[]): Promise<void> {
     if (incoming.length === 0) return;
+    if (!validCustomTokenDepositLedger(incoming.flatMap((block) => block.transactions))) throw new Error("Peer chain exceeds custom-token deposit limits");
     if (!await this.validateWalletTipLedger(incoming)) throw new Error("Invalid wallet tip in peer chain");
     this.chain = incoming;
     const included = new Set(incoming.flatMap(block => block.transactions.map(tx => tx.id)));
     this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
+    this.pruneCustomTokenPending();
     await this.persistState();
     try { recordBlockAccepted(this.getLatestBlock()); } catch { /* non-fatal */ }
   }
@@ -414,14 +425,25 @@ export class SwarmChain {
     if (block.hash.substring(0, block.difficulty) !== target) return false;
 
     if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
+    if (!validCustomTokenDepositLedger([...this.chain, block].flatMap((entry) => entry.transactions))) return false;
 
     this.chain.push(block);
     const included = new Set(block.transactions.map(tx => tx.id));
     this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
+    this.pruneCustomTokenPending();
     await saveBlock(block);
     await this.persistState();
     try { recordBlockAccepted(block); } catch { /* non-fatal */ }
     return true;
+  }
+
+  private pruneCustomTokenPending(): void {
+    const accepted = this.chain.flatMap((block) => block.transactions);
+    this.pendingTransactions = this.pendingTransactions.filter((tx) => {
+      if (!validCustomTokenDepositLedger([...accepted, tx])) return false;
+      accepted.push(tx);
+      return true;
+    });
   }
 
   private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {

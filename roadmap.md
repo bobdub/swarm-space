@@ -1,3 +1,11 @@
+## Custom tokens and Coin Vault preparation (2026-10-20)
+- [x] Enforce the 5,000,000 per-contract lifetime ceiling against known ledger deposits, including peer-chain acceptance, and explain remaining capacity
+- [x] Guide imports honestly, retain MintMe verification and prevent unknown-balance deposits
+- [x] Add positive-balance wallet asset selection and a confirmed Creator Earnings claim
+- [x] Audit profile market readiness and document next-step gaps without changing game interactions — docs/project-plans/coin-vault-market-next-step.md
+- [x] Run automated deposit, wallet-selection and vault payout regressions — 45 checks plus 6 existing tipping checks pass; no live wallet test
+- Next phase is documented, not enabled: custom-token self-transfers are not escrow; multiasset settlement and disconnected-peer global reservation require a verified custody/agreement design. Current caps enforce the known ledger, not simultaneous forks.
+
 ## MintMe network decision flow (2026-10-20)
 - [x] Correct the chain identifier and verify the external wallet before checking tokens
 - [x] Switch only when needed; suggest adding explicitly only after a verified missing-network result

@@ -22,6 +22,10 @@ import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
+import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
+import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
+import { positiveBalanceAssets } from "@/lib/blockchain/wallets/ownedAssets";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Layer = "native" | "metamask";
 
@@ -32,6 +36,8 @@ export function AssetsTab() {
   const [mintme, setMintme] = useState(0);
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
   const [layer, setLayer] = useState<Layer>("native");
+  const [selection, setSelection] = useState("all");
+  const [holdings, setHoldings] = useState<ProfileTokenHolding[]>([]);
   const { address } = useMetaMask();
   const { stats, getActivePeerConnections } = useP2PContext();
   const customTokens = useCustomTokens(userId);
@@ -42,6 +48,7 @@ export function AssetsTab() {
     const refresh = async () => {
       setBridge(getAppWalletBalances(userId));
       setMintme(getChainMintmeBalance(userId));
+      try { setHoldings(await getUserProfileTokenHoldings(userId)); } catch { /* retain last known holdings */ }
       try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
     };
     void refresh();
@@ -62,6 +69,13 @@ export function AssetsTab() {
     { code: "ETH", label: "ETH", amount: bridge.ETH + getChainEthBalance(userId), digits: 6 },
     { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
   ];
+  const owned = positiveBalanceAssets([
+    ...rows.map((r) => ({ id: r.code, label: r.label, amount: r.amount })),
+    ...customTokens.map((t) => ({ id: `custom:${t.address}`, label: `${t.symbol} · MintMe`, amount: getRecordedTokenBalance(userId, t.address) })),
+    ...holdings.map((h) => ({ id: `creator:${h.tokenId}`, label: `${h.ticker} · Creator`, amount: h.amount })),
+  ]);
+  const selected = owned.some((a) => a.id === selection) ? selection : "all";
+  const showNative = (id: string) => owned.some((a) => a.id === id) && (selected === "all" || selected === id);
 
   return (
     <section aria-label="Assets" className="space-y-3">
@@ -92,8 +106,20 @@ export function AssetsTab() {
         <div className="flex justify-end"><CustomTokenWizard userId={userId} /></div>
       )}
 
+      {layer === "native" && <div className="space-y-1">
+        <Label htmlFor="owned-wallet-asset">Owned assets</Label>
+        <Select value={selected} onValueChange={setSelection}>
+          <SelectTrigger id="owned-wallet-asset"><SelectValue placeholder="Select an owned asset" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All owned assets</SelectItem>
+            {owned.map((a) => <SelectItem key={a.id} value={a.id}>{a.label} · {a.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        {owned.length === 0 && <p className="text-sm text-muted-foreground">No positive asset balances yet.</p>}
+      </div>}
+
       <div className="grid gap-2">
-        {rows.filter((r) => layer === "native" || r.code !== "CREDIT").map((r) => (
+        {rows.filter((r) => layer === "native" ? showNative(r.code) : r.code !== "CREDIT").map((r) => (
           <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -108,7 +134,13 @@ export function AssetsTab() {
               layer={layer} metaMaskAddress={address} offline={offline} />
           </div>
         ))}
-        {customTokens.map((t) => <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer} />)}
+        {customTokens.filter((t) => layer === "metamask" || showNative(`custom:${t.address}`)).map((t) => <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer} />)}
+        {layer === "native" && holdings.filter((h) => showNative(`creator:${h.tokenId}`)).map((h) => (
+          <div key={h.tokenId} className="rounded-md border p-3">
+            <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" />{h.ticker}<span className="text-xs text-muted-foreground">Creator token</span></div>
+            <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+          </div>
+        ))}
       </div>
     </section>
   );
