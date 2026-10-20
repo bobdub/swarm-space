@@ -44,7 +44,7 @@ export async function deployProfileToken(params: {
   }
 
   // Check SWARM balance for the market-launch fee
-  const { getSwarmBalance, burnSwarm } = await import("./token");
+  const { getSwarmBalance } = await import("./token");
   const swarmBalance = await getSwarmBalance(params.userId);
   if (swarmBalance < pricing.creatorTokenSwarm) {
     throw new Error(
