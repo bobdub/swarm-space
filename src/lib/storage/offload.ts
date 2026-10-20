@@ -87,15 +87,17 @@ export interface UserDataExport {
   chunks: Chunk[];
 }
 
-/** Build the download bundle: posts, comments, file records and media pieces. */
-export async function exportUserData(): Promise<Blob> {
+export type ExportScope = 'media' | 'everything';
+
+/** Build the download bundle. `media` = file records + pieces; `everything` adds posts and comments. */
+export async function exportUserData(scope: ExportScope = 'everything'): Promise<Blob> {
   const db = await openDB();
   const available = new Set<string>(Array.from(db.objectStoreNames));
   const bundle: UserDataExport = {
     version: 1,
     exportedAt: new Date().toISOString(),
-    posts: await safeGetAll<unknown>('posts', available),
-    comments: await safeGetAll<unknown>('comments', available),
+    posts: scope === 'everything' ? await safeGetAll<unknown>('posts', available) : [],
+    comments: scope === 'everything' ? await safeGetAll<unknown>('comments', available) : [],
     manifests: await safeGetAll<Manifest>('manifests', available),
     chunks: await safeGetAll<Chunk>('chunks', available),
   };
@@ -108,16 +110,34 @@ export async function exportUserData(): Promise<Blob> {
   return new Blob([json], { type: 'application/json' });
 }
 
-export async function downloadUserData(): Promise<void> {
-  const blob = await exportUserData();
+export async function sha256Hex(blob: Blob): Promise<string> {
+  const buf = await blob.arrayBuffer();
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export interface DownloadReceipt { filename: string; size: number; sha256: string }
+
+/** Download the bundle and return a receipt used to verify the saved file later. */
+export async function downloadUserData(scope: ExportScope = 'everything'): Promise<DownloadReceipt> {
+  const blob = await exportUserData(scope);
+  const sha256 = await sha256Hex(blob);
+  const filename = `swarm-${scope}-${Date.now()}.json.gz`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `swarm-media-${Date.now()}.json.gz`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { filename, size: blob.size, sha256 };
+}
+
+/** True only if the file the user picked is byte-identical to what was downloaded. */
+export async function verifyDownloadedFile(file: Blob, receipt: DownloadReceipt): Promise<boolean> {
+  if (file.size !== receipt.size) return false;
+  return (await sha256Hex(file)) === receipt.sha256;
 }
 
 export interface ClearResult {
