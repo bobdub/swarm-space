@@ -27,6 +27,7 @@ vi.mock("../chain", () => ({
     whenReady: async () => {},
     getPendingTransactions: () => [],
     getChain: () => [],
+    getBalance: () => 0,
   }),
 }));
 
