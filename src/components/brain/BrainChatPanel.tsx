@@ -64,6 +64,18 @@ export interface BrainChatLine {
 const MAX_LEN = 8000;
 const LONG_MESSAGE_THRESHOLD = 2400;
 
+/**
+ * CommonMark collapses single newlines inside a paragraph, which flattens
+ * multi-line chat messages into one run-on line. Convert each non-empty
+ * source line into its own paragraph so typed line breaks render as breaks.
+ */
+function formatChatMarkdown(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+$/, ''))
+    .join('\n\n');
+}
+
 interface Props {
   lines: BrainChatLine[];
   onSend: (text: string, replyTo?: BrainChatLine['replyTo']) => void;
