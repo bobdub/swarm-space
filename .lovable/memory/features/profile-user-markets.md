@@ -9,6 +9,8 @@ Every profile has a **Market** tab (sixth tab). Deploying a Creator Token now co
 
 **Top-ups follow the same layers:** creator liquidity top-ups (`addVaultLiquidity`) split 40/40/15/5 exactly like a purchase, forward the 5% to the community pool, and record the split in tx meta — never credit only the Buyback Reserve.
 
+**Real coin custody, never burns:** every deposit (deploy fee, buy, top-up) is a real transfer into the vault address `vault:creator:{tokenId}` and every payout (buyback, earnings withdraw, close dissolve) is a real transfer back out — via `creatorVaultCustody.ts`. Nothing is burned or minted. Each vault has a locked container coin `vault-coin:creator:{tokenId}` (status `vaulted`) whose `custodyChain` engraves every movement with its layer split. Payouts release custody *before* mutating buckets; legacy pre-custody vaults refuse payouts ("no engraved funds") rather than re-minting historically burned SWARM.
+
 **Pricing:** deterministic bonding curve `price = 0.1 + 0.001 * circulatingSupply` SWARM; integrated closed-form for buys.
 
 **Buyback Ladder:** 5 tiers derived from `buybackReserve / totalDeposited` ratio (0.05/0.15/0.25/0.35/0.45 thresholds → 10/25/45/70/90% reserve unlocks). Hard floor: reserve never drops below 5% of totalDeposited.
