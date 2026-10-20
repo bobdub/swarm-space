@@ -4,7 +4,6 @@
 import { get, put, getAll } from "../store";
 import { CREDIT_TO_SWARM_RATIO } from "./types";
 import { getRewardPoolBalance } from "./miningRewards";
-import { mintSwarm } from "./token";
 import { validateMineHealth } from "./mineHealthValidator";
 import type { CreditTransaction } from "@/types";
 
@@ -77,7 +76,7 @@ export async function requestCreditWrap(userId: string, creditAmount: number): P
  * Process pending wrap requests from the queue
  */
 export async function processWrapQueue(): Promise<void> {
-  const poolBalance = await getRewardPoolBalance();
+  const poolBalance = await getMinedPoolBalance();
   const pendingRequests = await getAll<WrapRequest>("wrapRequests");
   const pending = pendingRequests
     .filter(r => r.status === "pending")
@@ -227,7 +226,7 @@ export async function deductFromRewardPool(amount: number): Promise<void> {
  * Get wrap statistics
  */
 export async function getWrapStats(userId?: string): Promise<WrapStats> {
-  const poolBalance = await getRewardPoolBalance();
+  const poolBalance = await getMinedPoolBalance();
   const allRequests = await getAll<WrapRequest>("wrapRequests");
   const pending = allRequests.filter(r => r.status === "pending");
   
