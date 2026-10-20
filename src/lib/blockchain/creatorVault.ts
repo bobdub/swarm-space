@@ -435,6 +435,22 @@ export async function closeCreatorMarket(params: {
   await saveCreatorVault(vault);
 
   if (dissolved > 0) {
+    // Move the dissolved reserve out of vault custody to the community pool
+    // address. Best-effort: legacy vaults (pre-custody) hold no engraved
+    // funds, so the release may legitimately fail.
+    try {
+      const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+      await releaseFromCreatorVault({
+        tokenId,
+        creatorUserId: creatorId,
+        toId: "community-pool",
+        amount: dissolved,
+        layer: "market-close-dissolve",
+        reason: `Market closed — buyback reserve dissolved (${tokenId})`,
+      });
+    } catch (err) {
+      console.warn("[CreatorVault] Custody dissolve skipped:", err);
+    }
     try {
       const { getRewardPool, saveRewardPool } = await import("./storage");
       let pool = await getRewardPool();
