@@ -26,8 +26,16 @@ export interface S3DirectConfig {
   userId: string;
 }
 
+/**
+ * MinIO (and filesystem-backed S3 servers) reject characters such as `:`.
+ * Map logical names like `manifest:file-…` to a portable, stable form.
+ */
+export function s3SafeName(name: string): string {
+  return name.replace(/[^A-Za-z0-9._-]/g, (c) => `_${c.charCodeAt(0).toString(16)}_`);
+}
+
 export function s3ChunkKey(userId: string, hash: string): string {
-  return `imagination/${userId}/chunks/${hash}`;
+  return `imagination/${userId}/chunks/${s3SafeName(hash)}`;
 }
 
 /**
@@ -35,7 +43,7 @@ export function s3ChunkKey(userId: string, hash: string): string {
  * readable by anyone the bucket owner has granted anonymous read to.
  */
 export function s3PublicChunkKey(hash: string): string {
-  return `imagination/public/chunks/${hash}`;
+  return `imagination/public/chunks/${s3SafeName(hash)}`;
 }
 
 export function s3PublicChunkUrl(endpoint: string, bucket: string, hash: string): string {
