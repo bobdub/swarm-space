@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Coins, TrendingUp, TrendingDown, Shield, Users, Wallet as WalletIcon, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getUserProfileToken } from "@/lib/blockchain/profileToken";
+import { getProfileToken } from "@/lib/blockchain/storage";
+import { creatorVaultAddress } from "@/lib/blockchain/creatorVaultCustody";
+import { creatorVaultBacking } from "@/lib/blockchain/creatorVaultBacking";
 import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
 import {
   buyCreatorTokens,
   closeCreatorMarket,
-  ensureCreatorVault,
   getCreatorVault,
   ladderState,
   priceAtSupply,
@@ -36,6 +37,8 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const [token, setToken] = useState<CreatorToken | null>(null);
   const [vault, setVault] = useState<CreatorVault | null>(null);
   const [swarm, setSwarm] = useState(0);
+  const [custody, setCustody] = useState(0);
+  const refreshVersion = useRef(0);
   const [heldTokens, setHeldTokens] = useState(0);
   const [buyAmount, setBuyAmount] = useState("10");
   const [sellAmount, setSellAmount] = useState("");
@@ -43,37 +46,37 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    const t = await getUserProfileToken(profileUserId);
-    setToken(t);
-    if (t) {
-      const v = (await getCreatorVault(t.tokenId)) ?? (await ensureCreatorVault(t.tokenId, profileUserId));
-      setVault(v);
-      if (viewerId) {
-        const holding = await getProfileTokenHolding(viewerId, t.tokenId);
-        setHeldTokens(holding?.amount ?? 0);
-      }
-    } else {
-      setVault(null);
-      setHeldTokens(0);
-    }
-    if (viewerId) setSwarm(await getSwarmBalance(viewerId));
+    const version = ++refreshVersion.current;
+    const t = await getProfileToken(profileUserId);
+    const [v, holding, balance, held] = await Promise.all([
+      t ? getCreatorVault(t.tokenId) : Promise.resolve(null),
+      t && viewerId ? getProfileTokenHolding(viewerId, t.tokenId) : Promise.resolve(null),
+      viewerId ? getSwarmBalance(viewerId) : Promise.resolve(0),
+      t ? getSwarmBalance(creatorVaultAddress(t.tokenId)) : Promise.resolve(0),
+    ]);
+    if (version !== refreshVersion.current) return;
+    setToken(t); setVault(v); setHeldTokens(holding?.amount ?? 0);
+    setSwarm(balance); setCustody(held);
   }, [profileUserId, viewerId]);
 
   useEffect(() => {
     void refresh();
     const onUpdate = () => void refresh();
     if (typeof window !== "undefined") {
+      window.addEventListener("creator-token-updated", onUpdate);
       window.addEventListener("creator-vault-update", onUpdate);
       window.addEventListener("blockchain-transaction", onUpdate);
       return () => {
+        ++refreshVersion.current;
+        window.removeEventListener("creator-token-updated", onUpdate);
         window.removeEventListener("creator-vault-update", onUpdate);
         window.removeEventListener("blockchain-transaction", onUpdate);
       };
     }
   }, [refresh]);
 
-  const buyN = Math.max(0, Number(buyAmount) || 0);
-  const sellN = Math.max(0, Number(sellAmount) || 0);
+  const buyN = Number.isFinite(Number(buyAmount)) ? Math.max(0, Number(buyAmount)) : 0;
+  const sellN = Number.isFinite(Number(sellAmount)) ? Math.max(0, Number(sellAmount)) : 0;
   const buyQuote = useMemo(() => quoteBuy(vault, buyN), [vault, buyN]);
   const sellQuote = useMemo(() => quoteSell(vault, sellN), [vault, sellN]);
   const ladder = useMemo(() => ladderState(vault), [vault]);
@@ -83,6 +86,10 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const availableForSale = Math.max(0, unlockedSupply - circulating);
   const buyExceedsAvailable = buyN > availableForSale;
   const isClosed = !!(vault?.closed || token?.closedAt);
+  const backing = creatorVaultBacking(vault, custody);
+  const isCreator = isOwnProfile && viewerId === token?.userId;
+  const withdrawN = Number(withdrawAmount);
+  const withdrawValid = Number.isFinite(withdrawN) && withdrawN > 0 && withdrawN <= backing.claimable;
 
   const handleBuy = async () => {
     if (!viewerId || !token || buyN <= 0) return;
@@ -114,9 +121,9 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   };
 
   const handleWithdraw = async () => {
-    if (!viewerId || !token) return;
-    const amt = Number(withdrawAmount) || 0;
-    if (amt <= 0) return;
+    if (!viewerId || !token || !isCreator || !withdrawValid) return;
+    const amt = withdrawN;
+    if (!window.confirm(`Claim ${fmt(amt)} SWARM from the Creator Earnings layer to your native wallet?`)) return;
     setBusy(true);
     try {
       await withdrawCreatorEarnings({ creatorId: viewerId, tokenId: token.tokenId, amount: amt });
@@ -131,7 +138,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   };
 
   const handleCloseMarket = async () => {
-    if (!viewerId || !token) return;
+    if (!viewerId || !token || !isCreator) return;
     if (!window.confirm("Close this market permanently? This cannot be undone. The Open Market bucket will be sent to the community pool.")) return;
     setBusy(true);
     try {
@@ -147,16 +154,14 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
   if (!token) {
     return (
-      <div className="rounded-3xl border border-dashed border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,12%,0.45)] px-6 py-16 text-center text-sm text-foreground/70 backdrop-blur-xl">
+      <div className="rounded-md border border-dashed border-border bg-muted/30 px-6 py-16 text-center text-sm text-foreground/70 backdrop-blur-xl">
         {isOwnProfile ? (
           <>
             <p className="mb-3 font-display uppercase tracking-[0.2em] text-foreground">
               No Creator Token deployed
             </p>
             <p>
-              Launch your token from the Wallet → Creator Token panel. It costs{" "}
-              <span className="font-mono">1,000 credits + 50 SWARM</span>. Once live, this tab becomes
-              your personal market.
+              Launch your token from Wallet → Creator Token. Your current launch cost is shown there.
             </p>
           </>
         ) : (
@@ -167,29 +172,34 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   }
 
   const v = vault;
-  const canSell = heldTokens > 0 && ((v?.buybackReserve ?? 0) > 0 || (v?.stabilityFloor ?? 0) > 0);
+  const canSell = backing.backed && heldTokens > 0 && ((v?.buybackReserve ?? 0) > 0 || (v?.stabilityFloor ?? 0) > 0);
 
   return (
     <div className="space-y-6">
+      <div className="border-b border-border pb-4 text-sm text-muted-foreground">
+        Settlement: SWARM · Held in Coin Vault: <span className="font-mono text-foreground">{fmt(custody)} SWARM</span>
+        {!vault && <p className="mt-2">No vault record yet. A purchase starts a funded vault; viewing this profile does not create one.</p>}
+        {vault && !backing.backed && <p className="mt-2 text-destructive">Recorded layers exceed held SWARM by {fmt(backing.shortfall)}. Sell-backs, earnings claims and closure are unavailable until the vault is reconciled. Sync your wallet before retrying.</p>}
+      </div>
       {isClosed && (
-        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.35)] bg-[hsla(0,50%,15%,0.55)] p-4 text-sm text-foreground/80 flex items-center gap-2">
-          <Lock className="h-4 w-4 text-[hsl(0,80%,70%)]" /> This market is <strong className="mx-1">closed</strong> — trading and listings are disabled.
+        <div className="rounded-md border border-border bg-muted/30 p-4 text-sm text-foreground/80 flex items-center gap-2">
+          <Lock className="h-4 w-4 text-primary" /> This market is <strong className="mx-1">closed</strong> — trading and listings are disabled.
         </div>
       )}
       {/* Header */}
-      <div className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.6)] p-6 backdrop-blur-xl">
+      <div className="rounded-md border border-border bg-muted/30 p-6 backdrop-blur-xl">
         {token.banner && (
           <img
             src={token.banner}
             alt={`${token.name} banner`}
-            className="mb-5 aspect-[3/1] w-full rounded-2xl border border-[hsla(174,59%,56%,0.18)] object-cover"
+            className="mb-5 aspect-[3/1] w-full rounded-md border border-border object-cover"
           />
         )}
         <div className="flex flex-wrap items-center gap-4">
           {token.image && (
-            <img src={token.image} alt={token.ticker} className="h-16 w-16 rounded-2xl object-cover" />
+            <img src={token.image} alt={token.ticker} className="h-16 w-16 rounded-md object-cover" />
           )}
-          <div className="flex-1">
+          <div className="min-w-0 flex-1 break-words">
             <div className="font-display text-2xl uppercase tracking-[0.2em] text-foreground">
               {token.name}
             </div>
@@ -202,7 +212,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
           </div>
           <div className="text-right">
             <div className="text-xs uppercase tracking-widest text-foreground/50">Current Price</div>
-            <div className="font-mono text-2xl text-[hsl(174,59%,66%)]">
+            <div className="font-mono text-2xl text-primary">
               {fmt(currentPrice, 6)} SWARM
             </div>
           </div>
@@ -217,7 +227,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
           label="Available for Sale"
           value={`${fmt(availableForSale, 2)} / ${fmt(unlockedSupply, 0)}`}
         />
-        <StatCard icon={<Coins className="h-4 w-4" />} label="Vault Total" value={`${fmt(v?.totalDeposited ?? 0, 2)} SWARM`} />
+        <StatCard icon={<Coins className="h-4 w-4" />} label="Lifetime Deposits" value={`${fmt(v?.totalDeposited ?? 0, 2)} SWARM`} />
         <StatCard icon={<Shield className="h-4 w-4" />} label="Stability Floor" value={`${fmt(v?.stabilityFloor ?? 0, 2)} SWARM`} />
         <StatCard icon={<Users className="h-4 w-4" />} label="Community" value={`${fmt(v?.communityContributed ?? 0, 2)} SWARM`} />
         <StatCard icon={<WalletIcon className="h-4 w-4" />} label="Open Market" value={`${fmt(v?.buybackReserve ?? 0, 2)} SWARM`} />
@@ -227,24 +237,24 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       </div>
 
       {/* Ladder */}
-      <div className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.45)] p-6">
+      <div className="rounded-md border border-border bg-muted/30 p-6">
         <div className="mb-3 flex items-center justify-between">
           <div className="font-display uppercase tracking-[0.2em] text-foreground">Buyback Ladder</div>
           <div className="text-xs text-foreground/60">
-            Active Tier: <span className="font-mono text-[hsl(174,59%,66%)]">T{ladder.active}</span> · Ratio{" "}
+            Active Tier: <span className="font-mono text-primary">T{ladder.active}</span> · Ratio{" "}
             {(ladder.ratio * 100).toFixed(1)}%
           </div>
         </div>
-        <div className="grid grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {ladder.tiers.map((step) => {
             const active = ladder.active >= step.tier;
             return (
               <div
                 key={step.tier}
-                className={`rounded-xl border p-3 text-center text-xs transition ${
+                className={`rounded-md border p-3 text-center text-xs transition ${
                   active
-                    ? "border-[hsl(174,59%,56%)] bg-[hsla(174,59%,56%,0.15)] text-foreground"
-                    : "border-[hsla(174,59%,56%,0.15)] bg-[hsla(245,70%,10%,0.35)] text-foreground/50"
+                    ? "border-border bg-muted/30 text-foreground"
+                    : "border-border bg-muted/30 text-foreground/50"
                 }`}
               >
                 <div className="font-mono">T{step.tier}</div>
@@ -261,7 +271,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       {/* Buy / Sell — open to everyone, including the creator */}
       {viewerId && !isClosed && (
         <div className="grid gap-6 md:grid-cols-2">
-          <div role="form" className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
+          <div role="form" className="rounded-md border border-border bg-muted/30 p-6 space-y-3">
             <div className="font-display uppercase tracking-[0.2em] text-foreground">Buy {token.ticker}</div>
             <div className="text-xs text-foreground/60">Your SWARM: {fmt(swarm, 4)}</div>
             <div className="text-[10px] uppercase tracking-widest text-foreground/50">
@@ -295,7 +305,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             </Button>
           </div>
 
-          <div role="form" className="rounded-3xl border border-[hsla(174,59%,56%,0.22)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
+          <div role="form" className="rounded-md border border-border bg-muted/30 p-6 space-y-3">
             <div className="font-display uppercase tracking-[0.2em] text-foreground">Sell to Vault</div>
             <div className="text-xs text-foreground/60">You hold: {fmt(heldTokens, 4)} {token.ticker}</div>
             <Input
@@ -311,7 +321,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             <div className="text-sm text-foreground/70">
               Proceeds: <span className="font-mono">{fmt(sellQuote.proceeds, 4)} SWARM</span>{" "}
               {sellQuote.capped && sellN > 0 && (
-                <span className="text-[10px] text-[hsl(45,90%,66%)]">(liquidity-capped)</span>
+                <span className="text-[10px] text-primary">(liquidity-capped)</span>
               )}
             </div>
             {sellN > 0 && sellQuote.source !== "none" && (
@@ -328,7 +338,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
               type="button"
               variant="secondary"
               onClick={handleSell}
-              disabled={busy || !canSell || sellN <= 0 || sellN > heldTokens || sellQuote.proceeds <= 0}
+              disabled={busy || !canSell || sellN <= 0 || sellN > heldTokens || sellN > circulating || sellQuote.proceeds <= 0}
               className="w-full"
             >
               {heldTokens <= 0
@@ -342,18 +352,18 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
       )}
 
       {/* Creator earnings withdraw */}
-      {isOwnProfile && viewerId && (
-        <div role="form" className="rounded-3xl border border-[hsla(326,71%,62%,0.25)] bg-[hsla(245,70%,10%,0.55)] p-6 space-y-3">
+      {isCreator && viewerId && (
+        <div role="form" className="rounded-md border border-border bg-muted/30 p-6 space-y-3">
           <div className="font-display uppercase tracking-[0.2em] text-foreground">Creator Earnings</div>
           <div className="text-sm text-foreground/70">
-            Available: <span className="font-mono">{fmt(v?.creatorEarnings ?? 0, 4)} SWARM</span>
+            Claimable: <span className="font-mono">{fmt(backing.claimable, 4)} SWARM</span>
           </div>
           <div className="flex gap-2">
             <Input
               type="number"
               inputMode="decimal"
               min={0}
-              max={v?.creatorEarnings ?? 0}
+              max={backing.claimable}
               value={withdrawAmount}
               onChange={(e) => setWithdrawAmount(e.target.value)}
               placeholder="Amount to withdraw"
@@ -361,9 +371,9 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             <Button
               type="button"
               onClick={handleWithdraw}
-              disabled={busy || !v || v.creatorEarnings <= 0 || Number(withdrawAmount) <= 0}
+              disabled={busy || !withdrawValid}
             >
-              Withdraw
+              Claim
             </Button>
           </div>
         </div>
@@ -371,15 +381,15 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
 
       {/* Close Market — creator only */}
-      {isOwnProfile && viewerId && !isClosed && (
-        <div className="rounded-3xl border border-[hsla(0,70%,60%,0.25)] bg-[hsla(245,70%,10%,0.45)] p-6 space-y-2">
+      {isCreator && viewerId && !isClosed && (
+        <div className="rounded-md border border-border bg-muted/30 p-6 space-y-2">
           <div className="flex items-center gap-2 font-display uppercase tracking-[0.2em] text-foreground">
             <Lock className="h-4 w-4" /> Market Closure Protocol
           </div>
           <div className="text-xs text-foreground/60">
             Dissolves the Open Market bucket to the community pool and freezes this token forever (cannot be redeployed).
           </div>
-          <Button type="button" variant="destructive" onClick={handleCloseMarket} disabled={busy}>
+          <Button type="button" variant="destructive" onClick={handleCloseMarket} disabled={busy || !backing.backed}>
             Close Market Permanently
           </Button>
         </div>
@@ -390,11 +400,11 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,10%,0.45)] p-4">
+    <div className="rounded-md border border-border bg-muted/30 p-4">
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-foreground/60">
         {icon} {label}
       </div>
-      <div className="mt-1 font-mono text-lg text-foreground">{value}</div>
+      <div className="mt-1 break-words font-mono text-lg text-foreground">{value}</div>
     </div>
   );
 }

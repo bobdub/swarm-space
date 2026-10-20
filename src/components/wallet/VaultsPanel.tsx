@@ -9,7 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Vault as VaultIcon, TrendingUp, Coins, Plus, ArrowDownToLine } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
-import { getUserProfileToken } from "@/lib/blockchain/profileToken";
+import { getProfileToken } from "@/lib/blockchain/storage";
+import { creatorVaultBacking } from "@/lib/blockchain/creatorVaultBacking";
 import { getCreatorVault, ladderState, withdrawCreatorEarnings } from "@/lib/blockchain/creatorVault";
 import { creatorVaultAddress, getCreatorVaultCoin } from "@/lib/blockchain/creatorVaultCustody";
 import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
@@ -37,7 +38,7 @@ export function VaultsPanel() {
   const refresh = useCallback(async () => {
     if (!user?.id) return;
     const [t, bal] = await Promise.all([
-      getUserProfileToken(user.id),
+      getProfileToken(user.id),
       getSwarmBalance(user.id).catch(() => 0),
     ]);
     setToken(t);
@@ -93,7 +94,8 @@ export function VaultsPanel() {
   const ladder = ladderState(vault);
   const total = vault?.totalDeposited ?? 0;
   const claim = Number(claimAmount);
-  const claimMax = Math.max(0, Math.min(vault?.creatorEarnings ?? 0, custodyBalance));
+  const backing = creatorVaultBacking(vault, custodyBalance);
+  const claimMax = backing.claimable;
   const claimValid = Number.isFinite(claim) && claim > 0 && claim <= claimMax;
   const onClaim = async () => {
     if (!user?.id || !claimValid || busy) return;
@@ -153,7 +155,7 @@ export function VaultsPanel() {
                     <ArrowDownToLine className="mr-1 h-4 w-4" />Claim earnings
                   </Button>
                 </div>
-                {(vault.creatorEarnings > custodyBalance) && <p className="text-xs text-destructive">Some recorded earnings are not backed by held SWARM. Only held funds can be claimed.</p>}
+                {(!backing.backed) && <p className="text-xs text-destructive">Recorded layers exceed held SWARM. Claims remain unavailable until all layers are backed; sync or reconcile before retrying.</p>}
               </div>
 
               <div className="rounded-md border p-3 space-y-2">
@@ -169,7 +171,7 @@ export function VaultsPanel() {
                     value={addAmount}
                     onChange={(e) => setAddAmount(e.target.value.replace(/[^0-9.]/g, ""))}
                   />
-                  <Button type="button" onClick={onAddLiquidity} disabled={busy || !addAmount}>
+                  <Button type="button" onClick={onAddLiquidity} disabled={busy || !addAmount || vault.closed}>
                     Top up
                   </Button>
                 </div>
