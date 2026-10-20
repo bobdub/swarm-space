@@ -32,7 +32,7 @@
 - Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
-- Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.
+- Use external MetaMask for wallet calls; verify MintMe before token reads, switch only when needed, and offer adding separately after a missing-chain error — acknowledgement is not arrival.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation cannot misrepresent connection state.
 - Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
 - Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.

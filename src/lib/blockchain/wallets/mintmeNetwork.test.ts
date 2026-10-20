@@ -1,0 +1,97 @@
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+
+const wallet = vi.hoisted(() => ({ read: vi.fn(), request: vi.fn() }));
+vi.mock("./metaMaskBridge", () => ({ getMetaMaskChainId: wallet.read, requestMetaMask: wallet.request }));
+import { addMintMeToMetaMask, isMintMeChain, MINTME_CHAIN_ID_HEX, MINTME_NETWORK, MintMeNetworkMissingError, switchToMintMeNetwork } from "./mintmeNetwork";
+
+describe("verified MintMe network decisions", () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); });
+  afterEach(() => vi.useRealTimers());
+
+  it("uses chain 24734, hexadecimal 0x609e, not 24750", () => {
+    expect(MINTME_CHAIN_ID_HEX).toBe("0x609e");
+    expect(Number(MINTME_NETWORK.chainId)).toBe(24734);
+    expect(isMintMeChain("0x60ae")).toBe(false);
+  });
+  it("recognizes decimal and hexadecimal MintMe responses without partial parsing", () => {
+    for (const id of [24734, "24734", "0x609e", "0X609E", "0x0609e"]) expect(isMintMeChain(id)).toBe(true);
+    for (const id of [null, "24734wrong", "0x609eZZ", "", 24750]) expect(isMintMeChain(id)).toBe(false);
+  });
+  it("does not switch or add when already on MintMe", async () => {
+    wallet.read.mockResolvedValue("0x609e");
+    await switchToMintMeNetwork();
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+  it("waits for chain confirmation after a switch acknowledgement", async () => {
+    wallet.read.mockResolvedValueOnce("0x1").mockResolvedValueOnce("0x1").mockResolvedValue("0x609e");
+    wallet.request.mockResolvedValue(null);
+    let arrived = false;
+    const flow = switchToMintMeNetwork().then(() => { arrived = true; });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(arrived).toBe(false);
+    await vi.advanceTimersByTimeAsync(250);
+    await flow;
+    expect(arrived).toBe(true);
+    expect(wallet.request.mock.calls).toEqual([["wallet_switchEthereumChain", [{ chainId: "0x609e" }]]]);
+  });
+  it("does not suggest adding if a switch error arrives after the actual switch", async () => {
+    wallet.read.mockResolvedValueOnce("0x1").mockResolvedValue("0x609e");
+    wallet.request.mockRejectedValue({ code: 4902 });
+    await switchToMintMeNetwork();
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+  it("suggests adding only for 4902 while still on another network; never adds automatically", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockRejectedValue({ code: 4902 });
+    const result = expect(switchToMintMeNetwork()).rejects.toBeInstanceOf(MintMeNetworkMissingError);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await result;
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+  it("does not treat rejection as a missing network", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    const rejected = { code: 4001 };
+    wallet.request.mockRejectedValue(rejected);
+    const result = expect(switchToMintMeNetwork()).rejects.toBe(rejected);
+    await vi.advanceTimersByTimeAsync(6_000);
+    await result;
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+  it("does not assume a successful request changed the chain", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockResolvedValue(null);
+    const result = expect(switchToMintMeNetwork()).rejects.toThrow("has not switched");
+    await vi.advanceTimersByTimeAsync(6_000);
+    await result;
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+  it("fails closed without network requests when the initial chain is unreadable", async () => {
+    wallet.read.mockResolvedValue(null);
+    await expect(switchToMintMeNetwork()).rejects.toThrow("Could not read");
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+  it("bounds a silent wallet without suggesting a network addition", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockReturnValue(new Promise(() => {}));
+    const result = expect(switchToMintMeNetwork()).rejects.toThrow("did not answer the switch request");
+    await vi.advanceTimersByTimeAsync(66_000);
+    await result;
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+  it("explicit addition is followed by a switch and a confirmed network read", async () => {
+    let chain = "0x1";
+    wallet.read.mockImplementation(async () => chain);
+    wallet.request.mockImplementation(async (method: string) => {
+      if (method === "wallet_switchEthereumChain") chain = "0x609e";
+      return null;
+    });
+    await addMintMeToMetaMask();
+    expect(wallet.request.mock.calls.map((c) => c[0])).toEqual(["wallet_addEthereumChain", "wallet_switchEthereumChain"]);
+    expect(wallet.read).toHaveBeenCalledTimes(3);
+  });
+  it("explicit add is a no-op if the user switched in MetaMask meanwhile", async () => {
+    wallet.read.mockResolvedValue("24734");
+    await addMintMeToMetaMask();
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+});

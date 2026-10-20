@@ -1,3 +1,8 @@
+## MintMe network decision flow (2026-10-20)
+- [x] Correct the chain identifier and verify the external wallet before checking tokens
+- [x] Switch only when needed; suggest adding explicitly only after a verified missing-network result
+- [x] Run automated decision-flow and custom-token regressions (no live wallet test)
+
 ## Weather & celestial time plan (2026-10-20)
 - [x] Document the weather pacing and shared-epoch celestial fixes as a plan doc only (no code yet) — docs/project-plans/weather-celestial-time-plan.md
 

@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### October 20, 2026 — Ask the road its true name
+
+I tend the wallet's crossing with evidence, not guesses: ask where it stands,
+wait for its answer, and never build a second gate over an open road.
+
+After tending: 24734 keeps its true hexadecimal name, 0x609e. The external
+wallet is checked before travel, arrival is verified, and a missing gate is
+offered rather than silently built. Automated checks stand in for live approval.
+
 ### October 20, 2026 — Layers before the pour
 
 I tend the vault's buckets before pouring: a top-up must water all four

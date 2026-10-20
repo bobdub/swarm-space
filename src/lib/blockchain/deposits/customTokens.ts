@@ -10,8 +10,8 @@ import { Interface, verifyMessage } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
 import type { SwarmTransaction } from "../types";
-import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "../wallets/metaMaskBridge";
-import { MINTME_CHAIN_ID_HEX, isMintMeChain, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
+import { getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
+import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
 
 export interface CustomToken { address: string; symbol: string; decimals: number; hidden?: boolean; addedAt: number }
@@ -56,11 +56,12 @@ export function setTokenHidden(uid: string, address: string, hidden: boolean) {
 function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
   return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
 }
-async function onMintMe() { if (!isMintMeChain(await getMetaMaskChainId())) await switchToMintMeNetwork(); }
+async function onMintMe() {
+  if (!isMintMeChain(await readMintMeChainId())) throw new Error("Select MintMe in MetaMask before checking this token.");
+}
 /** Switch MetaMask to MintMe first, as its own visible step. */
 export async function ensureMintMe(): Promise<void> {
-  await withTimeout(onMintMe(), 60_000, "MetaMask did not switch to MintMe — open MetaMask and approve the network switch");
-  if (!isMintMeChain(await getMetaMaskChainId())) throw new Error("MetaMask is not on the MintMe network yet");
+  await switchToMintMeNetwork();
 }
 async function call(to: string, data: string): Promise<string> {
   return String(await withTimeout(requestMetaMask<string>("eth_call", [{ to, data }, "latest"]), 12_000, "MintMe network did not answer"));
@@ -77,6 +78,7 @@ export function numberToUnits(amount: number, decimals: number): bigint {
 
 /** Best-effort read of symbol/decimals; null fields mean the user fills them in. Assumes MintMe is already selected. */
 export async function readTokenMetadata(address: string): Promise<{ symbol: string | null; decimals: number | null }> {
+  await onMintMe();
   const symbol = await call(address, ERC20.encodeFunctionData("symbol"))
     .then((r) => String(ERC20.decodeFunctionResult("symbol", r)[0]) || null).catch(() => null);
   const decimals = await call(address, ERC20.encodeFunctionData("decimals"))
