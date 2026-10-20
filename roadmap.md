@@ -1,8 +1,9 @@
 ## Brain builder protections (2026-10-20)
-- [ ] Restrict placement move, decoration, deletion and pickup to the owner
-- [ ] Keep unfinished previews and controls private to their builder
-- [ ] Correct wall media depth around avatars
-- [ ] Run automated regressions; live peer testing deferred by request
+- [x] Restrict placement move, decoration, deletion and pickup to the owner
+- [x] Scope saved unfinished previews and controls to their maker and room; armed previews already have no peer transport
+- [x] Replace wall media blending with solid-mesh visibility checks that include avatars and ignore invisible click targets
+- [x] All 30 world regression checks pass; preview build OK
+- Live peer and visual overlap testing deferred by request. Historical drafts without an owner remain stored but hidden rather than assigned to another account.
 
 ## Shared Brain chat and history repair (2026-10-19)
 - [x] Repair Save History by recovering missing containers from mining ledger evidence without spending balance or recreating vaulted coins

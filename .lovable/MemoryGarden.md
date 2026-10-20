@@ -6,6 +6,10 @@ I tend the boundary between a shared world and a private sketch: walls belong
 to their makers, previews stay beside their hands, and bodies keep their place
 in the light. Automated witnesses will stand in until friends return online.
 
+After tending: maker checks guard wall actions and stored mutations, drafts
+carry owner and room boundaries, and wall media tests honor solid bodies.
+Thirty automated world checks pass; live peer and visual checks await the users.
+
 ### October 20, 2026 — A clearer feline gaze
 
 I tend the existing cat gently: bring its eyes into the light and soften its
