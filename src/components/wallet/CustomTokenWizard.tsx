@@ -1,0 +1,173 @@
+/** Add Custom Token wizard (MetaMask tab): inform → details → verify/import → deposit now or later. */
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
+import { toast } from "sonner";
+import { useMetaMask } from "@/hooks/useMetaMask";
+import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
+import { MINTME_NETWORK } from "@/lib/blockchain/wallets/mintmeNetwork";
+import {
+  addCustomToken, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
+  listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
+  type CustomToken,
+} from "@/lib/blockchain/deposits/customTokens";
+
+export function useCustomTokens(userId: string) {
+  const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
+  useEffect(() => {
+    const r = () => setList(listCustomTokens(userId));
+    r();
+    window.addEventListener(CUSTOM_TOKENS_EVENT, r);
+    window.addEventListener("blockchain-transaction", r);
+    return () => { window.removeEventListener(CUSTOM_TOKENS_EVENT, r); window.removeEventListener("blockchain-transaction", r); };
+  }, [userId]);
+  return list;
+}
+
+export function CustomTokenWizard({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState(0);
+  const [address, setAddress] = useState("");
+  const [symbol, setSymbol] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<{ symbol: string; decimals: number } | null>(null);
+  const [token, setToken] = useState<CustomToken | null>(null);
+  const [depositOpen, setDepositOpen] = useState(false);
+
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); };
+  const check = async () => {
+    setBusy(true);
+    try {
+      const meta = await readTokenMetadata(address.trim());
+      setFound(meta);
+      if (meta.symbol.toUpperCase() !== symbol.trim().toUpperCase()) toast.warning(`The contract calls itself ${meta.symbol}, not ${symbol.toUpperCase()}.`);
+      setStep(2);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not read that contract"); }
+    finally { setBusy(false); }
+  };
+  const importIt = async () => {
+    if (!found) return;
+    setBusy(true);
+    try {
+      const t = addCustomToken(userId, { address, symbol: found.symbol, decimals: found.decimals });
+      try { await watchInMetaMask(t); } catch { toast.message("Saved here — MetaMask did not add it to its own list."); }
+      setToken(t); setStep(3);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Import failed"); }
+    finally { setBusy(false); }
+  };
+
+  return <>
+    <Button type="button" size="sm" variant="outline" disabled={!userId} onClick={() => { reset(); setOpen(true); }}>
+      <Plus className="mr-1 h-3 w-3" />Add custom token
+    </Button>
+    <Dialog open={open} onOpenChange={(v) => !busy && setOpen(v)}>
+      <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+        <DialogHeader><DialogTitle>Add a custom token · Step {step + 1} of 4</DialogTitle></DialogHeader>
+        {step === 0 && <div className="space-y-3 text-sm">
+          <ul className="list-disc space-y-1.5 pl-5 text-muted-foreground">
+            <li>You can add custom tokens from the <b className="text-foreground">MintMe blockchain only</b>.</li>
+            <li>Custom tokens are imported through <b className="text-foreground">MetaMask</b>.</li>
+            <li>Once deposited, they appear in your native SWARM wallet and can move freely around the network.</li>
+            <li>Your native wallet only shows tokens you have <b className="text-foreground">deposited</b> to the network.</li>
+          </ul>
+          <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={MINTME_NETWORK.blockExplorerUrls[0]} target="_blank" rel="noreferrer">
+            Find a contract address on the MintMe explorer <ExternalLink className="h-3 w-3" />
+          </a>
+          <DialogFooter><Button type="button" onClick={() => setStep(1)}>I understand</Button></DialogFooter>
+        </div>}
+        {step === 1 && <div className="space-y-3">
+          <div className="space-y-1"><Label htmlFor="ct-addr">MintMe contract address</Label>
+            <Input id="ct-addr" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="0x…" className="font-mono text-xs" /></div>
+          <div className="space-y-1"><Label htmlFor="ct-sym">Symbol</Label>
+            <Input id="ct-sym" value={symbol} maxLength={11} onChange={(e) => setSymbol(e.target.value)} placeholder="e.g. MYTOKEN" /></div>
+          <p className="text-xs text-muted-foreground">We'll ask the MintMe network what this contract really is before anything is saved.</p>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setStep(0)}>Back</Button>
+            <Button type="button" disabled={busy || !isContractAddress(address) || !isValidSymbol(symbol)} onClick={() => void check()}>{busy ? "Checking…" : "Check contract"}</Button>
+          </DialogFooter>
+        </div>}
+        {step === 2 && found && <div className="space-y-3 text-sm">
+          <div className="rounded-md border p-3 space-y-1">
+            <div>Symbol: <b>{found.symbol}</b></div>
+            <div>Decimals: {found.decimals}</div>
+            <div className="break-all font-mono text-xs text-muted-foreground">{address.trim()}</div>
+          </div>
+          <p className="text-xs text-muted-foreground">MetaMask will ask to add this token to its list. Nothing is sent.</p>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
+            <Button type="button" disabled={busy} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
+          </DialogFooter>
+        </div>}
+        {step === 3 && token && <div className="space-y-3 text-sm">
+          <p><b>{token.symbol}</b> is now on your MetaMask tab. Deposit it to see it in your native SWARM wallet.</p>
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Later</Button>
+            <Button type="button" onClick={() => { setOpen(false); setDepositOpen(true); }}>Deposit now</Button>
+          </DialogFooter>
+        </div>}
+      </DialogContent>
+    </Dialog>
+    {token && <TokenDepositDialog userId={userId} token={token} open={depositOpen} onOpenChange={setDepositOpen} />}
+  </>;
+}
+
+function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: string; token: CustomToken; open: boolean; onOpenChange: (v: boolean) => void }) {
+  const { address } = useMetaMask();
+  const [amount, setAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [held, setHeld] = useState<number | null>(null);
+  const [linked, setLinked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    setLinked(getLinkedWallet(userId)?.address ?? null);
+    if (address) void readTokenBalance(token, address).then(setHeld);
+  }, [open, userId, address, token]);
+  const same = !!address && linked === address.toLowerCase();
+  const n = Number(amount);
+  const invalid = !Number.isFinite(n) || n <= 0 || (held != null && n > held);
+  const run = async (fn: () => Promise<void>) => { setBusy(true); try { await fn(); } catch (e) { toast.error(e instanceof Error ? e.message : "Failed"); } finally { setBusy(false); } };
+  return <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
+    <DialogContent className="max-w-md">
+      <DialogHeader><DialogTitle>Deposit {token.symbol} from MetaMask</DialogTitle></DialogHeader>
+      {!same ? <div className="space-y-2 text-sm">
+        <p>Link your MetaMask account to your SWARM wallet first. You'll sign a message — no tokens move.</p>
+        <DialogFooter><Button type="button" disabled={busy || !address} onClick={() => void run(async () => { setLinked((await linkMetaMaskWallet(userId)).address); })}>Link wallet</Button></DialogFooter>
+      </div> : <div className="space-y-3">
+        <p className="text-sm">In MetaMask: <b className="tabular-nums">{held == null ? "checking…" : `${held} ${token.symbol}`}</b></p>
+        <Label htmlFor="ct-amt">Amount ({token.symbol})</Label>
+        <Input id="ct-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <p className="text-xs text-muted-foreground">MetaMask confirms a transfer to your own linked address, then signs the deposit record. MetaMask is the only witness until a MintMe node can re-check it.</p>
+        <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void run(async () => {
+          await depositCustomToken({ swarmId: userId, token, amount: n });
+          toast.success(`${n} ${token.symbol} recorded on your SWARM wallet`); setAmount(""); onOpenChange(false);
+        })}>{busy ? "Confirm in MetaMask…" : "Deposit"}</Button></DialogFooter>
+      </div>}
+    </DialogContent>
+  </Dialog>;
+}
+
+/** Token row for either tab. Native shows only deposited tokens; MetaMask shows all non-hidden ones. */
+export function CustomTokenRow({ userId, token, layer }: { userId: string; token: CustomToken; layer: "native" | "metamask" }) {
+  const { address } = useMetaMask();
+  const [held, setHeld] = useState<number | null>(null);
+  const [dep, setDep] = useState(false);
+  const recorded = getRecordedTokenBalance(userId, token.address);
+  useEffect(() => { if (layer === "metamask" && address) void readTokenBalance(token, address).then(setHeld); }, [layer, address, token]);
+  if (layer === "native" && recorded <= 0) return null;
+  if (layer === "metamask" && token.hidden) return null;
+  const amount = layer === "native" ? recorded : held;
+  return <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="min-w-0">
+      <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">MintMe token</span></div>
+      <div className="text-xl font-semibold tabular-nums">{amount == null ? "…" : amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} <span className="text-xs font-normal text-muted-foreground">{token.symbol}</span></div>
+    </div>
+    {layer === "metamask" && <div className="grid grid-cols-2 gap-2 sm:flex">
+      <Button type="button" size="sm" variant="outline" onClick={() => setDep(true)}>Deposit to Native</Button>
+      {canHideToken(held, recorded) && <Button type="button" size="sm" variant="ghost" onClick={() => setTokenHidden(userId, token.address, true)}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
+      <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
+    </div>}
+  </div>;
+}

@@ -512,3 +512,5 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 - Caretaker reflection 2026-10-20: walls now glow only from visitors' gifts; graffiti asks for patience that grows with each mark.
 
 - 2026-10-20: Wizard now trusts the user's own check — export moves data, confirm, then clear.
+
+- 2026-10-20: MintMe custom tokens can now be invited in through MetaMask — explained first, verified against the contract, shown natively only once deposited.
