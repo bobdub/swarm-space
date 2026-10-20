@@ -819,9 +819,9 @@ export function BrainChatPanel({
                         </button>
                       </div>
                     </div>
-                    <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1 [&_pre]:rounded-md [&_pre]:bg-black/50 [&_pre]:p-2">
+                    <div className="prose prose-invert prose-sm max-w-none min-w-0 break-words text-foreground/90 [&_a]:text-primary [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1 [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-black/50 [&_pre]:p-2">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {display}
+                        {formatChatMarkdown(display)}
                       </ReactMarkdown>
                     </div>
                     {isLong && (
