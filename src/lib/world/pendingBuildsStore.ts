@@ -14,6 +14,7 @@
  * Throttled IDB writes per the project browser-performance rule.
  */
 import type { Vec3 } from '@/lib/brain/earth';
+import { ownsPendingBuild } from '@/lib/world/buildOwnership';
 
 const DB_NAME = 'swarm-pending-builds';
 const STORE = 'pending';
@@ -21,6 +22,8 @@ const DB_VERSION = 1;
 const KEY = 'local';
 
 export interface PendingBuild {
+  ownerId?: string;
+  universeKey?: string;
   id: string;
   prefabId: string;
   /** Earth-local unit direction of the ground cell under the ghost. */
@@ -94,9 +97,11 @@ export function getPendingBuild(id: string): PendingBuild | undefined {
 }
 
 export function stagePendingBuild(
-  input: Omit<PendingBuild, 'id' | 'createdAt'> & { id?: string },
+  input: Omit<PendingBuild, 'id' | 'createdAt'> & { id?: string; ownerId: string; universeKey: string },
 ): PendingBuild {
   const rec: PendingBuild = {
+    ownerId: input.ownerId,
+    universeKey: input.universeKey,
     id: input.id ?? `pending:${input.prefabId}:${Date.now().toString(36)}:${Math.floor(Math.random() * 1e6).toString(36)}`,
     prefabId: input.prefabId,
     localDir: input.localDir,
@@ -110,15 +115,17 @@ export function stagePendingBuild(
   return rec;
 }
 
-export function updatePendingBuild(id: string, patch: Partial<Omit<PendingBuild, 'id'>>): void {
+export function updatePendingBuild(id: string, patch: Partial<Pick<PendingBuild, 'localDir' | 'yaw' | 'upOffset'>>, actorId: string, universeKey: string): void {
   const cur = items.get(id);
-  if (!cur) return;
+  if (!cur || !ownsPendingBuild(cur, actorId, universeKey)) return;
   items.set(id, { ...cur, ...patch });
   scheduleWrite();
   notify();
 }
 
-export function removePendingBuild(id: string): void {
+export function removePendingBuild(id: string, actorId: string, universeKey: string): void {
+  const cur = items.get(id);
+  if (!cur || !ownsPendingBuild(cur, actorId, universeKey)) return;
   if (!items.delete(id)) return;
   scheduleWrite();
   notify();
@@ -149,6 +156,8 @@ export async function hydratePendingBuilds(): Promise<void> {
 }
 
 export function _resetPendingBuildsForTest(): void {
+  if (writeTimer !== null) clearTimeout(writeTimer);
+  writeTimer = null;
   items.clear();
   listeners.clear();
   hydrated = false;

@@ -5,6 +5,8 @@
  * non-destructive IDB upgrade, local-protect against peer overwrite.
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
+import { getCurrentUser } from '@/lib/auth';
+import { ownsPlacement } from '@/lib/world/buildOwnership';
 import {
   placePrefabAtHit,
   poseTimeFromCreatedAt,
@@ -407,8 +409,9 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
   return rec;
 }
 
-export async function updateLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord> {
+export async function updateLocalPlacement(handle: PlacedHandle): Promise<PlacementRecord | null> {
   const prev = records.get(handle.placementId);
+  if (!prev || !ownsPlacement(prev, getCurrentUser()?.id) || handle.actorId !== prev.actorId) return null;
   if (prev) getBuilderBlockEngine().removeBlock(handle.placementId, prev.prefabId);
   // On move/edit the hitPoint changed but the cached local frame is
   // still the original one — using it would re-anchor the prefab at
@@ -454,7 +457,7 @@ export async function patchLocalPlacementMeta(
   patch: Partial<Pick<PlacementRecord, 'decoration'>>,
 ): Promise<PlacementRecord | null> {
   const prev = records.get(placementId);
-  if (!prev) return null;
+  if (!prev || !ownsPlacement(prev, getCurrentUser()?.id)) return null;
   const next: PlacementRecord = { ...prev, ...patch, _origin: 'local' };
   records.set(placementId, next);
   writeSnapshot();
@@ -467,7 +470,7 @@ export async function patchLocalPlacementMeta(
 
 export async function removeLocalPlacement(placementId: string): Promise<void> {
   const rec = records.get(placementId);
-  if (!rec) return;
+  if (!rec || !ownsPlacement(rec, getCurrentUser()?.id)) return;
   const tomb: PlacementTombstone = {
     placementId,
     universeKey: scopeOf(rec),

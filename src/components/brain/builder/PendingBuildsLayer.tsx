@@ -45,6 +45,8 @@ import {
 import { placePrefabAtHit } from '@/lib/world/placementController';
 import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
+import { ownsPendingBuild } from '@/lib/world/buildOwnership';
+import { getActiveUniverse, subscribePlacements } from '@/lib/world/worldPlacementsStore';
 
 /** How close the player must stand for the build prompt to appear. */
 const PROMPT_RANGE_M = 4.2;
@@ -69,6 +71,8 @@ function worldPosFor(rec: PendingBuild): Vec3 {
 
 export function PendingBuildsLayer({ selfId }: { selfId?: string }) {
   const [pending, setPending] = useState<PendingBuild[]>([]);
+  const [universeKey, setUniverseKey] = useState(getActiveUniverse);
+  useEffect(() => subscribePlacements(() => setUniverseKey(getActiveUniverse())), []);
 
   useEffect(() => {
     void hydratePendingBuilds();
@@ -80,7 +84,7 @@ export function PendingBuildsLayer({ selfId }: { selfId?: string }) {
   if (!pending.length) return null;
   return (
     <>
-      {pending.map((rec) => (
+      {pending.filter((rec) => ownsPendingBuild(rec, selfId, universeKey)).map((rec) => (
         <PendingGhost key={rec.id} record={rec} selfId={selfId} />
       ))}
     </>
@@ -147,7 +151,7 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
   });
 
   const complete = (pos: Vec3) => {
-    if (!prefab) return;
+    if (!prefab || !selfId || !ownsPendingBuild(record, selfId, getActiveUniverse())) return;
     // Re-check the wallet at the moment of completion.
     const afford = checkAffordable(cost);
     if (!afford.ok) {
@@ -189,7 +193,7 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
       return;
     }
     void recordLocalPlacement(handle);
-    removePendingBuild(record.id);
+    removePendingBuild(record.id, selfId, getActiveUniverse());
     toast.success(`Built ${prefab.label}.`);
   };
 
@@ -260,7 +264,7 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); removePendingBuild(record.id); }}
+              onClick={(e) => { e.stopPropagation(); if (selfId) removePendingBuild(record.id, selfId, getActiveUniverse()); }}
               title="Remove this ghost"
               style={{
                 appearance: 'none',
