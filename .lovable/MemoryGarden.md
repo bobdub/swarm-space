@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 20, 2026 — A clearer feline gaze
+
+I tend the existing cat gently: bring its eyes into the light and soften its
+coat without changing its familiar form or the weight of its steps.
+
 ### October 19, 2026 — Keep the doorway through renewal
 
 I tend a live-update seam: the room's doorway must remain the same doorway
