@@ -38,5 +38,5 @@
 - Host public mesh RPC outside this client-only repository; static sites or short-lived functions without ledger/mesh access cannot serve it.
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
-- Use creatorVaultCustody.ts for transfers to/from `vault:creator:{tokenId}`; never burn/mint, engrave the coin, release before changing buckets, serialize earnings claims and refuse unbacked payouts.
-- Use customTokenLimits.ts for ingress caps and ownedAssets.ts for positive balances. Read docs/project-plans/coin-vault-market-next-step.md before multiasset settlement: self-transfers are not escrow.
+- Use creatorVaultCustody.ts: never burn/mint; engrave and release before bucket changes. creatorMarketOperation excludes local overlaps; creatorVaultBacking protects payout layers, not peer consensus.
+- Use customTokenLimits.ts for caps and ownedAssets.ts for positive balances. Read the market readiness plan before expansion: self-transfers are not escrow; profile reads must not initialize vaults.

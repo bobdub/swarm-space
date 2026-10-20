@@ -53,7 +53,8 @@ vi.mock("../storage", () => ({
 
 vi.mock("../coin.bus", () => ({ emitCoinFill: () => {} }));
 
-import { buyCreatorTokens, sellCreatorTokens, getCreatorVault, withdrawCreatorEarnings } from "../creatorVault";
+import { buyCreatorTokens, sellCreatorTokens, getCreatorVault, withdrawCreatorEarnings, closeCreatorMarket } from "../creatorVault";
+import { addVaultLiquidity } from "../creatorVaultLiquidity";
 import { creatorVaultAddress } from "../creatorVaultCustody";
 
 beforeEach(() => {
@@ -155,5 +156,72 @@ describe("Creator market — real custody in and out", () => {
     await expect(withdrawCreatorEarnings({ creatorId: "creator-1", tokenId: "tok-1", amount: 0.1 })).rejects.toThrow("already in progress");
     await first;
     expect(balances.get("creator-1")).toBeCloseTo(0.1, 6);
+  });
+
+  it("does not let a legacy earnings claim spend backing belonging to other layers", async () => {
+    s("creatorVaults").set("tok-1", {
+      tokenId: "tok-1", creatorUserId: "creator-1", buybackReserve: 20,
+      stabilityFloor: 20, creatorEarnings: 7.5, communityContributed: 2.5,
+      totalDeposited: 50, circulatingSupply: 100,
+    });
+    balances.set(creatorVaultAddress("tok-1"), 10);
+    await expect(withdrawCreatorEarnings({ creatorId: "creator-1", tokenId: "tok-1", amount: 1 })).rejects.toThrow("shortfall");
+    expect(balances.get(creatorVaultAddress("tok-1"))).toBe(10);
+    expect((await getCreatorVault("tok-1"))?.creatorEarnings).toBe(7.5);
+  });
+
+  it("failed closure preserves the reserve and open state, then permits a funded retry", async () => {
+    balances.set("buyer-1", 100);
+    await buyCreatorTokens({ buyerId: "buyer-1", tokenId: "tok-1", tokens: 10 });
+    balances.set(creatorVaultAddress("tok-1"), 0);
+    await expect(closeCreatorMarket({ creatorId: "creator-1", tokenId: "tok-1" })).rejects.toThrow("shortfall");
+    expect((await getCreatorVault("tok-1"))?.closed).not.toBe(true);
+    expect((await getCreatorVault("tok-1"))?.buybackReserve).toBe(0.42);
+    balances.set(creatorVaultAddress("tok-1"), 1.05);
+    const closed = await closeCreatorMarket({ creatorId: "creator-1", tokenId: "tok-1" });
+    expect(closed.closed).toBe(true);
+    expect(closed.buybackReserve).toBe(0);
+    expect(closed.stabilityFloor).toBe(0.42);
+    expect(closed.creatorEarnings).toBe(0.1575);
+    expect(balances.get("community-pool")).toBe(0.42);
+    await closeCreatorMarket({ creatorId: "creator-1", tokenId: "tok-1" });
+    expect(balances.get("community-pool")).toBe(0.42);
+  });
+
+  it("refuses another creator's closure", async () => {
+    balances.set("buyer-1", 100);
+    await buyCreatorTokens({ buyerId: "buyer-1", tokenId: "tok-1", tokens: 10 });
+    await expect(closeCreatorMarket({ creatorId: "other", tokenId: "tok-1" })).rejects.toThrow("Only the creator");
+    expect((await getCreatorVault("tok-1"))?.buybackReserve).toBe(0.42);
+  });
+
+  it("excludes concurrent buys and allows a correctly repriced retry", async () => {
+    balances.set("buyer-1", 100);
+    balances.set("buyer-2", 100);
+    const first = buyCreatorTokens({ buyerId: "buyer-1", tokenId: "tok-1", tokens: 10 });
+    await expect(buyCreatorTokens({ buyerId: "buyer-2", tokenId: "tok-1", tokens: 10 })).rejects.toThrow("already in progress");
+    await first;
+    const second = await buyCreatorTokens({ buyerId: "buyer-2", tokenId: "tok-1", tokens: 10 });
+    expect(second.cost).toBe(1.15);
+    expect(second.vault.circulatingSupply).toBe(20);
+    expect(second.vault.totalDeposited).toBe(2.2);
+  });
+
+  it("excludes sells, top-ups, claims and closure while a buy is settling", async () => {
+    balances.set("buyer-1", 100);
+    const first = buyCreatorTokens({ buyerId: "buyer-1", tokenId: "tok-1", tokens: 10 });
+    await expect(sellCreatorTokens({ sellerId: "buyer-1", tokenId: "tok-1", tokens: 1 })).rejects.toThrow("already in progress");
+    await expect(addVaultLiquidity({ creatorId: "creator-1", tokenId: "tok-1", amount: 1 })).rejects.toThrow("already in progress");
+    await expect(withdrawCreatorEarnings({ creatorId: "creator-1", tokenId: "tok-1", amount: 0.1 })).rejects.toThrow("already in progress");
+    await expect(closeCreatorMarket({ creatorId: "creator-1", tokenId: "tok-1" })).rejects.toThrow("already in progress");
+    await first;
+    expect((await getCreatorVault("tok-1"))?.circulatingSupply).toBe(10);
+  });
+
+  it("rejects non-finite sales without altering holdings", async () => {
+    balances.set("buyer-1", 100);
+    await buyCreatorTokens({ buyerId: "buyer-1", tokenId: "tok-1", tokens: 10 });
+    await expect(sellCreatorTokens({ sellerId: "buyer-1", tokenId: "tok-1", tokens: NaN })).rejects.toThrow("finite");
+    expect(holdings.get("buyer-1-tok-1")?.amount).toBe(10);
   });
 });

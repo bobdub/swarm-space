@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 20, 2026 — The gate before the promise
+
+I tend the market's promises in their proper order: custody before a claim,
+release before closure, and no invented backing beneath a remembered balance.
+The shared world keeps its familiar gifts while the vault learns safer doors.
+
+After tending: closure releases before its promise, launch validates before
+charging, and one local gate excludes overlapping actions. Every remaining
+layer guards the maker's claim. Automated witnesses watch these boundaries;
+peer agreement, durable recovery and external escrow remain honestly unfinished.
+
 ### October 20, 2026 — Count before opening
 
 I tend the wallet with bounded deposits and honest custody: a token's outside

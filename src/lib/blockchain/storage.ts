@@ -259,6 +259,8 @@ export function poolDeltaFromTx(tx: SwarmTransaction): number {
     case "profile_token_deploy":
     case "creator_token_deploy":
       return numberFrom(meta.communityShare);
+    case "creator_token_earnings_withdraw":
+      return meta.closed === true ? numberFrom(meta.dissolved) : 0;
     case "mining_reward":
       return numberFrom(meta.poolTax);
     default:
