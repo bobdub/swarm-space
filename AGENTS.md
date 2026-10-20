@@ -18,7 +18,7 @@
 - Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
 - Chat and media wrapping share ledger-backed coin recovery; count historical containers and balance so spent coins cannot be recreated.
 
-- Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
+- Infinity never posts canned template filler; when learning yields nothing it stays silent — random stock phrases misrepresent what it has learned.
 - Infinity memory is passive ingestion of text already on the device (idle-time batched, capped, private posts skipped) and never initiates mesh requests, so it cannot compete with user connections.
 - Infinity learns from memory in small idle-time batches and marks pieces learned; text already fed live is stored pre-marked, so nothing is learned twice.
 - Brain chat, comments and replies use EntityVoice.generateText → DualLearningFusion as the single personality-guided realization path; stage stays observable, because duplicate samplers create conflicting voices.
@@ -37,4 +37,5 @@
 - Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
 - Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.
 - Local companion downloads are standalone loopback-only programs built outside the client tree; pair an authenticated relay explicitly and expose only allowlisted reads — the raw-transaction adapter is unsafe settlement.
-- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation remains unchanged, because a local helper is not a public gateway.
+- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation is unchanged — a local helper is not a public gateway.
+- Move Creator Vault money as real transfers to/from `vault:creator:{tokenId}` via creatorVaultCustody.ts (no burn/mint shortcuts), engraved on the locked vault coin; release custody before mutating buckets — legacy vaults refuse payouts.
