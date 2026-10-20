@@ -13,6 +13,12 @@ import type { SwarmTransaction } from "../types";
 import { getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
+import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
+export { CUSTOM_TOKEN_DEPOSIT_MAX } from "./customTokenLimits";
+
+export function getCustomTokenDepositCapacity(address: string) {
+  return customTokenDepositCapacity(allTransactions(), address);
+}
 
 export interface CustomToken { address: string; symbol: string; decimals: number; hidden?: boolean; addedAt: number }
 
@@ -39,6 +45,7 @@ function save(uid: string, list: CustomToken[]) {
 export function addCustomToken(uid: string, t: Omit<CustomToken, "addedAt">): CustomToken {
   if (!isContractAddress(t.address)) throw new Error("Enter a valid 0x contract address");
   if (!isValidSymbol(t.symbol)) throw new Error("Symbol must be 1–11 letters or numbers");
+  if (!Number.isInteger(t.decimals) || t.decimals < 0 || t.decimals > 36) throw new Error("Decimals must be between 0 and 36");
   const address = t.address.trim().toLowerCase();
   const rest = listCustomTokens(uid).filter((x) => x.address !== address);
   const token = { address, symbol: t.symbol.trim().toUpperCase(), decimals: t.decimals, addedAt: Date.now() };
@@ -54,7 +61,10 @@ export function setTokenHidden(uid: string, address: string, hidden: boolean) {
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
-  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(msg)), ms);
+    p.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }
 async function onMintMe() {
   if (!isMintMeChain(await readMintMeChainId())) throw new Error("Select MintMe in MetaMask before checking this token.");
@@ -115,15 +125,28 @@ export function getRecordedTokenBalance(swarmId: string, address: string): numbe
   return Math.max(0, Math.round(n * 1e8) / 1e8);
 }
 
+const depositing = new Set<string>();
 export async function depositCustomToken(p: { swarmId: string; token: CustomToken; amount: number }): Promise<SwarmTransaction> {
+  const currency = tokenCurrency(p.token.address);
+  if (depositing.has(currency)) throw new Error("A deposit for this token is already awaiting confirmation");
+  depositing.add(currency);
+  try { return await recordCustomTokenDeposit(p); }
+  finally { depositing.delete(currency); }
+}
+
+async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken; amount: number }): Promise<SwarmTransaction> {
   const { swarmId, token, amount } = p;
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero");
+  await getSwarmChain().whenReady();
+  assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
   const link = getLinkedWallet(swarmId);
   if (!link) throw new Error("Link your MetaMask wallet to this Swarm identity first");
   const account = (await getMetaMaskAccount())?.toLowerCase();
   if (account !== link.address) throw new Error("MetaMask is on a different account than the linked wallet");
   const held = await readTokenBalance(token, link.address);
-  if (held != null && held < amount) throw new Error(`MetaMask holds ${held} ${token.symbol} — not enough`);
+  if (held == null) throw new Error("Could not verify your MintMe token balance. Select MintMe and retry before depositing.");
+  if (held < amount) throw new Error(`MetaMask holds ${held} ${token.symbol} — not enough`);
+  assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
 
   const data = ERC20.encodeFunctionData("transfer", [link.address, numberToUnits(amount, token.decimals)]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [

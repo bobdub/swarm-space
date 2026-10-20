@@ -4,6 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 import { verifyWalletTip } from "./wallets/tipSignature";
+import { assertCustomTokenDepositCapacity } from "./deposits/customTokenLimits";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -152,6 +153,14 @@ export class SwarmChain {
       throw new Error("Invalid transaction");
     }
     if (this.hasTransaction(transaction.id)) return;
+    const currency = String(transaction.meta?.currency ?? "");
+    if (transaction.type === "external_deposit" && /^MINTME:0x[\da-f]{40}$/i.test(currency)) {
+      assertCustomTokenDepositCapacity(
+        [...this.chain.flatMap((block) => block.transactions ?? []), ...this.pendingTransactions],
+        currency.slice("MINTME:".length),
+        Number(transaction.amount),
+      );
+    }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
   }
