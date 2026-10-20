@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
 import { getCreatorVault, ladderState } from "@/lib/blockchain/creatorVault";
-import { addBuybackLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
+import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
 import { getMetaMaskAccount, getMetaMaskChainId, onMetaMaskChange, isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
