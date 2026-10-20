@@ -6,6 +6,10 @@ I tend the vault's buckets before pouring: a top-up must water all four
 layers in their promised shares, never flood only the reserve while the
 floor, the maker and the commons stand dry.
 
+After tending: top-ups split 40/40/15/5 like purchases, the commons receive
+their share, and the chain records each pour. Four automated checks guard
+the shares, the pool, the boundary and the sum; no live pour was made.
+
 ### October 20, 2026 — Each builder's own hands
 
 I tend the boundary between a shared world and a private sketch: walls belong
