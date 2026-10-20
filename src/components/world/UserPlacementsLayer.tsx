@@ -24,6 +24,9 @@ import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/t
 import { toolTargetFromPlacement, type ToolTarget } from '@/lib/world/toolTargets';
 import { WallPostBillboard } from '@/components/world/WallPostBillboard';
 import { ownsPlacement } from '@/lib/world/buildOwnership';
+import { WallViewerControls } from '@/components/world/WallViewerControls';
+import { listWallInteractions, subscribeWallInteractions } from '@/lib/world/wallInteractionsStore';
+import { canViewerInteract, goldLustre, VIEWER_REACH_M } from '@/lib/world/wallInteractionRules';
 
 interface UserPlacementsLayerProps {
   selfId: string;
@@ -53,6 +56,9 @@ export function UserPlacementsLayer({
   useEffect(() => subscribeHeldTool(setHeld), []);
   const [toolTarget, setSelectedToolTarget] = useState<ToolTarget | null>(() => getToolTarget());
   useEffect(() => subscribeToolTarget(setSelectedToolTarget), []);
+  const [, setInteractionTick] = useState(0);
+  useEffect(() => subscribeWallInteractions(() => setInteractionTick((n) => n + 1)), []);
+  const [viewerTarget, setViewerTarget] = useState<string | null>(null);
   useEffect(() => {
     if (!selectedPlacementId) return;
     if (!records.some((rec) => rec.placementId === selectedPlacementId)) onSelectPlacement(null);
@@ -73,6 +79,15 @@ export function UserPlacementsLayer({
           prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
         const isWall = prefab.sectionId === 'walls';
         const decorationPostId = rec.decoration?.postId ?? null;
+        const visitor = isWall && canViewerInteract(rec, selfId);
+        const interactions = isWall ? listWallInteractions(rec.placementId, rec.actorId) : [];
+        const reinforceCount = interactions.filter((i) => i.kind === 'reinforce').length;
+        const gold = goldLustre(reinforceCount);
+        const stamps = interactions.filter((i) => i.kind === 'graffiti');
+        const myStamps = stamps.filter((i) => i.actorId === selfId).length;
+        const stampCounts = new Map<string, number>();
+        stamps.forEach((i) => stampCounts.set(i.emoji!, (stampCounts.get(i.emoji!) ?? 0) + 1));
+        const viewing = visitor && viewerTarget === rec.placementId;
         const editing = selectedPlacementId === rec.placementId && !held && suppressActionChip;
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
@@ -91,11 +106,11 @@ export function UserPlacementsLayer({
                   >
                     <boxGeometry args={[prefab.width, prefab.height, prefab.depth]} />
                     <meshStandardMaterial
-                      color={prefab.color}
-                      roughness={0.7}
-                      metalness={0.05}
-                      emissive={selected || targeted ? prefab.color : '#000000'}
-                      emissiveIntensity={selected ? 0.28 : targeted ? 0.2 : 0}
+                      color={reinforceCount > 0 ? goldTint(prefab.color, gold.t) : prefab.color}
+                      roughness={reinforceCount > 0 ? gold.roughness : 0.7}
+                      metalness={reinforceCount > 0 ? gold.metalness : 0.05}
+                      emissive={selected || targeted ? prefab.color : reinforceCount > 0 ? '#b45309' : '#000000'}
+                      emissiveIntensity={selected ? 0.28 : targeted ? 0.2 : gold.emissiveIntensity}
                       side={2}
                     />
                   </mesh>
@@ -126,6 +141,41 @@ export function UserPlacementsLayer({
                       <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
                       <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
                     </mesh>
+                  )}
+                  {visitor && (
+                    <mesh
+                      position={[0, prefab.height / 2, 0]}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (e.distance > VIEWER_REACH_M) return;
+                        setViewerTarget(viewing ? null : rec.placementId);
+                      }}
+                    >
+                      <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
+                      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
+                    </mesh>
+                  )}
+                  {stampCounts.size > 0 && (
+                    <Html position={[0, 0.35, prefab.depth / 2 + 0.05]} center distanceFactor={8} occlude zIndexRange={[50, 0]}
+                      style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                      <div style={{ display: 'flex', gap: 4, padding: '2px 6px', borderRadius: 999,
+                        background: 'hsla(265,70%,8%,0.7)', fontSize: 13, color: 'white', whiteSpace: 'nowrap' }}>
+                        {[...stampCounts].map(([e, n]) => <span key={e}>{e}{n > 1 ? <sup style={{ fontSize: 9 }}>{n}</sup> : null}</span>)}
+                      </div>
+                    </Html>
+                  )}
+                  {viewing && (
+                    <Html position={[0, prefab.height + 0.7, 0]} center distanceFactor={8} occlude zIndexRange={[100, 0]}
+                      style={{ pointerEvents: 'auto', userSelect: 'none' }}>
+                      <WallViewerControls
+                        placementId={rec.placementId}
+                        ownerId={rec.actorId}
+                        selfId={selfId}
+                        postId={decorationPostId}
+                        priorStamps={myStamps}
+                        onClose={() => setViewerTarget(null)}
+                      />
+                    </Html>
                   )}
                   {selected && !held && !suppressActionChip && (
                     <>
@@ -209,3 +259,13 @@ const btnStyle: React.CSSProperties = {
   cursor: 'pointer',
   minWidth: 48,
 };
+/** Blend a base hex colour toward bullion gold. */
+function goldTint(hex: string, t: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return '#f59e0b';
+  const n = parseInt(m[1], 16);
+  const g = [0xf5, 0x9e, 0x0b];
+  const k = 0.25 + 0.75 * t;
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v, i) => Math.round(v + (g[i] - v) * k));
+  return '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+}
