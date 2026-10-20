@@ -14,7 +14,13 @@ export function ProfileTokenHoldings() {
     loadHoldings();
     const refresh = () => void loadHoldings();
     window.addEventListener("wallet-tip-updated", refresh);
-    return () => window.removeEventListener("wallet-tip-updated", refresh);
+    window.addEventListener("creator-vault-update", refresh);
+    window.addEventListener("blockchain-transaction", refresh);
+    return () => {
+      window.removeEventListener("wallet-tip-updated", refresh);
+      window.removeEventListener("creator-vault-update", refresh);
+      window.removeEventListener("blockchain-transaction", refresh);
+    };
   }, [user]);
 
   const loadHoldings = async () => {
@@ -26,7 +32,7 @@ export function ProfileTokenHoldings() {
 
     try {
       const data = await getUserProfileTokenHoldings(user.id);
-      setHoldings(data);
+      setHoldings(data.filter((holding) => Number.isFinite(holding.amount) && holding.amount > 0));
     } catch (error) {
       console.error("[Holdings] Failed to load:", error);
     } finally {

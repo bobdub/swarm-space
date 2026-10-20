@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Vault as VaultIcon, TrendingUp, Coins, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Vault as VaultIcon, TrendingUp, Coins, Plus, ArrowDownToLine } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
-import { getCreatorVault, ladderState } from "@/lib/blockchain/creatorVault";
+import { getCreatorVault, ladderState, withdrawCreatorEarnings } from "@/lib/blockchain/creatorVault";
+import { creatorVaultAddress, getCreatorVaultCoin } from "@/lib/blockchain/creatorVaultCustody";
 import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
@@ -27,6 +29,10 @@ export function VaultsPanel() {
   const [swarmBal, setSwarmBal] = useState(0);
   const [addAmount, setAddAmount] = useState("");
   const [busy, setBusy] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimAmount, setClaimAmount] = useState("");
+  const [custodyBalance, setCustodyBalance] = useState(0);
+  const [coinId, setCoinId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user?.id) return;
@@ -39,6 +45,9 @@ export function VaultsPanel() {
     if (t?.tokenId) {
       const v = await getCreatorVault(t.tokenId);
       setVault(v);
+      const [held, coin] = await Promise.all([getSwarmBalance(creatorVaultAddress(t.tokenId)).catch(() => 0), getCreatorVaultCoin(t.tokenId)]);
+      setCustodyBalance(held);
+      setCoinId(coin?.coinId ?? null);
     }
   }, [user?.id]);
 
@@ -83,6 +92,20 @@ export function VaultsPanel() {
 
   const ladder = ladderState(vault);
   const total = vault?.totalDeposited ?? 0;
+  const claim = Number(claimAmount);
+  const claimMax = Math.max(0, Math.min(vault?.creatorEarnings ?? 0, custodyBalance));
+  const claimValid = Number.isFinite(claim) && claim > 0 && claim <= claimMax;
+  const onClaim = async () => {
+    if (!user?.id || !claimValid || busy) return;
+    setBusy(true);
+    try {
+      await withdrawCreatorEarnings({ creatorId: user.id, tokenId: token.tokenId, amount: claim });
+      setClaimOpen(false); setClaimAmount("");
+      await refresh();
+      toast.success(`${fmt(claim)} SWARM released to your native wallet`);
+    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not claim earnings"); }
+    finally { setBusy(false); }
+  };
 
   return (
     <div className="space-y-4">
@@ -121,6 +144,18 @@ export function VaultsPanel() {
                 <Stat label="Circulating supply" value={`${fmt(vault.circulatingSupply, 0)} ${token.ticker}`} icon={<Coins className="h-3 w-3" />} />
               </div>
 
+              <div className="space-y-2 border-t pt-3">
+                <Label>Coin Vault custody</Label>
+                <p className="break-all font-mono text-xs text-muted-foreground">{coinId ?? "No custody coin recorded for this market yet."}</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm">Claimable earnings: <b>{fmt(claimMax)} SWARM</b></span>
+                  <Button type="button" size="sm" variant="outline" disabled={busy || claimMax <= 0} onClick={() => { setClaimAmount(String(claimMax)); setClaimOpen(true); }}>
+                    <ArrowDownToLine className="mr-1 h-4 w-4" />Claim earnings
+                  </Button>
+                </div>
+                {(vault.creatorEarnings > custodyBalance) && <p className="text-xs text-destructive">Some recorded earnings are not backed by held SWARM. Only held funds can be claimed.</p>}
+              </div>
+
               <div className="rounded-md border p-3 space-y-2">
                 <Label className="text-xs flex items-center gap-1"><Plus className="h-3 w-3" /> Add liquidity to the vault</Label>
                 <p className="text-[11px] text-muted-foreground">
@@ -143,6 +178,18 @@ export function VaultsPanel() {
           )}
         </CardContent>
       </Card>
+      <Dialog open={claimOpen} onOpenChange={(open) => { if (!busy) setClaimOpen(open); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Claim Creator Earnings</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Release SWARM from your Coin Vault earnings layer to your native wallet. The Buyback Reserve and Stability Floor are not used.</p>
+          <Label htmlFor="vault-claim-amount">SWARM amount · up to {fmt(claimMax)}</Label>
+          <Input id="vault-claim-amount" type="number" inputMode="decimal" min="0" max={claimMax} step="any" value={claimAmount} onChange={(e) => setClaimAmount(e.target.value)} />
+          <DialogFooter>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setClaimOpen(false)}>Cancel</Button>
+            <Button type="button" disabled={busy || !claimValid} onClick={() => void onClaim()}>{busy ? "Releasing…" : "Confirm claim"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
