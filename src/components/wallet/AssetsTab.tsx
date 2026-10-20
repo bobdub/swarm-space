@@ -21,6 +21,7 @@ import { MintMeDepositDialog } from "./MintMeDepositDialog";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { SendCreditsModal } from "@/components/SendCreditsModal";
+import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
 
 type Layer = "native" | "metamask";
 
@@ -33,6 +34,7 @@ export function AssetsTab() {
   const [layer, setLayer] = useState<Layer>("native");
   const { address } = useMetaMask();
   const { stats, getActivePeerConnections } = useP2PContext();
+  const customTokens = useCustomTokens(userId);
   const offline = Math.max(stats.connectedPeers, getActivePeerConnections().length) === 0;
 
   useEffect(() => {
@@ -86,6 +88,10 @@ export function AssetsTab() {
         </div>
       )}
 
+      {layer === "metamask" && address && (
+        <div className="flex justify-end"><CustomTokenWizard userId={userId} /></div>
+      )}
+
       <div className="grid gap-2">
         {rows.filter((r) => layer === "native" || r.code !== "CREDIT").map((r) => (
           <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -102,6 +108,7 @@ export function AssetsTab() {
               layer={layer} metaMaskAddress={address} offline={offline} />
           </div>
         ))}
+        {customTokens.map((t) => <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer} />)}
       </div>
     </section>
   );
