@@ -32,7 +32,8 @@ describe("deposit guard execution", () => {
     expect(mocks.add).not.toHaveBeenCalled();
   });
   it("reads back a signed deposit at the exact ceiling through the native balance path", async () => {
-    const wallet = Wallet.createRandom();
+    // Public deterministic test fixture, never an account used for real funds.
+    const wallet = new Wallet(`0x${"11".repeat(32)}`);
     mocks.account = wallet.address.toLowerCase();
     mocks.request.mockImplementation(async (method: string, params: string[]) => {
       if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [5_000_000n * 10n ** 18n]);
