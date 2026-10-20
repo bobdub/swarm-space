@@ -9,7 +9,6 @@
  */
 
 import {
-  getMetaMaskProvider,
   getExternalMetaMaskProvider,
   getExternalMetaMaskProviderSync,
   hasInjectedMetaMask,
@@ -18,7 +17,7 @@ import {
 } from "./metaMaskSdk";
 
 async function getProvider(): Promise<Eip1193Provider | null> {
-  return getMetaMaskProvider();
+  return getExternalMetaMaskProvider();
 }
 
 /**
@@ -53,7 +52,7 @@ export async function connectMetaMask(): Promise<MetaMaskConnection | null> {
 
 /** Reads the current chain id without prompting. */
 export async function getMetaMaskChainId(): Promise<string | null> {
-  const eth = getExternalMetaMaskProviderSync();
+  const eth = await getExternalMetaMaskProvider();
   if (!eth?.request) return null;
   try {
     return (await eth.request({ method: "eth_chainId" })) as string;
