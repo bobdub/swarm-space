@@ -15,7 +15,7 @@
 
 ## Brain chat participation
 - Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
-- Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room, because shared chat must not become divergent private replies.
+- Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
 - Chat and media wrapping share ledger-backed coin recovery; count historical containers and current balance so spent coins cannot be recreated.
 
 - Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
