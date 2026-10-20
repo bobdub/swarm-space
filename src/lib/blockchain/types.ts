@@ -51,7 +51,8 @@ export type TransactionType =
   | "wallet_unlink"
   | "external_deposit"
   | "external_withdraw"
-  | "external_reconcile";
+  | "external_reconcile"
+  | "custom_token_transfer";
 
 export interface SwarmTransaction {
   id: string;

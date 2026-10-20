@@ -173,7 +173,7 @@ async function executeWrap(request: WrapRequest): Promise<void> {
 /**
  * Deduct from reward pool
  */
-async function deductFromRewardPool(amount: number): Promise<void> {
+export async function deductFromRewardPool(amount: number): Promise<void> {
   const { getRewardPool, saveRewardPool } = await import("./storage");
   
   const pool = await getRewardPool();

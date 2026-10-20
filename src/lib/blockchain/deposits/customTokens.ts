@@ -121,6 +121,10 @@ export function getRecordedTokenBalance(swarmId: string, address: string): numbe
     if (m.currency !== cur) continue;
     if (tx.type === "external_deposit" && tx.to === swarmId) n += Number(tx.amount ?? 0);
     else if (tx.type === "external_withdraw" && tx.from === swarmId) n -= Number(tx.amount ?? 0);
+    else if (tx.type === "custom_token_transfer") {
+      if (tx.from === swarmId) n -= Number(tx.amount ?? 0);
+      if (tx.to === swarmId) n += Number(tx.amount ?? 0);
+    }
   }
   return Math.max(0, Math.round(n * 1e8) / 1e8);
 }
