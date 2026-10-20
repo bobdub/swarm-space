@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getUserProfileToken } from "@/lib/blockchain/profileToken";
 import { getCreatorVault, ladderState } from "@/lib/blockchain/creatorVault";
-import { addBuybackLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
+import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import type { CreatorToken, CreatorVault } from "@/lib/blockchain/types";
 import { getMetaMaskAccount, getMetaMaskChainId, onMetaMaskChange, isMetaMaskAvailable } from "@/lib/blockchain/wallets/metaMaskBridge";
@@ -89,8 +89,8 @@ export function VaultsPanel() {
     if (amt > swarmBal) { toast.error("Exceeds your SWARM balance"); return; }
     setBusy(true);
     try {
-      await addBuybackLiquidity({ creatorId: user.id, tokenId: token.tokenId, amount: amt });
-      toast.success(`Added ${fmt(amt)} SWARM to Buyback Reserve`);
+      await addVaultLiquidity({ creatorId: user.id, tokenId: token.tokenId, amount: amt });
+      toast.success(`Added ${fmt(amt)} SWARM across the vault layers (40/40/15/5)`);
       setAddAmount("");
       await refresh();
     } catch (e) {
@@ -150,9 +150,10 @@ export function VaultsPanel() {
               </div>
 
               <div className="rounded-md border p-3 space-y-2">
-                <Label className="text-xs flex items-center gap-1"><Plus className="h-3 w-3" /> Add liquidity to Buyback Reserve</Label>
+                <Label className="text-xs flex items-center gap-1"><Plus className="h-3 w-3" /> Add liquidity to the vault</Label>
                 <p className="text-[11px] text-muted-foreground">
-                  Boosts your Buyback Ladder tier so holders can sell back at fair prices. Your SWARM: {fmt(swarmBal)}.
+                  Splits 40/40/15/5 across the layers, same as a purchase — lifting the Buyback Ladder while
+                  strengthening the floor, your earnings and the community pool. Your SWARM: {fmt(swarmBal)}.
                 </p>
                 <div className="flex gap-2">
                   <Input
