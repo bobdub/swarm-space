@@ -9,6 +9,7 @@
 - **WebRTC Limits:** Use a single shared `AudioContext` across all stream participants to prevent browser crashes.
 - **Secrets:** Never expose raw keys. Use Web Crypto API (`CryptoKey`) in-memory vault with ephemeral AES-256-GCM.
 - **Performance:** Throttled IndexedDB writes (2.5m), lazy-load routes, defer boot tasks via `requestIdleCallback`.
+- **Identity keys:** Security state, never storage. No cleanup/archive flow may remove them.
 - **Bot Protection:** Avoid CAPTCHAs. Prefer rate-limiting or Proof-of-Work.
 - **Visible Q_Score:** Wrap stress hotspots with `withHealth`/`spikeHealth` so the badge spikes on real runtime events; baseline seeded from `src/lib/uqrc/baseline.json`.
 - **Dead-state ≠ Network:** UQRC causal-probe `creep`/`saturated`/`dead` is local field saturation. Resolve via field-side basin relax. NEVER disconnect WebRTC or leave swarm in response.

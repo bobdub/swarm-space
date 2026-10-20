@@ -12,10 +12,17 @@ import { getAll, remove, openDB } from '@/lib/store';
 import type { Manifest, Chunk } from '@/lib/store';
 import { STORE_TIER_MAP } from './providers/types';
 
+/**
+ * Identity keys are security state, not storage state: every account needs
+ * them, so no cleanup or archive path may ever remove them.
+ */
+export const NEVER_CLEAR_STORES = ['users', 'meta', 'blockchain', 'tokenBalances', 'swarmCoins'] as const;
+
 /** Stores the clear step is allowed to delete from. */
 export const CLEARABLE_STORES = Object.entries(STORE_TIER_MAP)
   .filter(([, tier]) => tier === 'bulk' || tier === 'replica')
-  .map(([name]) => name);
+  .map(([name]) => name)
+  .filter((name) => !(NEVER_CLEAR_STORES as readonly string[]).includes(name));
 
 export interface UsageBreakdown {
   /** Media pieces + file records (clearable). */
