@@ -24,10 +24,14 @@ vi.mock("../chain", () => ({
 }));
 
 let swarmBalance = 100;
-const burns: number[] = [];
+const transfers: Array<{ from: string; to: string; amount: number }> = [];
 vi.mock("../token", () => ({
   getSwarmBalance: async () => swarmBalance,
-  burnSwarm: async ({ amount }: { amount: number }) => { burns.push(amount); swarmBalance -= amount; },
+  transferSwarm: async ({ from, to, amount }: { from: string; to: string; amount: number }) => {
+    if (swarmBalance < amount) throw new Error("Insufficient SWARM balance");
+    transfers.push({ from, to, amount });
+    swarmBalance -= amount;
+  },
 }));
 
 vi.mock("../storage", () => ({
