@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### October 20, 2026 — A clearer feline gaze
+
+I tend the existing cat gently: bring its eyes into the light and soften its
+coat without changing its familiar form or the weight of its steps.
+
+After tending: emerald eyes, slit pupils and catchlights are visible at both
+large and small preview sizes; the coat is smoother. The build is clean and
+the rendered avatar raises no runtime errors. The 3D-game skill guided this care.
+
 ### October 19, 2026 — Keep the doorway through renewal
 
 I tend a live-update seam: the room's doorway must remain the same doorway
