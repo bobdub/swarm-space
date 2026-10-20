@@ -4,8 +4,8 @@
  *
  * Top-ups follow the vault layers: every contribution splits 40% Buyback
  * Reserve / 40% Stability Floor / 15% Creator Earnings / 5% Community Pool,
- * exactly like a purchase. The transfer is a straight burn on the creator's
- * SWARM balance and a credit to the vault's buckets, recorded on the chain
+ * exactly like a purchase. SWARM moves into real vault custody,
+ * with its layers recorded on the chain
  * for transparency.
  */
 
@@ -18,6 +18,7 @@ import {
 import { getSwarmChain } from "./chain";
 import { generateTransactionId } from "./crypto";
 import { getCreatorVault, saveCreatorVault, computeTier } from "./creatorVault";
+import { withCreatorMarketOperation } from "./creatorMarketOperation";
 
 function round6(n: number) { return Math.round(n * 1_000_000) / 1_000_000; }
 function nowIso() { return new Date().toISOString(); }
@@ -46,6 +47,12 @@ export async function addVaultLiquidity(params: {
   creatorId: string;
   tokenId: string;
   amount: number;
+}): Promise<{ vault: CreatorVault; split: VaultTopUpSplit }> {
+  return withCreatorMarketOperation(params.tokenId, () => addVaultLiquidityUnlocked(params));
+}
+
+async function addVaultLiquidityUnlocked(params: {
+  creatorId: string; tokenId: string; amount: number;
 }): Promise<{ vault: CreatorVault; split: VaultTopUpSplit }> {
   const { creatorId, tokenId, amount } = params;
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Amount must be > 0");

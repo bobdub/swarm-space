@@ -24,6 +24,8 @@ import {
   saveProfileTokenHolding,
 } from "./profileTokenBalance";
 import { emitCoinFill } from "./coin.bus";
+import { withCreatorMarketOperation } from "./creatorMarketOperation";
+import { creatorVaultBacking } from "./creatorVaultBacking";
 
 const VAULT_STORE = "creatorVaults";
 
@@ -177,6 +179,14 @@ export async function buyCreatorTokens(params: {
   tokenId: string;
   tokens: number;
 }): Promise<{ vault: CreatorVault; cost: number }> {
+  return withCreatorMarketOperation(params.tokenId, () => buyCreatorTokensUnlocked(params));
+}
+
+async function buyCreatorTokensUnlocked(params: {
+  buyerId: string;
+  tokenId: string;
+  tokens: number;
+}): Promise<{ vault: CreatorVault; cost: number }> {
   const { buyerId, tokenId, tokens } = params;
   if (tokens <= 0 || !Number.isFinite(tokens)) {
     throw new Error("Token amount must be positive");
@@ -189,6 +199,7 @@ export async function buyCreatorTokens(params: {
   );
   const record = allTokens.find((t) => t.tokenId === tokenId);
   if (!record) throw new Error("Creator Token not found");
+  if ((record as { closedAt?: string }).closedAt) throw new Error("This creator market has been closed.");
 
   const creatorId = record.userId;
   const vault = await ensureCreatorVault(tokenId, creatorId);
@@ -305,8 +316,16 @@ export async function sellCreatorTokens(params: {
   tokenId: string;
   tokens: number;
 }): Promise<{ vault: CreatorVault; proceeds: number; source: string }> {
+  return withCreatorMarketOperation(params.tokenId, () => sellCreatorTokensUnlocked(params));
+}
+
+async function sellCreatorTokensUnlocked(params: {
+  sellerId: string;
+  tokenId: string;
+  tokens: number;
+}): Promise<{ vault: CreatorVault; proceeds: number; source: string }> {
   const { sellerId, tokenId, tokens } = params;
-  if (tokens <= 0) throw new Error("Token amount must be positive");
+  if (!Number.isFinite(tokens) || tokens <= 0) throw new Error("Token amount must be positive and finite");
 
   const vault = await getCreatorVault(tokenId);
   if (!vault) throw new Error("Vault not initialized");
@@ -317,6 +336,8 @@ export async function sellCreatorTokens(params: {
     throw new Error("Insufficient tokens to sell");
   }
 
+  if (tokens > vault.circulatingSupply) throw new Error("Token amount exceeds circulating supply");
+  await assertVaultBacked(vault);
   const { proceeds, tier, fromReserve, fromFloor, source } = quoteSell(vault, tokens);
   if (proceeds <= 0) {
     throw new Error("This vault has no liquidity to buy back right now");
@@ -371,16 +392,12 @@ export async function sellCreatorTokens(params: {
 }
 
 /** Creator withdraws accumulated earnings to their SWARM wallet. */
-const earningsClaims = new Set<string>();
 export async function withdrawCreatorEarnings(params: {
   creatorId: string;
   tokenId: string;
   amount: number;
 }): Promise<CreatorVault> {
-  if (earningsClaims.has(params.tokenId)) throw new Error("An earnings claim is already in progress for this vault");
-  earningsClaims.add(params.tokenId);
-  try { return await releaseCreatorEarnings(params); }
-  finally { earningsClaims.delete(params.tokenId); }
+  return withCreatorMarketOperation(params.tokenId, () => releaseCreatorEarnings(params));
 }
 
 async function releaseCreatorEarnings(params: { creatorId: string; tokenId: string; amount: number }): Promise<CreatorVault> {
@@ -390,6 +407,7 @@ async function releaseCreatorEarnings(params: { creatorId: string; tokenId: stri
   if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can withdraw");
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Amount must be positive and finite");
   if (amount > vault.creatorEarnings) throw new Error("Insufficient earnings");
+  await assertVaultBacked(vault);
 
   // Release custody before touching the earnings bucket, so a vault with
   // no engraved funds fails without draining the accounting.
@@ -432,36 +450,38 @@ export async function closeCreatorMarket(params: {
   tokenId: string;
   reason?: string;
 }): Promise<CreatorVault> {
+  return withCreatorMarketOperation(params.tokenId, () => closeCreatorMarketUnlocked(params));
+}
+
+async function closeCreatorMarketUnlocked(params: {
+  creatorId: string;
+  tokenId: string;
+  reason?: string;
+}): Promise<CreatorVault> {
   const { creatorId, tokenId, reason } = params;
   const vault = await getCreatorVault(tokenId);
   if (!vault) throw new Error("Vault not initialized");
   if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can close the market");
   if (vault.closed) return vault;
 
-  // Dissolve Open Market bucket → send remainder to community pool.
+  // Refuse unbacked accounting before releasing or committing closure.
+  await assertVaultBacked(vault);
   const dissolved = round6(vault.buybackReserve);
+  if (dissolved > 0) {
+    const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+    await releaseFromCreatorVault({
+      tokenId, creatorUserId: creatorId, toId: "community-pool",
+      amount: dissolved, layer: "market-close-dissolve",
+      reason: `Market closed — buyback reserve dissolved (${tokenId})`,
+    });
+  }
   vault.buybackReserve = 0;
   vault.closed = true;
   vault.closedAt = nowIso();
+  vault.currentTier = 0;
   await saveCreatorVault(vault);
 
   if (dissolved > 0) {
-    // Move the dissolved reserve out of vault custody to the community pool
-    // address. Best-effort: legacy vaults (pre-custody) hold no engraved
-    // funds, so the release may legitimately fail.
-    try {
-      const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
-      await releaseFromCreatorVault({
-        tokenId,
-        creatorUserId: creatorId,
-        toId: "community-pool",
-        amount: dissolved,
-        layer: "market-close-dissolve",
-        reason: `Market closed — buyback reserve dissolved (${tokenId})`,
-      });
-    } catch (err) {
-      console.warn("[CreatorVault] Custody dissolve skipped:", err);
-    }
     try {
       const { getRewardPool, saveRewardPool } = await import("./storage");
       let pool = await getRewardPool();
@@ -503,4 +523,12 @@ export async function closeCreatorMarket(params: {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
   }
   return vault;
+}
+async function assertVaultBacked(vault: CreatorVault): Promise<void> {
+  const { getSwarmBalance } = await import("./token");
+  const { creatorVaultAddress } = await import("./creatorVaultCustody");
+  const backing = creatorVaultBacking(vault, await getSwarmBalance(creatorVaultAddress(vault.tokenId)));
+  if (!backing.backed) {
+    throw new Error(`Vault has no engraved funds covering all recorded layers. Custody shortfall: ${backing.shortfall.toFixed(4)} SWARM. Sync or reconcile the vault before payouts.`);
+  }
 }

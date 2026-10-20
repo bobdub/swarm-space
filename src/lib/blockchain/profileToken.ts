@@ -15,6 +15,7 @@ import type { ProfileToken } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId, generateTokenId } from "./crypto";
 import { getProfileToken, saveProfileToken } from "./storage";
+import { withCreatorMarketOperation } from "./creatorMarketOperation";
 
 /** Best-effort push of a market snapshot to connected mesh peers. */
 async function broadcastMarketToMesh(tokenId: string): Promise<void> {
@@ -33,6 +34,14 @@ export async function deployProfileToken(params: {
   description?: string;
   image?: string;
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
+  return withCreatorMarketOperation(`deployment:${params.userId}`, () => deployProfileTokenUnlocked(params));
+}
+
+async function deployProfileTokenUnlocked(params: {
+  userId: string; name: string; ticker: string; description?: string; image?: string;
+}): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
+  if (!/^[A-Z]{3,5}$/.test(params.ticker)) throw new Error("Ticker must be 3-5 uppercase letters");
+  if (!params.name.trim()) throw new Error("Token name is required");
   // Check credit balance
   const { getCreditBalance, deductCredits } = await import("../credits");
   const { getDeployPricing } = await import("./deployPricing");
@@ -65,14 +74,6 @@ export async function deployProfileToken(params: {
     if (used) {
       throw new Error("Profile token already in use and cannot be redeployed");
     }
-  }
-
-  // Deduct deployment cost
-  await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
-
-  // Validate ticker (3-5 uppercase letters)
-  if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
-    throw new Error("Ticker must be 3-5 uppercase letters");
   }
 
   // Supply unlock model:
@@ -119,6 +120,46 @@ export async function deployProfileToken(params: {
     },
   };
 
+  // Initialize the Creator Vault and seed it with the deployment fee as the
+  // first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
+  // The fee is locked into the vault address as real custody (never burned)
+  // and engraved onto the vault's locked container coin.
+  const { ensureCreatorVault, saveCreatorVault, computeTier } = await import("./creatorVault");
+
+  const swarmSeed = pricing.creatorTokenSwarm;
+  const buyback = Math.round(swarmSeed * CREATOR_VAULT_BUYBACK_SHARE * 1e6) / 1e6;
+  const stability = Math.round(swarmSeed * CREATOR_VAULT_STABILITY_SHARE * 1e6) / 1e6;
+  const creatorEarn = Math.round(swarmSeed * CREATOR_VAULT_CREATOR_SHARE * 1e6) / 1e6;
+  const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
+
+  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  await lockIntoCreatorVault({
+    fromId: params.userId,
+    tokenId,
+    creatorUserId: params.userId,
+    amount: swarmSeed,
+    split: { buyback, stability, creator: creatorEarn, community },
+    reason: "Creator Token market launch fee",
+  });
+  // A failed custody lock cannot charge credits or publish a market.
+  try {
+    await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
+  } catch (error) {
+    const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+    await releaseFromCreatorVault({ tokenId, creatorUserId: params.userId, toId: params.userId,
+      amount: swarmSeed, layer: "deployment-refund", reason: "Deployment credit payment failed" });
+    throw error;
+  }
+  const vault = await ensureCreatorVault(tokenId, params.userId);
+  vault.buybackReserve += buyback;
+  vault.stabilityFloor += stability;
+  vault.creatorEarnings += creatorEarn;
+  vault.communityContributed += community;
+  vault.totalDeposited += swarmSeed;
+  vault.circulatingSupply += creatorSeed;
+  vault.currentTier = computeTier(vault);
+  await saveCreatorVault(vault);
+
   const chain = getSwarmChain();
   chain.addTransaction(transaction);
 
@@ -138,36 +179,6 @@ export async function deployProfileToken(params: {
   // Record deployment state for gradual unlock
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
-
-  // Initialize the Creator Vault and seed it with the deployment fee as the
-  // first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
-  // The fee is locked into the vault address as real custody (never burned)
-  // and engraved onto the vault's locked container coin.
-  const { ensureCreatorVault, saveCreatorVault, computeTier } = await import("./creatorVault");
-  const vault = await ensureCreatorVault(tokenId, params.userId);
-  const swarmSeed = pricing.creatorTokenSwarm;
-  const buyback = Math.round(swarmSeed * CREATOR_VAULT_BUYBACK_SHARE * 1e6) / 1e6;
-  const stability = Math.round(swarmSeed * CREATOR_VAULT_STABILITY_SHARE * 1e6) / 1e6;
-  const creatorEarn = Math.round(swarmSeed * CREATOR_VAULT_CREATOR_SHARE * 1e6) / 1e6;
-  const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
-
-  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
-  await lockIntoCreatorVault({
-    fromId: params.userId,
-    tokenId,
-    creatorUserId: params.userId,
-    amount: swarmSeed,
-    split: { buyback, stability, creator: creatorEarn, community },
-    reason: "Creator Token market launch fee",
-  });
-  vault.buybackReserve += buyback;
-  vault.stabilityFloor += stability;
-  vault.creatorEarnings += creatorEarn;
-  vault.communityContributed += community;
-  vault.totalDeposited += swarmSeed;
-  vault.circulatingSupply += creatorSeed;
-  vault.currentTier = computeTier(vault);
-  await saveCreatorVault(vault);
 
   try {
     const { derivePoolFromChain } = await import("./storage");
