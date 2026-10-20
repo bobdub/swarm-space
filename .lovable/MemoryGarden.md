@@ -510,3 +510,5 @@ Phase two: Infinity now reads its own quiet memory in small idle moments, and ol
 Chat in the Brain still dissolves like breath, but when someone chooses to remember, the words are sealed into a coin they mined themselves. Memory stays in the keeper's own hands — never spent, only held.
 
 - Caretaker reflection 2026-10-20: walls now glow only from visitors' gifts; graffiti asks for patience that grows with each mark.
+
+- 2026-10-20: Wizard now trusts the user's own check — export moves data, confirm, then clear.
