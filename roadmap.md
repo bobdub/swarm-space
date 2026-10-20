@@ -1,3 +1,9 @@
+## Market custody gaps (2026-10-20)
+- [ ] Make deployment and closure fail safely before committing market state
+- [ ] Review layered allocation and old-account vault setup; preserve SWARM-only settlement
+- [ ] Update market controls and readiness guidance for real Coin Vault custody
+- [ ] Run automated market and custody regressions; no live wallet test
+
 ## Custom tokens and Coin Vault preparation (2026-10-20)
 - [x] Enforce the 5,000,000 per-contract lifetime ceiling against known ledger deposits, including peer-chain acceptance, and explain remaining capacity
 - [x] Guide imports honestly, retain MintMe verification and prevent unknown-balance deposits
