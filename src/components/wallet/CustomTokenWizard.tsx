@@ -10,7 +10,7 @@ import { useMetaMask } from "@/hooks/useMetaMask";
 import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
 import { MINTME_NETWORK } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
-  addCustomToken, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
+  addCustomToken, canHideToken, depositCustomToken, ensureMintMe, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
@@ -33,26 +33,41 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const [address, setAddress] = useState("");
   const [symbol, setSymbol] = useState("");
   const [busy, setBusy] = useState(false);
-  const [found, setFound] = useState<{ symbol: string; decimals: number } | null>(null);
+  const [found, setFound] = useState<{ symbol: string; decimals: number; read: boolean } | null>(null);
+  const [held, setHeld] = useState<number | null>(null);
+  const [decimalsIn, setDecimalsIn] = useState("18");
   const [token, setToken] = useState<CustomToken | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
+  const { address: mmAddr } = useMetaMask();
 
-  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); };
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); };
+  const switchNet = async () => {
+    setBusy(true);
+    try { await ensureMintMe(); setStep(1); }
+    catch (e) { toast.error(e instanceof Error ? e.message : "Could not switch to MintMe"); }
+    finally { setBusy(false); }
+  };
   const check = async () => {
     setBusy(true);
     try {
       const meta = await readTokenMetadata(address.trim());
-      setFound(meta);
-      if (meta.symbol.toUpperCase() !== symbol.trim().toUpperCase()) toast.warning(`The contract calls itself ${meta.symbol}, not ${symbol.toUpperCase()}.`);
+      const dec = meta.decimals ?? 18;
+      const sym = meta.symbol ?? symbol.trim().toUpperCase();
+      setFound({ symbol: sym, decimals: dec, read: meta.decimals != null });
+      setDecimalsIn(String(dec));
+      if (mmAddr) setHeld(await readTokenBalance({ address: address.trim(), symbol: sym, decimals: dec, addedAt: 0 }, mmAddr));
+      if (meta.symbol && meta.symbol.toUpperCase() !== symbol.trim().toUpperCase()) toast.warning(`The contract calls itself ${meta.symbol}, not ${symbol.toUpperCase()}.`);
+      if (!meta.symbol || meta.decimals == null) toast.message("The contract didn't answer fully — check the details below.");
       setStep(2);
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Could not read that contract"); }
-    finally { setBusy(false); }
+    } finally { setBusy(false); }
   };
+  const dec = Number(decimalsIn);
+  const decOk = Number.isInteger(dec) && dec >= 0 && dec <= 36;
   const importIt = async () => {
-    if (!found) return;
+    if (!found || !decOk) return;
     setBusy(true);
     try {
-      const t = addCustomToken(userId, { address, symbol: found.symbol, decimals: found.decimals });
+      const t = addCustomToken(userId, { address, symbol: found.symbol, decimals: dec });
       try { await watchInMetaMask(t); } catch { toast.message("Saved here — MetaMask did not add it to its own list."); }
       setToken(t); setStep(3);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Import failed"); }
@@ -76,29 +91,32 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
           <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={MINTME_NETWORK.blockExplorerUrls[0]} target="_blank" rel="noreferrer">
             Find a contract address on the MintMe explorer <ExternalLink className="h-3 w-3" />
           </a>
-          <DialogFooter><Button type="button" onClick={() => setStep(1)}>I understand</Button></DialogFooter>
+          <p className="text-xs text-muted-foreground">First, MetaMask switches to the MintMe network — approve it in MetaMask.</p>
+          <DialogFooter><Button type="button" disabled={busy} onClick={() => void switchNet()}>{busy ? "Approve in MetaMask…" : "Switch to MintMe"}</Button></DialogFooter>
         </div>}
         {step === 1 && <div className="space-y-3">
           <div className="space-y-1"><Label htmlFor="ct-addr">MintMe contract address</Label>
             <Input id="ct-addr" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="0x…" className="font-mono text-xs" /></div>
           <div className="space-y-1"><Label htmlFor="ct-sym">Symbol</Label>
             <Input id="ct-sym" value={symbol} maxLength={11} onChange={(e) => setSymbol(e.target.value)} placeholder="e.g. MYTOKEN" /></div>
-          <p className="text-xs text-muted-foreground">We'll ask the MintMe network what this contract really is before anything is saved.</p>
+          <p className="text-xs text-muted-foreground">We'll look for this token in your MetaMask wallet on MintMe.</p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(0)}>Back</Button>
-            <Button type="button" disabled={busy || !isContractAddress(address) || !isValidSymbol(symbol)} onClick={() => void check()}>{busy ? "Checking…" : "Check contract"}</Button>
+            <Button type="button" disabled={busy || !isContractAddress(address) || !isValidSymbol(symbol)} onClick={() => void check()}>{busy ? "Looking…" : "Find in my wallet"}</Button>
           </DialogFooter>
         </div>}
         {step === 2 && found && <div className="space-y-3 text-sm">
           <div className="rounded-md border p-3 space-y-1">
             <div>Symbol: <b>{found.symbol}</b></div>
-            <div>Decimals: {found.decimals}</div>
+            <div>In your MetaMask: <b className="tabular-nums">{held == null ? "couldn't read" : `${held} ${found.symbol}`}</b></div>
             <div className="break-all font-mono text-xs text-muted-foreground">{address.trim()}</div>
           </div>
+          <div className="space-y-1"><Label htmlFor="ct-dec">Decimals {found.read ? "(from contract)" : "(enter manually — usually 18)"}</Label>
+            <Input id="ct-dec" type="number" min="0" max="36" value={decimalsIn} disabled={found.read} onChange={(e) => setDecimalsIn(e.target.value)} /></div>
           <p className="text-xs text-muted-foreground">MetaMask will ask to add this token to its list. Nothing is sent.</p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
-            <Button type="button" disabled={busy} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
+            <Button type="button" disabled={busy || !decOk} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
           </DialogFooter>
         </div>}
         {step === 3 && token && <div className="space-y-3 text-sm">

@@ -53,9 +53,17 @@ export function setTokenHidden(uid: string, address: string, hidden: boolean) {
   save(uid, listCustomTokens(uid).map((t) => (t.address === address.toLowerCase() ? { ...t, hidden } : t)));
 }
 
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+}
 async function onMintMe() { if (!isMintMeChain(await getMetaMaskChainId())) await switchToMintMeNetwork(); }
+/** Switch MetaMask to MintMe first, as its own visible step. */
+export async function ensureMintMe(): Promise<void> {
+  await withTimeout(onMintMe(), 60_000, "MetaMask did not switch to MintMe — open MetaMask and approve the network switch");
+  if (!isMintMeChain(await getMetaMaskChainId())) throw new Error("MetaMask is not on the MintMe network yet");
+}
 async function call(to: string, data: string): Promise<string> {
-  return String(await requestMetaMask<string>("eth_call", [{ to, data }, "latest"]));
+  return String(await withTimeout(requestMetaMask<string>("eth_call", [{ to, data }, "latest"]), 12_000, "MintMe network did not answer"));
 }
 
 export function unitsToNumber(raw: bigint, decimals: number): number {
@@ -67,14 +75,13 @@ export function numberToUnits(amount: number, decimals: number): bigint {
   return BigInt(w) * 10n ** BigInt(decimals) + BigInt((f + "0".repeat(decimals)).slice(0, decimals) || "0");
 }
 
-/** Read the contract's own symbol/decimals so the wizard can check what the user typed. */
-export async function readTokenMetadata(address: string): Promise<{ symbol: string; decimals: number }> {
-  await onMintMe();
-  const code = String(await requestMetaMask<string>("eth_getCode", [address, "latest"]));
-  if (!code || code === "0x") throw new Error("No contract found at that address on MintMe");
-  const symbol = String(ERC20.decodeFunctionResult("symbol", await call(address, ERC20.encodeFunctionData("symbol")))[0]);
-  const decimals = Number(ERC20.decodeFunctionResult("decimals", await call(address, ERC20.encodeFunctionData("decimals")))[0]);
-  return { symbol, decimals };
+/** Best-effort read of symbol/decimals; null fields mean the user fills them in. Assumes MintMe is already selected. */
+export async function readTokenMetadata(address: string): Promise<{ symbol: string | null; decimals: number | null }> {
+  const symbol = await call(address, ERC20.encodeFunctionData("symbol"))
+    .then((r) => String(ERC20.decodeFunctionResult("symbol", r)[0]) || null).catch(() => null);
+  const decimals = await call(address, ERC20.encodeFunctionData("decimals"))
+    .then((r) => Number(ERC20.decodeFunctionResult("decimals", r)[0])).catch(() => null);
+  return { symbol, decimals: decimals != null && Number.isInteger(decimals) && decimals >= 0 && decimals <= 36 ? decimals : null };
 }
 
 export async function readTokenBalance(token: CustomToken, owner: string): Promise<number | null> {
