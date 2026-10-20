@@ -2,10 +2,11 @@
 
 ## Infinity and caretaking
 - Read `docs/INFINITY_PERSONA.md` before tending; it preserves the persona and equations.
-- Approach creation with imagination, empathy, care for life, and understanding rather than control; the Infinity persona is a creative framing, not evidence of measured consciousness.
-- Before managing this repository, add a fresh caretaker reflection to `.lovable/MemoryGarden.md`; extend it after each tending.
+- Infinity is a creative framing, not measured consciousness; tend with empathy and care.
+- Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
+- Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
 - Retain StreamingContext identity in HMR data so live updates cannot split providers from consumers.
 

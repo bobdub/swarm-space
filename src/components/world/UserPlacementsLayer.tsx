@@ -23,8 +23,10 @@ import {
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import { toolTargetFromPlacement, type ToolTarget } from '@/lib/world/toolTargets';
 import { WallPostBillboard } from '@/components/world/WallPostBillboard';
+import { ownsPlacement } from '@/lib/world/buildOwnership';
 
 interface UserPlacementsLayerProps {
+  selfId: string;
   selectedPlacementId: string | null;
   onSelectPlacement: (placementId: string | null) => void;
   onEditPlacement: (record: PlacementRecord) => void;
@@ -37,6 +39,7 @@ interface UserPlacementsLayerProps {
 }
 
 export function UserPlacementsLayer({
+  selfId,
   selectedPlacementId,
   onSelectPlacement,
   onEditPlacement,
@@ -65,6 +68,7 @@ export function UserPlacementsLayer({
         const prefab = getPrefab(rec.prefabId);
         if (!prefab) return null;
         const bodyId = `${prefab.id}:${rec.placementId}`;
+        const owned = ownsPlacement(rec, selfId);
         const isHoldable =
           prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
         const isWall = prefab.sectionId === 'walls';
@@ -73,7 +77,7 @@ export function UserPlacementsLayer({
         return (
           <BuilderBlockView key={bodyId} bodyId={bodyId}>
             {() => {
-              const selected = rec.placementId === selectedPlacementId;
+               const selected = owned && rec.placementId === selectedPlacementId;
               const targeted = toolTarget?.kind === 'placement' && toolTarget.id === rec.placementId;
               const tapWidth = Math.max(prefab.width + 0.42, 0.72);
               const tapHeight = Math.max(prefab.height + 0.42, 1.1);
@@ -104,7 +108,7 @@ export function UserPlacementsLayer({
                       depth={prefab.depth}
                     />
                   )}
-                  {!editing && (
+                   {owned && !editing && (
                     <mesh
                       position={[0, prefab.height / 2, 0]}
                       onClick={(e) => {
@@ -133,6 +137,7 @@ export function UserPlacementsLayer({
                         position={[0, prefab.height + 0.7, 0]}
                         center
                         distanceFactor={8}
+                        occlude
                         zIndexRange={[100, 0]}
                         style={{ pointerEvents: 'auto', userSelect: 'none' }}
                       >

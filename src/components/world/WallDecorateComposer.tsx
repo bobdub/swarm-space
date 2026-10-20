@@ -43,7 +43,8 @@ export function WallDecorateComposer({
       // The post is already signed, stored and broadcast with
       // `wallPlacementId` set by PostComposer — it is an ordinary feed post
       // that also happens to be pinned here. Only the pin is written now.
-      await decorateWall(placementId, post.id);
+      const pinned = await decorateWall(placementId, post.id);
+      if (!pinned) throw new Error('Wall is no longer owned by this account.');
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
       }

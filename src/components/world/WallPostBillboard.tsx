@@ -11,6 +11,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
+import { useFrame } from '@react-three/fiber';
+import { isMediaOccluded } from '@/lib/world/mediaOcclusion';
 import { get, getAll } from '@/lib/store';
 import { importFileKey, decryptAndReassembleFile, type Manifest } from '@/lib/fileEncryption';
 import { progressiveDecryptToBlob } from '@/lib/torrent/streamingDecryptor';
@@ -66,6 +68,15 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const [extraCount, setExtraCount] = useState(0);
   const [retryTick, setRetryTick] = useState(0);
   const objectUrlRef = useRef<string | null>(null);
+  const posterRef = useRef<THREE.Group>(null);
+  const lastOcclusionCheck = useRef(0);
+  const [occluded, setOccluded] = useState(false);
+  useFrame(({ scene, camera, clock }) => {
+    if (!posterRef.current || clock.elapsedTime - lastOcclusionCheck.current < 0.15) return;
+    lastOcclusionCheck.current = clock.elapsedTime;
+    const point = posterRef.current.localToWorld(new THREE.Vector3(0, 0, 0.01));
+    setOccluded(isMediaOccluded(scene, camera, point));
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -366,7 +377,7 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const author = post.authorName || post.author?.slice(0, 18) || 'anon';
 
   return (
-    <group position={[0, height / 2, depth / 2 + 0.02]}>
+    <group ref={posterRef} position={[0, height / 2, depth / 2 + 0.02]}>
       {/* Backing mesh — opaque so the poster reads on glass/window walls. */}
       <mesh>
         <planeGeometry args={[planeW, planeH]} />
@@ -379,11 +390,10 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
       </mesh>
       <Html
         transform
-        occlude="blending"
         position={[0, 0, 0.01]}
         scale={htmlScale}
         zIndexRange={[10, 0]}
-        style={{ pointerEvents: 'auto' }}
+        style={{ pointerEvents: occluded ? 'none' : 'auto', display: occluded ? 'none' : undefined }}
       >
         <div
           onPointerDown={(e) => e.stopPropagation()}

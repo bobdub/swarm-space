@@ -82,6 +82,7 @@ import {
 } from '@/lib/world/assetCaster';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
+import { ownsPlacement } from '@/lib/world/buildOwnership';
 import { isDev } from '@/lib/world/devRoles';
 import {
   removeLocalPlacement,
@@ -2009,6 +2010,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [handleDropPortal]);
 
   const handleDeleteWorldPlacement = useCallback(async (record: PlacementRecord) => {
+    if (!ownsPlacement(record, selfId)) return;
     const perm = canBuildAtWorldPoint(record.hitPoint, selfId);
     if (!perm.ok) {
       toast.error(perm.reason ?? 'You cannot alter buildings here.');
@@ -2021,6 +2023,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [builder, selfId]);
 
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
+    if (!ownsPlacement(record, selfId)) return;
     const prefab = getPrefab(record.prefabId);
     if (!prefab) return;
     const entryPerm = canBuildAtWorldPoint(record.hitPoint, selfId);
@@ -2062,7 +2065,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           yaw,
           upOffset: upOffset ?? record.upOffset ?? 0,
         };
-        await updateLocalPlacement(updated);
+        const saved = await updateLocalPlacement(updated);
+        if (!saved) return;
         editingPlacementRef.current = null;
         decoratingPlacementRef.current = null;
         builder.selectBlock(record.placementId);
@@ -2081,6 +2085,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // Explore feed via the standard PostComposer pipeline.
   const [decorateTarget, setDecorateTarget] = useState<PlacementRecord | null>(null);
   const handleDecorateWorldPlacement = useCallback((record: PlacementRecord) => {
+    if (!ownsPlacement(record, selfId)) return;
     const perm = canBuildAtWorldPoint(record.hitPoint, selfId);
     if (!perm.ok) {
       toast.error(perm.reason ?? 'You cannot decorate on this land.');
@@ -2144,6 +2149,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         const r = Math.hypot(dx, dy, dz) || 1;
         const localDir = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
         stagePendingBuild({
+          ownerId: selfId,
+          universeKey,
           prefabId: id,
           localDir,
           yaw,
@@ -2157,7 +2164,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         if (builder.selectedPrefabId === id) builder.selectPrefab(null);
       },
     });
-  }, [builder.selectedPrefabId, selfId, builder.selectPrefab, builder.selectBlock]);
+  }, [builder.selectedPrefabId, selfId, universeKey, builder.selectPrefab, builder.selectBlock]);
 
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
@@ -2364,6 +2371,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <WeatherLayer />
         <HeldToolMesh selfId={selfId || undefined} />
         <UserPlacementsLayer
+          selfId={selfId}
           selectedPlacementId={builder.selectedBlockId}
           onSelectPlacement={(placementId) => builder.selectBlock(placementId)}
           onEditPlacement={handleEditWorldPlacement}
