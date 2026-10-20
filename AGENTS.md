@@ -35,7 +35,8 @@
 - Use external MetaMask for wallet calls; verify MintMe before token reads, switch only when needed, and offer adding separately after a missing-chain error — acknowledgement is not arrival.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation cannot misrepresent connection state.
 - Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
-- Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.
-- Local companion downloads are standalone loopback-only programs built outside the client tree; pair an authenticated relay explicitly and expose only allowlisted reads — the raw-transaction adapter is unsafe settlement.
-- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation is unchanged — a local helper is not a public gateway.
-- Move Creator Vault money as real transfers to/from `vault:creator:{tokenId}` via creatorVaultCustody.ts (no burn/mint shortcuts), engraved on the locked vault coin; release custody before mutating buckets — legacy vaults refuse payouts.
+- Host public mesh RPC outside this client-only repository; static sites or short-lived functions without ledger/mesh access cannot serve it.
+- Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
+- Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
+- Use creatorVaultCustody.ts for transfers to/from `vault:creator:{tokenId}`; never burn/mint, engrave the coin, release before changing buckets, serialize earnings claims and refuse unbacked payouts.
+- Use customTokenLimits.ts for ingress caps and ownedAssets.ts for positive balances. Read docs/project-plans/coin-vault-market-next-step.md before multiasset settlement: self-transfers are not escrow.
