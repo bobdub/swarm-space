@@ -322,6 +322,19 @@ export async function sellCreatorTokens(params: {
     throw new Error("This vault has no liquidity to buy back right now");
   }
 
+  // Pay the seller FIRST, out of real vault custody — funds the vault
+  // address physically holds, never freshly minted. If custody cannot
+  // cover the payout this throws before any vault or holding state moves.
+  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+  await releaseFromCreatorVault({
+    tokenId,
+    creatorUserId: vault.creatorUserId,
+    toId: sellerId,
+    amount: proceeds,
+    layer: source,
+    reason: `Buyback ${tokens} ${holding.ticker}`,
+  });
+
   vault.buybackReserve = round6(Math.max(0, vault.buybackReserve - fromReserve));
   vault.stabilityFloor = round6(Math.max(0, vault.stabilityFloor - fromFloor));
   vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
@@ -333,18 +346,6 @@ export async function sellCreatorTokens(params: {
   holding.amount = round6(holding.amount - tokens);
   holding.lastUpdated = nowIso();
   await saveProfileTokenHolding(holding);
-
-  // Pay the seller out of real vault custody — funds the vault address
-  // physically holds, never freshly minted.
-  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
-  await releaseFromCreatorVault({
-    tokenId,
-    creatorUserId: vault.creatorUserId,
-    toId: sellerId,
-    amount: proceeds,
-    layer: source,
-    reason: `Buyback ${tokens} ${holding.ticker}`,
-  });
 
   recordVaultTx("creator_token_sell", vault.creatorUserId, sellerId, proceeds, {
     tokenId,
@@ -382,9 +383,8 @@ export async function withdrawCreatorEarnings(params: {
   if (amount <= 0) throw new Error("Amount must be positive");
   if (amount > vault.creatorEarnings) throw new Error("Insufficient earnings");
 
-  vault.creatorEarnings = round6(vault.creatorEarnings - amount);
-  await saveCreatorVault(vault);
-
+  // Release custody before touching the earnings bucket, so a vault with
+  // no engraved funds fails without draining the accounting.
   const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
   await releaseFromCreatorVault({
     tokenId,
@@ -394,6 +394,9 @@ export async function withdrawCreatorEarnings(params: {
     layer: "creator-earnings",
     reason: `Creator earnings withdraw (${tokenId})`,
   });
+
+  vault.creatorEarnings = round6(vault.creatorEarnings - amount);
+  await saveCreatorVault(vault);
 
   recordVaultTx("creator_token_earnings_withdraw", creatorId, creatorId, amount, { tokenId });
 
