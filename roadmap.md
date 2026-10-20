@@ -1,8 +1,9 @@
 ## Market custody gaps (2026-10-20)
-- [ ] Make deployment and closure fail safely before committing market state
-- [ ] Review layered allocation and old-account vault setup; preserve SWARM-only settlement
-- [ ] Update market controls and readiness guidance for real Coin Vault custody
-- [ ] Run automated market and custody regressions; no live wallet test
+- [x] Move deployment charges/publication and closure state after custody succeeds; protect all payout layers
+- [x] Review layered allocation and old-account vault setup; preserve SWARM-only settlement and document unresolved recovery boundaries
+- [x] Update market controls and readiness guidance for held Coin Vault custody; profile reads do not initialize vaults
+- [x] Run automated market and custody regressions; no live wallet test
+- [ ] Enable multiasset market payments and a paid legacy Coin initializer — blocked by verified external escrow, mined-holder ownership settlement and peer agreement/recovery design (see readiness plan)
 
 ## Custom tokens and Coin Vault preparation (2026-10-20)
 - [x] Enforce the 5,000,000 per-contract lifetime ceiling against known ledger deposits, including peer-chain acceptance, and explain remaining capacity
