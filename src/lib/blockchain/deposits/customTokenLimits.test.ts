@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SwarmTransaction } from "../types";
-import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
+import { assertCustomTokenDepositCapacity, customTokenDepositCapacity, validCustomTokenDepositLedger } from "./customTokenLimits";
 
 const address = `0x${"ab".repeat(20)}`;
 const deposit = (id: string, amount: number, to = "user-a", contract = address): SwarmTransaction => ({
@@ -29,5 +29,10 @@ describe("custom-token shared deposit ceiling", () => {
   it("does not count duplicated ledger records twice", () => {
     const tx = deposit("a", 2_000_000);
     expect(customTokenDepositCapacity([tx, tx], address).remaining).toBe(3_000_000);
+  });
+  it("rejects peer-ledger deposits above 5,000,000 or duplicated deposits", () => {
+    expect(validCustomTokenDepositLedger([deposit("a", 3_000_000), deposit("b", 2_000_000)])).toBe(true);
+    expect(validCustomTokenDepositLedger([deposit("a", 3_000_000), deposit("b", 2_000_001)])).toBe(false);
+    expect(validCustomTokenDepositLedger([deposit("a", 1), deposit("a", 1)])).toBe(false);
   });
 });

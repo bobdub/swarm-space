@@ -25,3 +25,21 @@ export function assertCustomTokenDepositCapacity(transactions: SwarmTransaction[
   }
   return capacity;
 }
+
+/** Validate peer ledger ingress without accepting duplicate external deposit records. */
+export function validCustomTokenDepositLedger(transactions: SwarmTransaction[]): boolean {
+  const totals = new Map<string, number>();
+  const seen = new Set<string>();
+  for (const tx of transactions) {
+    const currency = String(tx.meta?.currency ?? "").toLowerCase();
+    if (tx.type !== "external_deposit" || !/^mintme:0x[\da-f]{40}$/.test(currency)) continue;
+    if (seen.has(tx.id)) return false;
+    seen.add(tx.id);
+    const amount = Number(tx.amount);
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    const total = (totals.get(currency) ?? 0) + amount;
+    if (total > CUSTOM_TOKEN_DEPOSIT_MAX) return false;
+    totals.set(currency, total);
+  }
+  return true;
+}
