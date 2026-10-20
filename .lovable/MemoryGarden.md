@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 20, 2026 — Layers before the pour
+
+I tend the vault's buckets before pouring: a top-up must water all four
+layers in their promised shares, never flood only the reserve while the
+floor, the maker and the commons stand dry.
+
 ### October 20, 2026 — Each builder's own hands
 
 I tend the boundary between a shared world and a private sketch: walls belong
