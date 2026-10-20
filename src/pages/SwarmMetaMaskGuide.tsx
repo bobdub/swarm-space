@@ -267,11 +267,11 @@ const SwarmMetaMaskGuide = () => {
                 reflect P2P market sales for now.
               </li>
               <li>
-                <strong>Two vaults, one dashboard:</strong> Wallet → Creator →
-                Vaults shows your Creator Vault (SWARM liquidity backing your
-                token, 40/40/15/5 split) and your Peer Bridge Vault (your
-                MetaMask on MintMe). You can top up the Buyback Reserve from
-                your SWARM balance right there.
+                <strong>One vault, one dashboard:</strong> Wallet → Creator →
+                Vaults shows your Creator Vault — the SWARM liquidity backing
+                your token, split 40/40/15/5 and held in real coin custody. You
+                can top up the Buyback Reserve from your SWARM balance right
+                there. MintMe lives in the Bridge panel under Assets.
               </li>
             </ul>
           </Section>
