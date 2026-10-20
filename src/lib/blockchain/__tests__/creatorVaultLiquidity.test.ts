@@ -7,8 +7,8 @@ const s = (n: string) => {
 };
 
 vi.mock("@/lib/store", () => ({
-  put: async (n: string, v: { tokenId?: string; id?: string }) => {
-    s(n).set((v.tokenId ?? v.id) as string, v);
+  put: async (n: string, v: { tokenId?: string; id?: string; coinId?: string }) => {
+    s(n).set((v.tokenId ?? v.id ?? v.coinId) as string, v);
   },
   get: async (n: string, k: string) => s(n).get(k),
   getAll: async (n: string) => Array.from(s(n).values()),
