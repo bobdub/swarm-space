@@ -64,6 +64,18 @@ export interface BrainChatLine {
 const MAX_LEN = 8000;
 const LONG_MESSAGE_THRESHOLD = 2400;
 
+/**
+ * CommonMark collapses single newlines inside a paragraph, which flattens
+ * multi-line chat messages into one run-on line. Convert each non-empty
+ * source line into its own paragraph so typed line breaks render as breaks.
+ */
+function formatChatMarkdown(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+$/, ''))
+    .join('\n\n');
+}
+
 interface Props {
   lines: BrainChatLine[];
   onSend: (text: string, replyTo?: BrainChatLine['replyTo']) => void;
@@ -736,8 +748,8 @@ export function BrainChatPanel({
                     <span className="truncate font-medium">{m.author}</span>
                     <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
-                  <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{formatChatMarkdown(m.text)}</ReactMarkdown>
                   </div>
                 </div>
               ))}
@@ -807,9 +819,9 @@ export function BrainChatPanel({
                         </button>
                       </div>
                     </div>
-                    <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1 [&_pre]:rounded-md [&_pre]:bg-black/50 [&_pre]:p-2">
+                    <div className="prose prose-invert prose-sm max-w-none min-w-0 break-words text-foreground/90 [&_a]:text-primary [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1 [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-black/50 [&_pre]:p-2">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {display}
+                        {formatChatMarkdown(display)}
                       </ReactMarkdown>
                     </div>
                     {isLong && (
