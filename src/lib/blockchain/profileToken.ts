@@ -44,7 +44,7 @@ export async function deployProfileToken(params: {
   }
 
   // Check SWARM balance for the market-launch fee
-  const { getSwarmBalance, burnSwarm } = await import("./token");
+  const { getSwarmBalance } = await import("./token");
   const swarmBalance = await getSwarmBalance(params.userId);
   if (swarmBalance < pricing.creatorTokenSwarm) {
     throw new Error(
@@ -69,12 +69,6 @@ export async function deployProfileToken(params: {
 
   // Deduct deployment cost
   await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
-  // Burn SWARM to launch the market — routed through the creator vault below.
-  await burnSwarm({
-    from: params.userId,
-    amount: pricing.creatorTokenSwarm,
-    reason: "Creator Token market launch fee",
-  });
 
   // Validate ticker (3-5 uppercase letters)
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) {
@@ -145,8 +139,10 @@ export async function deployProfileToken(params: {
   const { recordTokenDeploymentCredits } = await import("./profileTokenUnlock");
   await recordTokenDeploymentCredits(params.userId, tokenId);
 
-  // Initialize the Creator Vault and seed it with the 50 SWARM deployment fee
-  // as the first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
+  // Initialize the Creator Vault and seed it with the deployment fee as the
+  // first sale — 40/40/15/5 split, creator receives `creatorSeed` tokens.
+  // The fee is locked into the vault address as real custody (never burned)
+  // and engraved onto the vault's locked container coin.
   const { ensureCreatorVault, saveCreatorVault, computeTier } = await import("./creatorVault");
   const vault = await ensureCreatorVault(tokenId, params.userId);
   const swarmSeed = pricing.creatorTokenSwarm;
@@ -154,6 +150,16 @@ export async function deployProfileToken(params: {
   const stability = Math.round(swarmSeed * CREATOR_VAULT_STABILITY_SHARE * 1e6) / 1e6;
   const creatorEarn = Math.round(swarmSeed * CREATOR_VAULT_CREATOR_SHARE * 1e6) / 1e6;
   const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
+
+  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  await lockIntoCreatorVault({
+    fromId: params.userId,
+    tokenId,
+    creatorUserId: params.userId,
+    amount: swarmSeed,
+    split: { buyback, stability, creator: creatorEarn, community },
+    reason: "Creator Token market launch fee",
+  });
   vault.buybackReserve += buyback;
   vault.stabilityFloor += stability;
   vault.creatorEarnings += creatorEarn;

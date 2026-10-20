@@ -15,26 +15,27 @@
 
 ## Brain chat participation
 - Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
-- Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room, because shared chat must not become divergent private replies.
-- Chat and media wrapping share ledger-backed coin recovery; count historical containers and current balance so spent coins cannot be recreated.
+- Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
+- Chat and media wrapping share ledger-backed coin recovery; count historical containers and balance so spent coins cannot be recreated.
 
-- Infinity never posts canned template filler; when learning yields nothing it stays silent, because random stock phrases misrepresent what it has learned.
+- Infinity never posts canned template filler; when learning yields nothing it stays silent — random stock phrases misrepresent what it has learned.
 - Infinity memory is passive ingestion of text already on the device (idle-time batched, capped, private posts skipped) and never initiates mesh requests, so it cannot compete with user connections.
 - Infinity learns from memory in small idle-time batches and marks pieces learned; text already fed live is stored pre-marked, so nothing is learned twice.
 - Brain chat, comments and replies use EntityVoice.generateText → DualLearningFusion as the single personality-guided realization path; stage stays observable, because duplicate samplers create conflicting voices.
 - Realization preserves whole local learned expressions and rejects copied prompt openings before UQRC ranks candidates; curvature is not a semantic validator and unsupported output stays silent.
 - Whole expressions remain in capped on-device storage separate from peer digests; restore historical learned memory without replaying ingestion, because vocabulary-only sync cannot preserve formula structure.
-- Replace the shipped personality prior by its complete expression inventory, preserving memory expressions; seed through Dual content ingestion on first realization so both learners share the prior without a second generator.
+- Replace the shipped personality prior by its complete expression inventory, preserving memory expressions; seed via Dual ingestion on first realization so both learners share one prior.
 - Infinity profile conversation is explicit opt-in, ephemeral and excluded from learning/digests; show device-local knowledge separately from live peer availability because digest exchange is not full memory replication.
 
 ## Wallet boundaries
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
-- Resolve native wallet aliases to existing identity ledger keys through the shared asynchronous address resolver and race-safe display hook; never migrate balances or credit history merely to change displayed addresses, because aliases are not new wallet ownership.
+- Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
 - Register and switch custom networks through the external MetaMask provider, never the in-browser SWARM provider, because local acknowledgements cannot change the extension's network list.
-- Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation and local provider overrides cannot misrepresent connection state.
-- Gate external SWARM installation and switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness through a cached query, never through the local provider, because MetaMask must reach its own network RPC.
+- Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation cannot misrepresent connection state.
+- Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
 - Keep any always-on public mesh RPC host outside this client-only repository; a static site or short-lived function without ledger/mesh access cannot serve as the chain gateway.
-- Local companion downloads are standalone loopback-only programs, built outside the client tree; pair an authenticated browser relay explicitly and expose only allowlisted reads, because the existing raw-transaction adapter is not safe external settlement.
-- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation remains unchanged, because a local helper is not a public gateway.
+- Local companion downloads are standalone loopback-only programs built outside the client tree; pair an authenticated relay explicitly and expose only allowlisted reads — the raw-transaction adapter is unsafe settlement.
+- Local network installation uses its own fresh loopback JSON-RPC preflight; public HTTPS validation is unchanged — a local helper is not a public gateway.
+- Move Creator Vault money as real transfers to/from `vault:creator:{tokenId}` via creatorVaultCustody.ts (no burn/mint shortcuts), engraved on the locked vault coin; release custody before mutating buckets — legacy vaults refuse payouts.

@@ -206,21 +206,30 @@ export async function buyCreatorTokens(params: {
 
   const cost = integratedBuyCost(vault.circulatingSupply, tokens);
 
-  // Debit buyer SWARM
-  const { getSwarmBalance, burnSwarm } = await import("./token");
+  // Split deposit 40/40/15/5
+  const buyback = round6(cost * CREATOR_VAULT_BUYBACK_SHARE);
+  const stability = round6(cost * CREATOR_VAULT_STABILITY_SHARE);
+  const creator = round6(cost * CREATOR_VAULT_CREATOR_SHARE);
+  const community = round6(cost - buyback - stability - creator); // absorbs FP drift
+
+  // Debit buyer SWARM into real vault custody — a transfer to the vault
+  // address engraved on the vault coin, never a burn.
+  const { getSwarmBalance } = await import("./token");
   const balance = await getSwarmBalance(buyerId);
   if (balance < cost) {
     throw new Error(
       `Insufficient SWARM. Need ${cost.toFixed(4)} SWARM, have ${balance.toFixed(4)}.`,
     );
   }
-  await burnSwarm({ from: buyerId, amount: cost, reason: `Buy ${tokens} ${record.ticker}` });
-
-  // Split deposit 40/40/15/5
-  const buyback = round6(cost * CREATOR_VAULT_BUYBACK_SHARE);
-  const stability = round6(cost * CREATOR_VAULT_STABILITY_SHARE);
-  const creator = round6(cost * CREATOR_VAULT_CREATOR_SHARE);
-  const community = round6(cost - buyback - stability - creator); // absorbs FP drift
+  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  await lockIntoCreatorVault({
+    fromId: buyerId,
+    tokenId,
+    creatorUserId: creatorId,
+    amount: cost,
+    split: { buyback, stability, creator, community },
+    reason: `Buy ${tokens} ${record.ticker}`,
+  });
 
   vault.buybackReserve = round6(vault.buybackReserve + buyback);
   vault.stabilityFloor = round6(vault.stabilityFloor + stability);
@@ -313,6 +322,19 @@ export async function sellCreatorTokens(params: {
     throw new Error("This vault has no liquidity to buy back right now");
   }
 
+  // Pay the seller FIRST, out of real vault custody — funds the vault
+  // address physically holds, never freshly minted. If custody cannot
+  // cover the payout this throws before any vault or holding state moves.
+  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+  await releaseFromCreatorVault({
+    tokenId,
+    creatorUserId: vault.creatorUserId,
+    toId: sellerId,
+    amount: proceeds,
+    layer: source,
+    reason: `Buyback ${tokens} ${holding.ticker}`,
+  });
+
   vault.buybackReserve = round6(Math.max(0, vault.buybackReserve - fromReserve));
   vault.stabilityFloor = round6(Math.max(0, vault.stabilityFloor - fromFloor));
   vault.lifetimeBuybacks = round6(vault.lifetimeBuybacks + proceeds);
@@ -324,10 +346,6 @@ export async function sellCreatorTokens(params: {
   holding.amount = round6(holding.amount - tokens);
   holding.lastUpdated = nowIso();
   await saveProfileTokenHolding(holding);
-
-  // Credit SWARM to seller
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({ to: sellerId, amount: proceeds, reason: `Buyback ${tokens} ${holding.ticker}` });
 
   recordVaultTx("creator_token_sell", vault.creatorUserId, sellerId, proceeds, {
     tokenId,
@@ -365,11 +383,20 @@ export async function withdrawCreatorEarnings(params: {
   if (amount <= 0) throw new Error("Amount must be positive");
   if (amount > vault.creatorEarnings) throw new Error("Insufficient earnings");
 
+  // Release custody before touching the earnings bucket, so a vault with
+  // no engraved funds fails without draining the accounting.
+  const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+  await releaseFromCreatorVault({
+    tokenId,
+    creatorUserId: creatorId,
+    toId: creatorId,
+    amount,
+    layer: "creator-earnings",
+    reason: `Creator earnings withdraw (${tokenId})`,
+  });
+
   vault.creatorEarnings = round6(vault.creatorEarnings - amount);
   await saveCreatorVault(vault);
-
-  const { mintSwarm } = await import("./token");
-  await mintSwarm({ to: creatorId, amount, reason: `Creator earnings withdraw (${tokenId})` });
 
   recordVaultTx("creator_token_earnings_withdraw", creatorId, creatorId, amount, { tokenId });
 
@@ -411,6 +438,22 @@ export async function closeCreatorMarket(params: {
   await saveCreatorVault(vault);
 
   if (dissolved > 0) {
+    // Move the dissolved reserve out of vault custody to the community pool
+    // address. Best-effort: legacy vaults (pre-custody) hold no engraved
+    // funds, so the release may legitimately fail.
+    try {
+      const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
+      await releaseFromCreatorVault({
+        tokenId,
+        creatorUserId: creatorId,
+        toId: "community-pool",
+        amount: dissolved,
+        layer: "market-close-dissolve",
+        reason: `Market closed — buyback reserve dissolved (${tokenId})`,
+      });
+    } catch (err) {
+      console.warn("[CreatorVault] Custody dissolve skipped:", err);
+    }
     try {
       const { getRewardPool, saveRewardPool } = await import("./storage");
       let pool = await getRewardPool();

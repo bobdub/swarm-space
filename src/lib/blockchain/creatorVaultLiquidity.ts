@@ -54,13 +54,23 @@ export async function addVaultLiquidity(params: {
   if (vault.creatorUserId !== creatorId) throw new Error("Only the creator can add liquidity");
   if (vault.closed) throw new Error("This market has been closed.");
 
-  const { getSwarmBalance, burnSwarm } = await import("./token");
+  const { getSwarmBalance } = await import("./token");
   const bal = await getSwarmBalance(creatorId);
   if (bal < amount) throw new Error(`Insufficient SWARM. Have ${bal.toFixed(4)}, need ${amount.toFixed(4)}.`);
 
-  await burnSwarm({ from: creatorId, amount, reason: `Vault liquidity top-up (${tokenId})` });
-
   const split = splitTopUp(amount);
+
+  // Real custody: transfer the SWARM into the vault address and engrave the
+  // layer split onto the vault's locked container coin. Nothing is burned.
+  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  await lockIntoCreatorVault({
+    fromId: creatorId,
+    tokenId,
+    creatorUserId: creatorId,
+    amount,
+    split,
+    reason: `Vault liquidity top-up (${tokenId})`,
+  });
   vault.buybackReserve = round6(vault.buybackReserve + split.buyback);
   vault.stabilityFloor = round6(vault.stabilityFloor + split.stability);
   vault.creatorEarnings = round6(vault.creatorEarnings + split.creator);

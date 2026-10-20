@@ -7,8 +7,8 @@ const s = (n: string) => {
 };
 
 vi.mock("@/lib/store", () => ({
-  put: async (n: string, v: { tokenId?: string; id?: string }) => {
-    s(n).set((v.tokenId ?? v.id) as string, v);
+  put: async (n: string, v: { tokenId?: string; id?: string; coinId?: string }) => {
+    s(n).set((v.tokenId ?? v.id ?? v.coinId) as string, v);
   },
   get: async (n: string, k: string) => s(n).get(k),
   getAll: async (n: string) => Array.from(s(n).values()),
@@ -24,10 +24,14 @@ vi.mock("../chain", () => ({
 }));
 
 let swarmBalance = 100;
-const burns: number[] = [];
+const transfers: Array<{ from: string; to: string; amount: number }> = [];
 vi.mock("../token", () => ({
   getSwarmBalance: async () => swarmBalance,
-  burnSwarm: async ({ amount }: { amount: number }) => { burns.push(amount); swarmBalance -= amount; },
+  transferSwarm: async ({ from, to, amount }: { from: string; to: string; amount: number }) => {
+    if (swarmBalance < amount) throw new Error("Insufficient SWARM balance");
+    transfers.push({ from, to, amount });
+    swarmBalance -= amount;
+  },
 }));
 
 vi.mock("../storage", () => ({
@@ -59,7 +63,7 @@ function seedVault(): CreatorVault {
 beforeEach(() => {
   stores.clear();
   txs.length = 0;
-  burns.length = 0;
+  transfers.length = 0;
   swarmBalance = 100;
 });
 
@@ -74,7 +78,17 @@ describe("Creator Vault top-ups follow the layers", () => {
     expect(vault.creatorEarnings).toBe(9);
     expect(vault.communityContributed).toBe(3);
     expect(vault.totalDeposited).toBe(60);
-    expect(burns).toEqual([10]);
+    // Real custody: the SWARM moved into the vault address — nothing burned.
+    expect(transfers).toEqual([{ from: "user-1", to: "vault:creator:tok-1", amount: 10 }]);
+    // The vault's locked container coin was engraved with the custody entry.
+    const coin = s("swarmCoins").get("vault-coin:creator:tok-1") as {
+      status: string; locked: boolean; ownerId: string;
+      custodyChain: { from: string; to: string; reason: string }[];
+    };
+    expect(coin.status).toBe("vaulted");
+    expect(coin.locked).toBe(true);
+    expect(coin.ownerId).toBe("vault:creator:tok-1");
+    expect(coin.custodyChain.at(-1)?.reason).toContain("Vault liquidity top-up");
   });
 
   it("forwards the 5% community share to the reward pool and records the split on chain", async () => {
@@ -93,7 +107,7 @@ describe("Creator Vault top-ups follow the layers", () => {
     seedVault();
     await expect(addVaultLiquidity({ creatorId: "intruder", tokenId: "tok-1", amount: 5 })).rejects.toThrow("Only the creator");
     await expect(addVaultLiquidity({ creatorId: "user-1", tokenId: "missing", amount: 5 })).rejects.toThrow("Vault not initialized");
-    expect(burns).toEqual([]);
+    expect(transfers).toEqual([]);
   });
 
   it("splitTopUp always sums back to the amount", () => {
