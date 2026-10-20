@@ -103,3 +103,7 @@
 - [x] Stage 5 — Press-and-hold build with material re-check and decay
 - [x] Stage 6 — Tree chopping with shake, topple, wood pickups, and a visible character swing
 - [ ] Verify in preview: camera, inventory, ghost, build, chop
+
+## Wall viewer interactions (2026-10-20)
+- [x] Reinforce (1 SWARM, credits fallback, visitors only) + Graffiti hold-to-stamp with growing delay (max 3 min)
+- [ ] Live peer test (deferred)
