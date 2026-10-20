@@ -3,7 +3,7 @@
 - [x] Guide imports honestly, retain MintMe verification and prevent unknown-balance deposits
 - [x] Add positive-balance wallet asset selection and a confirmed Creator Earnings claim
 - [x] Audit profile market readiness and document next-step gaps without changing game interactions — docs/project-plans/coin-vault-market-next-step.md
-- [x] Run automated deposit, wallet-selection and vault payout regressions — 45 checks pass; no live wallet test
+- [x] Run automated deposit, wallet-selection and vault payout regressions — 45 checks plus 6 existing tipping checks pass; no live wallet test
 - Next phase is documented, not enabled: custom-token self-transfers are not escrow; multiasset settlement and disconnected-peer global reservation require a verified custody/agreement design. Current caps enforce the known ledger, not simultaneous forks.
 
 ## MintMe network decision flow (2026-10-20)

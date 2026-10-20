@@ -4,7 +4,7 @@
 - Wallet Native assets has a positive-balance selector; no speculative price is required to list an owned asset.
 - Creator Earnings can be claimed with an amount and confirmation, releasing actual held SWARM before reducing the earnings layer. Legacy unbacked earnings cannot be recreated.
 - MintMe imports remain network-first. The wizard explains the per-contract lifetime deposit ceiling and displays remaining capacity on the known ledger.
-- Local custom-token deposit requests are capped, including pending records. This is not globally coordinated reservation across disconnected/forked peers.
+- Custom-token deposit requests and incoming peer chains are capped, including pending-record reconciliation. This is not globally coordinated reservation across disconnected/forked peers.
 - In-game Reinforce and its Credits fallback are unchanged.
 
 ## Settlement boundary
