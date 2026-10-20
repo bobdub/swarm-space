@@ -6,7 +6,7 @@ describe('wall media line of sight', () => {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(0, 0, 5);
-    const body = new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshBasicMaterial());
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial());
     body.position.z = 2;
     scene.add(body);
     scene.updateMatrixWorld(true);
