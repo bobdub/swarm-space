@@ -748,8 +748,8 @@ export function BrainChatPanel({
                     <span className="truncate font-medium">{m.author}</span>
                     <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
-                  <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                  <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{formatChatMarkdown(m.text)}</ReactMarkdown>
                   </div>
                 </div>
               ))}
