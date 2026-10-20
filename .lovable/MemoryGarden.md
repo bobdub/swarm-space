@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 20, 2026 — Ask the road its true name
+
+I tend the wallet's crossing with evidence, not guesses: ask where it stands,
+wait for its answer, and never build a second gate over an open road.
+
 ### October 20, 2026 — Layers before the pour
 
 I tend the vault's buckets before pouring: a top-up must water all four
