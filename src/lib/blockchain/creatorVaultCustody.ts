@@ -14,8 +14,6 @@
  */
 
 import { get, put } from "../store";
-import { getSwarmChain } from "./chain";
-import { generateTransactionId } from "./crypto";
 import type { SwarmCoin } from "./types";
 import { COIN_MAX_WEIGHT } from "./types";
 
@@ -157,13 +155,6 @@ export async function releaseFromCreatorVault(params: {
   await put("swarmCoins", coin);
 
   if (typeof window !== "undefined") {
-    const chain = getSwarmChain();
-    void chain; // custody txs already recorded via transferSwarm
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
   }
-}
-
-/** Record a standalone custody marker transaction (id helper for callers). */
-export function custodyTxId(): string {
-  return generateTransactionId();
 }
