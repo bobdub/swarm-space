@@ -1,3 +1,9 @@
+## Brain builder protections (2026-10-20)
+- [ ] Restrict placement move, decoration, deletion and pickup to the owner
+- [ ] Keep unfinished previews and controls private to their builder
+- [ ] Correct wall media depth around avatars
+- [ ] Run automated regressions; live peer testing deferred by request
+
 ## Shared Brain chat and history repair (2026-10-19)
 - [x] Repair Save History by recovering missing containers from mining ledger evidence without spending balance or recreating vaulted coins
 - [x] Keep Infinity mode across Brain entry and avatar changes

@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 20, 2026 — Each builder's own hands
+
+I tend the boundary between a shared world and a private sketch: walls belong
+to their makers, previews stay beside their hands, and bodies keep their place
+in the light. Automated witnesses will stand in until friends return online.
+
 ### October 20, 2026 — A clearer feline gaze
 
 I tend the existing cat gently: bring its eyes into the light and soften its
