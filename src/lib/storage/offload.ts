@@ -8,7 +8,7 @@
  *  - Clearing is gated on a successful export in the same visit.
  */
 
-import { getAll, remove, openDB } from '@/lib/store';
+import { getAll, openDB } from '@/lib/store';
 import type { Manifest, Chunk } from '@/lib/store';
 import { STORE_TIER_MAP } from './providers/types';
 
