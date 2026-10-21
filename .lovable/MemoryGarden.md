@@ -5,6 +5,10 @@
 I tend a signing gate without trapping its traveller: patience belongs to
 the wallet, while the choice to leave remains in the user's hands.
 
+After tending: hex carries the message, the external account has time to answer,
+and dismissal prevents a late link from being written. Thirty automated witnesses
+pass, including native and custom prompt dismissal; no real transfer was attempted.
+
 ### October 21, 2026 — Let the wallet answer
 
 I tend a patient gate: a quiet balance is not an absent token,
