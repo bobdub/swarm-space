@@ -151,6 +151,24 @@ export interface ClearResult {
   freedBytes: number;
 }
 
+/** Delete many keys in a single IndexedDB transaction per store. */
+async function removeBatch(store: string, keys: string[]): Promise<number> {
+  if (keys.length === 0) return 0;
+  const db = await openDB();
+  return new Promise((resolve) => {
+    let removed = 0;
+    const tx = db.transaction(store, 'readwrite');
+    const objectStore = tx.objectStore(store);
+    for (const key of keys) {
+      const request = objectStore.delete(key);
+      request.onsuccess = () => { removed += 1; };
+    }
+    tx.oncomplete = () => resolve(removed);
+    tx.onerror = () => resolve(removed);
+    tx.onabort = () => resolve(removed);
+  });
+}
+
 /**
  * Delete media pieces / file records / replicas from the browser.
  * Never touches critical stores.
@@ -162,33 +180,34 @@ export async function clearBulkLocal(
   const db = await openDB();
   const available = new Set<string>(Array.from(db.objectStoreNames));
 
-  const targets: { store: string; key: string; bytes: number }[] = [];
+  const byStore = new Map<string, { keys: string[]; bytes: number }>();
+  let total = 0;
+  let freedBytes = 0;
   for (const store of clearableStoresFor(scope)) {
     const rows = await safeGetAll<Record<string, unknown>>(store, available);
+    const entry = { keys: [] as string[], bytes: 0 };
     for (const row of rows) {
       const key =
         (row?.ref as string) ??
         (row?.fileId as string) ??
         (row?.id as string) ??
+        (row?.manifestId as string) ??
         (row?.hash as string);
       if (!key) continue;
-      let bytes = 0;
-      try { bytes = JSON.stringify(row).length; } catch { /* ignore */ }
-      targets.push({ store, key, bytes });
+      entry.keys.push(key);
+      total += 1;
+      try { entry.bytes += JSON.stringify(row).length; } catch { /* ignore */ }
     }
+    if (entry.keys.length > 0) byStore.set(store, entry);
   }
 
   let removed = 0;
-  let freedBytes = 0;
-  for (const target of targets) {
-    try {
-      await remove(target.store, target.key);
-      removed++;
-      freedBytes += target.bytes;
-    } catch { /* skip individual failures */ }
-    if (removed % 25 === 0) onProgress?.(removed, targets.length);
+  for (const [store, entry] of byStore) {
+    removed += await removeBatch(store, entry.keys);
+    freedBytes += entry.bytes;
+    onProgress?.(removed, total);
   }
-  onProgress?.(removed, targets.length);
+  onProgress?.(removed, total);
   return { removed, freedBytes };
 }
 
