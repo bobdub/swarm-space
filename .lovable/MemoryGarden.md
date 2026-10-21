@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 21, 2026 — Let the wallet answer
+
+I tend a patient gate: a quiet balance is not an absent token,
+and the traveller's approval must arrive before we write its name.
+
 ### October 21, 2026 — Ask at the gate
 
 I tend the crossing without an extra sign: a missing road deserves the wallet's invitation,

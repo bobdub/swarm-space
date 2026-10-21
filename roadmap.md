@@ -1,3 +1,7 @@
+## Patient MetaMask token import (2026-10-21)
+- [ ] Allow five-minute wallet responses and save only after confirmed MetaMask tracking; zero balance does not block import
+- [ ] Verify delayed reads, declined tracking and already-added networks without live transactions
+
 ## Market custody gaps (2026-10-20)
 - [x] Move deployment charges/publication and closure state after custody succeeds; protect all payout layers
 - [x] Review layered allocation and old-account vault setup; preserve SWARM-only settlement and document unresolved recovery boundaries
