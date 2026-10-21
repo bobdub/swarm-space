@@ -55,6 +55,7 @@ const WalkthroughContext: React.Context<WalkthroughContextValue | undefined> =
   createContext<WalkthroughContextValue | undefined>(
   undefined,
 );
+if (import.meta.hot) import.meta.hot.data.walkthroughContext = WalkthroughContext;
 
 function sanitizeStep(step: WalkthroughStep | string): WalkthroughStep {
   return WALKTHROUGH_STEPS.includes(step as WalkthroughStep)
