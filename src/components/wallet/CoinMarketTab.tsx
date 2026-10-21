@@ -31,6 +31,7 @@ import {
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useMarketGate } from "@/hooks/useMarketGate";
+import { MarketVaultPanel } from "./MarketVaultPanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
   { value: "ETH",    label: "ETH — Ethereum", hint: "Proceeds credit your in-app ETH balance." },
@@ -92,12 +93,13 @@ export function CoinMarketTab() {
 
   return (
     <div className="space-y-6">
+      <MarketVaultPanel />
       <Card>
         <CardHeader>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <Store className="h-5 w-5 text-primary" /> Coin Market
+                <Store className="h-5 w-5 text-primary" /> Older listings
               </CardTitle>
               <CardDescription>
                 List wallet SWARM for ETH, Bitcoin, or MintMe — proceeds land in
@@ -180,13 +182,10 @@ export function CoinMarketTab() {
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
-            <ListSwarmDialog
-              disabled={!user?.id || walletSwarm <= 0 || !canTrade}
-              userId={user?.id ?? ""}
-              walletSwarm={walletSwarm}
-              marketStats={marketStats}
-              onListed={refresh}
-            />
+            <span className="text-xs text-muted-foreground">
+              New listings are retired — use the Market Vault above. Existing listings can still be finished or cancelled.
+            </span>
+
             {canTrade && (
               <span className="text-[10px] text-muted-foreground">
                 Peer mesh live · {activePeers} peer{activePeers === 1 ? "" : "s"}
