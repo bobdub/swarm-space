@@ -63,7 +63,7 @@ export async function getMetaMaskChainId(): Promise<string | null> {
 
 /** Returns the currently-authorized address, if any, without prompting. */
 export async function getMetaMaskAccount(): Promise<string | null> {
-  const eth = getExternalMetaMaskProviderSync();
+  const eth = await getExternalMetaMaskProvider();
   if (!eth?.request) return null;
   try {
     const accounts = (await eth.request({ method: "eth_accounts" })) as string[];

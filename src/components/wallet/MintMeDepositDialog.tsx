@@ -1,5 +1,6 @@
 /** MetaMask -> native SWARM wallet MintMe deposit. MetaMask is the only witness; the chain keeps the signed record. */
 import { useEffect, useState } from "react";
+import { useWalletDialogTask } from "@/hooks/useWalletDialogTask";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,7 +24,7 @@ export function MintMeDepositDialog({ userId, label = "Deposit", asset = "MINTME
   const { address } = useMetaMask();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, run: walletTask } = useWalletDialogTask(open);
   const [held, setHeld] = useState<number | null>(null);
   const [linked, setLinked] = useState<string | null>(null);
 
@@ -37,27 +38,19 @@ export function MintMeDepositDialog({ userId, label = "Deposit", asset = "MINTME
   const parsed = Number(amount);
   const invalid = !Number.isFinite(parsed) || parsed <= 0 || (held != null && parsed > held);
 
-  const link = async () => {
-    setBusy(true);
-    try { setLinked((await linkMetaMaskWallet(userId)).address); toast.success("MetaMask linked to your SWARM wallet"); }
-    catch (e) { toast.error(e instanceof Error ? e.message : "Linking failed"); }
-    finally { setBusy(false); }
-  };
-  const deposit = async () => {
-    setBusy(true);
-    try {
+  const link = () => walletTask((signal) => linkMetaMaskWallet(userId, signal), (link) => {
+    setLinked(link.address); toast.success("MetaMask linked to your SWARM wallet");
+  });
+  const deposit = () => walletTask(async () => {
       const tx = await cfg.deposit({ swarmId: userId, amount: parsed });
       toast.success(`${parsed} ${asset} recorded on your SWARM wallet`, { description: String((tx.meta as Record<string, unknown>)?.txHash ?? "") });
-      setOpen(false); setAmount("");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Deposit failed"); }
-    finally { setBusy(false); }
-  };
+    }, () => { setOpen(false); setAmount(""); });
 
   return <>
     <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setOpen(true)}>
       <ArrowDownToLine className="mr-1 h-3 w-3" />{label}
     </Button>
-    <Dialog open={open} onOpenChange={(v) => !busy && setOpen(v)}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>Deposit {cfg.name} from MetaMask</DialogTitle></DialogHeader>
         {!address ? <div className="space-y-2 text-sm">
@@ -76,6 +69,8 @@ export function MintMeDepositDialog({ userId, label = "Deposit", asset = "MINTME
           <p className="text-xs text-muted-foreground">MetaMask switches to the {cfg.network} network, confirms a transfer to your own linked address, then signs the deposit record. Your coins stay in your MetaMask; the SWARM chain records the signed holding. MetaMask is the only witness until a {cfg.network} node can re-check it.</p>
           <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void deposit()}>{busy ? "Confirm in MetaMask…" : "Deposit"}</Button></DialogFooter>
         </div>}
+        {busy && <p role="status" className="text-xs text-muted-foreground">Waiting for MetaMask. You can close this window; closing does not cancel a transfer already submitted to MetaMask.</p>}
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Close</Button>
       </DialogContent>
     </Dialog>
   </>;

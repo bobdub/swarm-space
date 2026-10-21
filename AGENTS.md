@@ -32,10 +32,10 @@
 - Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
-- Use external MetaMask, verify MintMe and save tokens only after watchAsset approval; inventory is private, zero permits import. Share five-minute waits for mobile readiness.
+- Use external MetaMask; verify MintMe, save after watchAsset approval, permit zero-value import, and wait five minutes. Link via async accounts and UTF-8 hex; dismissals abort link recording and ignore stale UI, not submitted transfers.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation cannot misrepresent connection state.
 - Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
-- Host public mesh RPC outside this client-only repository; static sites or short-lived functions without ledger/mesh access cannot serve it.
+- Host public mesh RPC outside this client-only repo; it requires ledger/mesh access.
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
 - Use creatorVaultCustody.ts: never burn/mint; engrave and release before bucket changes. creatorMarketOperation excludes local overlaps; creatorVaultBacking protects payout layers, not peer consensus.

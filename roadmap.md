@@ -1,3 +1,8 @@
+## MetaMask linking recovery (2026-10-21)
+- [x] Encode signing messages, await the external account and bound wallet waits
+- [x] Keep native/custom deposit prompts closable and ignore stale completions
+- [x] Run signing and cancellation regressions without live transactions — 30 checks pass; real MetaMask extension not available
+
 ## Patient MetaMask token import (2026-10-21)
 - [x] Allow five-minute wallet responses and save only after MetaMask accepts tracking; zero balance does not block import
 - [x] Verify delayed reads, declined tracking and already-added networks without live transactions — 30 automated checks pass; real extension flow untested

@@ -1,5 +1,6 @@
 /** Move SWARM between the native wallet and the linked MetaMask key's ledger slot. */
 import { useEffect, useState } from "react";
+import { useWalletDialogTask } from "@/hooks/useWalletDialogTask";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +18,7 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [pass, setPass] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, run: walletTask } = useWalletDialogTask(open);
   const [linked, setLinked] = useState<string | null>(null);
   const [mmBalance, setMmBalance] = useState(0);
 
@@ -32,15 +33,10 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
   const parsed = Number(amount);
   const invalid = !Number.isFinite(parsed) || parsed <= 0 || parsed > available;
 
-  const link = async () => {
-    setBusy(true);
-    try { setLinked((await linkMetaMaskWallet(userId)).address); toast.success("MetaMask linked to your SWARM wallet"); }
-    catch (e) { toast.error(e instanceof Error ? e.message : "Linking failed"); }
-    finally { setBusy(false); }
-  };
-  const run = async () => {
-    setBusy(true);
-    try {
+  const link = () => walletTask((signal) => linkMetaMaskWallet(userId, signal), (link) => {
+    setLinked(link.address); toast.success("MetaMask linked to your SWARM wallet");
+  });
+  const run = () => walletTask(async () => {
       if (mode === "withdraw") {
         // Moving native funds needs the native account unlocked, not just MetaMask.
         if (!await getCachedPrivateKey()) {
@@ -55,10 +51,7 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
         await depositSwarmFromMetaMask(userId, parsed);
         toast.success(`${parsed} SWARM deposited to your native wallet`);
       }
-      setOpen(false); setAmount("");
-    } catch (e) { toast.error(e instanceof Error ? e.message : "Move failed"); }
-    finally { setBusy(false); }
-  };
+    }, () => { setOpen(false); setAmount(""); });
 
   const title = mode === "withdraw" ? "Send SWARM to MetaMask" : "Deposit SWARM from MetaMask";
   return <>
@@ -66,7 +59,7 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
       {mode === "withdraw" ? <ArrowUpFromLine className="mr-1 h-3 w-3" /> : <ArrowDownToLine className="mr-1 h-3 w-3" />}
       {mode === "withdraw" ? "Transfer / Withdraw" : "Deposit to Native"}
     </Button>
-    <Dialog open={open} onOpenChange={(v) => !busy && setOpen(v)}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         {!address ? <div className="space-y-2 text-sm">
@@ -91,6 +84,8 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
           <p className="text-xs text-muted-foreground">Works like a cold wallet: the SWARM sits on the SWARM network under your MetaMask address, and only your MetaMask can sign it back. MetaMask confirms with a signature — no network switch or fee.</p>
           <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void run()}>{busy ? "Confirm in MetaMask…" : mode === "withdraw" ? "Send to MetaMask" : "Deposit"}</Button></DialogFooter>
         </div>}
+        {busy && <p role="status" className="text-xs text-muted-foreground">Waiting for MetaMask. You can close this window; closing does not cancel a transfer already submitted to MetaMask.</p>}
+        <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Close</Button>
       </DialogContent>
     </Dialog>
   </>;
