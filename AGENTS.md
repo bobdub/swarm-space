@@ -38,5 +38,4 @@
 - Host public mesh RPC outside this client-only repo; it requires ledger/mesh access.
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
-- Use creatorVaultCustody.ts: never burn/mint; engrave and release before bucket changes. creatorMarketOperation excludes local overlaps; creatorVaultBacking protects payout layers, not peer consensus.
-- Use customTokenLimits.ts for caps and ownedAssets.ts for positive balances. Read the market readiness plan before expansion: self-transfers are not escrow; profile reads must not initialize vaults.
+- Vault, token-cap and cold-key rules live in `src/lib/blockchain/AGENTS.md`; read it before editing that module.
