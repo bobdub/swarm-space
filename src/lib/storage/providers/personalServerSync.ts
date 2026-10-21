@@ -218,7 +218,12 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
     const alreadyPrivate = await personalServerHead(record.serverId, record.userId, ref);
     let payload: ArrayBuffer | null = null;
     if (!alreadyPrivate) {
-      const chunk = await get<Record<string, unknown>>('chunks', ref);
+      let chunk = await get<Record<string, unknown>>('chunks', ref);
+      if (!chunk) {
+        // The local copy may already have been evicted after a verified upload
+        // to another linked server — pull it back instead of failing.
+        chunk = await fetchChunkFromPersonalServers<Record<string, unknown> & { ref: string }>(ref) ?? undefined;
+      }
       if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
       payload = encodeJson(chunk);
       patchDiag(record.serverId, { lastObjectKey: ref });
@@ -274,20 +279,21 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   });
   updatePersonalServer(record.serverId, { lastSyncedAt: completedAt });
 
-  // Keep signed manifest/index metadata locally. Evict bulk bytes only after
-  // every configured private replica for this manifest has completed.
+  // Keep signed manifest/index metadata locally. Evict bulk bytes once the
+  // remote copy is verified: failed records no longer pin local chunks, and
+  // any later retry can pull the bytes back from a server that has them.
   const allRecords = await getAll<PersonalServerSyncRecord>('personalServerSync');
   const manifestRecords = allRecords.filter((entry) => entry.manifestId === record.manifestId);
   if (manifestRecords.length > 0 && manifestRecords.every((entry) => (
-    entry.id === record.id ? true : entry.status === 'complete'
+    entry.id === record.id ? true : entry.status === 'complete' || entry.status === 'failed'
   ))) {
     for (const ref of record.chunkRefs) {
-      const neededByPendingManifest = allRecords.some((entry) => (
+      const neededByActiveManifest = allRecords.some((entry) => (
         entry.manifestId !== record.manifestId
-        && entry.status !== 'complete'
+        && (entry.status === 'pending' || entry.status === 'syncing')
         && entry.chunkRefs.includes(ref)
       ));
-      if (!neededByPendingManifest) await remove('chunks', ref);
+      if (!neededByActiveManifest) await remove('chunks', ref);
     }
   }
 }
