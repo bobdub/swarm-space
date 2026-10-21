@@ -8,7 +8,7 @@ import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
-import { MINTME_NETWORK, switchOrAddMintMeNetwork, isMintMeChain, readMintMeChainId } from "@/lib/blockchain/wallets/mintmeNetwork";
+import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
   addCustomToken, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
@@ -39,30 +39,16 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const [decimalsIn, setDecimalsIn] = useState("18");
   const [token, setToken] = useState<CustomToken | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
-  const { address: mmAddr, chainId } = useMetaMask();
-  const [networkReady, setNetworkReady] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setNetworkReady(false);
-    void readMintMeChainId().then((id) => {
-      if (active) {
-        const ready = isMintMeChain(id);
-        setNetworkReady(ready);
-      }
-    }).catch(() => { /* the action retries with an explicit error */ });
-    return () => { active = false; };
-  }, [open, chainId]);
+  const { address: mmAddr } = useMetaMask();
 
-  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); setNetworkReady(false); };
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); };
   const switchNet = async () => {
     setBusy(true);
     try {
       await switchOrAddMintMeNetwork();
-      setNetworkReady(true); setStep(1);
+      setStep(1);
     }
     catch (e) {
-      setNetworkReady(false);
       toast.error(e instanceof Error ? e.message : "Could not switch to MintMe");
     }
     finally { setBusy(false); }
@@ -81,7 +67,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
       setStep(2);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not check this token");
-      setStep(0); setNetworkReady(false);
+      setStep(0);
     } finally { setBusy(false); }
   };
   const dec = Number(decimalsIn);
