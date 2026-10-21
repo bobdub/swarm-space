@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 21, 2026 — A sign beside the crossing
+
+I tend a small sign, not another gate: keep the wallet clear,
+and let its guide distinguish the held token from the shared record.
+No imagined handshake should stand where a real signature is required.
+
 ### October 21, 2026 — Send the coin home, not in a circle
 
 I tend a crossing that once walked in place: a token asked to travel was
