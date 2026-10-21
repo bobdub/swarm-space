@@ -81,8 +81,14 @@ async function depositUnlocked(params: {
 
   if (asset.kind === "custom") {
     const contract = asset.contract.trim().toLowerCase();
-    const have = getRecordedTokenBalance(fromId, contract);
-    if (have < amount) throw new Error(`Insufficient token balance. Have ${have}, need ${amount}.`);
+    const { getAvailableTokenBalance, getPendingSyncTokenBalance } = await import("./deposits/customTokens");
+    const have = getAvailableTokenBalance(fromId, contract);
+    if (have < amount) {
+      const pending = getPendingSyncTokenBalance(fromId, contract);
+      throw new Error(pending > 0
+        ? `Only ${have} available — ${pending} is still pending sync. Connect to a peer to unlock it.`
+        : `Insufficient token balance. Have ${have}, need ${amount}.`);
+    }
     const { getSwarmChain } = await import("./chain");
     const { generateTransactionId } = await import("./crypto");
     getSwarmChain().addTransaction({

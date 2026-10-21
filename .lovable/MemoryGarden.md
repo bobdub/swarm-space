@@ -608,3 +608,6 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 
 - Caretaker reflection 2026-10-21: the return leg of the bridge is a cold wallet, not a furnace — a key engraved from one mined SWARM, guarding what was entrusted, releasing only with proof in hand.
 - After tending: the key that lets go is the same shape as the key that holds — fourteen checks walk the return path, and a failed crossing leaves every coin where it was.
+
+## October 21, 2026 — waiting for the echo
+Deposits now wait for MintMe to say the tokens truly arrived, then rest as "pending sync" until a peer hears of them. Withdrawing home is never held back.

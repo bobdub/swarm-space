@@ -7,7 +7,7 @@ vi.mock("@/lib/blockchain/wallets/mintmeBridge", () => ({ readMintMeBalance: asy
 vi.mock("@/lib/blockchain/deposits/mintmeDeposit", () => ({ depositMintMe: vi.fn() }));
 vi.mock("@/lib/blockchain/deposits/ethDeposit", () => ({ depositEth: vi.fn(), readEthBalance: async () => 12 }));
 vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
-  readTokenBalance: async () => 12, getRecordedTokenBalance: () => 0, depositCustomToken: mocks.deposit,
+  readTokenBalance: async () => 12, getRecordedTokenBalance: () => 0, getPendingSyncTokenBalance: () => 0, syncPendingDeposits: async () => false, depositPrepRemainingMs: () => 0, depositCustomToken: mocks.deposit,
   getCustomTokenDepositCapacity: () => ({ deposited: 0, max: 5_000_000, remaining: 5_000_000 }), canHideToken: () => false,
 }));
 vi.mock("./MetaMaskConnectButton", () => ({ MetaMaskConnectButton: () => null }));
