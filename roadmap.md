@@ -1,6 +1,6 @@
 ## Native wallet guide (2026-10-21)
-- [ ] Add a separate factual guide under Settings documentation
-- [ ] Link quietly below Wallet activity metrics and verify navigation
+- [x] Add a separate factual guide under Settings documentation
+- [x] Link quietly below Wallet activity metrics; public guide and overview navigation verified in browser, build OK (signed-in entry links not exercised)
 
 ## MetaMask linking recovery (2026-10-21)
 - [x] Encode signing messages, await the external account and bound wallet waits
