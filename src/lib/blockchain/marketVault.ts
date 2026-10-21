@@ -48,6 +48,8 @@ export async function swapCreatorTokenForSwarm(userId: string, tokenId: string, 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: payment }));
       window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
+      void import("../p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) =>
+        getSwarmMeshStandalone().broadcastMarketSnapshot(tokenId)).catch(() => {});
     }
     return quote;
   }));
