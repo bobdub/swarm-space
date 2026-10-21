@@ -205,9 +205,10 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
 
   // The tokens actually leave MetaMask: the destination is the depositor's
-  // native SWARM wallet address, not their own MetaMask account. A
-  // self-transfer would confirm without moving any balance.
-  const destination = await swarmIdToEvmAddress(swarmId);
+  // cold-wallet key address — the native wallet's EVM face, which the owner
+  // alone can later sign from to withdraw. A self-transfer would confirm
+  // without moving any balance.
+  const destination = (await deriveColdKey(swarmId)).address;
   const data = ERC20.encodeFunctionData("transfer", [destination, numberToUnits(amount, token.decimals)]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [
     { from: account, to: token.address, data, value: "0x0", chainId: MINTME_CHAIN_ID_HEX },
@@ -221,6 +222,49 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
     amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature: txHash,
     publicKey: account, nonce: at, fee: 0,
     meta: { kind: "external_deposit", currency, symbol: token.symbol, contract: token.address, address: account, destination, txHash, claim },
+  };
+  getSwarmChain().addTransaction(tx);
+  try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }
+  return tx;
+}
+
+/**
+ * Withdraw bridged tokens back to MetaMask.
+ *
+ * Order matters: the on-chain move from the cold-wallet key happens FIRST.
+ * Only when MintMe accepts the transfer is the SWARM ledger debited — a
+ * failed broadcast leaves the native balance untouched. The confirmed
+ * MintMe transaction hash is engraved on the withdrawal record as proof.
+ */
+export async function withdrawCustomToken(p: { swarmId: string; token: CustomToken; amount: number; to: string }): Promise<SwarmTransaction> {
+  const { swarmId, token, amount } = p;
+  const to = p.to.trim();
+  if (!isContractAddress(to)) throw new Error("Enter a valid 0x destination address");
+  if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero");
+  await getSwarmChain().whenReady();
+  const recorded = getRecordedTokenBalance(swarmId, token.address);
+  if (recorded < amount) throw new Error(`Your native wallet holds ${recorded} ${token.symbol} — not enough to withdraw ${amount}`);
+  const authority = await getColdKeyAuthority(swarmId);
+  if (!authority) throw new Error("Engrave your cold-wallet key first — a Creator Coin Vault or 1 mined SWARM is required");
+  // MetaMask must be connected: it is the witness and prepares the
+  // destination address. The confirmed MintMe transfer below is the proof.
+  let account = (await getMetaMaskAccount())?.toLowerCase();
+  if (!account) account = (await connectMetaMask())?.address.toLowerCase();
+  if (!account) throw new Error("Connect MetaMask first");
+  const link = getLinkedWallet(swarmId);
+  if (link && account !== link.address) throw new Error("MetaMask is on a different account than the linked wallet");
+  const { wallet, address: coldAddress } = await deriveColdKey(swarmId);
+  const txHash = await sendColdKeyTokenTransfer({
+    wallet, tokenAddress: token.address, symbol: token.symbol, to,
+    units: numberToUnits(amount, token.decimals),
+  });
+  const at = Date.now();
+  const currency = tokenCurrency(token.address);
+  const tx: SwarmTransaction = {
+    id: generateTransactionId(), type: "external_withdraw", from: swarmId, to,
+    amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature: txHash,
+    publicKey: coldAddress, nonce: at, fee: 0,
+    meta: { kind: "external_withdraw", currency, symbol: token.symbol, contract: token.address, address: account, destination: to, coldKeyAddress: coldAddress, keyAuthority: authority.kind, txHash },
   };
   getSwarmChain().addTransaction(tx);
   try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }
