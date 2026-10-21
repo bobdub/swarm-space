@@ -11,7 +11,7 @@
 import { Interface } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
-import { swarmIdToEvmAddress } from "../gateway/addressMap";
+import { deriveColdKey, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
 import type { SwarmTransaction } from "../types";
 import { connectMetaMask, getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
