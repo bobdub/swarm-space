@@ -215,6 +215,7 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
   const recorded = getRecordedTokenBalance(userId, token.address);
   const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, token.address) : 0;
   const [, bump] = useState(0);
+  const [wd, setWd] = useState(false);
   useEffect(() => {
     if (layer !== "native" || pendingSync <= 0) return;
     const onSync = () => bump((n) => n + 1);
@@ -228,7 +229,6 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
   if (layer === "metamask" && token.hidden) return null;
   const amount = layer === "native" ? recorded : held;
   const empty = held === 0;
-  const [wd, setWd] = useState(false);
   const depositDisabled = prepLeft > 0 || empty;
   const depositButton = <Button type="button" size="sm" variant="outline" disabled={depositDisabled} onClick={() => setDep(true)}>
     {prepLeft > 0 ? `Preparing… ${Math.ceil(prepLeft / 1000)}s` : "Deposit to Native"}

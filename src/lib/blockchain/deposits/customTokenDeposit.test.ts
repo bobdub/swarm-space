@@ -30,6 +30,9 @@ import { depositCustomToken } from "./customTokens";
 const token = { address: `0x${"ab".repeat(20)}`, symbol: "ABC", decimals: 18, addedAt: 0 };
 const abi = new Interface(["function balanceOf(address) view returns (uint256)"]);
 const TX_HASH = `0x${"01".repeat(32)}`;
+const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const pad = (a: string) => `0x${a.slice(2).padStart(64, "0")}`;
+const receipt = (to = COLD_ADDR, units = 10n ** 30n, status = "0x1") => ({ status, logs: [{ address: token.address, topics: [TRANSFER, pad(`0x${"cd".repeat(20)}`), pad(to)], data: `0x${units.toString(16)}` }] });
 beforeEach(() => {
   mocks.transactions = []; mocks.request.mockReset(); mocks.add.mockReset(); mocks.connect.mockReset();
   mocks.account = ""; mocks.link = null;
@@ -54,6 +57,7 @@ describe("deposit guard execution", () => {
     mocks.request.mockImplementation(async (method: string) => {
       if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [5_000_000n * 10n ** 18n]);
       if (method === "eth_sendTransaction") return TX_HASH;
+      if (method === "eth_getTransactionReceipt") return receipt();
       throw new Error("Unexpected wallet method");
     });
     mocks.add.mockImplementation((tx: SwarmTransaction) => mocks.transactions.push(tx));
@@ -73,11 +77,12 @@ describe("single-confirmation deposit", () => {
     mocks.request.mockImplementation(async (method: string) => {
       if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [100n * 10n ** 18n]);
       if (method === "eth_sendTransaction") return TX_HASH;
+      if (method === "eth_getTransactionReceipt") return receipt();
       throw new Error(`Unexpected wallet method: ${method}`);
     });
     mocks.add.mockImplementation((tx: SwarmTransaction) => mocks.transactions.push(tx));
     const tx = await depositCustomToken({ swarmId: "u", token, amount: 10 });
-    expect(mocks.request.mock.calls.map((call) => call[0])).toEqual(["eth_call", "eth_sendTransaction"]);
+    expect(mocks.request.mock.calls.map((call) => call[0])).toEqual(["eth_call", "eth_sendTransaction", "eth_getTransactionReceipt"]);
     expect(mocks.connect).not.toHaveBeenCalled();
     expect(tx.signature).toBe(TX_HASH);
     expect(tx.from).toBe(mocks.account);
@@ -89,6 +94,7 @@ describe("single-confirmation deposit", () => {
     mocks.request.mockImplementation(async (method: string) => {
       if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [50n * 10n ** 18n]);
       if (method === "eth_sendTransaction") return TX_HASH;
+      if (method === "eth_getTransactionReceipt") return receipt();
       throw new Error(`Unexpected wallet method: ${method}`);
     });
     const tx = await depositCustomToken({ swarmId: "u", token, amount: 5 });
@@ -100,6 +106,7 @@ describe("single-confirmation deposit", () => {
     mocks.request.mockImplementation(async (method: string) => {
       if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [100n * 10n ** 18n]);
       if (method === "eth_sendTransaction") return TX_HASH;
+      if (method === "eth_getTransactionReceipt") return receipt();
       throw new Error(`Unexpected wallet method: ${method}`);
     });
     mocks.add.mockImplementation((tx: SwarmTransaction) => mocks.transactions.push(tx));
@@ -118,6 +125,33 @@ describe("single-confirmation deposit", () => {
     mocks.link = { address: `0x${"ef".repeat(20)}` };
     await expect(depositCustomToken({ swarmId: "u", token, amount: 1 })).rejects.toThrow("different account");
     expect(mocks.request).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+});
+
+describe("MintMe receipt before credit", () => {
+  const setup = (r: () => unknown) => {
+    mocks.account = `0x${"cd".repeat(20)}`;
+    mocks.request.mockImplementation(async (method: string) => {
+      if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [100n * 10n ** 18n]);
+      if (method === "eth_sendTransaction") return TX_HASH;
+      if (method === "eth_getTransactionReceipt") return r();
+      throw new Error(method);
+    });
+  };
+  it("waits for a pending receipt, then credits", async () => {
+    let n = 0; setup(() => (++n < 3 ? null : receipt()));
+    await depositCustomToken({ swarmId: "u", token, amount: 10, pollMs: 1 });
+    expect(n).toBe(3); expect(mocks.add).toHaveBeenCalledTimes(1);
+  });
+  it("credits nothing when MintMe reverts the transfer", async () => {
+    setup(() => receipt(COLD_ADDR, 10n ** 30n, "0x0"));
+    await expect(depositCustomToken({ swarmId: "u", token, amount: 10, pollMs: 1 })).rejects.toThrow("rejected");
+    expect(mocks.add).not.toHaveBeenCalled();
+  });
+  it("credits nothing when tokens went somewhere other than the cold-key address", async () => {
+    setup(() => receipt(`0x${"99".repeat(20)}`));
+    await expect(depositCustomToken({ swarmId: "u", token, amount: 10, pollMs: 1 })).rejects.toThrow("did not deliver");
     expect(mocks.add).not.toHaveBeenCalled();
   });
 });
