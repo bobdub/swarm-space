@@ -13,9 +13,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import {
   importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenDetails, unitsToNumber, setTokenHidden, CUSTOM_TOKENS_EVENT,
-  CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity, hydrateCustomTokens, depositPrepRemainingMs,
+  CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity, hydrateCustomTokens, depositPrepRemainingMs, withdrawCustomToken,
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
+import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
+import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -215,6 +217,7 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
   if (layer === "metamask" && token.hidden) return null;
   const amount = layer === "native" ? recorded : held;
   const empty = held === 0;
+  const [wd, setWd] = useState(false);
   const depositDisabled = prepLeft > 0 || empty;
   const depositButton = <Button type="button" size="sm" variant="outline" disabled={depositDisabled} onClick={() => setDep(true)}>
     {prepLeft > 0 ? `Preparing… ${Math.ceil(prepLeft / 1000)}s` : "Deposit to Native"}
@@ -231,5 +234,66 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
       {canHideToken(held, recorded) && <Button type="button" size="sm" variant="ghost" onClick={() => setTokenHidden(userId, token.address, true)}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
     </div>}
+    {layer === "native" && <div className="flex">
+      <Button type="button" size="sm" variant="outline" onClick={() => setWd(true)}>Withdraw to MetaMask</Button>
+      <TokenWithdrawDialog userId={userId} token={token} open={wd} onOpenChange={setWd} recorded={recorded} />
+    </div>}
   </div>;
+}
+
+/** Withdraw deposited tokens back to MetaMask, signed by the cold-wallet key. */
+function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { userId: string; token: CustomToken; open: boolean; onOpenChange: (v: boolean) => void; recorded: number }) {
+  const { address } = useMetaMask();
+  const [amount, setAmount] = useState("");
+  const [dest, setDest] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [authority, setAuthority] = useState<ColdKeyAuthority | null | undefined>(undefined);
+  const { busy, run } = useWalletDialogTask(open);
+  useEffect(() => {
+    if (!open) return;
+    setAmount(""); setDest(address ?? ""); setPassphrase(""); setAuthority(undefined);
+    void getColdKeyAuthority(userId).then(setAuthority);
+  }, [open, address, userId]);
+  const n = Number(amount);
+  const invalid = !isContractAddress(dest) || !Number.isFinite(n) || n <= 0 || n > recorded;
+  const engrave = () => void run(async () => {
+    await engraveColdKey(userId);
+    setAuthority(await getColdKeyAuthority(userId));
+  }, () => toast.success("Cold-wallet key engraved", { description: `${COLD_KEY_ENGRAVING_SWARM} mined SWARM is locked in its container — never burned.` }));
+  const submit = () => void run(async () => {
+    if (!await getCachedPrivateKey()) {
+      if (!passphrase) throw new Error("Enter your account passphrase to unlock the cold-wallet key");
+      await loginUser(passphrase);
+    }
+    if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
+    setPassphrase("");
+    const tx = await withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
+    toast.success(`${n} ${token.symbol} sent to MetaMask`, { description: `MintMe tx ${String(tx.signature).slice(0, 10)}… · appears under the MintMe network` });
+    setAmount(""); onOpenChange(false);
+  });
+  return <Dialog open={open} onOpenChange={(v) => !busy && onOpenChange(v)}>
+    <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+      <DialogHeader><DialogTitle>Withdraw {token.symbol} to MetaMask</DialogTitle></DialogHeader>
+      {authority === undefined ? <p className="text-sm text-muted-foreground">Checking your cold-wallet key…</p>
+        : !authority ? <div className="space-y-3 text-sm">
+          <p>A cold-wallet key signs withdrawals out of your native wallet. You don't have one yet.</p>
+          <p className="text-xs text-muted-foreground">Engraving a key locks {COLD_KEY_ENGRAVING_SWARM} mined SWARM into a sealed container — it is never burned. If you later create a Creator Coin Vault, it acts as your key instead.</p>
+          <DialogFooter><Button type="button" disabled={busy} onClick={engrave}>{busy ? "Engraving…" : `Engrave key · ${COLD_KEY_ENGRAVING_SWARM} SWARM`}</Button></DialogFooter>
+        </div>
+        : <div className="space-y-3">
+          <p className="text-sm">Native balance: <b className="tabular-nums">{recorded.toLocaleString(undefined, { maximumFractionDigits: 6 })} {token.symbol}</b> <span className="text-[10px] text-muted-foreground">· key: {authority.kind === "vault" ? "Creator Coin Vault" : "engraved cold key"}</span></p>
+          {!address && <p role="alert" className="text-sm text-destructive">Connect MetaMask first — it prepares the withdrawal address and witnesses the transfer.</p>}
+          <div className="space-y-1"><Label htmlFor="ct-wd-dest">Destination (your connected MetaMask)</Label>
+            <Input id="ct-wd-dest" value={dest} disabled={busy} onChange={(e) => setDest(e.target.value)} className="font-mono text-xs" placeholder="0x…" />
+            <p className="text-[10px] text-muted-foreground">Pre-filled from your connected MetaMask. Editing it is risky — tokens go to whatever address you enter and cannot be recovered.</p></div>
+          <div className="space-y-1"><Label htmlFor="ct-wd-amt">Amount ({token.symbol})</Label>
+            <Input id="ct-wd-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} /></div>
+          <div className="space-y-1"><Label htmlFor="ct-wd-pass">Account passphrase (unlocks the cold-wallet key)</Label>
+            <Input id="ct-wd-pass" type="password" autoComplete="current-password" value={passphrase} disabled={busy} onChange={(e) => setPassphrase(e.target.value)} /></div>
+          <p className="text-xs text-muted-foreground">Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
+          <DialogFooter><Button type="button" disabled={busy || !address || invalid} onClick={submit}>{busy ? "Signing with cold key…" : "Withdraw"}</Button></DialogFooter>
+        </div>}
+      <Button type="button" variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>Close</Button>
+    </DialogContent>
+  </Dialog>;
 }
