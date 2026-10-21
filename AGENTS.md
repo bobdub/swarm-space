@@ -8,7 +8,7 @@
 ## Scoped guidance
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
-- Retain StreamingContext identity in HMR data so live updates cannot split providers from consumers.
+- Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 
 ## Verification compatibility
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
