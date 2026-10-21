@@ -47,7 +47,7 @@ describe("creator-token live profile rate", () => {
   const state = { poolBalance: 1000, knownMined: 1000 };
   it("pays the live profile price rather than the fixed 10:1 ratio", () => {
     expect(quoteCreatorTokenForSwarm(state, priceAtSupply(100), 10, 10)).toEqual({ out: 2, error: null });
-    expect(quoteCreatorTokenForSwarm(state, priceAtSupply(200), 10, 10)).out.toBe(3);
+    expect(quoteCreatorTokenForSwarm(state, priceAtSupply(200), 10, 10).out).toBe(3);
   });
   it("retains the 40% floor and 10% liquid trade cap", () => {
     expect(quoteCreatorTokenForSwarm(state, 1, 61, 100).error).toMatch(/at most 60/);
