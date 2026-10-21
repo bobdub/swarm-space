@@ -230,7 +230,7 @@ export async function waitForDepositReceipt(p: { txHash: string; token: string; 
 }
 
 const depositing = new Set<string>();
-export async function depositCustomToken(p: { swarmId: string; token: CustomToken; amount: number }): Promise<SwarmTransaction> {
+export async function depositCustomToken(p: { swarmId: string; token: CustomToken; amount: number; pollMs?: number }): Promise<SwarmTransaction> {
   const currency = tokenCurrency(p.token.address);
   if (depositing.has(currency)) throw new Error("A deposit for this token is already awaiting confirmation");
   depositing.add(currency);
@@ -238,7 +238,7 @@ export async function depositCustomToken(p: { swarmId: string; token: CustomToke
   finally { depositing.delete(currency); }
 }
 
-async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken; amount: number }): Promise<SwarmTransaction> {
+async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken; amount: number; pollMs?: number }): Promise<SwarmTransaction> {
   const { swarmId, token, amount } = p;
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero");
   await getSwarmChain().whenReady();
@@ -279,6 +279,7 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   };
   getSwarmChain().addTransaction(tx);
   try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }
+  void connectedPeerCount().then((n) => markDepositsSynced([tx.id], n));
   return tx;
 }
 
