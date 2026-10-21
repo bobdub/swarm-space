@@ -37,9 +37,13 @@ const defaultState: OnboardingState = {
   meshApproved: false,
 };
 
-const OnboardingContext = createContext<OnboardingContextValue | undefined>(
-  undefined,
-);
+// A dependency update can re-evaluate this module before React remounts the
+// existing provider. Keep the context identity across that HMR seam so
+// refreshed consumers still see the mounted provider's value.
+const OnboardingContext: React.Context<OnboardingContextValue | undefined> =
+  import.meta.hot?.data.onboardingContext ??
+  createContext<OnboardingContextValue | undefined>(undefined);
+if (import.meta.hot) import.meta.hot.data.onboardingContext = OnboardingContext;
 
 /**
  * Read onboarding flags. For users with accounts, read from localStorage.

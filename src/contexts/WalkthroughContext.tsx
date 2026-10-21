@@ -48,7 +48,11 @@ const CORE_WALKTHROUGH_STEPS = WALKTHROUGH_STEPS.filter(
   (step) => step !== "done",
 );
 
-const WalkthroughContext = createContext<WalkthroughContextValue | undefined>(
+// Same HMR seam as StreamingContext/OnboardingContext: keep one context
+// identity so a hot-updated consumer cannot lose the mounted provider.
+const WalkthroughContext: React.Context<WalkthroughContextValue | undefined> =
+  import.meta.hot?.data.walkthroughContext ??
+  createContext<WalkthroughContextValue | undefined>(
   undefined,
 );
 
