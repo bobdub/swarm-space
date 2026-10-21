@@ -1,15 +1,17 @@
 /**
  * Custom MintMe tokens (MintMe-chain ERC-20 contracts) imported via MetaMask.
  *
- * Same witness model as MINTME deposits: MetaMask self-transfers the token in
- * a single confirmation, and the SWARM chain records an external_deposit whose
- * currency is `MINTME:<contract>`. The confirmed transfer hash is the
- * ownership proof — no separate message-signing or link step. The native
- * wallet only shows tokens with a recorded (deposited) balance.
+ * Same witness model as MINTME deposits: MetaMask transfers the token to the
+ * depositor's native SWARM wallet address in a single confirmation, and the
+ * SWARM chain records an external_deposit whose currency is
+ * `MINTME:<contract>`. The confirmed transfer hash is the ownership proof —
+ * no separate message-signing or link step. The native wallet only shows
+ * tokens with a recorded (deposited) balance.
  */
 import { Interface } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
+import { swarmIdToEvmAddress } from "../gateway/addressMap";
 import type { SwarmTransaction } from "../types";
 import { connectMetaMask, getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
@@ -178,19 +180,23 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   if (held < amount) throw new Error(`MetaMask holds ${held} ${token.symbol} — not enough`);
   assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
 
-  const data = ERC20.encodeFunctionData("transfer", [account, numberToUnits(amount, token.decimals)]);
+  // The tokens actually leave MetaMask: the destination is the depositor's
+  // native SWARM wallet address, not their own MetaMask account. A
+  // self-transfer would confirm without moving any balance.
+  const destination = await swarmIdToEvmAddress(swarmId);
+  const data = ERC20.encodeFunctionData("transfer", [destination, numberToUnits(amount, token.decimals)]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [
     { from: account, to: token.address, data, value: "0x0", chainId: MINTME_CHAIN_ID_HEX },
   ]));
   const at = Date.now();
   const currency = tokenCurrency(token.address);
-  const claim = { type: "deposit", currency, symbol: token.symbol, swarmId, address: account, amount, txHash, at };
+  const claim = { type: "deposit", currency, symbol: token.symbol, swarmId, address: account, destination, amount, txHash, at };
 
   const tx: SwarmTransaction = {
     id: generateTransactionId(), type: "external_deposit", from: account, to: swarmId,
     amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature: txHash,
     publicKey: account, nonce: at, fee: 0,
-    meta: { kind: "external_deposit", currency, symbol: token.symbol, contract: token.address, address: account, txHash, claim },
+    meta: { kind: "external_deposit", currency, symbol: token.symbol, contract: token.address, address: account, destination, txHash, claim },
   };
   getSwarmChain().addTransaction(tx);
   try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }

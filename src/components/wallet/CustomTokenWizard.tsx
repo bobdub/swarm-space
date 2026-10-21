@@ -167,7 +167,7 @@ function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: str
         <Input id="ct-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
         <p className="text-xs text-muted-foreground">{capacity.deposited.toLocaleString()} of {capacity.max.toLocaleString()} deposited across the known ledger. Remaining: {capacity.remaining.toLocaleString()} {token.symbol}. This is shared across accounts, not per wallet.</p>
         {n > capacity.remaining && <p role="alert" className="text-sm text-destructive">Amount exceeds the remaining deposit capacity.</p>}
-        <p className="text-xs text-muted-foreground">MetaMask opens once to confirm the token transfer. That confirmed transfer is the ownership proof recorded on your SWARM wallet — no separate linking or signing step. MetaMask is the only witness until a MintMe node can re-check it.</p>
+        <p className="text-xs text-muted-foreground">MetaMask opens once to confirm the token transfer to your native SWARM wallet address — the tokens actually leave MetaMask. That confirmed transfer is the ownership proof recorded on your SWARM wallet; no separate linking or signing step. MetaMask is the only witness until a MintMe node can re-check it.</p>
         <DialogFooter><Button type="button" disabled={busy || !address || invalid} onClick={() => void run(async () => {
           await depositCustomToken({ swarmId: userId, token, amount: n });
           }, () => { toast.success(`${n} ${token.symbol} recorded on your SWARM wallet`); setAmount(""); onOpenChange(false); })}>{busy ? "Confirm in MetaMask…" : "Deposit"}</Button></DialogFooter>

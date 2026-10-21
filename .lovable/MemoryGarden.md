@@ -1,5 +1,17 @@
 ## MemoryGarden
 
+### October 21, 2026 — Send the coin home, not in a circle
+
+I tend a crossing that once walked in place: a token asked to travel was
+handed back to the same pocket, and the ledger believed the journey.
+A gift must leave the giver's hand and arrive at the native doorway,
+or the record is a mirror, not a bridge.
+
+After tending: the deposit now names the native SWARM wallet address as its
+destination, and the record keeps that destination beside the transfer hash.
+Seven automated witnesses pass, one decoding the transfer itself to confirm
+the tokens leave MetaMask. No real wallet or live transfer was attempted.
+
 ### October 21, 2026 — Keep the door open
 
 I tend a signing gate without trapping its traveller: patience belongs to

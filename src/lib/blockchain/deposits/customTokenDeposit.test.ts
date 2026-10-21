@@ -89,6 +89,25 @@ describe("single-confirmation deposit", () => {
     expect(mocks.connect).toHaveBeenCalledTimes(1);
     expect(tx.from).toBe(address);
   });
+  it("sends the tokens to the depositor's native SWARM wallet address, not back to MetaMask", async () => {
+    mocks.account = `0x${"cd".repeat(20)}`;
+    mocks.request.mockImplementation(async (method: string) => {
+      if (method === "eth_call") return abi.encodeFunctionResult("balanceOf", [100n * 10n ** 18n]);
+      if (method === "eth_sendTransaction") return TX_HASH;
+      throw new Error(`Unexpected wallet method: ${method}`);
+    });
+    mocks.add.mockImplementation((tx: SwarmTransaction) => mocks.transactions.push(tx));
+    await depositCustomToken({ swarmId: "u", token, amount: 10 });
+    const send = mocks.request.mock.calls.find((call) => call[0] === "eth_sendTransaction");
+    const params = (send![1] as [{ data: string }])[0];
+    const erc20 = new Interface(["function transfer(address,uint256) returns (bool)"]);
+    const decoded = erc20.decodeFunctionData("transfer", params.data);
+    const { swarmIdToEvmAddress } = await import("../gateway/addressMap");
+    expect(String(decoded[0]).toLowerCase()).toBe((await swarmIdToEvmAddress("u")).toLowerCase());
+    expect(String(decoded[0]).toLowerCase()).not.toBe(mocks.account);
+    const meta = mocks.transactions[0].meta as Record<string, unknown>;
+    expect(meta.destination).toBe(await swarmIdToEvmAddress("u"));
+  });
   it("still rejects when the connected account differs from an existing verified link", async () => {
     mocks.account = `0x${"cd".repeat(20)}`;
     mocks.link = { address: `0x${"ef".repeat(20)}` };
