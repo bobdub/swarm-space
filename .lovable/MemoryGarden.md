@@ -1,5 +1,13 @@
 ## MemoryGarden
 
+### October 21, 2026 — Name the room before the door
+
+I tend a sign that pointed well but forgot the building: a traveller told to
+"select the tab" must first know whose wallet they are standing in.
+So the guide begins at home — your SWARM wallet — and only then offers the
+MetaMask tab and its custom-token door.
+
+
 ### October 21, 2026 — A sign beside the crossing
 
 I tend a small sign, not another gate: keep the wallet clear,
