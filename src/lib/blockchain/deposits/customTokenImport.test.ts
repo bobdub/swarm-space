@@ -35,14 +35,22 @@ describe("patient MetaMask token import", () => {
   });
 
   it("saves a zero-balance token only after a four-minute tracking approval", async () => {
-    wallet.request.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(true), 240_000)));
+    wallet.request.mockImplementation(async (method: string, params: { data: string }[]) => {
+      if (method === "wallet_watchAsset") return new Promise((resolve) => setTimeout(() => resolve(true), 240_000));
+      const name = abi.parseTransaction({ data: params[0].data })?.name;
+      if (name === "symbol") return abi.encodeFunctionResult("symbol", ["ABC"]);
+      if (name === "decimals") return abi.encodeFunctionResult("decimals", [18]);
+      return abi.encodeFunctionResult("balanceOf", [0n]);
+    });
+    const details = await readTokenDetails(token.address, owner);
+    expect(details.rawBalance).toBe(0n);
     const flow = importCustomTokenFromMetaMask("u", token);
     await vi.advanceTimersByTimeAsync(239_999);
     expect(listCustomTokens("u")).toEqual([]);
     await vi.advanceTimersByTimeAsync(1);
     await flow;
     expect(listCustomTokens("u")[0]?.address).toBe(token.address);
-    expect(wallet.request.mock.calls.map((c) => c[0])).toEqual(["wallet_watchAsset"]);
+    expect(wallet.request.mock.calls.map((c) => c[0])).toEqual(["eth_call", "eth_call", "eth_call", "wallet_watchAsset"]);
   });
 
   it("does not save when MetaMask declines tracking", async () => {

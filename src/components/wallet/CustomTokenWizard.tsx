@@ -35,14 +35,13 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const [symbol, setSymbol] = useState("");
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<{ symbol: string; decimals: number; read: boolean } | null>(null);
-  const [held, setHeld] = useState<number | null>(null);
   const [rawHeld, setRawHeld] = useState<bigint | null>(null);
   const [decimalsIn, setDecimalsIn] = useState("18");
   const [token, setToken] = useState<CustomToken | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const { address: mmAddr } = useMetaMask();
 
-  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setRawHeld(null); setDecimalsIn("18"); };
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setRawHeld(null); setDecimalsIn("18"); };
   const switchNet = async () => {
     setBusy(true);
     try {
