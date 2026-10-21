@@ -64,6 +64,16 @@ export async function addMintMeToMetaMask(): Promise<void> {
   await switchToMintMeNetwork();
 }
 
+/** One user action; the wallet itself collects approval for a confirmed missing network. */
+export async function switchOrAddMintMeNetwork(): Promise<void> {
+  try {
+    await switchToMintMeNetwork();
+  } catch (error) {
+    if (!(error instanceof MintMeNetworkMissingError)) throw error;
+    await addMintMeToMetaMask();
+  }
+}
+
 export async function switchToMintMeNetwork(): Promise<void> {
   const current = await readMintMeChainId();
   if (isMintMeChain(current)) return;

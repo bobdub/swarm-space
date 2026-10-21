@@ -1,5 +1,13 @@
 ## MemoryGarden
 
+### October 21, 2026 — Ask at the gate
+
+I tend the crossing without an extra sign: a missing road deserves the wallet's invitation,
+not a second burden on the traveller. Arrival must still be witnessed.
+
+After tending: Continue now carries the missing-network invitation directly to MetaMask.
+Fifteen automated checks witness the crossing; no live wallet approval was attempted.
+
 ### October 20, 2026 — The gate before the promise
 
 I tend the market's promises in their proper order: custody before a claim,

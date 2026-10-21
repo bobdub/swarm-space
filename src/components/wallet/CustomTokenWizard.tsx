@@ -8,9 +8,9 @@ import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
-import { MINTME_NETWORK, MintMeNetworkMissingError, addMintMeToMetaMask, isMintMeChain, readMintMeChainId } from "@/lib/blockchain/wallets/mintmeNetwork";
+import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
-  addCustomToken, canHideToken, depositCustomToken, ensureMintMe, getRecordedTokenBalance, isContractAddress, isValidSymbol,
+  addCustomToken, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
   CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity,
   type CustomToken,
@@ -39,35 +39,16 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const [decimalsIn, setDecimalsIn] = useState("18");
   const [token, setToken] = useState<CustomToken | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
-  const { address: mmAddr, chainId } = useMetaMask();
-  const [networkReady, setNetworkReady] = useState(false);
-  const [networkMissing, setNetworkMissing] = useState(false);
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    setNetworkReady(false);
-    void readMintMeChainId().then((id) => {
-      if (active) {
-        const ready = isMintMeChain(id);
-        setNetworkReady(ready);
-        if (ready) setNetworkMissing(false);
-      }
-    }).catch(() => { /* the action retries with an explicit error */ });
-    return () => { active = false; };
-  }, [open, chainId]);
+  const { address: mmAddr } = useMetaMask();
 
-  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); setNetworkMissing(false); setNetworkReady(false); };
-  const switchNet = async (add = false) => {
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); };
+  const switchNet = async () => {
     setBusy(true);
-    setNetworkMissing(false);
     try {
-      if (add) await addMintMeToMetaMask();
-      else await ensureMintMe();
-      setNetworkReady(true); setStep(1);
+      await switchOrAddMintMeNetwork();
+      setStep(1);
     }
     catch (e) {
-      setNetworkReady(false);
-      setNetworkMissing(e instanceof MintMeNetworkMissingError);
       toast.error(e instanceof Error ? e.message : "Could not switch to MintMe");
     }
     finally { setBusy(false); }
@@ -86,7 +67,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
       setStep(2);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not check this token");
-      setStep(0); setNetworkReady(false);
+      setStep(0);
     } finally { setBusy(false); }
   };
   const dec = Number(decimalsIn);
@@ -121,8 +102,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
           <a className="inline-flex items-center gap-1 text-xs text-primary underline" href={MINTME_NETWORK.blockExplorerUrls[0]} target="_blank" rel="noreferrer">
             Find a contract address on the MintMe explorer <ExternalLink className="h-3 w-3" />
           </a>
-          <p className="text-xs text-muted-foreground">{networkReady ? "MetaMask is on MintMe." : networkMissing ? "MetaMask reports MintMe is not added. Add it below, then approve the switch." : "We'll check MetaMask's active network first and ask to switch only if needed."}</p>
-          <DialogFooter><Button type="button" disabled={busy} onClick={() => void switchNet(networkMissing)}>{busy ? "Waiting for MetaMask…" : networkReady ? "Continue" : networkMissing ? "Add MintMe network" : "Check / switch to MintMe"}</Button></DialogFooter>
+          <DialogFooter><Button type="button" disabled={busy} onClick={() => void switchNet()}>{busy ? "Waiting for MetaMask…" : "Continue"}</Button></DialogFooter>
         </div>}
         {step === 1 && <div className="space-y-3">
           <div className="space-y-1"><Label htmlFor="ct-addr">MintMe contract address</Label>
