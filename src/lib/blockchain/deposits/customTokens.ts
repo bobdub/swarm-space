@@ -1,15 +1,17 @@
 /**
  * Custom MintMe tokens (MintMe-chain ERC-20 contracts) imported via MetaMask.
  *
- * Same witness model as MINTME deposits: MetaMask self-transfers the token in
- * a single confirmation, and the SWARM chain records an external_deposit whose
- * currency is `MINTME:<contract>`. The confirmed transfer hash is the
- * ownership proof — no separate message-signing or link step. The native
- * wallet only shows tokens with a recorded (deposited) balance.
+ * Same witness model as MINTME deposits: MetaMask transfers the token to the
+ * depositor's native SWARM wallet address in a single confirmation, and the
+ * SWARM chain records an external_deposit whose currency is
+ * `MINTME:<contract>`. The confirmed transfer hash is the ownership proof —
+ * no separate message-signing or link step. The native wallet only shows
+ * tokens with a recorded (deposited) balance.
  */
 import { Interface } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
+import { swarmIdToEvmAddress } from "../gateway/addressMap";
 import type { SwarmTransaction } from "../types";
 import { connectMetaMask, getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
