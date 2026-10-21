@@ -1,3 +1,7 @@
+## Native Market asset selection (2026-10-21)
+- [ ] Match Buy payment options to positive Native wallet holdings, including deployed SWARM tokens
+- [ ] Verify selection and existing market safeguards without live transactions
+
 ## Native wallet guide (2026-10-21)
 - [x] Add a separate factual guide under Settings documentation
 - [x] Link quietly below Wallet activity metrics; public guide and overview navigation verified in browser, build OK (signed-in entry links not exercised)
