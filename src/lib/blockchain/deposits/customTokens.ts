@@ -1,16 +1,17 @@
 /**
  * Custom MintMe tokens (MintMe-chain ERC-20 contracts) imported via MetaMask.
  *
- * Same witness model as MINTME deposits: MetaMask self-transfers the token,
- * signs a claim, and the SWARM chain records an external_deposit whose
- * currency is `MINTME:<contract>`. The native wallet only shows tokens with a
- * recorded (deposited) balance.
+ * Same witness model as MINTME deposits: MetaMask self-transfers the token in
+ * a single confirmation, and the SWARM chain records an external_deposit whose
+ * currency is `MINTME:<contract>`. The confirmed transfer hash is the
+ * ownership proof — no separate message-signing or link step. The native
+ * wallet only shows tokens with a recorded (deposited) balance.
  */
-import { Interface, verifyMessage } from "ethers";
+import { Interface } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
 import type { SwarmTransaction } from "../types";
-import { getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
+import { connectMetaMask, getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
 import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
@@ -164,31 +165,32 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero");
   await getSwarmChain().whenReady();
   assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
+  // Resolve the connected account, prompting MetaMask to connect if the
+  // session was lost. No separate link step: the confirmed transfer below is
+  // itself the ownership proof recorded on the SWARM ledger.
+  let account = (await getMetaMaskAccount())?.toLowerCase();
+  if (!account) account = (await connectMetaMask())?.address.toLowerCase();
+  if (!account) throw new Error("Connect MetaMask first");
   const link = getLinkedWallet(swarmId);
-  if (!link) throw new Error("Link your MetaMask wallet to this Swarm identity first");
-  const account = (await getMetaMaskAccount())?.toLowerCase();
-  if (account !== link.address) throw new Error("MetaMask is on a different account than the linked wallet");
-  const held = await readTokenBalance(token, link.address);
+  if (link && account !== link.address) throw new Error("MetaMask is on a different account than the linked wallet");
+  const held = await readTokenBalance(token, account);
   if (held == null) throw new Error("Could not verify your MintMe token balance. Select MintMe and retry before depositing.");
   if (held < amount) throw new Error(`MetaMask holds ${held} ${token.symbol} — not enough`);
   assertCustomTokenDepositCapacity(allTransactions(), token.address, amount);
 
-  const data = ERC20.encodeFunctionData("transfer", [link.address, numberToUnits(amount, token.decimals)]);
+  const data = ERC20.encodeFunctionData("transfer", [account, numberToUnits(amount, token.decimals)]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [
-    { from: link.address, to: token.address, data, value: "0x0", chainId: MINTME_CHAIN_ID_HEX },
+    { from: account, to: token.address, data, value: "0x0", chainId: MINTME_CHAIN_ID_HEX },
   ]));
   const at = Date.now();
   const currency = tokenCurrency(token.address);
-  const claim = { type: "deposit", currency, symbol: token.symbol, swarmId, address: link.address, amount, txHash, at };
-  const message = `Swarm-Space token record\n${JSON.stringify(claim, Object.keys(claim).sort())}`;
-  const signature = String(await requestMetaMask<string>("personal_sign", [message, link.address]));
-  if (verifyMessage(message, signature).toLowerCase() !== link.address) throw new Error("Signature does not match the connected wallet");
+  const claim = { type: "deposit", currency, symbol: token.symbol, swarmId, address: account, amount, txHash, at };
 
   const tx: SwarmTransaction = {
-    id: generateTransactionId(), type: "external_deposit", from: link.address, to: swarmId,
-    amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature,
-    publicKey: link.address, nonce: at, fee: 0,
-    meta: { kind: "external_deposit", currency, symbol: token.symbol, contract: token.address, address: link.address, txHash, claim, message, signature },
+    id: generateTransactionId(), type: "external_deposit", from: account, to: swarmId,
+    amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature: txHash,
+    publicKey: account, nonce: at, fee: 0,
+    meta: { kind: "external_deposit", currency, symbol: token.symbol, contract: token.address, address: account, txHash, claim },
   };
   getSwarmChain().addTransaction(tx);
   try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }

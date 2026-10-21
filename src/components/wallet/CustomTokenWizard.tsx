@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
-import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
+import { getLinkedWallet } from "@/lib/blockchain/wallets/walletLink";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
   importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
