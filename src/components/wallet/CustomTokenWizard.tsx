@@ -8,7 +8,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
-import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
   importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
@@ -148,36 +147,31 @@ function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: str
   const [amount, setAmount] = useState("");
   const { busy, run } = useWalletDialogTask(open);
   const [held, setHeld] = useState<number | null>(null);
-  const [linked, setLinked] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
-    setLinked(getLinkedWallet(userId)?.address ?? null);
     let active = true;
     setHeld(null);
     if (address) void readTokenBalance(token, address).then((value) => { if (active) setHeld(value); }).catch(() => { if (active) setHeld(null); });
     return () => { active = false; };
-  }, [open, userId, address, token]);
-  const same = !!address && linked === address.toLowerCase();
+  }, [open, address, token]);
   const n = Number(amount);
   const capacity = getCustomTokenDepositCapacity(token.address);
   const invalid = !Number.isFinite(n) || n <= 0 || held == null || n > held || n > capacity.remaining;
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-w-md">
       <DialogHeader><DialogTitle>Deposit {token.symbol} from MetaMask</DialogTitle></DialogHeader>
-      {!same ? <div className="space-y-2 text-sm">
-        <p>Link your MetaMask account to your SWARM wallet first. You'll sign a message — no tokens move.</p>
-        <DialogFooter><Button type="button" disabled={busy || !address} onClick={() => void run((signal) => linkMetaMaskWallet(userId, signal), (link) => setLinked(link.address))}>{busy ? "Confirm in MetaMask…" : "Link wallet"}</Button></DialogFooter>
-      </div> : <div className="space-y-3">
+      <div className="space-y-3">
+        {!address && <p role="alert" className="text-sm text-destructive">Connect MetaMask in the wallet tab first.</p>}
         <p className="text-sm">In MetaMask: <b className="tabular-nums">{held == null ? "checking…" : `${held} ${token.symbol}`}</b></p>
         <Label htmlFor="ct-amt">Amount ({token.symbol})</Label>
         <Input id="ct-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} />
         <p className="text-xs text-muted-foreground">{capacity.deposited.toLocaleString()} of {capacity.max.toLocaleString()} deposited across the known ledger. Remaining: {capacity.remaining.toLocaleString()} {token.symbol}. This is shared across accounts, not per wallet.</p>
         {n > capacity.remaining && <p role="alert" className="text-sm text-destructive">Amount exceeds the remaining deposit capacity.</p>}
-        <p className="text-xs text-muted-foreground">MetaMask confirms a transfer to your own linked address, then signs the deposit record. MetaMask is the only witness until a MintMe node can re-check it.</p>
-        <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void run(async () => {
+        <p className="text-xs text-muted-foreground">MetaMask opens once to confirm the token transfer. That confirmed transfer is the ownership proof recorded on your SWARM wallet — no separate linking or signing step. MetaMask is the only witness until a MintMe node can re-check it.</p>
+        <DialogFooter><Button type="button" disabled={busy || !address || invalid} onClick={() => void run(async () => {
           await depositCustomToken({ swarmId: userId, token, amount: n });
           }, () => { toast.success(`${n} ${token.symbol} recorded on your SWARM wallet`); setAmount(""); onOpenChange(false); })}>{busy ? "Confirm in MetaMask…" : "Deposit"}</Button></DialogFooter>
-      </div>}
+      </div>
       {busy && <p role="status" className="text-xs text-muted-foreground">Waiting for MetaMask. Closing does not cancel a transfer already submitted to MetaMask.</p>}
       <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Close</Button>
     </DialogContent>
