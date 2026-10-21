@@ -1,3 +1,7 @@
+## Native wallet guide (2026-10-21)
+- [x] Add a separate factual guide under Settings documentation
+- [x] Link quietly below Wallet activity metrics; public guide and overview navigation verified in browser, build OK (signed-in entry links not exercised)
+
 ## MetaMask linking recovery (2026-10-21)
 - [x] Encode signing messages, await the external account and bound wallet waits
 - [x] Keep native/custom deposit prompts closable and ignore stale completions

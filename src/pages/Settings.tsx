@@ -859,6 +859,7 @@ const Settings = () => {
                 { icon: Box, label: "Virtual Hub & Builder", desc: "How to walk and build inside 3D project rooms", path: "/about-network#virtual-hub" },
                 { icon: Server, label: "Personal Servers", desc: "Bring your own encrypted storage to the network", path: "/personal-server-guide" },
                 { icon: Coins, label: "SWARM, Creator Tokens & MetaMask", desc: "How the economy works and how to connect MetaMask on desktop or mobile", path: "/swarm-metamask-guide" },
+                { icon: BookOpen, label: "Native SWARM Wallet Guide", desc: "Custom MintMe deposits, pending sync, cold keys & withdrawals", path: "/cold-wallet-guide" },
                 { icon: Wrench, label: "Storage Diagnostics & Backup", desc: "Inspect local storage, restore lost tokens, export/import backups", path: "/storage-diagnostics" },
                 { icon: Heart, label: "Donate", desc: "Fund the open, decentralized, P2P mesh", path: "/donate" },
               ].map((item) => (

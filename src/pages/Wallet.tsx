@@ -12,9 +12,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
   Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
-  Link2, Repeat, ImagePlus, Trash2, Store,
+  Link2, Repeat, ImagePlus, Trash2, Store, BookOpen, ArrowRight,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getCurrentUser } from "@/lib/auth";
@@ -767,6 +767,16 @@ export default function Wallet() {
         {/* Quantum Metrics */}
         <div className="mb-8">
           <QuantumMetricsPanel />
+        </div>
+
+        <div className="border-t border-border pt-3 pb-4">
+          <Button asChild variant="link" size="sm" className="h-auto max-w-full whitespace-normal px-0 text-muted-foreground">
+            <Link to="/cold-wallet-guide">
+              <BookOpen className="mr-2 h-4 w-4 shrink-0" />
+              Read the Native SWARM Wallet Guide
+              <ArrowRight className="ml-2 h-4 w-4 shrink-0" />
+            </Link>
+          </Button>
         </div>
 
         </div>
