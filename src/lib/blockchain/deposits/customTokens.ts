@@ -40,11 +40,35 @@ export function isValidSymbol(s: string): boolean { return /^[A-Za-z0-9]{1,11}$/
 export const tokenCurrency = (address: string) => `MINTME:${address.toLowerCase()}`;
 
 export function listCustomTokens(uid: string): CustomToken[] {
+  if (!uid) return [];
   try { const v = JSON.parse(localStorage.getItem(KEY(uid)) || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 function save(uid: string, list: CustomToken[]) {
-  localStorage.setItem(KEY(uid), JSON.stringify(list));
+  if (!uid) return;
+  try { localStorage.setItem(KEY(uid), JSON.stringify(list)); } catch { /* quota */ }
+  // Durable mirror so imported tokens survive localStorage wipes and refreshes.
+  void import("../../store").then(({ put }) => put("meta", { k: KEY(uid), v: list })).catch(() => { /* best effort */ });
   try { window.dispatchEvent(new CustomEvent(CUSTOM_TOKENS_EVENT)); } catch { /* non-browser */ }
+}
+/** Restore imported tokens from the durable mirror, merging with anything in localStorage. */
+export async function hydrateCustomTokens(uid: string): Promise<CustomToken[]> {
+  if (!uid) return [];
+  const local = listCustomTokens(uid);
+  try {
+    const { get } = await import("../../store");
+    const entry = await get<{ k: string; v: CustomToken[] }>("meta", KEY(uid));
+    const durable = Array.isArray(entry?.v) ? entry!.v : [];
+    const byAddr = new Map<string, CustomToken>();
+    for (const t of [...durable, ...local]) if (t && isContractAddress(t.address)) byAddr.set(t.address.toLowerCase(), t);
+    const merged = [...byAddr.values()];
+    if (merged.length !== local.length || durable.length !== merged.length) save(uid, merged);
+    return merged;
+  } catch { return local; }
+}
+/** MetaMask needs a moment after importing before a transfer is reliable. */
+export const DEPOSIT_PREP_MS = 15_000;
+export function depositPrepRemainingMs(token: Pick<CustomToken, "addedAt">, now = Date.now()): number {
+  return Math.max(0, (token.addedAt || 0) + DEPOSIT_PREP_MS - now);
 }
 export function addCustomToken(uid: string, t: Omit<CustomToken, "addedAt">): CustomToken {
   if (!isContractAddress(t.address)) throw new Error("Enter a valid 0x contract address");

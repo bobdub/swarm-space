@@ -9,10 +9,11 @@ import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenDetails, unitsToNumber, setTokenHidden, CUSTOM_TOKENS_EVENT,
-  CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity,
+  CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity, hydrateCustomTokens, depositPrepRemainingMs,
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
 
@@ -21,11 +22,26 @@ export function useCustomTokens(userId: string) {
   useEffect(() => {
     const r = () => setList(listCustomTokens(userId));
     r();
+    void hydrateCustomTokens(userId).then(setList);
     window.addEventListener(CUSTOM_TOKENS_EVENT, r);
     window.addEventListener("blockchain-transaction", r);
     return () => { window.removeEventListener(CUSTOM_TOKENS_EVENT, r); window.removeEventListener("blockchain-transaction", r); };
   }, [userId]);
   return list;
+}
+
+function ImportedStep({ token, rawHeld, onLater, onDeposit }: { token: CustomToken; rawHeld: bigint | null; onLater: () => void; onDeposit: () => void }) {
+  const left = usePrepRemaining(token);
+  const empty = rawHeld != null && rawHeld <= 0n;
+  return <div className="space-y-3 text-sm">
+    <p><b>{token.symbol}</b> is saved on your MetaMask tab and stays there after refresh. Deposit it to see it in your native SWARM wallet.</p>
+    {left > 0 && <p role="status" className="text-xs text-muted-foreground">Giving MetaMask a moment to prepare… {Math.ceil(left / 1000)}s</p>}
+    {empty && <p className="text-xs text-muted-foreground">You hold 0 {token.symbol}. Add {token.symbol} to your MetaMask wallet to deposit it on SWARM.</p>}
+    <DialogFooter className="gap-2">
+      <Button type="button" variant="ghost" onClick={onLater}>Later</Button>
+      <Button type="button" disabled={left > 0 || rawHeld == null || empty} onClick={onDeposit}>Deposit now</Button>
+    </DialogFooter>
+  </div>;
 }
 
 export function CustomTokenWizard({ userId }: { userId: string }) {
@@ -129,13 +145,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
             <Button type="button" disabled={busy || !decOk} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
           </DialogFooter>
         </div>}
-        {step === 3 && token && <div className="space-y-3 text-sm">
-          <p><b>{token.symbol}</b> is now on your MetaMask tab. Deposit it to see it in your native SWARM wallet.</p>
-          <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Later</Button>
-            <Button type="button" disabled={rawHeld == null || rawHeld <= 0n} onClick={() => { setOpen(false); setDepositOpen(true); }}>Deposit now</Button>
-          </DialogFooter>
-        </div>}
+        {step === 3 && token && <ImportedStep token={token} rawHeld={rawHeld} onLater={() => setOpen(false)} onDeposit={() => { setOpen(false); setDepositOpen(true); }} />}
       </DialogContent>
     </Dialog>
     {token && <TokenDepositDialog userId={userId} token={token} open={depositOpen} onOpenChange={setDepositOpen} />}
@@ -178,23 +188,46 @@ function TokenDepositDialog({ userId, token, open, onOpenChange }: { userId: str
   </Dialog>;
 }
 
+function usePrepRemaining(token: CustomToken): number {
+  const [left, setLeft] = useState(() => depositPrepRemainingMs(token));
+  useEffect(() => {
+    setLeft(depositPrepRemainingMs(token));
+    if (depositPrepRemainingMs(token) <= 0) return;
+    const id = setInterval(() => {
+      const r = depositPrepRemainingMs(token);
+      setLeft(r);
+      if (r <= 0) clearInterval(id);
+    }, 500);
+    return () => clearInterval(id);
+  }, [token]);
+  return left;
+}
+
 /** Token row for either tab. Native shows only deposited tokens; MetaMask shows all non-hidden ones. */
 export function CustomTokenRow({ userId, token, layer }: { userId: string; token: CustomToken; layer: "native" | "metamask" }) {
   const { address } = useMetaMask();
   const [held, setHeld] = useState<number | null>(null);
   const [dep, setDep] = useState(false);
+  const prepLeft = usePrepRemaining(token);
   const recorded = getRecordedTokenBalance(userId, token.address);
-  useEffect(() => { if (layer === "metamask" && address) void readTokenBalance(token, address).then(setHeld); }, [layer, address, token]);
+  useEffect(() => { if (layer === "metamask" && address) void readTokenBalance(token, address).then(setHeld); }, [layer, address, token, prepLeft === 0]);
   if (layer === "native" && recorded <= 0) return null;
   if (layer === "metamask" && token.hidden) return null;
   const amount = layer === "native" ? recorded : held;
+  const empty = held === 0;
+  const depositDisabled = prepLeft > 0 || empty;
+  const depositButton = <Button type="button" size="sm" variant="outline" disabled={depositDisabled} onClick={() => setDep(true)}>
+    {prepLeft > 0 ? `Preparing… ${Math.ceil(prepLeft / 1000)}s` : "Deposit to Native"}
+  </Button>;
   return <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
     <div className="min-w-0">
       <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">MintMe token</span></div>
       <div className="text-xl font-semibold tabular-nums">{amount == null ? "…" : amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} <span className="text-xs font-normal text-muted-foreground">{token.symbol}</span></div>
     </div>
     {layer === "metamask" && <div className="grid grid-cols-2 gap-2 sm:flex">
-      <Button type="button" size="sm" variant="outline" onClick={() => setDep(true)}>Deposit to Native</Button>
+      {empty && prepLeft <= 0 ? <TooltipProvider><Tooltip><TooltipTrigger asChild><span tabIndex={0}>{depositButton}</span></TooltipTrigger>
+        <TooltipContent>Add {token.symbol} to your MetaMask wallet first, then you can deposit it on SWARM.</TooltipContent></Tooltip></TooltipProvider>
+        : depositButton}
       {canHideToken(held, recorded) && <Button type="button" size="sm" variant="ghost" onClick={() => setTokenHidden(userId, token.address, true)}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
     </div>}
