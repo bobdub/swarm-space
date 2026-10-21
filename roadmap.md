@@ -147,3 +147,4 @@
 - [x] Withdrawal dialog: MetaMask-connected prefill with editable risky destination, passphrase unlock, gas-shortfall guidance
 - [x] 14 deposit/withdrawal checks pass; no live wallet test
 - [ ] Tokens deposited before this change sit at the old hash-alias address, which has no private key — recovery path undecided
+- [x] Deposits credit only after MintMe receipt proves arrival at cold-key address; Hold & Sync gates mesh use until a peer connects
