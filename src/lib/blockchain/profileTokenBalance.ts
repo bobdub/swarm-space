@@ -72,3 +72,32 @@ export async function addProfileTokens(params: {
   await saveProfileTokenHolding(holding);
   console.log(`[Token Holdings] Added ${params.amount} ${params.ticker} to ${params.userId}`);
 }
+
+/** Both ownership records commit together; transfers never change circulating supply. */
+export async function transferProfileTokens(from: string, to: string, tokenId: string, amount: number): Promise<void> {
+  if (from === to || !Number.isFinite(amount) || amount <= 0) throw new Error("Invalid creator-token transfer");
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HOLDINGS_STORE, "readwrite");
+    const store = tx.objectStore(HOLDINGS_STORE);
+    const sender = store.get(`${from}-${tokenId}`);
+    const receiver = store.get(`${to}-${tokenId}`);
+    let failure: Error | undefined;
+    const commit = () => {
+      if (sender.readyState !== "done" || receiver.readyState !== "done") return;
+      const source = sender.result as ProfileTokenHolding | undefined;
+      const target = receiver.result as ProfileTokenHolding | undefined;
+      if (!source || !Number.isFinite(source.amount) || source.amount < amount) {
+        failure = new Error("Insufficient Native creator tokens"); tx.abort(); return;
+      }
+      const lastUpdated = new Date().toISOString();
+      store.put({ ...source, id: `${from}-${tokenId}`, amount: Math.round((source.amount - amount) * 1e6) / 1e6, lastUpdated });
+      store.put({ ...source, ...target, userId: to, id: `${to}-${tokenId}`, amount: Math.round(((target?.amount ?? 0) + amount) * 1e6) / 1e6, lastUpdated });
+    };
+    sender.onsuccess = commit;
+    receiver.onsuccess = commit;
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(failure ?? tx.error ?? new Error("Creator-token transfer cancelled"));
+    tx.onerror = () => reject(tx.error ?? new Error("Creator-token transfer failed"));
+  });
+}

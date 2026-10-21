@@ -10,8 +10,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { useMarketGate } from "@/hooks/useMarketGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, type MarketVaultState } from "@/lib/blockchain/marketVaultPricing";
-import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm } from "@/lib/blockchain/marketVault";
-import { quoteSwarmForToken, quoteTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
+import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm, getCreatorMarketRate, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
+import { quoteSwarmForToken, quoteTokenForSwarm, quoteCreatorTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
 import { listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
 import { useNativeAssets } from "@/hooks/useNativeAssets";
 import { nativeMarketPayments } from "@/lib/blockchain/wallets/nativeAssets";
@@ -36,7 +36,19 @@ export function MarketVaultPanel() {
   const payments = useMemo(() => nativeMarketPayments(nativeAssets), [nativeAssets]);
   const paymentId = payments.some((asset) => asset.id === payWith) ? payWith : payments[0]?.id ?? "";
   const payment = payments.find((asset) => asset.id === paymentId);
-  const unsupportedPayment = payment && payment.kind !== "credits" && payment.kind !== "custom";
+  const unsupportedPayment = payment && payment.kind !== "credits" && payment.kind !== "custom" && payment.kind !== "creator";
+  const creatorId = payment?.kind === "creator" ? payment.id.slice("creator:".length) : "";
+  const [creatorRate, setCreatorRate] = useState<{ tokenId: string; rate: number } | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    setCreatorRate(null);
+    if (creatorId) void getCreatorMarketRate(creatorId).then((rate) => {
+      if (!disposed) setCreatorRate({ tokenId: creatorId, rate });
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [creatorId, state]);
+  const liveRate = creatorRate?.tokenId === creatorId ? creatorRate.rate : 0;
+  const creatorQuote = state && creatorId ? quoteCreatorTokenForSwarm(state, liveRate, Number(amount), payment?.available ?? 0) : null;
   const tokens: CustomToken[] = useMemo(() => (user?.id ? listCustomTokens(user.id) : []), [user?.id, state]);
 
   const load = useCallback(() => {
@@ -49,9 +61,11 @@ export function MarketVaultPanel() {
     load();
     window.addEventListener("reward-pool-update", load);
     window.addEventListener("blockchain-transaction", load);
+    window.addEventListener("creator-vault-update", load);
     return () => {
       window.removeEventListener("reward-pool-update", load);
       window.removeEventListener("blockchain-transaction", load);
+      window.removeEventListener("creator-vault-update", load);
     };
   }, [load]);
 
@@ -145,8 +159,20 @@ export function MarketVaultPanel() {
               </div>
             )}
             {!canTrade && <p className="text-xs text-muted-foreground">{reason}</p>}
+            {creatorId && creatorQuote && (
+              <div className="rounded-md border bg-muted/40 p-2 text-xs space-y-0.5">
+                <Row k="Live profile-market rate" v={liveRate > 0 ? `${fmt(liveRate, 6)} SWARM / ${payment?.symbol}` : "Unavailable"} />
+                {Number(amount) > 0 && <Row k="You receive" v={`${fmt(creatorQuote.out, 6)} SWARM`} />}
+                {Number(amount) > 0 && creatorQuote.error && <p className="pt-1 text-destructive">{creatorQuote.error}</p>}
+              </div>
+            )}
             {unsupportedPayment && <p role="status" className="text-xs text-muted-foreground">{payment.symbol} is held in your Native wallet. Vault payment settlement for this asset is not available yet; no tokens will be deducted.</p>}
-            {payToken ? (
+            {creatorId ? (
+              <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !creatorQuote || !!creatorQuote.error}
+                onClick={() => { if (!user?.id || !canTrade) return; const userId = user.id; void run(async () => { const q = await swapCreatorTokenForSwarm(userId, creatorId, Number(amount), liveRate); return `Received ${fmt(q.out, 6)} SWARM`; }); }}>
+                {busy ? "Swapping…" : `Swap ${payment?.symbol} for SWARM`}
+              </Button>
+            ) : payToken ? (
               <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !tokenQuote || !!tokenQuote.error}
                 onClick={() => { if (!user?.id || !payToken.contract || !canTrade) return; const userId = user.id; const contract = payToken.contract; void run(async () => { const q = await swapTokenForSwarm(userId, contract, Number(amount)); return `Received ${fmt(q.out, 6)} SWARM`; }); }}>
                 {busy ? "Swapping…" : `Swap ${payToken.symbol} for SWARM`}
@@ -157,7 +183,7 @@ export function MarketVaultPanel() {
               </Button>
             )}
             <p className="text-[10px] text-muted-foreground">
-              Deposited tokens must be synced to a peer before use. Tokens you pay stay in the vault for future sellers.
+              {creatorId ? "Creator tokens you pay stay in the Market Vault." : "Deposited tokens must be synced to a peer before use. Tokens you pay stay in the vault for future sellers."}
             </p>
           </TabsContent>
           <TabsContent value="sell" className="space-y-3">

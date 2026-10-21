@@ -1,6 +1,57 @@
 import { withCreatorMarketOperation } from "./creatorMarketOperation";
 import { quoteVaultBuy, type MarketVaultState } from "./marketVaultPricing";
 import { getMinedPoolBalance, releaseMinedPoolSwarm } from "./creditWrapping";
+import { getCreatorVault, priceAtSupply } from "./creatorVault";
+import { getProfileTokenHolding, transferProfileTokens } from "./profileTokenBalance";
+import { quoteCreatorTokenForSwarm } from "./marketVaultPricing";
+
+export async function getCreatorMarketRate(tokenId: string): Promise<number> {
+  const vault = await getCreatorVault(tokenId);
+  if (!vault || vault.closed || !Number.isFinite(vault.circulatingSupply)) throw new Error("Creator market rate is unavailable.");
+  return priceAtSupply(vault.circulatingSupply);
+}
+
+/** Transfer existing creator holdings into pool custody at the live profile spot. */
+export async function swapCreatorTokenForSwarm(userId: string, tokenId: string, amount: number, expectedRate: number) {
+  return withCreatorMarketOperation("swarm-market-vault", () => withCreatorMarketOperation(tokenId, async () => {
+    const { getCurrentUser, getCachedPrivateKey } = await import("../auth");
+    const { signWalletTip } = await import("./wallets/tipSignature");
+    const { getSwarmChain } = await import("./chain");
+    const user = getCurrentUser();
+    if (!user || user.id !== userId) throw new Error("Sign in to use your Native tokens.");
+    const privateKey = await getCachedPrivateKey();
+    if (!privateKey) throw new Error("Unlock your account to use your Native tokens.");
+    const [state, holding, rate] = await Promise.all([getMarketVaultState(), getProfileTokenHolding(userId, tokenId), getCreatorMarketRate(tokenId)]);
+    if (rate !== expectedRate) throw new Error("Creator market rate changed. Review the updated quote and retry.");
+    const quote = quoteCreatorTokenForSwarm(state, rate, amount, holding?.amount ?? 0);
+    if (quote.error) throw new Error(quote.error);
+    const operationId = crypto.randomUUID();
+    const payment = await signWalletTip({
+      id: `${operationId}:payment`, type: "custom_token_transfer", from: userId, to: "community-pool",
+      amount, tokenId, timestamp: new Date().toISOString(), signature: "", publicKey: user.publicKey,
+      nonce: Date.now(), fee: 0, meta: { currency: `CREATOR:${tokenId}`, marketVault: true, direction: "vault-buy", rate, swarmOut: quote.out, operationId },
+    }, privateKey);
+    // Atomic ownership debit/credit precedes release. A failed release returns payment
+    // only when no SWARM payout entered the ledger (never refund an accepted payout).
+    await transferProfileTokens(userId, "community-pool", tokenId, amount);
+    const chain = getSwarmChain();
+    const payoutId = `${operationId}:payout`;
+    try {
+      await releaseMinedPoolSwarm({ to: userId, amount: quote.out, creditsLocked: 0, transactionId: payoutId, reason: `Market Vault: ${amount} ${holding?.ticker ?? tokenId} at ${rate} SWARM` });
+    } catch (error) {
+      if (!chain.hasTransaction(payoutId)) {
+        await transferProfileTokens("community-pool", userId, tokenId, amount);
+        throw error;
+      }
+    }
+    chain.addTransaction(payment);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: payment }));
+      window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));
+    }
+    return quote;
+  }));
+}
 
 export async function getMarketVaultState(): Promise<MarketVaultState> {
   const [poolBalance, { getSwarmChain }] = await Promise.all([getMinedPoolBalance(), import("./chain")]);
