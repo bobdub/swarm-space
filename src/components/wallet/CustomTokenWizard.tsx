@@ -267,7 +267,8 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
     }
     if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
     setPassphrase("");
-    const tx = await withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
+    return withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
+  }, (tx) => {
     toast.success(`${n} ${token.symbol} sent to MetaMask`, { description: `MintMe tx ${String(tx.signature).slice(0, 10)}… · appears under the MintMe network` });
     setAmount(""); onOpenChange(false);
   });
