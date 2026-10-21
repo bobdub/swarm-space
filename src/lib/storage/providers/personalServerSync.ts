@@ -283,19 +283,31 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
   // remote copy is verified: failed records no longer pin local chunks, and
   // any later retry can pull the bytes back from a server that has them.
   const allRecords = await getAll<PersonalServerSyncRecord>('personalServerSync');
-  const manifestRecords = allRecords.filter((entry) => entry.manifestId === record.manifestId);
-  if (manifestRecords.length > 0 && manifestRecords.every((entry) => (
-    entry.id === record.id ? true : entry.status === 'complete' || entry.status === 'failed'
-  ))) {
-    for (const ref of record.chunkRefs) {
-      const neededByActiveManifest = allRecords.some((entry) => (
-        entry.manifestId !== record.manifestId
-        && (entry.status === 'pending' || entry.status === 'syncing')
-        && entry.chunkRefs.includes(ref)
-      ));
-      if (!neededByActiveManifest) await remove('chunks', ref);
-    }
+  for (const ref of evictableChunkRefs(record, allRecords)) {
+    await remove('chunks', ref);
   }
+}
+
+/**
+ * Chunks of a just-verified record that may be deleted locally: every other
+ * record for the same manifest has settled (complete or failed — retries can
+ * re-fetch from a server), and no active upload for another manifest needs
+ * the chunk.
+ */
+export function evictableChunkRefs(
+  record: PersonalServerSyncRecord,
+  allRecords: PersonalServerSyncRecord[],
+): string[] {
+  const manifestRecords = allRecords.filter((entry) => entry.manifestId === record.manifestId);
+  const settled = manifestRecords.length > 0 && manifestRecords.every((entry) => (
+    entry.id === record.id ? true : entry.status === 'complete' || entry.status === 'failed'
+  ));
+  if (!settled) return [];
+  return record.chunkRefs.filter((ref) => !allRecords.some((entry) => (
+    entry.manifestId !== record.manifestId
+    && (entry.status === 'pending' || entry.status === 'syncing')
+    && entry.chunkRefs.includes(ref)
+  )));
 }
 
 /**
