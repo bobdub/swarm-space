@@ -151,6 +151,18 @@ export interface ClearResult {
   freedBytes: number;
 }
 
+/** Storage key for a clearable row — replicas are keyed by manifestId. */
+export function clearKeyForRow(row: Record<string, unknown>): string | undefined {
+  return (
+    (row?.ref as string) ??
+    (row?.fileId as string) ??
+    (row?.id as string) ??
+    (row?.manifestId as string) ??
+    (row?.hash as string) ??
+    undefined
+  );
+}
+
 /** Delete many keys in a single IndexedDB transaction per store. */
 async function removeBatch(store: string, keys: string[]): Promise<number> {
   if (keys.length === 0) return 0;
