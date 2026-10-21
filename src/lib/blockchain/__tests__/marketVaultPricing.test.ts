@@ -58,4 +58,7 @@ describe("creator-token live profile rate", () => {
   it("refuses unavailable rates", () => {
     expect(quoteCreatorTokenForSwarm(state, NaN, 1, 10).error).toMatch(/unavailable/);
   });
+  it("never pays for quantities smaller than the ownership record precision", () => {
+    expect(quoteCreatorTokenForSwarm(state, 1000, 0.0000001, 10).error).toMatch(/six decimal/);
+  });
 });

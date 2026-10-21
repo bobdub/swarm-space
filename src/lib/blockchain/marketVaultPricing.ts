@@ -79,6 +79,7 @@ export function quoteCreatorTokenForSwarm(state: MarketVaultState, rate: number,
   const out = Math.floor(amount * rate * 1e6) / 1e6;
   let error: string | null = null;
   if (!Number.isFinite(amount) || amount <= 0) error = "Enter an amount.";
+  else if (Math.abs(amount * 1e6 - Math.round(amount * 1e6)) > 1e-6) error = "Creator tokens support up to six decimal places.";
   else if (!Number.isFinite(rate) || rate <= 0) error = "Creator market rate is unavailable.";
   else if (!Number.isFinite(available) || amount > available) error = "More than your available Native balance.";
   else if (liquid <= 0) error = "The vault has no liquid SWARM above its protected floor.";
