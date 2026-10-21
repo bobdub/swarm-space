@@ -34,7 +34,7 @@ function seedDeposit(amount: number) {
   mocks.transactions.push({
     id: "dep1", type: "external_deposit", from: DEST, to: "u", amount,
     timestamp: new Date().toISOString(), signature: TX_HASH, publicKey: DEST, nonce: 1, fee: 0,
-    meta: { kind: "external_deposit", currency: `mintme:${token.address}`, txHash: TX_HASH },
+    meta: { kind: "external_deposit", currency: `MINTME:${token.address}`, txHash: TX_HASH },
   } as SwarmTransaction);
 }
 beforeEach(() => {
