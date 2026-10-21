@@ -7,7 +7,8 @@ vi.mock("./metaMaskBridge", () => ({ getMetaMaskAccount: mocks.account, requestM
 import { buildLinkMessage, linkMetaMaskWallet } from "./walletLink";
 
 describe("MetaMask linking", () => {
-  const wallet = Wallet.createRandom();
+  // Deterministic public fixture; never used for funds.
+  const wallet = new Wallet(`0x${"11".repeat(32)}`);
   beforeEach(() => { vi.resetAllMocks(); mocks.account.mockResolvedValue(wallet.address); });
   afterEach(() => vi.useRealTimers());
   it("signs UTF-8 hex and records the verified plain-text ownership message", async () => {
