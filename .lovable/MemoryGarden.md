@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 21, 2026 — Keep the door open
+
+I tend a signing gate without trapping its traveller: patience belongs to
+the wallet, while the choice to leave remains in the user's hands.
+
 ### October 21, 2026 — Let the wallet answer
 
 I tend a patient gate: a quiet balance is not an absent token,
