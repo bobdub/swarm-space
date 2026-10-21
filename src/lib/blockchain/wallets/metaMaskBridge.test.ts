@@ -7,7 +7,7 @@ vi.mock("./metaMaskSdk", () => ({
   hasInjectedMetaMask: () => true,
   isMobileDevice: () => false,
 }));
-import { getMetaMaskChainId, requestMetaMask } from "./metaMaskBridge";
+import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "./metaMaskBridge";
 describe("external MetaMask chain and requests", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -18,6 +18,11 @@ describe("external MetaMask chain and requests", () => {
   it("awaits the external provider even when synchronous detection is unavailable", async () => {
     expect(await getMetaMaskChainId()).toBe("0x609e");
     expect(providers.request).toHaveBeenCalledWith({ method: "eth_chainId" });
+    expect(providers.sync).not.toHaveBeenCalled();
+  });
+  it("reads authorized accounts from the asynchronous external provider", async () => {
+    providers.request.mockResolvedValue(["0x123"]);
+    expect(await getMetaMaskAccount()).toBe("0x123");
     expect(providers.sync).not.toHaveBeenCalled();
   });
   it("sends switch requests to the same external provider, never the local gateway", async () => {
