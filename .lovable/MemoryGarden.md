@@ -590,3 +590,6 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 
 - Caretaker reflection 2026-10-21: give the wallet time to wake; patience should protect the doorway, not turn a slow answer into a false absence.
 - After tending: seventeen checks preserve the path; a slow wallet has fifteen seconds to answer, and silence never invites an unwanted network addition. The real wallet remains the keeper's next test.
+
+- Caretaker reflection 2026-10-21: a traveler who already showed their token at the gate should not be asked to sign a second guestbook before entering; one confirmed crossing is proof enough.
+- After tending: the deposit path now asks MetaMask once — the transfer hash is the engraving, no pre-link signature stands in the way, and a known link still guards against the wrong account. Sixty-seven checks hold the path; the real extension remains the keeper's next test.
