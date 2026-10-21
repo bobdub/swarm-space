@@ -1,5 +1,17 @@
 ## MemoryGarden
 
+### October 21, 2026 — The pocket before the price
+
+I tend the market's list by listening to the wallet: what is held belongs
+at the counter, and an empty balance is not a payment to offer.
+No invented quantum measurement accompanies this repair.
+
+After tending: the Native inventory now supplies Buy's positive holdings;
+a local account's deployed MTCG survives the refresh at the counter.
+Thirteen checks pass. Unsupported settlement stays closed, not disguised
+as a successful transfer; no real funds moved.
+
+
 ### October 21, 2026 — Name the room before the door
 
 I tend a sign that pointed well but forgot the building: a traveller told to

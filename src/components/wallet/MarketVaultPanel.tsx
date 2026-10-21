@@ -3,7 +3,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Landmark, Lock } from "lucide-react";
 import { toast } from "sonner";
@@ -13,7 +12,9 @@ import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, type MarketVaultState } from "@/lib/blockchain/marketVaultPricing";
 import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm } from "@/lib/blockchain/marketVault";
 import { quoteSwarmForToken, quoteTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
-import { getAvailableTokenBalance, listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
+import { listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
+import { useNativeAssets } from "@/hooks/useNativeAssets";
+import { nativeMarketPayments } from "@/lib/blockchain/wallets/nativeAssets";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -26,11 +27,16 @@ export function MarketVaultPanel() {
   const [state, setState] = useState<MarketVaultState | null>(null);
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
-  const [payWith, setPayWith] = useState("credits");
+  const [payWith, setPayWith] = useState("");
   const [sellFor, setSellFor] = useState("");
   const [sellAmount, setSellAmount] = useState("");
   const [held, setHeld] = useState<Record<string, number>>({});
   const [swarm, setSwarm] = useState(0);
+  const nativeAssets = useNativeAssets(user?.id ?? "");
+  const payments = useMemo(() => nativeMarketPayments(nativeAssets), [nativeAssets]);
+  const paymentId = payments.some((asset) => asset.id === payWith) ? payWith : payments[0]?.id ?? "";
+  const payment = payments.find((asset) => asset.id === paymentId);
+  const unsupportedPayment = payment && payment.kind !== "credits" && payment.kind !== "custom";
   const tokens: CustomToken[] = useMemo(() => (user?.id ? listCustomTokens(user.id) : []), [user?.id, state]);
 
   const load = useCallback(() => {
@@ -51,9 +57,9 @@ export function MarketVaultPanel() {
 
   const layers = state ? marketVaultLayers(state) : null;
   const quote = useMemo(() => (state ? quoteVaultBuy(state, Number(amount), credits) : null), [state, amount, credits]);
-  const payToken = tokens.find((t) => t.address === payWith);
+  const payToken = payment?.kind === "custom" ? payment : undefined;
   const tokenQuote = state && payToken && user?.id
-    ? quoteTokenForSwarm(state, held[payToken.address] ?? 0, Number(amount), getAvailableTokenBalance(user.id, payToken.address)) : null;
+    ? quoteTokenForSwarm(state, held[payToken.contract ?? ""] ?? 0, Number(amount), payToken.available) : null;
   const sellToken = tokens.find((t) => t.address === sellFor);
   const sellQuote = state && sellToken ? quoteSwarmForToken(state, held[sellToken.address] ?? 0, Number(sellAmount), swarm) : null;
 
@@ -65,7 +71,7 @@ export function MarketVaultPanel() {
   };
 
   const buy = async () => {
-    if (!user?.id || !quote || quote.error) return;
+    if (!user?.id || payment?.kind !== "credits" || !canTrade || !quote || quote.error) return;
     setBusy(true);
     try {
       const done = await buySwarmFromVault(user.id, quote.swarm);
@@ -106,26 +112,25 @@ export function MarketVaultPanel() {
           <TabsContent value="buy" className="space-y-3">
             <div>
               <Label>Pay with</Label>
-              <Select value={payWith} onValueChange={setPayWith}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={paymentId} onValueChange={(value) => { setPayWith(value); setAmount(""); }}>
+                <SelectTrigger aria-label="Pay with" disabled={payments.length === 0}><SelectValue placeholder="No positive Native balances" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="credits">Credits ({credits.toLocaleString()})</SelectItem>
-                  {tokens.map((t) => (
-                    <SelectItem key={t.address} value={t.address}>
-                      {t.symbol} ({user?.id ? getAvailableTokenBalance(user.id, t.address).toLocaleString() : 0} available)
+                  {payments.map((asset) => (
+                    <SelectItem key={asset.id} value={asset.id}>
+                      {asset.label} ({fmt(asset.amount, 6)})
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label htmlFor="vault-buy">{payToken ? `${payToken.symbol} to pay` : "SWARM to buy"}</Label>
+              <Label htmlFor="vault-buy">{payment && payment.kind !== "credits" ? `${payment.symbol} to pay` : "SWARM to buy"}</Label>
               <Input id="vault-buy" type="number" min="0" step="0.0001" placeholder="1" value={amount} onChange={(e) => setAmount(e.target.value)} />
-              {!payToken && (
+              {payment?.kind === "credits" && (
                 <p className="mt-1 text-xs text-muted-foreground">Max this trade {quote ? fmt(quote.maxSwarm) : "—"} SWARM</p>
               )}
             </div>
-            {!payToken && quote && quote.swarm > 0 && (
+            {payment?.kind === "credits" && quote && quote.swarm > 0 && (
               <div className="rounded-md border bg-muted/40 p-2 text-xs space-y-0.5">
                 <Row k="Cost" v={`${quote.credits.toLocaleString()} Credits`} />
                 <Row k="Average price" v={`${fmt(quote.avgCreditsPerSwarm, 2)} Credits / SWARM`} />
@@ -135,23 +140,24 @@ export function MarketVaultPanel() {
             {payToken && tokenQuote && Number(amount) > 0 && (
               <div className="rounded-md border bg-muted/40 p-2 text-xs space-y-0.5">
                 <Row k="You receive" v={`${fmt(tokenQuote.out, 6)} SWARM`} />
-                <Row k={`Vault holds`} v={`${fmt(held[payToken.address] ?? 0, 2)} ${payToken.symbol}`} />
+                <Row k={`Vault holds`} v={`${fmt(held[payToken.contract ?? ""] ?? 0, 2)} ${payToken.symbol}`} />
                 {tokenQuote.error && <p className="pt-1 text-destructive">{tokenQuote.error}</p>}
               </div>
             )}
             {!canTrade && <p className="text-xs text-muted-foreground">{reason}</p>}
+            {unsupportedPayment && <p role="status" className="text-xs text-muted-foreground">{payment.symbol} is held in your Native wallet. Vault payment settlement for this asset is not available yet; no tokens will be deducted.</p>}
             {payToken ? (
               <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !tokenQuote || !!tokenQuote.error}
-                onClick={() => run(async () => { const q = await swapTokenForSwarm(user!.id, payToken.address, Number(amount)); return `Received ${fmt(q.out, 6)} SWARM`; })}>
+                onClick={() => { if (!user?.id || !payToken.contract || !canTrade) return; const userId = user.id; const contract = payToken.contract; void run(async () => { const q = await swapTokenForSwarm(userId, contract, Number(amount)); return `Received ${fmt(q.out, 6)} SWARM`; }); }}>
                 {busy ? "Swapping…" : `Swap ${payToken.symbol} for SWARM`}
               </Button>
             ) : (
-              <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !quote || !!quote.error} onClick={buy}>
+              <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || payment?.kind !== "credits" || !quote || !!quote.error} onClick={buy}>
                 {busy ? "Buying…" : "Buy from vault"}
               </Button>
             )}
             <p className="text-[10px] text-muted-foreground">
-              Native tokens must be synced to a peer before use. Tokens you pay stay in the vault for future sellers. MintMe coin, ETH and creator tokens are coming.
+              Deposited tokens must be synced to a peer before use. Tokens you pay stay in the vault for future sellers.
             </p>
           </TabsContent>
           <TabsContent value="sell" className="space-y-3">
@@ -181,7 +187,7 @@ export function MarketVaultPanel() {
               </div>
             )}
             <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !sellToken || !sellQuote || !!sellQuote.error}
-              onClick={() => run(async () => { const q = await swapSwarmForToken(user!.id, sellToken!.address, Number(sellAmount)); return `Received ${fmt(q.out, 6)} ${sellToken!.symbol}`; })}>
+              onClick={() => { if (!user?.id || !sellToken || !canTrade) return; const userId = user.id; const token = sellToken; void run(async () => { const q = await swapSwarmForToken(userId, token.address, Number(sellAmount)); return `Received ${fmt(q.out, 6)} ${token.symbol}`; }); }}>
               {busy ? "Selling…" : "Sell to vault"}
             </Button>
           </TabsContent>

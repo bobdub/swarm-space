@@ -39,4 +39,4 @@
 - Host public mesh RPC outside this client-only repo; it requires ledger/mesh access.
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
-- Vault, token-cap and cold-key rules live in `src/lib/blockchain/AGENTS.md`; read it before editing that module.
+- Read `src/lib/blockchain/AGENTS.md` for vault/key rules. Native Assets and Market share positive-balance inventory; unsupported payments fail closed.
