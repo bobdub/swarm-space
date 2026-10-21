@@ -7,11 +7,12 @@
  * really belongs to that Swarm identity. No server, no custodian.
  */
 
-import { verifyMessage } from "ethers";
+import { hexlify, toUtf8Bytes, verifyMessage } from "ethers";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
 import { getMetaMaskAccount, requestMetaMask } from "./metaMaskBridge";
 import type { SwarmTransaction } from "../types";
+import { waitForMetaMask, METAMASK_RESPONSE_TIMEOUT_MS } from "./metaMaskRequestTimeout";
 
 export interface WalletLink {
   swarmId: string;
@@ -85,13 +86,20 @@ export function isWalletLinked(swarmId: string, address: string | null | undefin
 }
 
 /** Ask MetaMask to sign the ownership proof and write it onto the chain. */
-export async function linkMetaMaskWallet(swarmId: string): Promise<WalletLink> {
+export async function linkMetaMaskWallet(swarmId: string, signal?: AbortSignal): Promise<WalletLink> {
   if (!swarmId) throw new Error("Sign in first");
-  const address = await getMetaMaskAccount();
+  if (signal?.aborted) throw new Error("Wallet request cancelled");
+  const address = await waitForMetaMask(getMetaMaskAccount(), "MetaMask did not answer. Reopen MetaMask and try linking again.", METAMASK_RESPONSE_TIMEOUT_MS, signal);
   if (!address) throw new Error("Connect MetaMask first");
   const at = Date.now();
   const message = buildLinkMessage(swarmId, address, at);
-  const signature = await requestMetaMask<string>("personal_sign", [message, address]);
+  const signature = await waitForMetaMask(
+    requestMetaMask<string>("personal_sign", [hexlify(toUtf8Bytes(message)), address]),
+    "MetaMask did not answer the signature request. Reopen MetaMask and try linking again.",
+    METAMASK_RESPONSE_TIMEOUT_MS,
+    signal,
+  );
+  if (signal?.aborted) throw new Error("Wallet request cancelled");
 
   let recovered: string;
   try {
