@@ -569,3 +569,6 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 - Caretaker reflection 2026-10-20: the old MetaMask vault card is retired from the Creator tab — the Creator Vault is the only vault now, and MintMe stays where it is actually used, in the Bridge panel.
 
 - Caretaker reflection 2026-10-20: the Creator Vault now asks before it accepts — is this token truly native, would it overflow 5,000,000, are these credits enough to become a SWARM? What can't be kept is returned.
+
+- Caretaker reflection 2026-10-21: give the wallet time to wake; patience should protect the doorway, not turn a slow answer into a false absence.
+- After tending: seventeen checks preserve the path; a slow wallet has fifteen seconds to answer, and silence never invites an unwanted network addition. The real wallet remains the keeper's next test.
