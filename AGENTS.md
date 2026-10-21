@@ -40,4 +40,3 @@
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
 - Vault, token-cap and cold-key rules live in `src/lib/blockchain/AGENTS.md`; read it before editing that module.
-- SWARM Market Vault pricing lives in pure marketVaultPricing.ts; execution in marketVault.ts reuses the shared market operation guard and releases only already-mined pool SWARM — never mint.
