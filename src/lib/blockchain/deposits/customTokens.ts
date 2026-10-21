@@ -14,6 +14,7 @@ import { getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
 import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
+import { waitForMetaMask } from "../wallets/metaMaskRequestTimeout";
 export { CUSTOM_TOKEN_DEPOSIT_MAX } from "./customTokenLimits";
 
 export function getCustomTokenDepositCapacity(address: string) {
@@ -60,12 +61,6 @@ export function setTokenHidden(uid: string, address: string, hidden: boolean) {
   save(uid, listCustomTokens(uid).map((t) => (t.address === address.toLowerCase() ? { ...t, hidden } : t)));
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(msg)), ms);
-    p.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-}
 async function onMintMe() {
   if (!isMintMeChain(await readMintMeChainId())) throw new Error("Select MintMe in MetaMask before checking this token.");
 }
@@ -74,7 +69,7 @@ export async function ensureMintMe(): Promise<void> {
   await switchToMintMeNetwork();
 }
 async function call(to: string, data: string): Promise<string> {
-  return String(await withTimeout(requestMetaMask<string>("eth_call", [{ to, data }, "latest"]), 12_000, "MintMe network did not answer"));
+  return String(await waitForMetaMask(requestMetaMask<string>("eth_call", [{ to, data }, "latest"]), "MetaMask could not read this token yet. Open MetaMask and try again."));
 }
 
 export function unitsToNumber(raw: bigint, decimals: number): number {
@@ -89,11 +84,27 @@ export function numberToUnits(amount: number, decimals: number): bigint {
 /** Best-effort read of symbol/decimals; null fields mean the user fills them in. Assumes MintMe is already selected. */
 export async function readTokenMetadata(address: string): Promise<{ symbol: string | null; decimals: number | null }> {
   await onMintMe();
-  const symbol = await call(address, ERC20.encodeFunctionData("symbol"))
-    .then((r) => String(ERC20.decodeFunctionResult("symbol", r)[0]) || null).catch(() => null);
-  const decimals = await call(address, ERC20.encodeFunctionData("decimals"))
-    .then((r) => Number(ERC20.decodeFunctionResult("decimals", r)[0])).catch(() => null);
+  return readMetadata(address);
+}
+async function readMetadata(address: string): Promise<{ symbol: string | null; decimals: number | null }> {
+  const [symbol, decimals] = await Promise.all([
+    call(address, ERC20.encodeFunctionData("symbol"))
+      .then((r) => String(ERC20.decodeFunctionResult("symbol", r)[0]) || null).catch(() => null),
+    call(address, ERC20.encodeFunctionData("decimals"))
+      .then((r) => Number(ERC20.decodeFunctionResult("decimals", r)[0])).catch(() => null),
+  ]);
   return { symbol, decimals: decimals != null && Number.isInteger(decimals) && decimals >= 0 && decimals <= 36 ? decimals : null };
+}
+
+/** One chain read, then parallel data reads. Balance is not evidence of wallet tracking. */
+export async function readTokenDetails(address: string, owner: string) {
+  await onMintMe();
+  const [metadata, rawBalance] = await Promise.all([
+    readMetadata(address),
+    call(address, ERC20.encodeFunctionData("balanceOf", [owner]))
+      .then((r) => ERC20.decodeFunctionResult("balanceOf", r)[0] as bigint).catch(() => null),
+  ]);
+  return { ...metadata, rawBalance };
 }
 
 export async function readTokenBalance(token: CustomToken, owner: string): Promise<number | null> {
@@ -107,9 +118,19 @@ export async function readTokenBalance(token: CustomToken, owner: string): Promi
 /** Ask MetaMask to track the token (EIP-747). */
 export async function watchInMetaMask(token: CustomToken): Promise<boolean> {
   await onMintMe();
-  return Boolean(await requestMetaMask("wallet_watchAsset", {
+  return (await waitForMetaMask(requestMetaMask("wallet_watchAsset", {
     type: "ERC20", options: { address: token.address, symbol: token.symbol, decimals: token.decimals },
-  }));
+  }), "MetaMask did not confirm adding this token. Open MetaMask and try again.")) === true;
+}
+
+/** EIP-1193 does not expose tracked-token inventory. Only wallet approval permits saving. */
+export async function importCustomTokenFromMetaMask(uid: string, details: Omit<CustomToken, "addedAt">): Promise<CustomToken> {
+  if (!isContractAddress(details.address) || !isValidSymbol(details.symbol) || !Number.isInteger(details.decimals) || details.decimals < 0 || details.decimals > 36) {
+    throw new Error("Check the token address, symbol and decimals before adding it.");
+  }
+  const token = { ...details, address: details.address.trim().toLowerCase(), symbol: details.symbol.trim().toUpperCase(), addedAt: 0 };
+  if (!await watchInMetaMask(token)) throw new Error("Token was not added in MetaMask. Nothing was saved here.");
+  return addCustomToken(uid, token);
 }
 
 export function getRecordedTokenBalance(swarmId: string, address: string): number {

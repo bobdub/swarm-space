@@ -36,24 +36,24 @@ describe("verified MintMe network decisions", () => {
   });
 
   it("waits for a slow MetaMask response and proceeds without switching or adding", async () => {
-    wallet.read.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve("0x609e"), 12_000)));
+    wallet.read.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve("0x609e"), 240_000)));
     let ready = false;
     const flow = switchOrAddMintMeNetwork().then(() => { ready = true; });
     await vi.advanceTimersByTimeAsync(1_001);
     expect(ready).toBe(false);
-    await vi.advanceTimersByTimeAsync(10_999);
+    await vi.advanceTimersByTimeAsync(238_999);
     await flow;
     expect(ready).toBe(true);
     expect(wallet.read).toHaveBeenCalledTimes(1);
     expect(wallet.request).not.toHaveBeenCalled();
   });
 
-  it("stops after 15 seconds of silence without requesting a switch or addition", async () => {
+  it("stops after five minutes of silence without requesting a switch or addition", async () => {
     wallet.read.mockReturnValue(new Promise(() => {}));
     let settled = false;
     const flow = switchOrAddMintMeNetwork().finally(() => { settled = true; });
     const result = expect(flow).rejects.toBeInstanceOf(Error);
-    await vi.advanceTimersByTimeAsync(14_999);
+    await vi.advanceTimersByTimeAsync(299_999);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await result;
@@ -123,7 +123,7 @@ describe("verified MintMe network decisions", () => {
     wallet.read.mockResolvedValue("0x1");
     wallet.request.mockResolvedValue(null);
     const result = expect(switchToMintMeNetwork()).rejects.toThrow("has not switched");
-    await vi.advanceTimersByTimeAsync(6_000);
+    await vi.advanceTimersByTimeAsync(300_000);
     await result;
     expect(wallet.request).toHaveBeenCalledTimes(1);
   });
@@ -136,7 +136,7 @@ describe("verified MintMe network decisions", () => {
     wallet.read.mockResolvedValue("0x1");
     wallet.request.mockReturnValue(new Promise(() => {}));
     const result = expect(switchToMintMeNetwork()).rejects.toThrow("did not answer the switch request");
-    await vi.advanceTimersByTimeAsync(66_000);
+    await vi.advanceTimersByTimeAsync(600_000);
     await result;
     expect(wallet.request).toHaveBeenCalledTimes(1);
   });

@@ -7,6 +7,7 @@
  */
 
 import { getMetaMaskChainId, requestMetaMask } from "./metaMaskBridge";
+import { METAMASK_RESPONSE_TIMEOUT_MS, waitForMetaMask } from "./metaMaskRequestTimeout";
 
 export const MINTME_CHAIN_ID_DEC = 24734;
 export const MINTME_CHAIN_ID_HEX = `0x${MINTME_CHAIN_ID_DEC.toString(16)}`; // 0x609e
@@ -36,23 +37,19 @@ export class MintMeNetworkMissingError extends Error {
   }
 }
 
-function bounded<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-}
-
 export function readMintMeChainId(): Promise<string | null> {
-  return bounded(getMetaMaskChainId(), 15_000, "MetaMask is taking longer than expected. Open MetaMask, unlock it if needed, and try again.");
+  return waitForMetaMask(getMetaMaskChainId(), "MetaMask is taking longer than expected. Open MetaMask, unlock it if needed, and try again.");
 }
 
 /** A wallet acknowledgement alone is not proof that the active chain changed. */
-async function waitForMintMe(): Promise<boolean> {
-  const deadline = Date.now() + 5_000;
+async function waitForMintMe(readOnlyOnce = false): Promise<boolean> {
+  const deadline = Date.now() + METAMASK_RESPONSE_TIMEOUT_MS;
   do {
-    try { if (isMintMeChain(await readMintMeChainId())) return true; } catch { /* retry read only */ }
-    if (Date.now() >= deadline) break;
+    try {
+      const chain = await waitForMetaMask(getMetaMaskChainId(), "Open MetaMask and try again.", Math.max(1, deadline - Date.now()));
+      if (isMintMeChain(chain)) return true;
+    } catch { /* retry read only */ }
+    if (readOnlyOnce || Date.now() >= deadline) break;
     await new Promise((resolve) => setTimeout(resolve, 250));
   } while (Date.now() < deadline);
   return false;
@@ -60,7 +57,7 @@ async function waitForMintMe(): Promise<boolean> {
 
 export async function addMintMeToMetaMask(): Promise<void> {
   if (isMintMeChain(await readMintMeChainId())) return;
-  await bounded(requestMetaMask("wallet_addEthereumChain", [MINTME_NETWORK]), 60_000, "MetaMask did not answer the add-network request");
+  await waitForMetaMask(requestMetaMask("wallet_addEthereumChain", [MINTME_NETWORK]), "MetaMask did not answer the add-network request. Open MetaMask and try again.");
   await switchToMintMeNetwork();
 }
 
@@ -80,13 +77,13 @@ export async function switchToMintMeNetwork(): Promise<void> {
   if (current == null) throw new Error("Could not read MetaMask's active network. Open MetaMask and try again.");
   let switchError: unknown;
   try {
-    await bounded(requestMetaMask("wallet_switchEthereumChain", [
+    await waitForMetaMask(requestMetaMask("wallet_switchEthereumChain", [
       { chainId: MINTME_CHAIN_ID_HEX },
-    ]), 60_000, "MetaMask did not answer the switch request. Open MetaMask and try again.");
+    ]), "MetaMask did not answer the switch request. Open MetaMask and try again.");
   } catch (err) {
     switchError = err;
   }
-  if (await waitForMintMe()) return;
+  if (await waitForMintMe(switchError !== undefined)) return;
   if ((switchError as { code?: number } | undefined)?.code === 4902) throw new MintMeNetworkMissingError();
   if (switchError) throw switchError;
   throw new Error("MetaMask has not switched to MintMe. Check the network in MetaMask and try again.");

@@ -10,8 +10,8 @@ import { useMetaMask } from "@/hooks/useMetaMask";
 import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import {
-  addCustomToken, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
-  listCustomTokens, readTokenBalance, readTokenMetadata, setTokenHidden, watchInMetaMask, CUSTOM_TOKENS_EVENT,
+  importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
+  listCustomTokens, readTokenBalance, readTokenDetails, unitsToNumber, setTokenHidden, CUSTOM_TOKENS_EVENT,
   CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity,
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
@@ -35,13 +35,13 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const [symbol, setSymbol] = useState("");
   const [busy, setBusy] = useState(false);
   const [found, setFound] = useState<{ symbol: string; decimals: number; read: boolean } | null>(null);
-  const [held, setHeld] = useState<number | null>(null);
+  const [rawHeld, setRawHeld] = useState<bigint | null>(null);
   const [decimalsIn, setDecimalsIn] = useState("18");
   const [token, setToken] = useState<CustomToken | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const { address: mmAddr } = useMetaMask();
 
-  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setHeld(null); setDecimalsIn("18"); };
+  const reset = () => { setStep(0); setAddress(""); setSymbol(""); setFound(null); setToken(null); setRawHeld(null); setDecimalsIn("18"); };
   const switchNet = async () => {
     setBusy(true);
     try {
@@ -56,18 +56,18 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
   const check = async () => {
     setBusy(true);
     try {
-      const meta = await readTokenMetadata(address.trim());
+      if (!mmAddr) throw new Error("Connect MetaMask before adding a token.");
+      const meta = await readTokenDetails(address.trim(), mmAddr);
       const dec = meta.decimals ?? 18;
       const sym = meta.symbol ?? symbol.trim().toUpperCase();
       setFound({ symbol: sym, decimals: dec, read: meta.decimals != null });
       setDecimalsIn(String(dec));
-      if (mmAddr) setHeld(await readTokenBalance({ address: address.trim(), symbol: sym, decimals: dec, addedAt: 0 }, mmAddr));
+      setRawHeld(meta.rawBalance);
       if (meta.symbol && meta.symbol.toUpperCase() !== symbol.trim().toUpperCase()) toast.warning(`The contract calls itself ${meta.symbol}, not ${symbol.toUpperCase()}.`);
       if (!meta.symbol || meta.decimals == null) toast.message("The contract didn't answer fully — check the details below.");
       setStep(2);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not check this token");
-      setStep(0);
     } finally { setBusy(false); }
   };
   const dec = Number(decimalsIn);
@@ -76,15 +76,14 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
     if (!found || !decOk) return;
     setBusy(true);
     try {
-      const t = addCustomToken(userId, { address, symbol: found.symbol, decimals: dec });
-      try { await watchInMetaMask(t); } catch { toast.message("Saved here — MetaMask did not add it to its own list."); }
+      const t = await importCustomTokenFromMetaMask(userId, { address, symbol: found.symbol, decimals: dec });
       setToken(t); setStep(3);
     } catch (e) { toast.error(e instanceof Error ? e.message : "Import failed"); }
     finally { setBusy(false); }
   };
 
   return <>
-    <Button type="button" size="sm" variant="outline" disabled={!userId} onClick={() => { reset(); setOpen(true); }}>
+    <Button type="button" size="sm" variant="outline" disabled={!userId || !mmAddr} onClick={() => { reset(); setOpen(true); }}>
       <Plus className="mr-1 h-3 w-3" />Add custom token
     </Button>
     <Dialog open={open} onOpenChange={(v) => !busy && setOpen(v)}>
@@ -109,24 +108,24 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
             <Input id="ct-addr" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="0x…" className="font-mono text-xs" /></div>
           <div className="space-y-1"><Label htmlFor="ct-sym">Symbol</Label>
             <Input id="ct-sym" value={symbol} maxLength={11} onChange={(e) => setSymbol(e.target.value)} placeholder="e.g. MYTOKEN" /></div>
-          <p className="text-xs text-muted-foreground">We'll look for this token in your MetaMask wallet on MintMe.</p>
+          <p className="text-xs text-muted-foreground">Read this token's balance through MetaMask on MintMe.</p>
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" onClick={() => setStep(0)}>Back</Button>
-            <Button type="button" disabled={busy || !isContractAddress(address) || !isValidSymbol(symbol)} onClick={() => void check()}>{busy ? "Looking…" : "Find in my wallet"}</Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setStep(0)}>Back</Button>
+            <Button type="button" disabled={busy || !isContractAddress(address) || !isValidSymbol(symbol)} onClick={() => void check()}>{busy ? "Waiting for MetaMask…" : "Read token"}</Button>
           </DialogFooter>
         </div>}
         {step === 2 && found && <div className="space-y-3 text-sm">
           <div className="rounded-md border p-3 space-y-1">
             <div>Symbol: <b>{found.symbol}</b></div>
-            <div>In your MetaMask: <b className="tabular-nums">{held == null ? "couldn't read" : `${held} ${found.symbol}`}</b></div>
+            <div>In your MetaMask: <b className="tabular-nums">{rawHeld == null || !decOk ? "couldn't read" : `${unitsToNumber(rawHeld, dec)} ${found.symbol}`}</b></div>
             <div className="break-all font-mono text-xs text-muted-foreground">{address.trim()}</div>
           </div>
           <div className="space-y-1"><Label htmlFor="ct-dec">Decimals {found.read ? "(from contract)" : "(enter manually — usually 18)"}</Label>
             <Input id="ct-dec" type="number" min="0" max="36" value={decimalsIn} disabled={found.read} onChange={(e) => setDecimalsIn(e.target.value)} /></div>
-          <p className="text-xs text-muted-foreground">MetaMask will ask to add this token to its list. Nothing is sent.</p>
+          <p className="text-xs text-muted-foreground">MetaMask keeps its token list private. Confirm this token in MetaMask before saving it here, even if already added. A zero balance is fine; nothing is sent.</p>
           <p className="text-xs text-muted-foreground">Remaining deposit capacity on this device's synced ledger: {getCustomTokenDepositCapacity(address).remaining.toLocaleString()} {found.symbol}. Withdrawals do not reset the ceiling; disconnected peers may have newer records.</p>
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setStep(1)}>Back</Button>
             <Button type="button" disabled={busy || !decOk} onClick={() => void importIt()}>{busy ? "Waiting for MetaMask…" : "Import via MetaMask"}</Button>
           </DialogFooter>
         </div>}
@@ -134,7 +133,7 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
           <p><b>{token.symbol}</b> is now on your MetaMask tab. Deposit it to see it in your native SWARM wallet.</p>
           <DialogFooter className="gap-2">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Later</Button>
-            <Button type="button" onClick={() => { setOpen(false); setDepositOpen(true); }}>Deposit now</Button>
+            <Button type="button" disabled={rawHeld == null || rawHeld <= 0n} onClick={() => { setOpen(false); setDepositOpen(true); }}>Deposit now</Button>
           </DialogFooter>
         </div>}
       </DialogContent>

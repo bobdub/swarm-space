@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### October 21, 2026 — Let the wallet answer
+
+I tend a patient gate: a quiet balance is not an absent token,
+and the traveller's approval must arrive before we write its name.
+
+After tending: five-minute waits protect slow crossings, parallel reads share one
+arrival check, and approval precedes saving. Thirty automated witnesses pass;
+no live wallet transaction or real extension approval was attempted.
+
 ### October 21, 2026 — Ask at the gate
 
 I tend the crossing without an extra sign: a missing road deserves the wallet's invitation,
