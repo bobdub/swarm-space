@@ -28,7 +28,7 @@ export default function ColdWalletGuide() {
 
           <section className="space-y-3">
             <h2 className="text-xl font-semibold">Importing is not depositing</h2>
-            <p>Connect MetaMask and use Add custom token on the MetaMask tab. The current custom-token flow supports MintMe only. The app saves the token after MetaMask approves adding it; a zero balance is valid for importing.</p>
+            <p>In your SWARM wallet, open <strong>Assets</strong> and select the <strong>MetaMask</strong> tab, then click <strong>Add custom token</strong> (connect MetaMask if prompted). The current custom-token flow supports MintMe only. The app saves the token after MetaMask approves adding it; a zero balance is valid for importing.</p>
             <p>Imported tokens stay listed on this device after a refresh. Deposit becomes available after a 15-second preparation period and requires a readable, positive MetaMask balance. Importing alone does not add a Native balance.</p>
           </section>
 
