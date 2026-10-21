@@ -7,11 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
+import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, isContractAddress, isValidSymbol,
+  importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance, syncPendingDeposits, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenDetails, unitsToNumber, setTokenHidden, CUSTOM_TOKENS_EVENT,
   CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity, hydrateCustomTokens, depositPrepRemainingMs, withdrawCustomToken,
   type CustomToken,
@@ -212,6 +213,16 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
   const [dep, setDep] = useState(false);
   const prepLeft = usePrepRemaining(token);
   const recorded = getRecordedTokenBalance(userId, token.address);
+  const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, token.address) : 0;
+  const [, bump] = useState(0);
+  useEffect(() => {
+    if (layer !== "native" || pendingSync <= 0) return;
+    const onSync = () => bump((n) => n + 1);
+    window.addEventListener(DEPOSIT_SYNC_EVENT, onSync);
+    const t = window.setInterval(() => void syncPendingDeposits(userId), 10_000);
+    void syncPendingDeposits(userId);
+    return () => { window.removeEventListener(DEPOSIT_SYNC_EVENT, onSync); window.clearInterval(t); };
+  }, [layer, pendingSync, userId]);
   useEffect(() => { if (layer === "metamask" && address) void readTokenBalance(token, address).then(setHeld); }, [layer, address, token, prepLeft === 0]);
   if (layer === "native" && recorded <= 0) return null;
   if (layer === "metamask" && token.hidden) return null;
@@ -226,6 +237,9 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
     <div className="min-w-0">
       <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">MintMe token</span></div>
       <div className="text-xl font-semibold tabular-nums">{amount == null ? "…" : amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} <span className="text-xs font-normal text-muted-foreground">{token.symbol}</span></div>
+      {pendingSync > 0 && <div className="text-xs text-muted-foreground" title="Confirmed on MintMe. Usable in the mesh once shared with a peer; you can always withdraw it to MetaMask.">
+        {pendingSync.toLocaleString(undefined, { maximumFractionDigits: 6 })} pending sync · {Math.max(0, recorded - pendingSync).toLocaleString(undefined, { maximumFractionDigits: 6 })} available
+      </div>}
     </div>
     {layer === "metamask" && <div className="grid grid-cols-2 gap-2 sm:flex">
       {empty && prepLeft <= 0 ? <TooltipProvider><Tooltip><TooltipTrigger asChild><span tabIndex={0}>{depositButton}</span></TooltipTrigger>
