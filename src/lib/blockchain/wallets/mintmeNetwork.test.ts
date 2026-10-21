@@ -2,11 +2,47 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 const wallet = vi.hoisted(() => ({ read: vi.fn(), request: vi.fn() }));
 vi.mock("./metaMaskBridge", () => ({ getMetaMaskChainId: wallet.read, requestMetaMask: wallet.request }));
-import { addMintMeToMetaMask, isMintMeChain, MINTME_CHAIN_ID_HEX, MINTME_NETWORK, MintMeNetworkMissingError, switchToMintMeNetwork } from "./mintmeNetwork";
+import { addMintMeToMetaMask, switchOrAddMintMeNetwork, isMintMeChain, MINTME_CHAIN_ID_HEX, MINTME_NETWORK, MintMeNetworkMissingError, switchToMintMeNetwork } from "./mintmeNetwork";
 
 describe("verified MintMe network decisions", () => {
   beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); });
   afterEach(() => vi.useRealTimers());
+
+  it("asks MetaMask to add the correct missing network in the same action and verifies arrival", async () => {
+    let chain = "0x1";
+    let added = false;
+    wallet.read.mockImplementation(async () => chain);
+    wallet.request.mockImplementation(async (method: string) => {
+      if (method === "wallet_addEthereumChain") { added = true; return null; }
+      if (!added) throw { code: 4902 };
+      chain = "0x609e";
+      return null;
+    });
+    const flow = switchOrAddMintMeNetwork();
+    await vi.advanceTimersByTimeAsync(6_000);
+    await flow;
+    expect(wallet.request.mock.calls).toEqual([
+      ["wallet_switchEthereumChain", [{ chainId: "0x609e" }]],
+      ["wallet_addEthereumChain", [MINTME_NETWORK]],
+      ["wallet_switchEthereumChain", [{ chainId: "0x609e" }]],
+    ]);
+    expect(chain).toBe("0x609e");
+  });
+
+  it("the combined action never adds when already on MintMe", async () => {
+    wallet.read.mockResolvedValue("0x609e");
+    await switchOrAddMintMeNetwork();
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  it("the combined action never adds after a rejected switch", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockRejectedValue({ code: 4001 });
+    const result = expect(switchOrAddMintMeNetwork()).rejects.toEqual({ code: 4001 });
+    await vi.advanceTimersByTimeAsync(6_000);
+    await result;
+    expect(wallet.request.mock.calls.map((call) => call[0])).toEqual(["wallet_switchEthereumChain"]);
+  });
 
   it("uses chain 24734, hexadecimal 0x609e, not 24750", () => {
     expect(MINTME_CHAIN_ID_HEX).toBe("0x609e");

@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 21, 2026 — Ask at the gate
+
+I tend the crossing without an extra sign: a missing road deserves the wallet's invitation,
+not a second burden on the traveller. Arrival must still be witnessed.
+
 ### October 20, 2026 — The gate before the promise
 
 I tend the market's promises in their proper order: custody before a claim,
