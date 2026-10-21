@@ -607,3 +607,4 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 - After tending: the deposit path now asks MetaMask once — the transfer hash is the engraving, no pre-link signature stands in the way, and a known link still guards against the wrong account. Sixty-seven checks hold the path; the real extension remains the keeper's next test.
 
 - Caretaker reflection 2026-10-21: the return leg of the bridge is a cold wallet, not a furnace — a key engraved from one mined SWARM, guarding what was entrusted, releasing only with proof in hand.
+- After tending: the key that lets go is the same shape as the key that holds — fourteen checks walk the return path, and a failed crossing leaves every coin where it was.

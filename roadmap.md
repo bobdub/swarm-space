@@ -140,3 +140,10 @@
 ## Wall viewer interactions (2026-10-20)
 - [x] Reinforce (1 SWARM, credits fallback, visitors only) + Graffiti hold-to-stamp with growing delay (max 3 min)
 - [ ] Live peer test (deferred)
+
+## Cold-key withdrawals to MetaMask (2026-10-21)
+- [x] Cold-wallet key authority: Creator Coin Vault acts as signer; otherwise 1 mined SWARM engraves a sealed key container (never burned)
+- [x] Deposits now target the owner's cold-key address (derived from the identity key); withdrawals broadcast from it on MintMe, ledger debited only after the chain accepts
+- [x] Withdrawal dialog: MetaMask-connected prefill with editable risky destination, passphrase unlock, gas-shortfall guidance
+- [x] 14 deposit/withdrawal checks pass; no live wallet test
+- [ ] Tokens deposited before this change sit at the old hash-alias address, which has no private key — recovery path undecided
