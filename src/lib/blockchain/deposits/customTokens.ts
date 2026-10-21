@@ -8,7 +8,9 @@
  * no separate message-signing or link step. The native wallet only shows
  * tokens with a recorded (deposited) balance.
  */
-import { Interface } from "ethers";
+import { Interface, id } from "ethers";
+import { isDepositSynced, markDepositsSynced, connectedPeerCount } from "./depositSync";
+import { METAMASK_RESPONSE_TIMEOUT_MS } from "../wallets/metaMaskRequestTimeout";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
 import { deriveColdKey, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
@@ -177,6 +179,56 @@ export function getRecordedTokenBalance(swarmId: string, address: string): numbe
   return Math.max(0, Math.round(n * 1e8) / 1e8);
 }
 
+function depositsFor(swarmId: string, address: string): SwarmTransaction[] {
+  const cur = tokenCurrency(address);
+  return allTransactions().filter((tx) => tx.type === "external_deposit" && tx.to === swarmId && ((tx.meta ?? {}) as Record<string, unknown>).currency === cur);
+}
+
+/** Deposited amount not yet shared with any peer — withdrawable, but not usable in the mesh. */
+export function getPendingSyncTokenBalance(swarmId: string, address: string): number {
+  if (!swarmId) return 0;
+  const n = depositsFor(swarmId, address).filter((tx) => !isDepositSynced(tx.id)).reduce((s, tx) => s + Number(tx.amount ?? 0), 0);
+  return Math.min(getRecordedTokenBalance(swarmId, address), Math.round(n * 1e8) / 1e8);
+}
+
+/** Balance usable for mesh transfers and vault top-ups. */
+export function getAvailableTokenBalance(swarmId: string, address: string): number {
+  return Math.max(0, Math.round((getRecordedTokenBalance(swarmId, address) - getPendingSyncTokenBalance(swarmId, address)) * 1e8) / 1e8);
+}
+
+/** Unlock this user's deposits once a peer connection exists. */
+export async function syncPendingDeposits(swarmId: string): Promise<boolean> {
+  const ids = allTransactions().filter((tx) => tx.type === "external_deposit" && tx.to === swarmId && !isDepositSynced(tx.id)).map((tx) => tx.id);
+  if (!ids.length) return false;
+  return markDepositsSynced(ids, await connectedPeerCount());
+}
+
+const TRANSFER_TOPIC = id("Transfer(address,address,uint256)");
+const pad = (a: string) => `0x${a.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+export const RECEIPT_POLL_MS = 3_000;
+
+/**
+ * Wait for MintMe to mine the transfer and prove the tokens reached the
+ * cold-key address. Nothing is credited before this returns.
+ */
+export async function waitForDepositReceipt(p: { txHash: string; token: string; destination: string; units: bigint; timeoutMs?: number; pollMs?: number }): Promise<void> {
+  const deadline = Date.now() + (p.timeoutMs ?? METAMASK_RESPONSE_TIMEOUT_MS);
+  for (;;) {
+    let r: { status?: string; logs?: { address: string; topics: string[]; data: string }[] } | null = null;
+    try { r = await requestMetaMask("eth_getTransactionReceipt", [p.txHash]); } catch { r = null; }
+    if (r) {
+      if (r.status !== "0x1") throw new Error("MintMe rejected the transfer — nothing was credited to your native wallet.");
+      const ok = (r.logs ?? []).some((l) => l.address.toLowerCase() === p.token.toLowerCase()
+        && l.topics?.[0] === TRANSFER_TOPIC && l.topics?.[2]?.toLowerCase() === pad(p.destination)
+        && BigInt(l.data) >= p.units);
+      if (!ok) throw new Error("MintMe confirmed the transaction but it did not deliver the tokens to your native wallet address — nothing was credited.");
+      return;
+    }
+    if (Date.now() > deadline) throw new Error(`MintMe has not confirmed transfer ${p.txHash} yet. Nothing was credited; it is safe to retry the record later once it confirms.`);
+    await new Promise((res) => setTimeout(res, p.pollMs ?? RECEIPT_POLL_MS));
+  }
+}
+
 const depositing = new Set<string>();
 export async function depositCustomToken(p: { swarmId: string; token: CustomToken; amount: number }): Promise<SwarmTransaction> {
   const currency = tokenCurrency(p.token.address);
@@ -209,10 +261,12 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   // alone can later sign from to withdraw. A self-transfer would confirm
   // without moving any balance.
   const destination = (await deriveColdKey(swarmId)).address;
-  const data = ERC20.encodeFunctionData("transfer", [destination, numberToUnits(amount, token.decimals)]);
+  const units = numberToUnits(amount, token.decimals);
+  const data = ERC20.encodeFunctionData("transfer", [destination, units]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [
     { from: account, to: token.address, data, value: "0x0", chainId: MINTME_CHAIN_ID_HEX },
   ]));
+  await waitForDepositReceipt({ txHash, token: token.address, destination, units, pollMs: p.pollMs });
   const at = Date.now();
   const currency = tokenCurrency(token.address);
   const claim = { type: "deposit", currency, symbol: token.symbol, swarmId, address: account, destination, amount, txHash, at };
