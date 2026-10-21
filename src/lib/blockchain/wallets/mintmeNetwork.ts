@@ -44,7 +44,7 @@ function bounded<T>(promise: Promise<T>, ms: number, message: string): Promise<T
 }
 
 export function readMintMeChainId(): Promise<string | null> {
-  return bounded(getMetaMaskChainId(), 1_000, "MetaMask did not answer the network check");
+  return bounded(getMetaMaskChainId(), 15_000, "MetaMask is taking longer than expected. Open MetaMask, unlock it if needed, and try again.");
 }
 
 /** A wallet acknowledgement alone is not proof that the active chain changed. */

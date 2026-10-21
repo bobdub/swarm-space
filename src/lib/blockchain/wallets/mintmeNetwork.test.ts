@@ -35,6 +35,32 @@ describe("verified MintMe network decisions", () => {
     expect(wallet.request).not.toHaveBeenCalled();
   });
 
+  it("waits for a slow MetaMask response and proceeds without switching or adding", async () => {
+    wallet.read.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve("0x609e"), 12_000)));
+    let ready = false;
+    const flow = switchOrAddMintMeNetwork().then(() => { ready = true; });
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(ready).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_999);
+    await flow;
+    expect(ready).toBe(true);
+    expect(wallet.read).toHaveBeenCalledTimes(1);
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
+  it("stops after 15 seconds of silence without requesting a switch or addition", async () => {
+    wallet.read.mockReturnValue(new Promise(() => {}));
+    let settled = false;
+    const flow = switchOrAddMintMeNetwork().finally(() => { settled = true; });
+    const result = expect(flow).rejects.toBeInstanceOf(Error);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+    expect(settled).toBe(true);
+    expect(wallet.request).not.toHaveBeenCalled();
+  });
+
   it("the combined action never adds after a rejected switch", async () => {
     wallet.read.mockResolvedValue("0x1");
     wallet.request.mockRejectedValue({ code: 4001 });
