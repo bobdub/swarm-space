@@ -1,0 +1,1 @@
+- Native-wallet custom tokens (synced balance only) trade with the vault: value = liquid SWARM vs 5,000,000 ceiling + vault holdings; no outside price. Paid tokens stay in the vault for sellers.

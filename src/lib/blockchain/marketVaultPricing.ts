@@ -61,3 +61,44 @@ export function quoteVaultBuy(state: MarketVaultState, swarm: number, userCredit
   else if (credits > userCredits) error = "Not enough Credits for this amount.";
   return { swarm: qty, credits, avgCreditsPerSwarm: avg, maxSwarm, error };
 }
+
+/**
+ * Native token trades — no outside price. Each deposited token is valued
+ * against the vault's liquid SWARM using its 5,000,000 per-contract ceiling
+ * as a virtual reserve plus what the vault already holds:
+ *   SWARM out = liquid · amount / (ceiling + held + amount)
+ * The more of a token the vault holds, the less each extra unit buys.
+ */
+export const TOKEN_VIRTUAL_RESERVE = 5_000_000;
+
+export interface TokenQuote { out: number; error: string | null }
+
+export function quoteTokenForSwarm(state: MarketVaultState, vaultHeld: number, amount: number, userAvailable: number): TokenQuote {
+  const { liquid } = marketVaultLayers(state);
+  const qty = Number.isFinite(amount) && amount > 0 ? amount : 0;
+  const reserve = TOKEN_VIRTUAL_RESERVE + Math.max(0, vaultHeld);
+  const out = Math.floor(((liquid * qty) / (reserve + qty)) * 1e6) / 1e6;
+  const cap = liquid * MARKET_VAULT_MAX_TRADE_SHARE;
+  let error: string | null = null;
+  if (qty <= 0) error = "Enter an amount.";
+  else if (qty > userAvailable + 1e-9) error = "More than your available (synced) balance.";
+  else if (liquid <= 0) error = "The vault has no liquid SWARM above its protected floor.";
+  else if (out <= 0) error = "Amount too small to receive any SWARM.";
+  else if (out > cap + 1e-9) error = `One trade can take at most ${cap.toFixed(4)} SWARM.`;
+  return { out, error };
+}
+
+/** Sell SWARM for a token the vault actually holds: out = held · swarm / (liquid + swarm). */
+export function quoteSwarmForToken(state: MarketVaultState, vaultHeld: number, swarm: number, userSwarm: number): TokenQuote {
+  const { liquid } = marketVaultLayers(state);
+  const qty = Number.isFinite(swarm) && swarm > 0 ? swarm : 0;
+  const held = Math.max(0, vaultHeld);
+  const out = Math.floor(((held * qty) / (liquid + qty)) * 1e6) / 1e6;
+  let error: string | null = null;
+  if (qty <= 0) error = "Enter an amount of SWARM.";
+  else if (qty > userSwarm + 1e-9) error = "Not enough SWARM in your wallet.";
+  else if (held <= 0) error = "The vault holds none of this token yet.";
+  else if (out <= 0) error = "Amount too small to receive any tokens.";
+  else if (out > held * MARKET_VAULT_MAX_TRADE_SHARE + 1e-9) error = "One trade can take at most 10% of the vault's holding.";
+  return { out, error };
+}

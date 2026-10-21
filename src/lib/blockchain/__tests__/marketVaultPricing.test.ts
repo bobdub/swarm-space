@@ -26,3 +26,18 @@ describe("market vault pricing", () => {
     expect(quoteVaultBuy({ poolBalance: 0, knownMined: 10 }, 1, 1e6).error).toMatch(/floor/);
   });
 });
+
+import { quoteSwarmForToken, quoteTokenForSwarm } from "../marketVaultPricing";
+
+describe("native token trades", () => {
+  const s = { poolBalance: 1000, knownMined: 1000 }; // 600 liquid
+  it("values tokens against the 5,000,000 ceiling plus vault holdings", () => {
+    expect(quoteTokenForSwarm(s, 0, 1000, 1000).out).toBeCloseTo((600 * 1000) / 5_001_000, 5);
+  });
+  it("refuses more than the synced balance", () => {
+    expect(quoteTokenForSwarm(s, 0, 100, 50).error).toMatch(/available/);
+  });
+  it("cannot sell SWARM for a token the vault doesn't hold", () => {
+    expect(quoteSwarmForToken(s, 0, 1, 10).error).toMatch(/none/);
+  });
+});
