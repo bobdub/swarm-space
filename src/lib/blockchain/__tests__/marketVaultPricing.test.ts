@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm } from "../marketVaultPricing";
+import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, quoteCreatorTokenForSwarm } from "../marketVaultPricing";
+import { priceAtSupply } from "../creatorVault";
 
 describe("market vault pricing", () => {
   it("keeps 40% of the community pool as an untouchable floor", () => {
@@ -39,5 +40,25 @@ describe("native token trades", () => {
   });
   it("cannot sell SWARM for a token the vault doesn't hold", () => {
     expect(quoteSwarmForToken(s, 0, 1, 10).error).toMatch(/none/);
+  });
+});
+
+describe("creator-token live profile rate", () => {
+  const state = { poolBalance: 1000, knownMined: 1000 };
+  it("pays the live profile price rather than the fixed 10:1 ratio", () => {
+    expect(quoteCreatorTokenForSwarm(state, priceAtSupply(100), 10, 10)).toEqual({ out: 2, error: null });
+    expect(quoteCreatorTokenForSwarm(state, priceAtSupply(200), 10, 10).out).toBe(3);
+  });
+  it("retains the 40% floor and 10% liquid trade cap", () => {
+    expect(quoteCreatorTokenForSwarm(state, 1, 61, 100).error).toMatch(/at most 60/);
+  });
+  it("refuses tokens not held in Native", () => {
+    expect(quoteCreatorTokenForSwarm(state, 1, 10, 0).error).toMatch(/Native balance/);
+  });
+  it("refuses unavailable rates", () => {
+    expect(quoteCreatorTokenForSwarm(state, NaN, 1, 10).error).toMatch(/unavailable/);
+  });
+  it("never pays for quantities smaller than the ownership record precision", () => {
+    expect(quoteCreatorTokenForSwarm(state, 1000, 0.0000001, 10).error).toMatch(/six decimal/);
   });
 });

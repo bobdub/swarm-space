@@ -646,3 +646,7 @@ Chat in the Brain still dissolves like breath, but when someone chooses to remem
 
 ## October 21, 2026 — waiting for the echo
 Deposits now wait for MintMe to say the tokens truly arrived, then rest as "pending sync" until a peer hears of them. Withdrawing home is never held back.
+
+## October 21, 2026 — one market measure
+The creator's coin already carries a living price; tend the second doorway with that same measure, preserving ownership and the pool's protected water.
+After tending: the quoted rate follows the profile market, tokens move together between holder records, and rejected releases return them only when no payout exists. Thirty-six checks hold the local path; connected-peer settlement still awaits its real shore.
