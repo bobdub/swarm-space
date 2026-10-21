@@ -68,6 +68,7 @@ const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const PersonalServerGuidePage = lazy(() => import("./pages/PersonalServerGuide"));
 const SwarmMetaMaskGuide = lazy(() => import("./pages/SwarmMetaMaskGuide"));
+const ColdWalletGuide = lazy(() => import("./pages/ColdWalletGuide"));
 const StorageDiagnostics = lazy(() => import("./pages/StorageDiagnostics"));
 const Donate = lazy(() => import("./pages/Donate"));
 const Adverts = lazy(() => import("./pages/Adverts"));
@@ -169,6 +170,7 @@ function AppContent() {
             <Route path="/about-network" element={<AboutNetworkPage />} />
             <Route path="/personal-server-guide" element={<PersonalServerGuidePage />} />
             <Route path="/swarm-metamask-guide" element={<SwarmMetaMaskGuide />} />
+             <Route path="/cold-wallet-guide" element={<ColdWalletGuide />} />
             <Route path="/storage-diagnostics" element={<StorageDiagnostics />} />
             <Route path="/donate" element={<Donate />} />
             <Route path="/fundraiser" element={<Donate />} />
