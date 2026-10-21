@@ -172,6 +172,7 @@ export async function releaseMinedPoolSwarm(params: {
   amount: number;
   creditsLocked: number;
   reason: string;
+  transactionId?: string;
 }): Promise<void> {
   if (!Number.isFinite(params.amount) || params.amount <= 0) throw new Error("Invalid pool release amount");
   const available = await getMinedPoolBalance();
@@ -179,7 +180,7 @@ export async function releaseMinedPoolSwarm(params: {
   const { getSwarmChain } = await import("./chain");
   const { generateTransactionId } = await import("./crypto");
   getSwarmChain().addTransaction({
-    id: generateTransactionId(),
+    id: params.transactionId ?? generateTransactionId(),
     type: "credit_lock",
     from: COMMUNITY_POOL_ADDRESS,
     to: params.to,

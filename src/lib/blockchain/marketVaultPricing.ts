@@ -73,6 +73,20 @@ export const TOKEN_VIRTUAL_RESERVE = 5_000_000;
 
 export interface TokenQuote { out: number; error: string | null }
 
+/** Creator payments use the same current SWARM-per-token spot as the profile market. */
+export function quoteCreatorTokenForSwarm(state: MarketVaultState, rate: number, amount: number, available: number): TokenQuote {
+  const { liquid } = marketVaultLayers(state);
+  const out = Math.floor(amount * rate * 1e6) / 1e6;
+  let error: string | null = null;
+  if (!Number.isFinite(amount) || amount <= 0) error = "Enter an amount.";
+  else if (!Number.isFinite(rate) || rate <= 0) error = "Creator market rate is unavailable.";
+  else if (!Number.isFinite(available) || amount > available) error = "More than your available Native balance.";
+  else if (liquid <= 0) error = "The vault has no liquid SWARM above its protected floor.";
+  else if (out <= 0) error = "Amount too small to receive any SWARM.";
+  else if (out > liquid * MARKET_VAULT_MAX_TRADE_SHARE) error = `One trade can take at most ${(liquid * MARKET_VAULT_MAX_TRADE_SHARE).toFixed(4)} SWARM.`;
+  return { out: Number.isFinite(out) && out > 0 ? out : 0, error };
+}
+
 export function quoteTokenForSwarm(state: MarketVaultState, vaultHeld: number, amount: number, userAvailable: number): TokenQuote {
   const { liquid } = marketVaultLayers(state);
   const qty = Number.isFinite(amount) && amount > 0 ? amount : 0;
