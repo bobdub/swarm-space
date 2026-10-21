@@ -1,6 +1,7 @@
 ## Native Market asset selection (2026-10-21)
-- [ ] Match Buy payment options to positive Native wallet holdings, including deployed SWARM tokens
-- [ ] Verify selection and existing market safeguards without live transactions
+- [x] Match Buy payment options to positive Native wallet holdings, including deployed SWARM tokens
+- [x] Verify selection and existing market safeguards without live transactions — 13 tests pass; a local QA account's MTCG appears after refresh, zero balances are excluded
+- [ ] Enable creator/native external-coin payments — blocked by verifiable holder/custody settlement; options display ownership but cannot deduct these assets
 
 ## Native wallet guide (2026-10-21)
 - [x] Add a separate factual guide under Settings documentation
