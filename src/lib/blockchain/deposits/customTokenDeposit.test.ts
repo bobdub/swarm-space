@@ -19,6 +19,12 @@ vi.mock("../wallets/metaMaskBridge", () => ({
 vi.mock("../wallets/mintmeNetwork", () => ({
   MINTME_CHAIN_ID_HEX: "0x609e", isMintMeChain: (id: string) => id === "0x609e", readMintMeChainId: async () => "0x609e", switchToMintMeNetwork: async () => {},
 }));
+const COLD_ADDR = `0x${"aa".repeat(20)}`;
+vi.mock("../wallets/coldKey", () => ({
+  deriveColdKey: async () => ({ address: COLD_ADDR, wallet: null }),
+  getColdKeyAuthority: async () => ({ kind: "engraved" }),
+  sendColdKeyTokenTransfer: vi.fn(),
+}));
 import { depositCustomToken } from "./customTokens";
 
 const token = { address: `0x${"ab".repeat(20)}`, symbol: "ABC", decimals: 18, addedAt: 0 };
@@ -102,11 +108,10 @@ describe("single-confirmation deposit", () => {
     const params = (send![1] as [{ data: string }])[0];
     const erc20 = new Interface(["function transfer(address,uint256) returns (bool)"]);
     const decoded = erc20.decodeFunctionData("transfer", params.data);
-    const { swarmIdToEvmAddress } = await import("../gateway/addressMap");
-    expect(String(decoded[0]).toLowerCase()).toBe((await swarmIdToEvmAddress("u")).toLowerCase());
+    expect(String(decoded[0]).toLowerCase()).toBe(COLD_ADDR.toLowerCase());
     expect(String(decoded[0]).toLowerCase()).not.toBe(mocks.account);
     const meta = mocks.transactions[0].meta as Record<string, unknown>;
-    expect(meta.destination).toBe(await swarmIdToEvmAddress("u"));
+    expect(meta.destination).toBe(COLD_ADDR);
   });
   it("still rejects when the connected account differs from an existing verified link", async () => {
     mocks.account = `0x${"cd".repeat(20)}`;
