@@ -199,12 +199,7 @@ export async function clearBulkLocal(
     const rows = await safeGetAll<Record<string, unknown>>(store, available);
     const entry = { keys: [] as string[], bytes: 0 };
     for (const row of rows) {
-      const key =
-        (row?.ref as string) ??
-        (row?.fileId as string) ??
-        (row?.id as string) ??
-        (row?.manifestId as string) ??
-        (row?.hash as string);
+      const key = clearKeyForRow(row);
       if (!key) continue;
       entry.keys.push(key);
       total += 1;
