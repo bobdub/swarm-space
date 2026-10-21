@@ -24,7 +24,7 @@ import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
 import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
-import { positiveBalanceAssets } from "@/lib/blockchain/wallets/ownedAssets";
+import { nativeWalletAssets } from "@/lib/blockchain/wallets/nativeAssets";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Layer = "native" | "metamask";
@@ -69,11 +69,10 @@ export function AssetsTab() {
     { code: "ETH", label: "ETH", amount: bridge.ETH + getChainEthBalance(userId), digits: 6 },
     { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
   ];
-  const owned = positiveBalanceAssets([
-    ...rows.map((r) => ({ id: r.code, label: r.label, amount: r.amount })),
-    ...customTokens.map((t) => ({ id: `custom:${t.address}`, label: `${t.symbol} · MintMe`, amount: getRecordedTokenBalance(userId, t.address) })),
-    ...holdings.map((h) => ({ id: `creator:${h.tokenId}`, label: `${h.ticker} · Creator`, amount: h.amount })),
-  ]);
+  const owned = nativeWalletAssets({
+    swarm, credits, mintme, eth: bridge.ETH + getChainEthBalance(userId), btc: bridge.BTC, holdings,
+    custom: customTokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, token.address), available: getRecordedTokenBalance(userId, token.address) })),
+  });
   const selected = owned.some((a) => a.id === selection) ? selection : "all";
   const showNative = (id: string) => owned.some((a) => a.id === id) && (selected === "all" || selected === id);
 
