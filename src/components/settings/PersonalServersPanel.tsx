@@ -14,7 +14,7 @@ import {
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
 import { getCurrentUser } from '@/lib/auth';
-import { classifySyncError } from './personalServerSyncError';
+import { friendlySyncError } from './personalServerSyncError';
 import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
 import {
   retryPersonalServerSync,
@@ -298,6 +298,4 @@ export function PersonalServersPanel() {
     </Card>
   );
 }
-function friendlySyncError(message: string): string {
-  return classifySyncError(message);
-}
+function friendlySyncErrorShimRemoved(): void {}
