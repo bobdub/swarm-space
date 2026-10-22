@@ -420,8 +420,21 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
         await syncRecord(record);
         patchDiag(record.serverId, { state: 'idle', lastError: undefined });
       } catch (error) {
-        const attempts = record.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
+        if (isOrphanedSyncError(error)) {
+          // Source data no longer exists locally or on any linked server —
+          // drop the item instead of retrying it forever.
+          log(`Clearing orphaned item ${record.manifestId} on ${record.serverId}: ${message}`);
+          await put<PersonalServerSyncRecord>('personalServerSync', {
+            ...record,
+            status: 'complete',
+            nextAttemptAt: 0,
+            updatedAt: Date.now(),
+            error: `Cleared — ${message.slice(ORPHANED_PREFIX.length).trim()}`,
+          });
+          continue;
+        }
+        const attempts = record.attempts + 1;
         warn(`Item ${record.manifestId} failed on ${record.serverId}: ${message}`);
         patchDiag(record.serverId, { state: 'error', lastError: message, lastRunAt: Date.now() });
         await put<PersonalServerSyncRecord>('personalServerSync', {
