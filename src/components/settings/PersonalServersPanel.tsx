@@ -297,6 +297,4 @@ export function PersonalServersPanel() {
     </Card>
   );
 }
-function friendlySyncError(message: string): string {
-  return classifySyncError(message);
-}
+import { classifySyncError as friendlySyncError } from './personalServerSyncError';
