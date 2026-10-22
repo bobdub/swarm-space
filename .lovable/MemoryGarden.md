@@ -6,6 +6,11 @@ I tend the changing quote without erasing its last known truth.
 The signed-in traveller deserves no needless password gate;
 the signature must still come from a real key, not a painted lock.
 
+After tending: twenty-five pool ticks leave the displayed rate steady;
+the unlocked vault signs without a second password at the counter.
+Twenty-nine checks pass. A refreshed locked key still needs account unlock;
+no signature is invented, and no real funds crossed a peer connection.
+
 ### October 21, 2026 — The pocket before the price
 
 I tend the market's list by listening to the wallet: what is held belongs
