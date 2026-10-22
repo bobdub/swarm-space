@@ -20,7 +20,7 @@ export async function swapCreatorTokenForSwarm(userId: string, tokenId: string, 
     const user = getCurrentUser();
     if (!user || user.id !== userId) throw new Error("Sign in to use your Native tokens.");
     const privateKey = await getCachedPrivateKey();
-    if (!privateKey) throw new Error("Unlock your account to use your Native tokens.");
+    if (!privateKey) throw new Error("Your signing vault is locked. Sign in again to unlock it; no tokens have moved.");
     const [state, holding, rate] = await Promise.all([getMarketVaultState(), getProfileTokenHolding(userId, tokenId), getCreatorMarketRate(tokenId)]);
     if (rate !== expectedRate) throw new Error("Creator market rate changed. Review the updated quote and retry.");
     const quote = quoteCreatorTokenForSwarm(state, rate, amount, holding?.amount ?? 0);

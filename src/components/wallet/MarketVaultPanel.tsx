@@ -6,11 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Landmark, Lock } from "lucide-react";
 import { toast } from "sonner";
-import { getCurrentUser, getCachedPrivateKey, loginUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { useMarketGate } from "@/hooks/useMarketGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, type MarketVaultState } from "@/lib/blockchain/marketVaultPricing";
-import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm, getCreatorMarketRate, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
+import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
+import { useCreatorMarketRate } from "@/hooks/useCreatorMarketRate";
 import { quoteSwarmForToken, quoteTokenForSwarm, quoteCreatorTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
 import { listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
 import { useNativeAssets } from "@/hooks/useNativeAssets";
@@ -38,20 +39,7 @@ export function MarketVaultPanel() {
   const payment = payments.find((asset) => asset.id === paymentId);
   const unsupportedPayment = payment && payment.kind !== "credits" && payment.kind !== "custom" && payment.kind !== "creator";
   const creatorId = payment?.kind === "creator" ? payment.id.slice("creator:".length) : "";
-  const [creatorRate, setCreatorRate] = useState<{ tokenId: string; rate: number } | null>(null);
-  const [needsUnlock, setNeedsUnlock] = useState(false);
-  const [passphrase, setPassphrase] = useState("");
-  useEffect(() => {
-    let disposed = false;
-    setCreatorRate(null);
-    setPassphrase("");
-    if (creatorId) void getCachedPrivateKey().then((key) => { if (!disposed) setNeedsUnlock(!key); });
-    if (creatorId) void getCreatorMarketRate(creatorId).then((rate) => {
-      if (!disposed) setCreatorRate({ tokenId: creatorId, rate });
-    }).catch(() => {});
-    return () => { disposed = true; };
-  }, [creatorId, state]);
-  const liveRate = creatorRate?.tokenId === creatorId ? creatorRate.rate : 0;
+  const liveRate = useCreatorMarketRate(creatorId);
   const creatorQuote = state && creatorId ? quoteCreatorTokenForSwarm(state, liveRate, Number(amount), payment?.available ?? 0) : null;
   const tokens: CustomToken[] = useMemo(() => (user?.id ? listCustomTokens(user.id) : []), [user?.id, state]);
 
@@ -170,17 +158,10 @@ export function MarketVaultPanel() {
                 {Number(amount) > 0 && creatorQuote.error && <p className="pt-1 text-destructive">{creatorQuote.error}</p>}
               </div>
             )}
-            {creatorId && needsUnlock && (
-              <div className="space-y-1">
-                <Label htmlFor="vault-creator-passphrase">Account passphrase</Label>
-                <Input id="vault-creator-passphrase" type="password" autoComplete="current-password" value={passphrase} disabled={busy} onChange={(e) => setPassphrase(e.target.value)} />
-              </div>
-            )}
             {unsupportedPayment && <p role="status" className="text-xs text-muted-foreground">{payment.symbol} is held in your Native wallet. Vault payment settlement for this asset is not available yet; no tokens will be deducted.</p>}
             {creatorId ? (
-              <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !creatorQuote || !!creatorQuote.error || (needsUnlock && !passphrase)}
+              <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !creatorQuote || !!creatorQuote.error}
                 onClick={() => { if (!user?.id || !canTrade) return; const userId = user.id; void run(async () => {
-                  if (needsUnlock) { await loginUser(passphrase); setPassphrase(""); setNeedsUnlock(false); }
                   const q = await swapCreatorTokenForSwarm(userId, creatorId, Number(amount), liveRate); return `Received ${fmt(q.out, 6)} SWARM`;
                 }); }}>
                 {busy ? "Swapping…" : `Swap ${payment?.symbol} for SWARM`}
