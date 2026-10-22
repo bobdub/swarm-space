@@ -198,11 +198,60 @@ export async function enqueuePipelineContentForPersonalServers(
   schedule();
 }
 
+const ORPHANED_PREFIX = 'ORPHANED:';
+
+/** True when a sync item failed because its source data no longer exists anywhere. */
+export function isOrphanedSyncError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith(ORPHANED_PREFIX);
+}
+
+/** HEAD-check that every object of a record already exists on its server. */
+async function remoteCopyIsComplete(record: PersonalServerSyncRecord): Promise<boolean> {
+  const checks = await Promise.all([
+    ...record.chunkRefs.map((ref) => personalServerHead(record.serverId, record.userId, ref)),
+    personalServerHead(record.serverId, record.userId, manifestKey(record.manifestId)),
+  ]);
+  return checks.every(Boolean);
+}
+
+/** Best-effort recovery of a manifest whose local copy was cleared. */
+async function fetchManifestFromPersonalServers(
+  record: PersonalServerSyncRecord,
+): Promise<unknown | null> {
+  const key = manifestKey(record.manifestId);
+  for (const server of eligibleServers()) {
+    try {
+      const bytes = await personalServerGet(server.id, record.userId, key, async (candidate) => {
+        try {
+          const parsed = JSON.parse(decoder.decode(candidate)) as { fileId?: string; contentId?: string };
+          return parsed?.fileId === record.manifestId || parsed?.contentId === record.manifestId;
+        } catch {
+          return false;
+        }
+      });
+      if (bytes) return JSON.parse(decoder.decode(bytes));
+    } catch { /* try the next server */ }
+  }
+  return null;
+}
+
 async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
-  const manifest = record.manifestStore === 'meta'
+  let manifest = record.manifestStore === 'meta'
     ? (await get<{ k: string; v: unknown }>('meta', manifestKey(record.manifestId)))?.v
     : await get<Manifest>('manifests', record.manifestId);
-  if (!manifest) throw new Error(`Manifest ${record.manifestId} is no longer available locally.`);
+  if (!manifest) {
+    // The local copy may have been cleared after a verified upload. If the
+    // server already holds every object, run the normal completion path with
+    // a placeholder; otherwise try to pull the manifest back from a server.
+    if (await remoteCopyIsComplete(record)) {
+      manifest = { fileId: record.manifestId, chunks: record.chunkRefs };
+    } else {
+      manifest = await fetchManifestFromPersonalServers(record);
+      if (!manifest) {
+        throw new Error(`${ORPHANED_PREFIX} Manifest ${record.manifestId} is gone locally and on the linked servers.`);
+      }
+    }
+  }
 
   await put<PersonalServerSyncRecord>('personalServerSync', {
     ...record,
@@ -224,7 +273,7 @@ async function syncRecord(record: PersonalServerSyncRecord): Promise<void> {
         // to another linked server — pull it back instead of failing.
         chunk = await fetchChunkFromPersonalServers<Record<string, unknown> & { ref: string }>(ref) ?? undefined;
       }
-      if (!chunk) throw new Error(`Local upload queue is missing chunk ${ref}.`);
+      if (!chunk) throw new Error(`${ORPHANED_PREFIX} Chunk ${ref} is gone locally and on the linked servers.`);
       payload = encodeJson(chunk);
       patchDiag(record.serverId, { lastObjectKey: ref });
       await personalServerPut(record.serverId, record.userId, ref, payload);
@@ -371,8 +420,21 @@ export async function processPersonalServerSyncQueue(): Promise<void> {
         await syncRecord(record);
         patchDiag(record.serverId, { state: 'idle', lastError: undefined });
       } catch (error) {
-        const attempts = record.attempts + 1;
         const message = error instanceof Error ? error.message : String(error);
+        if (isOrphanedSyncError(error)) {
+          // Source data no longer exists locally or on any linked server —
+          // drop the item instead of retrying it forever.
+          log(`Clearing orphaned item ${record.manifestId} on ${record.serverId}: ${message}`);
+          await put<PersonalServerSyncRecord>('personalServerSync', {
+            ...record,
+            status: 'complete',
+            nextAttemptAt: 0,
+            updatedAt: Date.now(),
+            error: `Cleared — ${message.slice(ORPHANED_PREFIX.length).trim()}`,
+          });
+          continue;
+        }
+        const attempts = record.attempts + 1;
         warn(`Item ${record.manifestId} failed on ${record.serverId}: ${message}`);
         patchDiag(record.serverId, { state: 'error', lastError: message, lastRunAt: Date.now() });
         await put<PersonalServerSyncRecord>('personalServerSync', {
