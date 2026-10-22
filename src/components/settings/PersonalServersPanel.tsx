@@ -298,4 +298,4 @@ export function PersonalServersPanel() {
     </Card>
   );
 }
-function friendlySyncErrorShimRemoved(): void {}
+}
