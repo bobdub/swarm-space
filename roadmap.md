@@ -1,3 +1,8 @@
+## Market quote and signing repair (2026-10-22)
+- [x] Stop creator quotes clearing on unrelated pool updates; retain fresh-rate execution checks
+- [x] Remove redundant market passphrase entry while preserving real key authorization — locked vaults still require account sign-in
+- [x] Run quote and signing regressions — 29 checks pass; browser retains 0.2 rate through 25 pool ticks with an unlocked vault and no passphrase field; live-peer settlement remains blocked below
+
 ## Native Market asset selection (2026-10-21)
 - [x] Match Buy payment options to positive Native wallet holdings, including deployed SWARM tokens
 - [x] Verify selection and existing market safeguards without live transactions — 13 tests pass; a local QA account's MTCG appears after refresh, zero balances are excluded

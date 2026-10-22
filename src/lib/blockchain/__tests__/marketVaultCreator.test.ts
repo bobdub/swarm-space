@@ -2,14 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const f = vi.hoisted(() => ({
   supply: 100, closed: false, balances: new Map<string, number>(), txs: new Set<string>(),
-  release: vi.fn(), transfer: vi.fn(),
+  release: vi.fn(), transfer: vi.fn(), key: "test-only" as string | null, userId: "mike", sign: vi.fn(),
 }));
 vi.mock("../creatorVault", () => ({
   getCreatorVault: async () => ({ circulatingSupply: f.supply, closed: f.closed }),
   priceAtSupply: (supply: number) => 0.1 + 0.001 * supply,
 }));
-vi.mock("@/lib/auth", () => ({ getCurrentUser: () => ({ id: "mike", publicKey: "public" }), getCachedPrivateKey: async () => "test-only" }));
-vi.mock("../wallets/tipSignature", () => ({ signWalletTip: async (tx: object) => ({ ...tx, signature: "signed-test" }) }));
+vi.mock("@/lib/auth", () => ({ getCurrentUser: () => ({ id: f.userId, publicKey: "public" }), getCachedPrivateKey: async () => f.key }));
+vi.mock("../wallets/tipSignature", () => ({ signWalletTip: (...args: unknown[]) => f.sign(...args) }));
 vi.mock("../profileTokenBalance", () => ({
   getProfileTokenHolding: async (id: string) => ({ amount: f.balances.get(id) ?? 0, ticker: "MIKE" }),
   transferProfileTokens: (...args: unknown[]) => f.transfer(...args),
@@ -22,6 +22,8 @@ vi.mock("../chain", () => ({ getSwarmChain: () => ({
 import { swapCreatorTokenForSwarm } from "../marketVault";
 
 beforeEach(() => {
+  f.key = "test-only"; f.userId = "mike";
+  f.sign.mockReset().mockImplementation(async (tx: object) => ({ ...tx, signature: "signed-test" }));
   f.supply = 100; f.closed = false; f.balances.clear(); f.txs.clear();
   f.balances.set("mike", 10); f.balances.set("community-pool", 0);
   f.transfer.mockReset().mockImplementation(async (from: string, to: string, _token: string, amount: number) => {
@@ -33,6 +35,24 @@ beforeEach(() => {
 });
 
 describe("creator-token Market Vault payment", () => {
+  it("signs with the already-unlocked vault without requesting another passphrase", async () => {
+    await swapCreatorTokenForSwarm("mike", "token", 5, 0.2);
+    expect(f.sign).toHaveBeenCalledWith(expect.objectContaining({ from: "mike", amount: 5 }), "test-only");
+    expect(f.balances.get("mike")).toBe(5);
+  });
+  it("never spends with a restored session but no unlocked signing key", async () => {
+    f.key = null;
+    await expect(swapCreatorTokenForSwarm("mike", "token", 5, 0.2)).rejects.toThrow("signing vault is locked");
+    expect(f.sign).not.toHaveBeenCalled();
+    expect(f.transfer).not.toHaveBeenCalled();
+    expect(f.release).not.toHaveBeenCalled();
+  });
+  it("rejects a different signed-in identity before accessing holdings", async () => {
+    f.userId = "other";
+    await expect(swapCreatorTokenForSwarm("mike", "token", 5, 0.2)).rejects.toThrow("Sign in");
+    expect(f.sign).not.toHaveBeenCalled();
+    expect(f.transfer).not.toHaveBeenCalled();
+  });
   it("moves held tokens into the pool and releases SWARM at the profile live rate", async () => {
     expect(await swapCreatorTokenForSwarm("mike", "token", 10, 0.2)).toEqual({ out: 2, error: null });
     expect(f.balances.get("mike")).toBe(0);
