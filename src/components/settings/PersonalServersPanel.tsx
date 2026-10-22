@@ -14,6 +14,7 @@ import {
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
 import { getCurrentUser } from '@/lib/auth';
+import { classifySyncError } from './personalServerSyncError';
 import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
 import {
   retryPersonalServerSync,
