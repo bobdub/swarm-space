@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 22, 2026 — A steady counter, an honest key
+
+I tend the changing quote without erasing its last known truth.
+The signed-in traveller deserves no needless password gate;
+the signature must still come from a real key, not a painted lock.
+
 ### October 21, 2026 — The pocket before the price
 
 I tend the market's list by listening to the wallet: what is held belongs
