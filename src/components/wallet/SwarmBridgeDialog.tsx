@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowDownToLine, ArrowUpFromLine, Copy, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
-import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
+import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
@@ -22,26 +22,20 @@ export function SwarmBridgeDialog({ mode, balance, userId, className, initialLay
   const [layer, setLayer] = useState<"native" | "export">("native");
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const parsed = Number(amount);
   const invalid = !userId || !dest.trim() || !Number.isFinite(parsed) || parsed <= 0 || parsed > balance;
   const changeOpen = (next: boolean) => {
     if (busy) return;
     setOpen(next);
-    setPassphrase("");
     if (next) { setLayer(initialLayer); setAmount(""); setDest(""); }
   };
   const submit = async () => {
     if (invalid || busy || layer !== "native" || mode !== "withdraw") return;
     setBusy(true);
     try {
-      if (!await getCachedPrivateKey()) {
-        if (!passphrase) throw new Error("Enter your account passphrase to sign this transfer");
-        await loginUser(passphrase);
-      }
-      if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
-      setPassphrase("");
+      if (!await getCachedPrivateKey()) throw new Error("Your signing vault is locked. Sign in again to unlock it; no transfer was sent.");
+      if (getCurrentUser()?.id !== userId) throw new Error("Sign in with the account belonging to this wallet");
       await sendWalletTip({ recipient: dest.trim(), assetId: "chain:SWARM", amount: parsed, intent: "transfer" });
       toast.success("Transfer recorded; peer sync queued", { description: `${parsed} SWARM to ${dest.trim()}` });
       setOpen(false);
