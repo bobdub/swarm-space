@@ -18,7 +18,7 @@ import {
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
-import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
+import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -260,12 +260,11 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
   const { address } = useMetaMask();
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const [authority, setAuthority] = useState<ColdKeyAuthority | null | undefined>(undefined);
   const { busy, run } = useWalletDialogTask(open);
   useEffect(() => {
     if (!open) return;
-    setAmount(""); setDest(address ?? ""); setPassphrase(""); setAuthority(undefined);
+    setAmount(""); setDest(address ?? ""); setAuthority(undefined);
     void getColdKeyAuthority(userId).then(setAuthority);
   }, [open, address, userId]);
   const n = Number(amount);
@@ -275,12 +274,8 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
     setAuthority(await getColdKeyAuthority(userId));
   }, () => toast.success("Cold-wallet key engraved", { description: `${COLD_KEY_ENGRAVING_SWARM} mined SWARM is locked in its container — never burned.` }));
   const submit = () => void run(async () => {
-    if (!await getCachedPrivateKey()) {
-      if (!passphrase) throw new Error("Enter your account passphrase to unlock the cold-wallet key");
-      await loginUser(passphrase);
-    }
-    if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
-    setPassphrase("");
+    if (!await getCachedPrivateKey()) throw new Error("Your signing vault is locked. Sign in again to unlock it; no tokens have moved.");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in with the account belonging to this wallet");
     return withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
   }, (tx) => {
     toast.success(`${n} ${token.symbol} sent to MetaMask`, { description: `MintMe tx ${String(tx.signature).slice(0, 10)}… · appears under the MintMe network` });
@@ -303,9 +298,7 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
             <p className="text-[10px] text-muted-foreground">Pre-filled from your connected MetaMask. Editing it is risky — tokens go to whatever address you enter and cannot be recovered.</p></div>
           <div className="space-y-1"><Label htmlFor="ct-wd-amt">Amount ({token.symbol})</Label>
             <Input id="ct-wd-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} /></div>
-          <div className="space-y-1"><Label htmlFor="ct-wd-pass">Account passphrase (unlocks the cold-wallet key)</Label>
-            <Input id="ct-wd-pass" type="password" autoComplete="current-password" value={passphrase} disabled={busy} onChange={(e) => setPassphrase(e.target.value)} /></div>
-          <p className="text-xs text-muted-foreground">Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
+          <p className="text-xs text-muted-foreground">You're signed in as this wallet's owner, so the cold-wallet key signs with your unlocked key — no passphrase needed. Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
           <DialogFooter><Button type="button" disabled={busy || !address || invalid} onClick={submit}>{busy ? "Signing with cold key…" : "Withdraw"}</Button></DialogFooter>
         </div>}
       <Button type="button" variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>Close</Button>

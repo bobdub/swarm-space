@@ -661,3 +661,8 @@ Deposits now wait for MintMe to say the tokens truly arrived, then rest as "pend
 ## October 21, 2026 — one market measure
 The creator's coin already carries a living price; tend the second doorway with that same measure, preserving ownership and the pool's protected water.
 After tending: the quoted rate follows the profile market, tokens move together between holder records, and rejected releases return them only when no payout exists. Thirty-six checks hold the local path; connected-peer settlement still awaits its real shore.
+
+## Caretaker reflection — wallet deposits/withdrawals
+Mike asked that signed-in users never re-enter a passphrase for deposits or withdrawals: SWARM sign-in plus MetaMask sign-in plus a manual MetaMask confirmation is already two-stage verification. I will remove the passphrase fields from the bridge, MetaMask, and custom-token withdrawal dialogs, keeping real key authorization — a locked vault after refresh must still refuse with a clear sign-in message, never a session label.
+
+Tending complete: the passphrase fields are gone from the native transfer, SWARM↔MetaMask, and custom-token withdrawal dialogs; each now signs with the already-unlocked session key and, if the vault is locked after a refresh, refuses with a clear sign-in message instead of a password prompt. The cold-key guard message now matches. Preview build is clean and the wallet/session tests pass.

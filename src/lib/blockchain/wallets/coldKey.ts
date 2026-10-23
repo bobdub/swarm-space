@@ -109,7 +109,7 @@ export async function deriveColdKey(_userId: string): Promise<DerivedColdKey> {
   const { getCachedPrivateKey } = await import("../../auth");
   const identityKey = await getCachedPrivateKey();
   if (!identityKey) {
-    throw new Error("Unlock your account with your passphrase to use the cold-wallet key");
+    throw new Error("Your signing vault is locked. Sign in again to unlock it; no tokens have moved.");
   }
   const seed = keccak256(toUtf8Bytes(`swarm-coldkey:${identityKey.trim().toLowerCase()}`));
   const wallet = new Wallet(seed);
