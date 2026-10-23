@@ -59,7 +59,7 @@ export function SwarmBridgeDialog({ mode, balance, userId, className, initialLay
         </div> : <>
           <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
             <Button type="button" size="sm" variant={layer === "native" ? "default" : "ghost"} disabled={busy} onClick={() => setLayer("native")}>On-network</Button>
-            <Button type="button" size="sm" variant={layer === "export" ? "default" : "ghost"} disabled={busy} onClick={() => { setLayer("export"); setPassphrase(""); }}>MetaMask export</Button>
+            <Button type="button" size="sm" variant={layer === "export" ? "default" : "ghost"} disabled={busy} onClick={() => setLayer("export")}>MetaMask export</Button>
           </div>
           <p className="text-sm">Available: <span className="font-semibold tabular-nums">{balance.toLocaleString(undefined, { maximumFractionDigits: 8 })} SWARM</span></p>
           {layer === "native" ? <div className="space-y-4">
