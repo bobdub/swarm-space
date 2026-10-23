@@ -18,7 +18,7 @@ import {
   type CustomToken,
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
-import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
+import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -260,12 +260,11 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
   const { address } = useMetaMask();
   const [amount, setAmount] = useState("");
   const [dest, setDest] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const [authority, setAuthority] = useState<ColdKeyAuthority | null | undefined>(undefined);
   const { busy, run } = useWalletDialogTask(open);
   useEffect(() => {
     if (!open) return;
-    setAmount(""); setDest(address ?? ""); setPassphrase(""); setAuthority(undefined);
+    setAmount(""); setDest(address ?? ""); setAuthority(undefined);
     void getColdKeyAuthority(userId).then(setAuthority);
   }, [open, address, userId]);
   const n = Number(amount);
@@ -275,12 +274,8 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
     setAuthority(await getColdKeyAuthority(userId));
   }, () => toast.success("Cold-wallet key engraved", { description: `${COLD_KEY_ENGRAVING_SWARM} mined SWARM is locked in its container — never burned.` }));
   const submit = () => void run(async () => {
-    if (!await getCachedPrivateKey()) {
-      if (!passphrase) throw new Error("Enter your account passphrase to unlock the cold-wallet key");
-      await loginUser(passphrase);
-    }
-    if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
-    setPassphrase("");
+    if (!await getCachedPrivateKey()) throw new Error("Your signing vault is locked. Sign in again to unlock it; no tokens have moved.");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in with the account belonging to this wallet");
     return withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
   }, (tx) => {
     toast.success(`${n} ${token.symbol} sent to MetaMask`, { description: `MintMe tx ${String(tx.signature).slice(0, 10)}… · appears under the MintMe network` });

@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { toast } from "sonner";
 import { useMetaMask } from "@/hooks/useMetaMask";
-import { getCachedPrivateKey, getCurrentUser, loginUser } from "@/lib/auth";
+import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
 import { getLinkedWallet, linkMetaMaskWallet } from "@/lib/blockchain/wallets/walletLink";
 import { depositSwarmFromMetaMask, getMetaMaskSwarmBalance, withdrawSwarmToMetaMask } from "@/lib/blockchain/wallets/swarmMetaMask";
 import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
@@ -17,7 +17,6 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
   const { address } = useMetaMask();
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
-  const [pass, setPass] = useState("");
   const { busy, run: walletTask } = useWalletDialogTask(open);
   const [linked, setLinked] = useState<string | null>(null);
   const [mmBalance, setMmBalance] = useState(0);
@@ -39,12 +38,8 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
   const run = () => walletTask(async () => {
       if (mode === "withdraw") {
         // Moving native funds needs the native account unlocked, not just MetaMask.
-        if (!await getCachedPrivateKey()) {
-          if (!pass) throw new Error("Enter your account passphrase");
-          await loginUser(pass);
-        }
-        if (getCurrentUser()?.id !== userId) throw new Error("Unlock the account belonging to this wallet");
-        setPass("");
+        if (!await getCachedPrivateKey()) throw new Error("Your signing vault is locked. Sign in again to unlock it; no SWARM has moved.");
+        if (getCurrentUser()?.id !== userId) throw new Error("Sign in with the account belonging to this wallet");
         await withdrawSwarmToMetaMask(userId, parsed);
         toast.success(`${parsed} SWARM sent to your MetaMask wallet`);
       } else {
@@ -77,10 +72,7 @@ export function SwarmMetaMaskDialog({ mode, userId, nativeBalance }: { mode: "wi
             <Input id="swarm-mm-amount" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
             <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => setAmount(String(available))}>Max</Button>
           </div>
-          {mode === "withdraw" && <div className="space-y-2">
-            <Label htmlFor="swarm-mm-pass">Account passphrase</Label>
-            <Input id="swarm-mm-pass" type="password" autoComplete="current-password" value={pass} disabled={busy} onChange={(e) => setPass(e.target.value)} />
-          </div>}
+          {mode === "withdraw" && <p className="text-xs text-muted-foreground">You're signed in as this wallet's owner, so the move is signed with your unlocked key — no passphrase needed.</p>}
           <p className="text-xs text-muted-foreground">Works like a cold wallet: the SWARM sits on the SWARM network under your MetaMask address, and only your MetaMask can sign it back. MetaMask confirms with a signature — no network switch or fee.</p>
           <DialogFooter><Button type="button" disabled={busy || invalid} onClick={() => void run()}>{busy ? "Confirm in MetaMask…" : mode === "withdraw" ? "Send to MetaMask" : "Deposit"}</Button></DialogFooter>
         </div>}
