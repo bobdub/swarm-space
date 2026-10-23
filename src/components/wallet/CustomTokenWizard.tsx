@@ -298,9 +298,7 @@ function TokenWithdrawDialog({ userId, token, open, onOpenChange, recorded }: { 
             <p className="text-[10px] text-muted-foreground">Pre-filled from your connected MetaMask. Editing it is risky — tokens go to whatever address you enter and cannot be recovered.</p></div>
           <div className="space-y-1"><Label htmlFor="ct-wd-amt">Amount ({token.symbol})</Label>
             <Input id="ct-wd-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} /></div>
-          <div className="space-y-1"><Label htmlFor="ct-wd-pass">Account passphrase (unlocks the cold-wallet key)</Label>
-            <Input id="ct-wd-pass" type="password" autoComplete="current-password" value={passphrase} disabled={busy} onChange={(e) => setPassphrase(e.target.value)} /></div>
-          <p className="text-xs text-muted-foreground">Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
+          <p className="text-xs text-muted-foreground">You're signed in as this wallet's owner, so the cold-wallet key signs with your unlocked key — no passphrase needed. Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
           <DialogFooter><Button type="button" disabled={busy || !address || invalid} onClick={submit}>{busy ? "Signing with cold key…" : "Withdraw"}</Button></DialogFooter>
         </div>}
       <Button type="button" variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>Close</Button>
