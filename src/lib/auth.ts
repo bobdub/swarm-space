@@ -354,7 +354,7 @@ export async function createLocalAccount(
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
 
-  await cacheUnlockedPrivateKey(keys.privateKey);
+  await cacheUnlockedPrivateKey(keys.privateKey, userId);
 
   return userMeta;
 }
@@ -392,7 +392,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   const wrapped = wrappedData.v;
 
   if (wrapped.rawStored) {
-    await cacheUnlockedPrivateKey(wrapped.wrapped);
+    await cacheUnlockedPrivateKey(wrapped.wrapped, user.id);
     return wrapped.wrapped;
   }
 
@@ -401,7 +401,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   }
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
-  await cacheUnlockedPrivateKey(privateKey);
+  await cacheUnlockedPrivateKey(privateKey, user.id);
   return privateKey;
 }
 
@@ -559,7 +559,7 @@ export async function recoverAccountFromPrivateKey(
   await put("meta", { k: wrappedKeyRef, v: wrapped });
   await put("users", userMeta);
   await awardGenesisCredits(userId);
-  await cacheUnlockedPrivateKey(privateKeyBase64);
+  await cacheUnlockedPrivateKey(privateKeyBase64, userId);
   await activateSession(userMeta);
 
 
