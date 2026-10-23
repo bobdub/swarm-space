@@ -33,30 +33,142 @@ const LAST_ACTIVE_META_KEY = "meta:lastActiveUserId";
 /** In-memory vault-sealed private key (never stored as plaintext in heap) */
 let sealedPrivateKey: SealedValue | null = null;
 
-async function cacheUnlockedPrivateKey(privateKey: string) {
+// ── Tab-session persistence ─────────────────────────────────────────────────
+// A page refresh wipes the in-memory vault, which used to leave a signed-in
+// user "locked" until they re-entered their passphrase. The unlocked key is
+// therefore ALSO sealed under a tab-session AES-GCM wrapping key kept in
+// sessionStorage: it survives refreshes within the tab, is cleared when the
+// tab closes or the user signs out, and is only ever restored for the account
+// that is currently signed in. Trade-off, stated honestly: a browser
+// extension with page access could read sessionStorage, so this is a softer
+// boundary than the pure in-memory seal.
+
+const SESSION_WRAP_KEY = "swarm-session-wrap";
+const SESSION_SEALED_KEY = "swarm-session-sealed";
+
+interface SessionSealedRecord {
+  userId: string;
+  sealed: SealedValue;
+}
+
+let sessionWrapKey: CryptoKey | null = null;
+
+async function getSessionWrapKey(): Promise<CryptoKey> {
+  if (sessionWrapKey) return sessionWrapKey;
+  try {
+    const stored = sessionStorage.getItem(SESSION_WRAP_KEY);
+    if (stored) {
+      sessionWrapKey = await crypto.subtle.importKey(
+        "jwk",
+        JSON.parse(stored),
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"],
+      );
+      return sessionWrapKey;
+    }
+  } catch {
+    /* fall through and mint a fresh wrapping key */
+  }
+  const key = await crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true, // exportable so the JWK can persist in sessionStorage across refresh
+    ["encrypt", "decrypt"],
+  );
+  const jwk = await crypto.subtle.exportKey("jwk", key);
+  sessionStorage.setItem(SESSION_WRAP_KEY, JSON.stringify(jwk));
+  sessionWrapKey = key;
+  return key;
+}
+
+async function sealWithSessionKey(privateKey: string, userId: string): Promise<void> {
+  const key = await getSessionWrapKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cipherBuf = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(privateKey),
+  );
+  const record: SessionSealedRecord = {
+    userId,
+    sealed: {
+      ciphertext: arrayBufferToBase64(cipherBuf),
+      iv: arrayBufferToBase64(iv.buffer as ArrayBuffer),
+    },
+  };
+  sessionStorage.setItem(SESSION_SEALED_KEY, JSON.stringify(record));
+}
+
+/** Restore the unlocked key from the tab-session seal after a page refresh. */
+async function restoreFromSessionSeal(): Promise<string | null> {
+  let raw: string | null = null;
+  try {
+    raw = sessionStorage.getItem(SESSION_SEALED_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw) as SessionSealedRecord;
+    const current = getCurrentUser();
+    // Never restore a key for a different account than the active session.
+    if (!current || record.userId !== current.id) return null;
+    const key = await getSessionWrapKey();
+    const plainBuf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(base64ToArrayBuffer(record.sealed.iv)) },
+      key,
+      base64ToArrayBuffer(record.sealed.ciphertext),
+    );
+    return new TextDecoder().decode(plainBuf);
+  } catch {
+    return null;
+  }
+}
+
+async function cacheUnlockedPrivateKey(privateKey: string, userId?: string) {
   try {
     sealedPrivateKey = await vault.seal(privateKey);
   } catch (error) {
     console.warn("[auth] Unable to vault-seal private key", error);
   }
+  try {
+    const owner = userId ?? getCurrentUser()?.id;
+    if (owner) await sealWithSessionKey(privateKey, owner);
+  } catch (error) {
+    console.warn("[auth] Unable to session-seal private key", error);
+  }
 }
 
 function clearUnlockedPrivateKeyCache() {
   sealedPrivateKey = null;
+  try {
+    sessionStorage.removeItem(SESSION_SEALED_KEY);
+    sessionStorage.removeItem(SESSION_WRAP_KEY);
+  } catch { /* ignore */ }
+  sessionWrapKey = null;
 }
 
 /**
- * Retrieve the cached private key by unsealing from the vault.
- * Returns null if no key is cached.
+ * Retrieve the cached private key — from the in-memory vault first, then from
+ * the tab-session seal so a page refresh does not revoke authorization.
+ * Returns null if no key is cached for the signed-in account.
  */
 export async function getCachedPrivateKey(): Promise<string | null> {
-  if (!sealedPrivateKey) return null;
-  try {
-    return await vault.unseal(sealedPrivateKey);
-  } catch (error) {
-    console.warn("[auth] Failed to unseal cached private key", error);
-    return null;
+  if (sealedPrivateKey) {
+    try {
+      return await vault.unseal(sealedPrivateKey);
+    } catch (error) {
+      console.warn("[auth] Failed to unseal cached private key", error);
+      sealedPrivateKey = null;
+    }
   }
+  const restored = await restoreFromSessionSeal();
+  if (restored) {
+    try {
+      sealedPrivateKey = await vault.seal(restored);
+    } catch { /* non-fatal — the session seal still works next time */ }
+  }
+  return restored;
 }
 
 function logAuthError(message: string, error: unknown) {
@@ -242,7 +354,7 @@ export async function createLocalAccount(
   // Notify other components about login
   window.dispatchEvent(new Event("user-login"));
 
-  await cacheUnlockedPrivateKey(keys.privateKey);
+  await cacheUnlockedPrivateKey(keys.privateKey, userId);
 
   return userMeta;
 }
@@ -280,7 +392,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   const wrapped = wrappedData.v;
 
   if (wrapped.rawStored) {
-    await cacheUnlockedPrivateKey(wrapped.wrapped);
+    await cacheUnlockedPrivateKey(wrapped.wrapped, user.id);
     return wrapped.wrapped;
   }
 
@@ -289,7 +401,7 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
   }
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
-  await cacheUnlockedPrivateKey(privateKey);
+  await cacheUnlockedPrivateKey(privateKey, user.id);
   return privateKey;
 }
 
@@ -447,7 +559,7 @@ export async function recoverAccountFromPrivateKey(
   await put("meta", { k: wrappedKeyRef, v: wrapped });
   await put("users", userMeta);
   await awardGenesisCredits(userId);
-  await cacheUnlockedPrivateKey(privateKeyBase64);
+  await cacheUnlockedPrivateKey(privateKeyBase64, userId);
   await activateSession(userMeta);
 
 
