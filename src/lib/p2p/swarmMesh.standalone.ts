@@ -2186,9 +2186,38 @@ export class StandaloneSwarmMesh {
     this.clearHandshakeFailures(remotePeerId);
     this.clearPendingDial(remotePeerId);
 
+    // Mirror the working library pattern: register the peer in the library
+    // BEFORE dialing so the connection is durable and retryable, then pulse
+    // our own presence so the remote side's Cell Bus sees us and can
+    // arbitrate/accept instead of colliding with a simultaneous dial.
+    this.addToLibrary(remotePeerId, 'manual');
+    this.pulseGlobalPresence('manual-dial');
+
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
     return true;
+  }
+
+  /**
+   * Bus-initiated dial (Global Cell arbitration).
+   *
+   * Unlike a manual dial this RESPECTS handshake-failure cooldowns and
+   * pending-dial state: the Bus re-evaluates on every beacon arrival, so it
+   * must never reset backoff or open a second connection to the same peer.
+   * Manual dials remain the only path that overrides backoff (user intent).
+   */
+  dialViaBus(remotePeerId: string): boolean {
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') return false;
+    if (!remotePeerId || remotePeerId === this.peerId) return false;
+    if (this.blockedPeers.has(remotePeerId)) return false;
+    if (this.connections.has(remotePeerId)) return false;
+    if (this.isPeerCoolingDown(remotePeerId) || this.isDialPending(remotePeerId)) return false;
+
+    const started = this.dialPeer(remotePeerId, 'exchange');
+    if (started) {
+      this.globalCellDialCooldowns.set(remotePeerId, now());
+    }
+    return started;
   }
 
   disconnectPeer(remotePeerId: string): void {
