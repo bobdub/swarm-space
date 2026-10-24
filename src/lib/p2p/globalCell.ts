@@ -757,17 +757,18 @@ class GlobalCell {
         .sort((a, b) => roomFirst(a, b) || (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
       resolutionMode = 'connected→waiting';
     } else {
-      // Local Waiting: prefer smoothest peer overall; arbitration above already
+      // Local Waiting (Gun.js flow): dial the most recently active user in the
+      // Cell — helpers first, then freshest beacon. Arbitration above already
       // guarantees the partner is listening rather than dialing back at us.
-      candidate = waiting
-        .slice()
-        .sort((a, b) => roomFirst(a, b) || (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+      candidate = selectWaitingCandidate(waiting);
       resolutionMode = (candidate?.remoteConns ?? 0) > 0 ? 'waiting→smoothest' : 'waiting→pair';
     }
 
     if (!candidate) return;
 
-    const connected = mesh.connectToPeer(candidate.peerId);
+    // Bus dials go through the backoff-respecting auto path — never the
+    // manual path, which resets failure cooldowns on every beacon cycle.
+    const connected = mesh.dialViaBus(candidate.peerId);
     if (!connected) return;
     this.lastBusCycleResolvedAt = nowTs;
 
