@@ -520,13 +520,15 @@ class GlobalCell {
     }
 
     const trustScore = this.computeLocalTrustScore(mesh);
+    const conns = mesh.getStats().connectedPeers ?? 0;
 
     const beacon: PresenceBeacon = {
       peerId: this.localPeerId,
       trustScore,
       ts: Date.now(),
       location: currentLocationTag(),
-      conns: mesh.getStats().connectedPeers ?? 0,
+      conns,
+      ...(isHelperOnDuty(this.localPeerId, conns) ? { helper: true } : {}),
       ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
@@ -729,6 +731,7 @@ class GlobalCell {
           smoothness,
           sameRoom: !!beacon?.location && beacon.location === localLocation,
           remoteConns: typeof beacon?.conns === 'number' ? beacon.conns : null,
+          helper: beacon?.helper === true,
         };
       })
       // Deterministic arbitration — exactly one side of every pair dials,
