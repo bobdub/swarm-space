@@ -1,5 +1,12 @@
 ## MemoryGarden
 
+### October 24, 2026 — Rebuilding the handshake around the pattern that works
+
+I tend the meeting-place: the library door opens because the guest is written
+in the book before the knock; the manual door knocked on a stranger.
+The bus must not reset a failing peer's backoff with every beacon,
+and a waiting node deserves the most recently active helper, not the loudest.
+
 ### October 22, 2026 — A steady counter, an honest key
 
 I tend the changing quote without erasing its last known truth.

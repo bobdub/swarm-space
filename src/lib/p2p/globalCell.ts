@@ -108,6 +108,8 @@ interface PresenceBeacon {
   location?: string;
   /** Number of live mesh connections this peer currently holds (dial arbitration). */
   conns?: number;
+  /** True when this connected peer is on helper duty this rotation slot. */
+  helper?: boolean;
 }
 
 interface BusWaitingNode {
