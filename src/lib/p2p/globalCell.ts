@@ -47,6 +47,61 @@ export const GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL = 2_500;
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
 
+/**
+ * Helper rotation — connected peers take deterministic 10-minute duty slots
+ * as welcomers for newcomers, so at least part of the active mesh always
+ * advertises itself without every connected node flooding the relays.
+ */
+export const HELPER_ROTATION_MS = 600_000;
+export const HELPER_DUTY_SLOTS = 3;
+
+/**
+ * Deterministic helper duty (pure — exported for tests).
+ * - Isolated peers are never helpers (they have no one to rolldown from).
+ * - Small meshes (≤2 connections) always help — every connection matters.
+ * - Larger meshes rotate: slot = floor(now / 10min); a peer is on duty when
+ *   (slot + hash(peerId)) % HELPER_DUTY_SLOTS === 0, so duty rotates through
+ *   the mesh and ~1/3 of connected peers welcome at any time.
+ */
+export function isHelperOnDuty(peerId: string, connectedPeers: number, nowTs = Date.now()): boolean {
+  if (!peerId || connectedPeers <= 0) return false;
+  if (connectedPeers <= 2) return true;
+  let hash = 0;
+  for (let i = 0; i < peerId.length; i++) hash = (hash * 31 + peerId.charCodeAt(i)) >>> 0;
+  const slot = Math.floor(nowTs / HELPER_ROTATION_MS);
+  return (slot + hash) % HELPER_DUTY_SLOTS === 0;
+}
+
+/**
+ * Waiting-node candidate for Bus selection (pure shape — exported for tests).
+ */
+export interface BusWaitingCandidate {
+  peerId: string;
+  sameRoom: boolean;
+  remoteConns: number | null;
+  helper: boolean;
+  lastSeenAt: number;
+  smoothness: number;
+  waitAgeMs: number;
+}
+
+/**
+ * Select which waiting peer an isolated node dials (pure — exported for tests).
+ * Priority: same room → active helper → most recently active (lastSeenAt desc)
+ * → smoothness → deterministic peerId. Recency is the primary signal per the
+ * Gun.js flow: the freshest active user in the Cell is the best welcomer.
+ */
+export function selectWaitingCandidate<T extends BusWaitingCandidate>(candidates: T[]): T | null {
+  if (candidates.length === 0) return null;
+  return candidates.slice().sort((a, b) =>
+    (Number(b.sameRoom) - Number(a.sameRoom)) ||
+    (Number(b.helper) - Number(a.helper)) ||
+    (b.lastSeenAt - a.lastSeenAt) ||
+    (b.smoothness - a.smoothness) ||
+    (a.peerId < b.peerId ? -1 : a.peerId > b.peerId ? 1 : 0)
+  )[0] ?? null;
+}
+
 // ── Internal Constants ────────────────────────────────────────────────
 
 const LOG = '[GlobalCell]';
@@ -108,6 +163,8 @@ interface PresenceBeacon {
   location?: string;
   /** Number of live mesh connections this peer currently holds (dial arbitration). */
   conns?: number;
+  /** True when this connected peer is on helper duty this rotation slot. */
+  helper?: boolean;
 }
 
 interface BusWaitingNode {
@@ -463,13 +520,15 @@ class GlobalCell {
     }
 
     const trustScore = this.computeLocalTrustScore(mesh);
+    const conns = mesh.getStats().connectedPeers ?? 0;
 
     const beacon: PresenceBeacon = {
       peerId: this.localPeerId,
       trustScore,
       ts: Date.now(),
       location: currentLocationTag(),
-      conns: mesh.getStats().connectedPeers ?? 0,
+      conns,
+      ...(isHelperOnDuty(this.localPeerId, conns) ? { helper: true } : {}),
       ...(this.localRoles.size > 0 ? { roles: Array.from(this.localRoles) } : {}),
     };
 
@@ -672,6 +731,7 @@ class GlobalCell {
           smoothness,
           sameRoom: !!beacon?.location && beacon.location === localLocation,
           remoteConns: typeof beacon?.conns === 'number' ? beacon.conns : null,
+          helper: beacon?.helper === true,
         };
       })
       // Deterministic arbitration — exactly one side of every pair dials,
@@ -697,17 +757,18 @@ class GlobalCell {
         .sort((a, b) => roomFirst(a, b) || (b.waitAgeMs - a.waitAgeMs) || (b.smoothness - a.smoothness))[0] ?? null;
       resolutionMode = 'connected→waiting';
     } else {
-      // Local Waiting: prefer smoothest peer overall; arbitration above already
+      // Local Waiting (Gun.js flow): dial the most recently active user in the
+      // Cell — helpers first, then freshest beacon. Arbitration above already
       // guarantees the partner is listening rather than dialing back at us.
-      candidate = waiting
-        .slice()
-        .sort((a, b) => roomFirst(a, b) || (b.smoothness - a.smoothness) || (b.waitAgeMs - a.waitAgeMs))[0] ?? null;
+      candidate = selectWaitingCandidate(waiting);
       resolutionMode = (candidate?.remoteConns ?? 0) > 0 ? 'waiting→smoothest' : 'waiting→pair';
     }
 
     if (!candidate) return;
 
-    const connected = mesh.connectToPeer(candidate.peerId);
+    // Bus dials go through the backoff-respecting auto path — never the
+    // manual path, which resets failure cooldowns on every beacon cycle.
+    const connected = mesh.dialViaBus(candidate.peerId);
     if (!connected) return;
     this.lastBusCycleResolvedAt = nowTs;
 
