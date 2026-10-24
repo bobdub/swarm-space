@@ -47,6 +47,61 @@ export const GLOBAL_CELL_EMERGENCY_BEACON_INTERVAL = 2_500;
 /** Peers not seen within this window are considered stale / offline */
 export const GLOBAL_CELL_STALE_THRESHOLD = 75_000;
 
+/**
+ * Helper rotation — connected peers take deterministic 10-minute duty slots
+ * as welcomers for newcomers, so at least part of the active mesh always
+ * advertises itself without every connected node flooding the relays.
+ */
+export const HELPER_ROTATION_MS = 600_000;
+export const HELPER_DUTY_SLOTS = 3;
+
+/**
+ * Deterministic helper duty (pure — exported for tests).
+ * - Isolated peers are never helpers (they have no one to rolldown from).
+ * - Small meshes (≤2 connections) always help — every connection matters.
+ * - Larger meshes rotate: slot = floor(now / 10min); a peer is on duty when
+ *   (slot + hash(peerId)) % HELPER_DUTY_SLOTS === 0, so duty rotates through
+ *   the mesh and ~1/3 of connected peers welcome at any time.
+ */
+export function isHelperOnDuty(peerId: string, connectedPeers: number, nowTs = Date.now()): boolean {
+  if (!peerId || connectedPeers <= 0) return false;
+  if (connectedPeers <= 2) return true;
+  let hash = 0;
+  for (let i = 0; i < peerId.length; i++) hash = (hash * 31 + peerId.charCodeAt(i)) >>> 0;
+  const slot = Math.floor(nowTs / HELPER_ROTATION_MS);
+  return (slot + hash) % HELPER_DUTY_SLOTS === 0;
+}
+
+/**
+ * Waiting-node candidate for Bus selection (pure shape — exported for tests).
+ */
+export interface BusWaitingCandidate {
+  peerId: string;
+  sameRoom: boolean;
+  remoteConns: number | null;
+  helper: boolean;
+  lastSeenAt: number;
+  smoothness: number;
+  waitAgeMs: number;
+}
+
+/**
+ * Select which waiting peer an isolated node dials (pure — exported for tests).
+ * Priority: same room → active helper → most recently active (lastSeenAt desc)
+ * → smoothness → deterministic peerId. Recency is the primary signal per the
+ * Gun.js flow: the freshest active user in the Cell is the best welcomer.
+ */
+export function selectWaitingCandidate<T extends BusWaitingCandidate>(candidates: T[]): T | null {
+  if (candidates.length === 0) return null;
+  return candidates.slice().sort((a, b) =>
+    (Number(b.sameRoom) - Number(a.sameRoom)) ||
+    (Number(b.helper) - Number(a.helper)) ||
+    (b.lastSeenAt - a.lastSeenAt) ||
+    (b.smoothness - a.smoothness) ||
+    (a.peerId < b.peerId ? -1 : a.peerId > b.peerId ? 1 : 0)
+  )[0] ?? null;
+}
+
 // ── Internal Constants ────────────────────────────────────────────────
 
 const LOG = '[GlobalCell]';
