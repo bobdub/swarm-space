@@ -237,7 +237,7 @@ export async function getCachedPrivateKey(): Promise<string | null> {
       sealedPrivateKey = null;
     }
   }
-  const restored = await restoreFromSessionSeal();
+  const restored = (await restoreFromSessionSeal()) ?? (await restoreFromDeviceSeal(owner));
   if (getCurrentUser()?.id !== owner || hasIntentionalSignOut()) return null;
   if (restored) {
     try {
