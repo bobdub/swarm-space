@@ -35,6 +35,40 @@ describe("verified MintMe network decisions", () => {
     expect(wallet.request).not.toHaveBeenCalled();
   });
 
+  it("continues immediately after switch approval even while the provider still reports the old chain", async () => {
+    wallet.read.mockResolvedValue("0x60ae");
+    wallet.request.mockResolvedValue(null);
+    const flow = switchOrAddMintMeNetwork();
+    await vi.advanceTimersByTimeAsync(300_000);
+    await flow;
+    expect(wallet.read).toHaveBeenCalledTimes(1);
+    expect(wallet.request.mock.calls).toEqual([
+      ["wallet_switchEthereumChain", [{ chainId: "0x609e" }]],
+    ]);
+  });
+
+  it("waits for delayed switch approval without polling or a duplicate request", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(null), 240_000)));
+    let ready = false;
+    const flow = switchOrAddMintMeNetwork().then(() => { ready = true; });
+    await vi.advanceTimersByTimeAsync(239_999);
+    expect(ready).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ready).toBe(true);
+    await flow;
+    expect(wallet.read).toHaveBeenCalledTimes(1);
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry or add after a pending-request error", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockRejectedValue({ code: -32002, message: "Request already pending" });
+    await expect(switchOrAddMintMeNetwork()).rejects.toEqual({ code: -32002, message: "Request already pending" });
+    expect(wallet.read).toHaveBeenCalledTimes(1);
+    expect(wallet.request).toHaveBeenCalledTimes(1);
+  });
+
   it("waits for a slow MetaMask response and proceeds without switching or adding", async () => {
     wallet.read.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve("0x609e"), 240_000)));
     let ready = false;
