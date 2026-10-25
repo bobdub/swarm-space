@@ -48,7 +48,7 @@ function buildAssets(snapshot: NativeAssetSnapshot): NativeAsset[] {
       id: `creator:${holding.tokenId}`, label: `${holding.ticker} · Creator`, symbol: holding.ticker,
       kind: "creator", amount: holding.amount, available: holding.amount,
     })),
-  ]);
+  ];
 }
 
 export function nativeMarketPayments(assets: NativeAsset[]): NativeAsset[] {
