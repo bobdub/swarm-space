@@ -142,7 +142,6 @@ import {
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { feetRadiusAt } from '@/lib/brain/groundHeight';
 import { surfaceHeading } from '@/lib/brain/surfaceNavigation';
 import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
@@ -248,8 +247,7 @@ function spawnNearSharedVillage(
   // Earth-local normal (un-spin) so we sample the noise on the planet
   // frame, matching shader and physics samplers.
   const localN = quatRotate(pose.invSpinQuat, localUnit);
-  const lift = sampleSurfaceLift(localN);
-  const k = (r + lift) / r;
+  const k = (feetRadiusAt(localN) + BODY_CENTER_HEIGHT) / r;
   return [
     pose.center[0] + dx * k,
     pose.center[1] + dy * k,

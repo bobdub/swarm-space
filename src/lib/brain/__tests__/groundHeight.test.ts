@@ -4,6 +4,9 @@ import { feetRadiusAt, groundElevationAt } from '../groundHeight';
 import { sampleLandMask, WATER_WADE_DEPTH } from '../surfaceProfile';
 import { UqrcPhysics } from '../uqrcPhysics';
 import { surfaceHeading } from '../surfaceNavigation';
+import * as THREE from 'three';
+import { getGroundGeometry } from '../groundHeight';
+import { blockWorldPos } from '../builderBlockEngine';
 
 afterEach(() => setEarthPoseTime(null));
 
@@ -17,8 +20,40 @@ describe('solid globe floor', () => {
     }
     expect(ocean).toBeDefined();
     if (!ocean) throw new Error('Expected an open ocean sample');
-    expect(groundElevationAt(ocean)).toBe(-WATER_WADE_DEPTH);
-    expect(feetRadiusAt(ocean)).toBeCloseTo(EARTH_RADIUS - WATER_WADE_DEPTH + FOOT_CUSHION, 8);
+    expect(groundElevationAt(ocean)).toBeLessThanOrEqual(-WATER_WADE_DEPTH + 1e-4);
+    expect(groundElevationAt(ocean)).toBeGreaterThan(-WATER_WADE_DEPTH - 0.3);
+    expect(feetRadiusAt(ocean)).toBeCloseTo(EARTH_RADIUS + groundElevationAt(ocean) + FOOT_CUSHION, 8);
+  });
+
+  it('places feet on the actual rendered triangles across slopes, ocean, seams and poles', () => {
+    const geometry = getGroundGeometry();
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    mesh.updateMatrixWorld();
+    const raycaster = new THREE.Raycaster();
+    // Verify pole vertices directly; Three's raycaster can miss its pole fan.
+    const positions = geometry.getAttribute('position');
+    expect(feetRadiusAt([0, 1, 0])).toBeCloseTo(Math.abs(positions.getY(0)) + FOOT_CUSHION, 6);
+    expect(feetRadiusAt([0, -1, 0])).toBeCloseTo(Math.abs(positions.getY(positions.count - 1)) + FOOT_CUSHION, 6);
+    const samples: Vec3[] = [[-1, 0, 0], [1, 0, 0]];
+    for (let i = 0; i < 80; i++) {
+      const v = new THREE.Vector3(Math.cos(i * 2.4), Math.sin(i * 0.7), Math.sin(i * 2.4)).normalize();
+      samples.push([v.x, v.y, v.z]);
+    }
+    for (const n of samples) {
+      const direction = new THREE.Vector3(...n);
+      raycaster.set(direction.clone().multiplyScalar(EARTH_RADIUS * 2), direction.clone().negate());
+      const intersection = raycaster.intersectObject(mesh)[0];
+      if (!intersection) throw new Error('Missing solid globe floor');
+      expect(feetRadiusAt(n) - intersection.point.length()).toBeCloseTo(FOOT_CUSHION, 4);
+    }
+  });
+
+  it('uses the same ground for village builder bases and standing feet', () => {
+    setEarthPoseTime(0);
+    const pose = getEarthPose();
+    const pos = blockWorldPos({ anchorPeerId: 'swarm-shared-village', rightOffset: 0, forwardOffset: 0, upOffset: 0 });
+    const r = Math.hypot(pos[0] - pose.center[0], pos[1] - pose.center[1], pos[2] - pose.center[2]);
+    expect(feetRadiusAt(worldPosToLocalNormal(pos, pose)) - r).toBeCloseTo(FOOT_CUSHION, 6);
   });
 
   it('keeps walking feet above the shared terrain at distant sites and ocean crossings', () => {

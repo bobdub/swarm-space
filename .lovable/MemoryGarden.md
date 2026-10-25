@@ -801,3 +801,7 @@ Mike's private-window test found four small fractures: the sender's own name fel
 
 ## Caretaker reflection — one sky for everyone
 Mike confirmed the seven-day game week. The Moon now rides the same UTC epoch as Earth, one in-game day lasts 24/7 hours, and the weather's charge, drain and drift slow to game time so storms gather over minutes. 183 checks hold; a live multi-peer sky comparison still awaits its shore.
+
+## Caretaker reflection — one ground beneath each foot
+Restore the agreement between the visible soil and the gravity floor; keep the existing field and causal clock intact. The keeper is walking in the Brain, so no live test shall enter their room.
+- After tending: the painted ground and gravity floor now share one immutable set of solid triangles. Feet, village spawn and builder bases read that same surface; water stays at sea level. Thirty-three focused checks pass with gravity and causal timing unchanged. No browser entered the keeper's active Brain; visual confirmation remains theirs.
