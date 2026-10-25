@@ -1,31 +1,34 @@
-# Weather & celestial-time fixes + documentation cleanup
+# Brain: clear out dead peers, and stay "Brain synced" after leaving
 
-Two workstreams, done in one pass. Weather/time is game-paced and not urgent, so the cleanup comes first and the weather fix lands behind it.
+## Goals
+1. Peers who refreshed or closed the tab disappear from the Brain right away, along with their sound, video and avatar.
+2. Leaving the Brain page does not end your call. A small "You are Brain synced" bar follows you around SWARM with mic, camera and Disconnect buttons.
+3. No forced re-sync. A refresh counts as a clean disconnect: the old avatar is removed and you join again as a fresh connection, the way the mesh already works.
 
-## Part 1 — Documentation cleanup (fresh start)
+## 1. Remove dead peers
+- When a page refreshes or a tab closes, it quickly tells the room it is leaving. Everyone else then removes that person's avatar, sound and video tiles straight away.
+- If that message never arrives (crash, lost connection), each person's room list drops anyone who has sent no presence or media for about 20 seconds. Their call connection, sound and avatar get closed too.
+- The room list no longer brings back someone it already removed just because an old message about them arrives late. Only a new join or new presence from that person brings them back.
+- After a refresh, the old identity is never brought back to life. The person shows up again through their new join, so no duplicate "peer-xxx" appears.
 
-1. **Create `docs/CURRENT_STATE.md`** — the single source of truth for where the project truly is: what works, what is built but awaiting live peer testing (wall viewer controls, NPC embodiment, companion pairing, screen sharing), what is planned, and what is retired.
-2. **Classify every doc in `docs/`** into current / resolved / superseded / idea-only:
-   - Move resolved or superseded items into `docs/archive/` (e.g. old audits, phase plans whose direction changed, `ROADMAP_PROJECTION.md`, stale UQRC audit, old streaming assessment if superseded).
-   - Delete nothing outright at first — archive so history is preserved.
-3. **Deduplicate**: `PROJECT_OVERVIEW.md` / `PROJECT_SOURCE_OF_TRUTH.md` / `Unified_Source_of_Truth.md` / `PROJECT_SPEC.md` overlap heavily — merge into `CURRENT_STATE.md` and archive the rest. Same for the neural-content plan trio in `docs/project-plans/`.
-4. **Trim `docs/KNOWN_ISSUES.md`** to only genuinely open issues (NPC embodiment stays; resolved cleanup log entries move to archive).
-5. **Update `roadmap.md`**: collapse completed sections into a short "recently shipped" list, keep open deferred items, and add the weather/celestial entry below as planned-not-started.
-6. Leave `.lovable/plan/` archives and `mem://` memory alone — those are history, not active docs.
+## 2. "You are Brain synced" bar
+- Leaving the Brain page keeps you in the Brain conversation. You stay in the room and keep hearing everyone.
+- On every other page, a small floating bar shows "Brain synced", how many people are in the room, and three buttons: Mic on/off, Camera on/off and Disconnect.
+- Mute and camera choices carry over exactly. The bar uses the same remembered mute setting the Brain uses.
+- Disconnect leaves the room, turns off your mic and camera, and hides the bar. Going back to the Brain page reconnects normally.
+- The bar shows only while you are still in the Brain room. It is hidden on the Brain page itself and sized to fit phones.
+- If you open a live stream room, that room takes over and the Brain sync ends cleanly, so you are never in two calls.
 
-## Part 2 — Weather & celestial time fixes
+## 3. No re-sync on refresh
+- Remove any code that tries to restore the previous call after a refresh. A refresh means you leave, then join again from scratch.
 
-Root causes found earlier: the Moon orbits on **local elapsed shader time** (40 s orbit) instead of the shared UTC epoch Earth uses, so peers see different lunar positions; weather ticks at 1 Hz with a low nucleation threshold and fast charge/drain, so clouds form and dump rain within seconds.
-
-1. **Shared celestial epoch in `src/lib/brain/earth.ts`**: drive Sun and Moon from the same UTC-epoch clock the Earth spin uses, so every peer computes identical sky positions (foundation for future space exploration).
-2. **Game-time cadence**: 7 in-game days per real 24 h → one in-game day = 12,342.857 s (3.4286 h). The Sun rises and sets exactly once per in-game day.
-3. **Moon**: deterministic orbit from the shared epoch with a longer lunar cycle (28 in-game days), so each location still sees one moonrise/moonset per game day; remove the 40 s local-time orbit in `src/components/brain/EarthBody.tsx`.
-4. **Weather pacing in `src/lib/world/weather.ts`**: keep the field-readout design (no `Math.random`, all quantities from `u`) but slow the loop — raise `NUCLEATION_SCORE`, lengthen charge/drain rates so clouds take minutes (game-time) to form and rain, and consider a longer tick interval or time-scaled deltas tied to game time rather than wall-clock seconds.
-5. **Tests**: extend `src/lib/world/__tests__/weather.test.ts` and `src/lib/brain/__tests__/earth.test.ts` — deterministic sky position from a fixed epoch (two "peers" at different local runtimes agree), day length constant, cloud lifetime no longer seconds-scale.
-
-## Verification
-- `docs/CURRENT_STATE.md` reviewed against roadmap/memory; build OK.
-- Weather/celestial changes verified with automated tests only — no live peer testing, per standing preference.
-
-## Deferred / out of scope
-- Space exploration itself, weather rendering changes, live multi-peer sky verification.
+## Technical scope
+- `src/lib/streaming/webrtcSignalingBridge.standalone.ts`: tombstone peers that leave, ignore stale messages from them, expire room members after about 20 seconds without presence, and send a leave message on `pagehide`.
+- `src/lib/webrtc/manager.ts`: a `removeParticipant` method that closes the call connection and tracks and sends `peer-left`. A sweep for stale participants. On `pagehide`, call `leaveRoom` (best effort). Nothing restores the session.
+- New `src/lib/brain/brainSyncStore.ts`: the app-wide setting for "stay synced to room X", with `sync`/`disconnect`.
+- New `src/components/brain/BrainSyncHost.tsx`, mounted in `App.tsx` like `LiveRoomVoiceHost`: keeps `useBrainVoice` joined to the synced room on pages other than the Brain.
+- New `src/components/brain/BrainSyncDock.tsx`: the floating bar (mic, camera, Disconnect), built with design tokens.
+- `src/hooks/useBrainVoice.ts` and `BrainUniverseScene.tsx`: leaving the Brain page hands the room over to the sync host instead of calling `leaveRoom`. The Leave/Disconnect button clears the sync.
+- `LiveRoomVoiceHost.tsx`: joining a live room clears the Brain sync.
+- Tests: dead-peer removal (leave message and timeout), no revival from stale messages, the sync staying active across a page change, and Disconnect fully leaving the room.
+- Record the rule in `AGENTS.md`: Brain room membership is app-level and only an explicit disconnect ends it; a refresh is a disconnect, never a resume.
