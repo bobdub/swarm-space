@@ -58,7 +58,8 @@ async function waitForMintMe(readOnlyOnce = false): Promise<boolean> {
 export async function addMintMeToMetaMask(): Promise<void> {
   if (isMintMeChain(await readMintMeChainId())) return;
   await waitForMetaMask(requestMetaMask("wallet_addEthereumChain", [MINTME_NETWORK]), "MetaMask did not answer the add-network request. Open MetaMask and try again.");
-  await switchToMintMeNetwork();
+  // Adding a chain may leave MetaMask's approval UI transitioning. Continue to
+  // token details without issuing a competing switch; transfers verify separately.
 }
 
 /** One user action; the wallet itself collects approval for a confirmed missing network. */

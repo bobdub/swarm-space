@@ -8,12 +8,12 @@ describe("verified MintMe network decisions", () => {
   beforeEach(() => { vi.useFakeTimers(); vi.resetAllMocks(); });
   afterEach(() => vi.useRealTimers());
 
-  it("asks MetaMask to add the correct missing network in the same action and verifies arrival", async () => {
+  it("continues after adding the missing network without a second switch or post-approval read", async () => {
     let chain = "0x1";
     let added = false;
     wallet.read.mockImplementation(async () => chain);
     wallet.request.mockImplementation(async (method: string) => {
-      if (method === "wallet_addEthereumChain") { added = true; return null; }
+      if (method === "wallet_addEthereumChain") { added = true; chain = "0x609e"; return null; }
       if (!added) throw { code: 4902 };
       chain = "0x609e";
       return null;
@@ -24,9 +24,9 @@ describe("verified MintMe network decisions", () => {
     expect(wallet.request.mock.calls).toEqual([
       ["wallet_switchEthereumChain", [{ chainId: "0x609e" }]],
       ["wallet_addEthereumChain", [MINTME_NETWORK]],
-      ["wallet_switchEthereumChain", [{ chainId: "0x609e" }]],
     ]);
     expect(chain).toBe("0x609e");
+    expect(wallet.read).toHaveBeenCalledTimes(3);
   });
 
   it("the combined action never adds when already on MintMe", async () => {
@@ -140,16 +140,18 @@ describe("verified MintMe network decisions", () => {
     await result;
     expect(wallet.request).toHaveBeenCalledTimes(1);
   });
-  it("explicit addition is followed by a switch and a confirmed network read", async () => {
-    let chain = "0x1";
-    wallet.read.mockImplementation(async () => chain);
-    wallet.request.mockImplementation(async (method: string) => {
-      if (method === "wallet_switchEthereumChain") chain = "0x609e";
-      return null;
-    });
+  it("explicit addition accepts approval even while MetaMask still reports the old chain", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockResolvedValue(null);
     await addMintMeToMetaMask();
-    expect(wallet.request.mock.calls.map((c) => c[0])).toEqual(["wallet_addEthereumChain", "wallet_switchEthereumChain"]);
-    expect(wallet.read).toHaveBeenCalledTimes(3);
+    expect(wallet.request.mock.calls).toEqual([["wallet_addEthereumChain", [MINTME_NETWORK]]]);
+    expect(wallet.read).toHaveBeenCalledTimes(1);
+  });
+  it("does not continue when the user declines adding MintMe", async () => {
+    wallet.read.mockResolvedValue("0x1");
+    wallet.request.mockRejectedValue({ code: 4001 });
+    await expect(addMintMeToMetaMask()).rejects.toEqual({ code: 4001 });
+    expect(wallet.request.mock.calls.map((c) => c[0])).toEqual(["wallet_addEthereumChain"]);
   });
   it("explicit add is a no-op if the user switched in MetaMask meanwhile", async () => {
     wallet.read.mockResolvedValue("24734");
