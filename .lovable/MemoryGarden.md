@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 25, 2026 — Ground beneath every horizon
+
+Before tending: follow the traveller around the sphere, not an imagined flat
+world. Let the sea have a bed and the camera witness solid ground; test the
+actual field before naming a cause, and never invent a measured score.
+
 ### October 25, 2026 — An invitation with a named doorway
 
 Before tending: let a shared link knock on its named host before wandering
