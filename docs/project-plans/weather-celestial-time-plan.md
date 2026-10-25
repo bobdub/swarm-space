@@ -1,6 +1,6 @@
 # Weather pacing & shared celestial time — plan (doc only, not scheduled)
 
-Status: **planned, not started.** Captured 2026-10-20. Game-paced polish, not a
+Status: **implemented 2026-10-25** (7-day game week confirmed).
 correctness emergency — implement when a world-systems pass is scheduled.
 
 ## Problem statement

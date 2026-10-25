@@ -168,7 +168,16 @@ export const EARTH_PIN_TARGET = EARTH_PIN_AMPLITUDE;
  * Slow the day to 2 hours so the surface sweep is ~1.48 m/s — still subtly
  * alive, but no longer visually dragging the grounded player around.
  */
-export const EARTH_SPIN_PERIOD = 7200;
+/**
+ * Game week = real day: 7 in-game days per 24 real hours, so one in-game day
+ * (one sunrise + one sunset) lasts 24/7 h ≈ 12,342.857 s. This is the single
+ * source of game time; sky and weather pacing scale from it.
+ */
+export const GAME_DAY_SECONDS = (24 * 3600) / 7;
+export const EARTH_SPIN_PERIOD = GAME_DAY_SECONDS;
+/** Lunar phase cycle: ~28 in-game days. */
+export const LUNAR_CYCLE_GAME_DAYS = 28;
+export const LUNAR_CYCLE_SECONDS = GAME_DAY_SECONDS * LUNAR_CYCLE_GAME_DAYS;
 /** Earth's orbital radius around the galactic core (galaxy.ts core sits at 0,0,0). */
 export const EARTH_ORBIT_RADIUS = Math.hypot(EARTH_POSITION[0], EARTH_POSITION[2]);
 /**
@@ -294,6 +303,28 @@ export function setEarthPoseTime(seconds: number | null): void {
 export function getEarthPoseTime(): number {
   if (_poseTimeOverride !== null) return _poseTimeOverride;
   return (Date.now() - EARTH_EPOCH_MS) / 1000;
+}
+
+/**
+ * Moon offset from Earth's centre at shared-epoch time `seconds`. Every peer
+ * computes the same Moon because it derives from the same UTC epoch as the
+ * Earth spin. The slow prograde orbit plus Earth's rotation yields one
+ * moonrise and one moonset per in-game day.
+ */
+export function getMoonOffsetAt(seconds: number, orbitRadius: number): Vec3 {
+  const t = Number.isFinite(seconds) ? seconds : 0;
+  const theta = (t / LUNAR_CYCLE_SECONDS) * Math.PI * 2;
+  return [
+    Math.cos(theta) * orbitRadius,
+    Math.sin(theta * 0.5) * orbitRadius * 0.18,
+    Math.sin(theta) * orbitRadius,
+  ];
+}
+
+/** Lunar phase in [0,1): 0 = new, 0.5 = full, from the shared epoch. */
+export function getLunarPhaseAt(seconds: number): number {
+  const p = (seconds / LUNAR_CYCLE_SECONDS) % 1;
+  return p < 0 ? p + 1 : p;
 }
 
 /** Build a Y-axis quaternion from an angle. */
