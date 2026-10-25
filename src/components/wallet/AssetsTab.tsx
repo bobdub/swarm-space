@@ -17,6 +17,7 @@ import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { SwarmMetaMaskDialog } from "./SwarmMetaMaskDialog";
 import { MintMeDepositDialog } from "./MintMeDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
+import { MintMeNativeActions } from "./NetworkActionDialogs";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
@@ -224,7 +225,15 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
       </div>
     );
   }
-  if (layer === "native" && (code === "MINTME" || code === "ETH" || code === "BTC")) {
+  if (layer === "native" && code === "MINTME") {
+    return (
+      <div className={cls}>
+        <MintMeNativeActions userId={userId} amount={amount} />
+        {hideButton}
+      </div>
+    );
+  }
+  if (layer === "native" && (code === "ETH" || code === "BTC")) {
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />

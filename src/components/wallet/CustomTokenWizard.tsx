@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, EyeOff, Trash2, Coins, ExternalLink, ArrowUpFromLine, Radio } from "lucide-react";
+import { Plus, EyeOff, Trash2, Coins, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { useMetaMask } from "@/hooks/useMetaMask";
@@ -19,9 +19,7 @@ import {
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
-import { useP2PContext } from "@/contexts/P2PContext";
-import { SendCreditsModal } from "@/components/SendCreditsModal";
-import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
+import { CustomTokenNetworkActions } from "./NetworkActionDialogs";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -251,8 +249,14 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
       <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
     </div>}
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
-      <NativeTokenDepositDialog userId={userId} symbol={token.symbol} />
-      <TokenTransferWithdrawDialog userId={userId} token={token} recorded={recorded} />
+      <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={token.address} recorded={recorded}
+        renderWithdrawForm={(onDone) => (
+          <Dialog open onOpenChange={(v) => { if (!v) onDone(); }}>
+            <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+              <WithdrawForm userId={userId} token={token} recorded={recorded} onDone={onDone} />
+            </DialogContent>
+          </Dialog>
+        )} />
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
         const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";
@@ -262,94 +266,9 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
   </div>;
 }
 
-/** Transfer/Withdraw for an imported MintMe token: online peers, or Send to MintMe via the cold-key withdrawal form. */
-function TokenTransferWithdrawDialog({ userId, token, recorded }: { userId: string; token: CustomToken; recorded: number }) {
-  const { getActivePeerConnections, subscribeToStats } = useP2PContext();
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"peers" | "mintme">("peers");
-  const [recipients, setRecipients] = useState<{ userId: string; name: string }[]>([]);
-  const [target, setTarget] = useState<{ userId: string; name: string } | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const refresh = () => {
-      const seen = new Set<string>();
-      const list: { userId: string; name: string }[] = [];
-      for (const conn of getActivePeerConnections()) {
-        if (!conn.userId || conn.userId === userId || seen.has(conn.userId)) continue;
-        seen.add(conn.userId);
-        list.push({
-          userId: conn.userId,
-          name: conn.profile?.displayName || conn.profile?.username || `user ${conn.userId.slice(0, 8)}`,
-        });
-      }
-      setRecipients(list);
-    };
-    refresh();
-    return subscribeToStats(refresh);
-  }, [open, userId, getActivePeerConnections, subscribeToStats]);
-
-  return (
-    <>
-      <Button type="button" size="sm" variant="outline" disabled={!userId || recorded <= 0}
-        title={recorded <= 0 ? `You hold no ${token.symbol} to transfer.` : `Transfer ${token.symbol} to a peer or send it to MintMe`}
-        onClick={() => { setView("peers"); setOpen(true); }}>
-        <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
-          {view === "peers" ? (
-            <>
-              <DialogHeader><DialogTitle>Transfer {token.symbol}</DialogTitle></DialogHeader>
-              <p className="text-xs text-muted-foreground">
-                Transfers travel through the mesh, so you can only send to users who are online and connected to you right now.
-              </p>
-              {recipients.length === 0 ? (
-                <div role="status" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                  <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted-foreground" />
-                  No connected peers are online. Transfers unlock as soon as a peer connects.
-                </div>
-              ) : (
-                <ul className="space-y-1">
-                  {recipients.map((r) => (
-                    <li key={r.userId}>
-                      <Button type="button" variant="ghost" className="w-full justify-start gap-2"
-                        onClick={() => { setOpen(false); setTarget(r); }}>
-                        <Radio className="h-3.5 w-3.5 text-primary" aria-label="Online" />
-                        <span className="truncate">{r.name}</span>
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <p className="text-[10px] text-muted-foreground">
-                Custom-token mesh sends are not verified yet — Send &amp; Tip refuses to move this token until settlement is proven. You can always send it back to MintMe.
-              </p>
-              <div className="space-y-1 border-t pt-3">
-                <Button type="button" variant="outline" className="w-full" onClick={() => setView("mintme")}>
-                  <ExternalLink className="mr-1 h-3 w-3" />Send to MintMe
-                </Button>
-                <p className="text-[10px] text-muted-foreground">
-                  Withdraw {token.symbol} to any MintMe wallet address, signed by your cold-wallet key.
-                </p>
-              </div>
-            </>
-          ) : (
-            <WithdrawForm userId={userId} token={token} recorded={recorded} onBack={() => setView("peers")} onDone={() => setOpen(false)} />
-          )}
-        </DialogContent>
-      </Dialog>
-      {target && (
-        <SendCreditsModal toUserId={target.userId} toUsername={target.name} isOpen
-          initialAssetId={`custom:${token.address}`} onClose={() => setTarget(null)} />
-      )}
-    </>
-  );
-}
-
 /** Cold-key withdrawal form — sends the token to any MintMe address. Mounted only while shown. */
-function WithdrawForm({ userId, token, recorded, onBack, onDone }: {
-  userId: string; token: CustomToken; recorded: number; onBack: () => void; onDone: () => void;
+export function WithdrawForm({ userId, token, recorded, onDone }: {
+  userId: string; token: CustomToken; recorded: number; onDone: () => void;
 }) {
   const { address } = useMetaMask();
   const [amount, setAmount] = useState("");
@@ -394,7 +313,6 @@ function WithdrawForm({ userId, token, recorded, onBack, onDone }: {
             <Input id="ct-wd-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} /></div>
           <p className="text-xs text-muted-foreground">You're signed in as this wallet's owner, so the cold-wallet key signs with your unlocked key — no passphrase needed. Your cold-wallet key signs the MintMe transfer and the SWARM ledger is debited only after MintMe accepts it — the token then appears in MetaMask under the MintMe network. The key's address needs a small MINTME balance for gas; if it has none you'll be asked to fund it from MetaMask first.</p>
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" disabled={busy} onClick={onBack}>Back</Button>
             <Button type="button" disabled={busy || !address || invalid} onClick={submit}>{busy ? "Signing with cold key…" : "Send to MintMe"}</Button>
           </DialogFooter>
         </div>}
