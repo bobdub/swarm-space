@@ -1,16 +1,14 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins, EyeOff, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppWalletBalances, onAppWalletUpdate } from "@/lib/blockchain/wallets/appWallet";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { getChainEthBalance } from "@/lib/blockchain/deposits/ethDeposit";
-import { resolveNativeWalletRecipient } from "@/lib/blockchain/wallets/nativeAddress";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { useMetaMask } from "@/hooks/useMetaMask";
@@ -18,16 +16,26 @@ import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { SwarmMetaMaskDialog } from "./SwarmMetaMaskDialog";
 import { MintMeDepositDialog } from "./MintMeDepositDialog";
+import { OnlineTransferDialog } from "./OnlineTransferDialog";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { SendCreditsModal } from "@/components/SendCreditsModal";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
 import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
-import { nativeWalletAssets } from "@/lib/blockchain/wallets/nativeAssets";
+import { nativeWalletInventory } from "@/lib/blockchain/wallets/nativeAssets";
+import { canHideAsset, hydrateHiddenAssets, listHiddenAssets, setAssetHidden, HIDDEN_ASSETS_EVENT } from "@/lib/blockchain/wallets/hiddenAssets";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Layer = "native" | "metamask";
+
+/** Tip-asset id used to preselect the Send & Tip modal for a wallet row. */
+const TRANSFER_ASSET_ID: Record<string, string> = {
+  SWARM: "chain:SWARM",
+  CREDIT: "credits",
+  MINTME: "external:MINTME",
+  ETH: "external:ETH",
+  BTC: "external:BTC",
+};
 
 export function AssetsTab() {
   const userId = getCurrentUser()?.id ?? "";
@@ -38,6 +46,7 @@ export function AssetsTab() {
   const [layer, setLayer] = useState<Layer>("native");
   const [selection, setSelection] = useState("all");
   const [holdings, setHoldings] = useState<ProfileTokenHolding[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>(() => listHiddenAssets(userId));
   const { address } = useMetaMask();
   const { stats, getActivePeerConnections } = useP2PContext();
   const customTokens = useCustomTokens(userId);
@@ -50,15 +59,19 @@ export function AssetsTab() {
       setMintme(getChainMintmeBalance(userId));
       try { setHoldings(await getUserProfileTokenHoldings(userId)); } catch { /* retain last known holdings */ }
       try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
+      try { setHiddenIds(await hydrateHiddenAssets(userId)); } catch { /* retain last known */ }
     };
     void refresh();
+    const onHidden = () => setHiddenIds(listHiddenAssets(userId));
     const off = onAppWalletUpdate(refresh);
     window.addEventListener("blockchain-transaction", refresh);
     window.addEventListener("credit-transaction", refresh);
+    window.addEventListener(HIDDEN_ASSETS_EVENT, onHidden);
     return () => {
       off();
       window.removeEventListener("blockchain-transaction", refresh);
       window.removeEventListener("credit-transaction", refresh);
+      window.removeEventListener(HIDDEN_ASSETS_EVENT, onHidden);
     };
   }, [userId]);
 
@@ -69,12 +82,18 @@ export function AssetsTab() {
     { code: "ETH", label: "ETH", amount: bridge.ETH + getChainEthBalance(userId), digits: 6 },
     { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
   ];
-  const owned = nativeWalletAssets({
+  // The wallet lists every known asset — nothing is hidden automatically.
+  const inventory = nativeWalletInventory({
     swarm, credits, mintme, eth: bridge.ETH + getChainEthBalance(userId), btc: bridge.BTC, holdings,
     custom: customTokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, token.address), available: getRecordedTokenBalance(userId, token.address) })),
   });
-  const selected = owned.some((a) => a.id === selection) ? selection : "all";
-  const showNative = (id: string) => owned.some((a) => a.id === id) && (selected === "all" || selected === id);
+  const hidden = new Set(hiddenIds);
+  const selected = inventory.some((a) => a.id === selection) ? selection : "all";
+  const matchesFilter = (id: string) => selected === "all" || selected === id;
+  const visible = (id: string) => !hidden.has(id) && matchesFilter(id);
+  const hide = (id: string) => setAssetHidden(userId, id, true);
+  const unhide = (id: string) => setAssetHidden(userId, id, false);
+  const hiddenAssets = inventory.filter((a) => hidden.has(a.id));
 
   return (
     <section aria-label="Assets" className="space-y-3">
@@ -106,19 +125,18 @@ export function AssetsTab() {
       )}
 
       {layer === "native" && <div className="space-y-1">
-        <Label htmlFor="owned-wallet-asset">Owned assets</Label>
+        <Label htmlFor="owned-wallet-asset">Wallet assets</Label>
         <Select value={selected} onValueChange={setSelection}>
-          <SelectTrigger id="owned-wallet-asset"><SelectValue placeholder="Select an owned asset" /></SelectTrigger>
+          <SelectTrigger id="owned-wallet-asset"><SelectValue placeholder="Select an asset" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All owned assets</SelectItem>
-            {owned.map((a) => <SelectItem key={a.id} value={a.id}>{a.label} · {a.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
+            <SelectItem value="all">All assets</SelectItem>
+            {inventory.map((a) => <SelectItem key={a.id} value={a.id}>{a.label} · {a.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
           </SelectContent>
         </Select>
-        {owned.length === 0 && <p className="text-sm text-muted-foreground">No positive asset balances yet.</p>}
       </div>}
 
       <div className="grid gap-2">
-        {rows.filter((r) => layer === "native" ? showNative(r.code) : r.code !== "CREDIT").map((r) => (
+        {rows.filter((r) => layer === "native" ? visible(r.code) : r.code !== "CREDIT").map((r) => (
           <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium">
@@ -130,25 +148,61 @@ export function AssetsTab() {
               </div>
             </div>
             <AssetActions code={r.code} label={r.label} amount={r.amount} userId={userId}
-              layer={layer} metaMaskAddress={address} offline={offline} />
+              layer={layer} metaMaskAddress={address} offline={offline}
+              onHide={layer === "native" && canHideAsset(r.code, r.amount) ? () => hide(r.code) : undefined} />
           </div>
         ))}
-        {customTokens.filter((t) => layer === "metamask" || showNative(`custom:${t.address}`)).map((t) => <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer} />)}
-        {layer === "native" && holdings.filter((h) => showNative(`creator:${h.tokenId}`)).map((h) => (
-          <div key={h.tokenId} className="rounded-md border p-3">
-            <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" />{h.ticker}<span className="text-xs text-muted-foreground">Creator token</span></div>
-            <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+        {customTokens.filter((t) => layer === "metamask" ? !t.hidden : visible(`custom:${t.address}`)).map((t) => (
+          <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer}
+            onHide={layer === "native" && canHideAsset(`custom:${t.address}`, getRecordedTokenBalance(userId, t.address)) ? () => hide(`custom:${t.address}`) : undefined} />
+        ))}
+        {layer === "native" && holdings.filter((h) => visible(`creator:${h.tokenId}`)).map((h) => (
+          <div key={h.tokenId} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" />{h.ticker}<span className="text-xs text-muted-foreground">Creator token</span></div>
+              <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
+              <OnlineTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} />
+              {canHideAsset(`creator:${h.tokenId}`, h.amount) && (
+                <Button type="button" size="sm" variant="ghost" onClick={() => hide(`creator:${h.tokenId}`)}>
+                  <EyeOff className="mr-1 h-3 w-3" />Hide
+                </Button>
+              )}
+            </div>
           </div>
         ))}
       </div>
+
+      {layer === "native" && hiddenAssets.length > 0 && (
+        <div className="space-y-2 rounded-md border border-dashed p-3">
+          <p className="text-xs font-medium text-muted-foreground">Hidden assets</p>
+          <ul className="space-y-1">
+            {hiddenAssets.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="truncate text-muted-foreground">{a.label}</span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => unhide(a.id)}>
+                  <Eye className="mr-1 h-3 w-3" />Show
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }
 
-function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, offline }: {
+function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, offline, onHide }: {
   code: string; label: string; amount: number; userId: string; layer: Layer; metaMaskAddress: string | null; offline: boolean;
+  onHide?: () => void;
 }) {
   const cls = "grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0";
+  const hideButton = onHide && (
+    <Button type="button" size="sm" variant="ghost" onClick={onHide} title="Hide this asset while its balance is zero.">
+      <EyeOff className="mr-1 h-3 w-3" />Hide
+    </Button>
+  );
   if (offline && layer === "native" && (code === "SWARM" || code === "CREDIT")) {
     return (
       <div className={cls}>
@@ -156,6 +210,7 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
         <Button type="button" variant="outline" size="sm" disabled title="A mesh peer must be online to transfer.">
           <ArrowUpFromLine className="mr-1 h-3 w-3" />Waiting for peers
         </Button>
+        {hideButton}
       </div>
     );
   }
@@ -171,7 +226,17 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} />
-        <CreditTransferDialog amount={amount} userId={userId} />
+        <OnlineTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} />
+        {hideButton}
+      </div>
+    );
+  }
+  if (layer === "native" && (code === "MINTME" || code === "ETH" || code === "BTC")) {
+    return (
+      <div className={cls}>
+        <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
+        <OnlineTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} />
+        {hideButton}
       </div>
     );
   }
@@ -193,24 +258,10 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
       </div>
     );
   }
-  if (layer === "metamask" && code === "BTC") {
-    return (
-      <div className={cls}>
-        <Button type="button" variant="outline" size="sm" disabled title="Bitcoin is not reachable through MetaMask's web connection.">
-          <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit to Native
-        </Button>
-        <p className="col-span-2 text-xs text-muted-foreground sm:max-w-48">MetaMask doesn't let websites move Bitcoin yet.</p>
-      </div>
-    );
-  }
-  const reason = layer === "metamask"
-    ? metaMaskAddress ? "Only MintMe deposits are available so far." : "Connect MetaMask first."
-    : "External deposits for this asset are not available yet.";
+  const reason = "External deposits for this asset are not available yet.";
   return (
     <div className={cls}>
-      {layer === "native"
-        ? <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
-        : <Button type="button" variant="outline" size="sm" disabled title={reason}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
+      <Button type="button" variant="outline" size="sm" disabled title={reason}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
       <Button type="button" variant="outline" size="sm" disabled title={reason}>
         <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
       </Button>
@@ -241,42 +292,6 @@ function ReceiveDialog({ label, userId, note }: { label: string; userId: string;
           {note && <p className="text-xs text-muted-foreground">{note}</p>}
         </DialogContent>
       </Dialog>
-    </>
-  );
-}
-
-function CreditTransferDialog({ amount, userId }: { amount: number; userId: string }) {
-  const [open, setOpen] = useState(false);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [target, setTarget] = useState<{ id: string; name: string } | null>(null);
-  const next = async () => {
-    setBusy(true);
-    try {
-      const user = await resolveNativeWalletRecipient(input);
-      if (user.id === userId) throw new Error("That is your own wallet.");
-      setTarget({ id: user.id, name: user.displayName || user.username || "user" });
-      setOpen(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Recipient not found");
-    } finally { setBusy(false); }
-  };
-  return (
-    <>
-      <Button type="button" variant="outline" size="sm" disabled={!userId || amount <= 0} onClick={() => setOpen(true)}>
-        <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Transfer Credits</DialogTitle></DialogHeader>
-          <Label htmlFor="credit-recipient">Recipient wallet address</Label>
-          <Input id="credit-recipient" value={input} onChange={(e) => setInput(e.target.value)} placeholder="0x…" />
-          <DialogFooter>
-            <Button type="button" disabled={busy || input.trim().length < 6} onClick={() => void next()}>Continue</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {target && <SendCreditsModal toUserId={target.id} toUsername={target.name} isOpen onClose={() => setTarget(null)} />}
     </>
   );
 }
