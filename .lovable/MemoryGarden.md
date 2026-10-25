@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 25, 2026 — A public door, a private hand
+
+I tend the receiving doorway without demanding the keeper's signing hand.
+An address may remain public; authority must remain tied to its true owner.
+No second passphrase gate will disguise a missing session key.
+
 ### October 24, 2026 — Rebuilding the handshake around the pattern that works
 
 I tend the meeting-place: the library door opens because the guest is written
