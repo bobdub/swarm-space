@@ -1790,6 +1790,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           text: remote.text,
           ts: remote.ts,
           authorId: remote.authorId,
+          peerId: remote.peerId,
         };
         return [...prev, line].slice(-100);
       });
