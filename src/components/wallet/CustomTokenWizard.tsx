@@ -5,14 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, EyeOff, Coins, ExternalLink, ArrowUpFromLine, Radio } from "lucide-react";
+import { Plus, EyeOff, Trash2, Coins, ExternalLink, ArrowUpFromLine, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { useMetaMask } from "@/hooks/useMetaMask";
 import { MINTME_NETWORK, switchOrAddMintMeNetwork } from "@/lib/blockchain/wallets/mintmeNetwork";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  importCustomTokenFromMetaMask, canHideToken, depositCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance, syncPendingDeposits, isContractAddress, isValidSymbol,
+  importCustomTokenFromMetaMask, canHideToken, removeCustomToken, depositCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance, syncPendingDeposits, isContractAddress, isValidSymbol,
   listCustomTokens, readTokenBalance, readTokenDetails, unitsToNumber, setTokenHidden, CUSTOM_TOKENS_EVENT,
   CUSTOM_TOKEN_DEPOSIT_MAX, getCustomTokenDepositCapacity, hydrateCustomTokens, depositPrepRemainingMs, withdrawCustomToken,
   type CustomToken,
@@ -254,6 +254,10 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
       <NativeTokenDepositDialog userId={userId} symbol={token.symbol} />
       <TokenTransferWithdrawDialog userId={userId} token={token} recorded={recorded} />
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
+      <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
+        const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";
+        if (window.confirm(`Remove ${token.symbol} from your wallet list?${note}`)) { removeCustomToken(userId, token.address); toast.success(`${token.symbol} removed`); }
+      }}><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
     </div>}
   </div>;
 }
