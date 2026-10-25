@@ -41,7 +41,7 @@ describe("deposit dismissal", () => {
   it("renders native token actions with network dropdowns", async () => {
     render(<CustomTokenRow userId="owner" layer="native" token={{ address: "0x123", symbol: "MTCG", decimals: 12, addedAt: 0 }} />);
     expect(screen.getByRole("button", { name: "Deposit" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Transfer / Withdraw" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Transfer" })).toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByLabelText("Network")).toHaveLength(2));
   });
 });
