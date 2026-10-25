@@ -277,6 +277,105 @@ export function BrainChatPanel({
     return [...map.values()].sort((a, b) => a.ts - b.ts);
   }, [seededLines, lines]);
 
+  // ── Mute / Block ─────────────────────────────────────────────────
+  // Mute is a local-only presentation filter (mutedPeersStore); Block is
+  // the network-level P2P blocklist. Blocking also writes a mute entry so
+  // every render filter (avatar, video, audio, placements) only has to
+  // consult the one store.
+  const lineHiddenStatus = useCallback(
+    (line: BrainChatLine): 'muted' | 'blocked' | null => {
+      const ids = [line.peerId, line.authorId].filter((v): v is string => Boolean(v));
+      if (ids.some((id) => blockedIds.has(id))) return 'blocked';
+      if (ids.some((id) => mutedPeers.some((e) => e.peerId === id || e.userId === id))) return 'muted';
+      return null;
+    },
+    [blockedIds, mutedPeers],
+  );
+
+  type RenderedLine =
+    | { kind: 'line'; line: BrainChatLine }
+    | { kind: 'placeholder'; key: string; status: 'muted' | 'blocked'; line: BrainChatLine };
+  // Hidden users collapse into ONE placeholder at their first hidden
+  // message; every later message of theirs stays invisible.
+  const renderedLines = useMemo<RenderedLine[]>(() => {
+    const out: RenderedLine[] = [];
+    const shown = new Set<string>();
+    for (const line of allLines) {
+      const status = lineHiddenStatus(line);
+      if (!status) {
+        out.push({ kind: 'line', line });
+        continue;
+      }
+      const key = line.authorId ?? line.peerId ?? line.author;
+      if (shown.has(key)) continue;
+      shown.add(key);
+      out.push({ kind: 'placeholder', key, status, line });
+    }
+    return out;
+  }, [allLines, lineHiddenStatus]);
+
+  const handleUnhide = useCallback(
+    (status: 'muted' | 'blocked', line: BrainChatLine) => {
+      if (status === 'blocked') {
+        const target = line.peerId ?? line.authorId;
+        if (target) unblockPeer(target);
+      }
+      if (line.peerId) unmutePeer(line.peerId);
+      if (line.authorId) unmutePeer(line.authorId);
+    },
+    [unblockPeer],
+  );
+
+  /** Shared Mute/Block menu content for a name click (messages + rail). */
+  const renderUserTools = (username: string, peerId?: string, userId?: string) => {
+    const ids = [peerId, userId].filter((v): v is string => Boolean(v));
+    const muted = ids.some((id) => isPeerMuted(id));
+    const blocked = ids.some((id) => blockedIds.has(id));
+    const itemClass =
+      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-white/10';
+    return (
+      <PopoverContent align="start" className="w-52 p-1">
+        <p className="truncate px-2 py-1 text-[11px] font-medium text-foreground/70">@{username}</p>
+        <button type="button" className={itemClass} onClick={() => insertMention(username)}>
+          <AtSign className="h-3.5 w-3.5" /> Mention
+        </button>
+        <button
+          type="button"
+          className={itemClass}
+          onClick={() => {
+            if (muted) {
+              ids.forEach((id) => unmutePeer(id));
+            } else {
+              mutePeer({ peerId, userId, username });
+            }
+          }}
+        >
+          <VolumeX className="h-3.5 w-3.5" /> {muted ? 'Unmute' : 'Mute'}
+        </button>
+        <button
+          type="button"
+          className={cn(itemClass, 'text-destructive')}
+          onClick={() => {
+            const target = peerId ?? userId;
+            if (!target) return;
+            if (blocked) {
+              unblockPeer(target);
+              ids.forEach((id) => unmutePeer(id));
+            } else {
+              blockPeer(target, 'all', 'Blocked from Brain chat');
+              mutePeer({ peerId, userId, username });
+            }
+          }}
+        >
+          <Shield className="h-3.5 w-3.5" /> {blocked ? 'Unblock' : 'Block'}
+        </button>
+        <p className="px-2 py-1 text-[10px] leading-snug text-foreground/40">
+          Mute hides their audio, video, avatar, builds and chat on this device. Block cuts them off from your node entirely.
+        </p>
+      </PopoverContent>
+    );
+  };
+
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [allLines]);
