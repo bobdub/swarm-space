@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nativeMarketPayments, nativeWalletAssets, type NativeAssetSnapshot } from "./nativeAssets";
+import { nativeMarketPayments, nativeWalletAssets, nativeWalletInventory, type NativeAssetSnapshot } from "./nativeAssets";
 
 const base: NativeAssetSnapshot = { swarm: 12, credits: 0, mintme: 0, eth: 0, btc: 0, custom: [], holdings: [] };
 
@@ -18,5 +18,15 @@ describe("Native Market payment ownership", () => {
   });
   it("includes only positive Credits and native coin balances", () => {
     expect(nativeMarketPayments(nativeWalletAssets({ ...base, credits: 50, mintme: 2, eth: 0, btc: NaN })).map(({ id }) => id)).toEqual(["CREDIT", "MINTME"]);
+  });
+});
+
+describe("Native wallet inventory visibility", () => {
+  it("lists every known asset including zero balances — nothing is hidden automatically", () => {
+    const inventory = nativeWalletInventory({ ...base, swarm: 0, holdings: [{ userId: "mike", tokenId: "deployed", ticker: "MIKE", creatorUserId: "mike", amount: 0, lastUpdated: "2026-10-25" }] });
+    expect(inventory.map(({ id }) => id)).toEqual(["SWARM", "CREDIT", "MINTME", "ETH", "BTC", "creator:deployed"]);
+  });
+  it("keeps the positive-balance filter for Market Buy", () => {
+    expect(nativeWalletAssets({ ...base, swarm: 0 }).map(({ id }) => id)).toEqual([]);
   });
 });

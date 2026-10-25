@@ -19,6 +19,7 @@ import {
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
+import { OnlineTransferDialog } from "./OnlineTransferDialog";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -207,8 +208,8 @@ function usePrepRemaining(token: CustomToken): number {
   return left;
 }
 
-/** Token row for either tab. Native shows only deposited tokens; MetaMask shows all non-hidden ones. */
-export function CustomTokenRow({ userId, token, layer }: { userId: string; token: CustomToken; layer: "native" | "metamask" }) {
+/** Token row for either tab. Native lists every imported token (zero balances stay visible until the owner hides them); MetaMask shows all non-hidden ones. */
+export function CustomTokenRow({ userId, token, layer, onHide }: { userId: string; token: CustomToken; layer: "native" | "metamask"; onHide?: () => void }) {
   const { address } = useMetaMask();
   const [held, setHeld] = useState<number | null>(null);
   const [dep, setDep] = useState(false);
@@ -226,7 +227,6 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
     return () => { window.removeEventListener(DEPOSIT_SYNC_EVENT, onSync); window.clearInterval(t); };
   }, [layer, pendingSync, userId]);
   useEffect(() => { if (layer === "metamask" && address) void readTokenBalance(token, address).then(setHeld); }, [layer, address, token, prepLeft === 0]);
-  if (layer === "native" && recorded <= 0) return null;
   if (layer === "metamask" && token.hidden) return null;
   const amount = layer === "native" ? recorded : held;
   const empty = held === 0;
@@ -249,8 +249,10 @@ export function CustomTokenRow({ userId, token, layer }: { userId: string; token
       {canHideToken(held, recorded) && <Button type="button" size="sm" variant="ghost" onClick={() => setTokenHidden(userId, token.address, true)}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
     </div>}
-    {layer === "native" && <div className="flex">
+    {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
+      <OnlineTransferDialog userId={userId} assetId={`custom:${token.address}`} assetLabel={token.symbol} amount={recorded} />
       <Button type="button" size="sm" variant="outline" onClick={() => setWd(true)}>Withdraw to MetaMask</Button>
+      {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <TokenWithdrawDialog userId={userId} token={token} open={wd} onOpenChange={setWd} recorded={recorded} />
     </div>}
   </div>;
