@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  AtSign,
   CornerDownRight,
   Maximize2,
   Mic,
@@ -10,6 +11,7 @@ import {
   Send,
   Settings2,
   MessageSquare,
+  Shield,
   Upload,
   Users,
   Video,
@@ -48,6 +50,8 @@ import {
 import type { SwarmCoin } from '@/lib/blockchain/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 
 export interface BrainChatLine {
   id: string;
@@ -56,6 +60,8 @@ export interface BrainChatLine {
   ts: number;
   /** Original peerId/userId of the sender, used for avatar lookup. */
   authorId?: string;
+  /** WebRTC peer id of the sender (remote lines only) — used for mute/block. */
+  peerId?: string;
   avatarRef?: string;
   infinityReplyTo?: string;
   replyTo?: { id: string; author: string; preview: string };
@@ -136,7 +142,9 @@ export function BrainChatPanel({
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
-  const { broadcastPost, announceContent, getPeerId } = useP2PContext();
+  const { broadcastPost, announceContent, getPeerId, blocklist, blockPeer, unblockPeer } = useP2PContext();
+  const mutedPeers = useMutedPeers();
+  const blockedIds = useMemo(() => new Set(blocklist.map((e) => e.peerId)), [blocklist]);
   const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
@@ -268,6 +276,105 @@ export function BrainChatPanel({
     for (const l of lines) map.set(l.id, l);
     return [...map.values()].sort((a, b) => a.ts - b.ts);
   }, [seededLines, lines]);
+
+  // ── Mute / Block ─────────────────────────────────────────────────
+  // Mute is a local-only presentation filter (mutedPeersStore); Block is
+  // the network-level P2P blocklist. Blocking also writes a mute entry so
+  // every render filter (avatar, video, audio, placements) only has to
+  // consult the one store.
+  const lineHiddenStatus = useCallback(
+    (line: BrainChatLine): 'muted' | 'blocked' | null => {
+      const ids = [line.peerId, line.authorId].filter((v): v is string => Boolean(v));
+      if (ids.some((id) => blockedIds.has(id))) return 'blocked';
+      if (ids.some((id) => mutedPeers.some((e) => e.peerId === id || e.userId === id))) return 'muted';
+      return null;
+    },
+    [blockedIds, mutedPeers],
+  );
+
+  type RenderedLine =
+    | { kind: 'line'; line: BrainChatLine }
+    | { kind: 'placeholder'; key: string; status: 'muted' | 'blocked'; line: BrainChatLine };
+  // Hidden users collapse into ONE placeholder at their first hidden
+  // message; every later message of theirs stays invisible.
+  const renderedLines = useMemo<RenderedLine[]>(() => {
+    const out: RenderedLine[] = [];
+    const shown = new Set<string>();
+    for (const line of allLines) {
+      const status = lineHiddenStatus(line);
+      if (!status) {
+        out.push({ kind: 'line', line });
+        continue;
+      }
+      const key = line.authorId ?? line.peerId ?? line.author;
+      if (shown.has(key)) continue;
+      shown.add(key);
+      out.push({ kind: 'placeholder', key, status, line });
+    }
+    return out;
+  }, [allLines, lineHiddenStatus]);
+
+  const handleUnhide = useCallback(
+    (status: 'muted' | 'blocked', line: BrainChatLine) => {
+      if (status === 'blocked') {
+        const target = line.peerId ?? line.authorId;
+        if (target) unblockPeer(target);
+      }
+      if (line.peerId) unmutePeer(line.peerId);
+      if (line.authorId) unmutePeer(line.authorId);
+    },
+    [unblockPeer],
+  );
+
+  /** Shared Mute/Block menu content for a name click (messages + rail). */
+  const renderUserTools = (username: string, peerId?: string, userId?: string) => {
+    const ids = [peerId, userId].filter((v): v is string => Boolean(v));
+    const muted = ids.some((id) => isPeerMuted(id));
+    const blocked = ids.some((id) => blockedIds.has(id));
+    const itemClass =
+      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground/80 transition-colors hover:bg-white/10';
+    return (
+      <PopoverContent align="start" className="w-52 p-1">
+        <p className="truncate px-2 py-1 text-[11px] font-medium text-foreground/70">@{username}</p>
+        <button type="button" className={itemClass} onClick={() => insertMention(username)}>
+          <AtSign className="h-3.5 w-3.5" /> Mention
+        </button>
+        <button
+          type="button"
+          className={itemClass}
+          onClick={() => {
+            if (muted) {
+              ids.forEach((id) => unmutePeer(id));
+            } else {
+              mutePeer({ peerId, userId, username });
+            }
+          }}
+        >
+          <VolumeX className="h-3.5 w-3.5" /> {muted ? 'Unmute' : 'Mute'}
+        </button>
+        <button
+          type="button"
+          className={cn(itemClass, 'text-destructive')}
+          onClick={() => {
+            const target = peerId ?? userId;
+            if (!target) return;
+            if (blocked) {
+              unblockPeer(target);
+              ids.forEach((id) => unmutePeer(id));
+            } else {
+              blockPeer(target, 'all', 'Blocked from Brain chat');
+              mutePeer({ peerId, userId, username });
+            }
+          }}
+        >
+          <Shield className="h-3.5 w-3.5" /> {blocked ? 'Unblock' : 'Block'}
+        </button>
+        <p className="px-2 py-1 text-[10px] leading-snug text-foreground/40">
+          Mute hides their audio, video, avatar, builds and chat on this device. Block cuts them off from your node entirely.
+        </p>
+      </PopoverContent>
+    );
+  };
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -663,28 +770,36 @@ export function BrainChatPanel({
                 <p className="px-1 py-2 text-[10px] italic text-foreground/40">No peers yet</p>
               )}
               {railUsers.map((u) => (
-                <button
-                  key={u.peerId}
-                  type="button"
-                  onClick={() => insertMention(u.username)}
-                  className={cn(
-                    'flex shrink-0 snap-start items-center gap-1 rounded-full bg-white/5 px-1.5 py-1 transition-colors hover:bg-white/10',
-                    u.isSpeaking && 'ring-1 ring-primary',
-                  )}
-                  aria-label={`Mention @${u.username}`}
-                  title={`@${u.username}`}
-                >
-                  <Avatar
-                    avatarRef={u.avatarRef}
-                    username={u.peerId}
-                    displayName={u.username}
-                    size="sm"
-                  />
-                  <div className="flex items-center gap-0.5 pr-1 text-foreground/50">
-                    {u.micOn ? <Mic className="h-3 w-3 text-primary" /> : <MicOff className="h-3 w-3" />}
-                    {u.cameraOn ? <Video className="h-3 w-3 text-primary" /> : <VideoOff className="h-3 w-3" />}
-                  </div>
-                </button>
+                <Popover key={u.peerId}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        'flex shrink-0 snap-start items-center gap-1 rounded-full bg-white/5 px-1.5 py-1 transition-colors hover:bg-white/10',
+                        u.isSpeaking && 'ring-1 ring-primary',
+                      )}
+                      aria-label={`@${u.username} — user tools`}
+                      title={`@${u.username}`}
+                    >
+                      <Avatar
+                        avatarRef={u.avatarRef}
+                        username={u.peerId}
+                        displayName={u.username}
+                        size="sm"
+                      />
+                      <div className="flex items-center gap-0.5 pr-1 text-foreground/50">
+                        {u.micOn ? <Mic className="h-3 w-3 text-primary" /> : <MicOff className="h-3 w-3" />}
+                        {u.cameraOn ? <Video className="h-3 w-3 text-primary" /> : <VideoOff className="h-3 w-3" />}
+                        {blockedIds.has(u.peerId) ? (
+                          <Shield className="h-3 w-3 text-destructive" />
+                        ) : isPeerMuted(u.peerId) ? (
+                          <VolumeX className="h-3 w-3 text-amber-400" />
+                        ) : null}
+                      </div>
+                    </button>
+                  </PopoverTrigger>
+                  {renderUserTools(u.username, u.peerId, undefined)}
+                </Popover>
               ))}
             </div>
           </div>
@@ -698,30 +813,40 @@ export function BrainChatPanel({
                   </p>
                 )}
                 {railUsers.map((u) => (
-                  <button
-                    key={u.peerId}
-                    type="button"
-                    onClick={() => insertMention(u.username)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
-                      u.isSpeaking && 'ring-1 ring-primary',
-                    )}
-                    title={`@${u.username}`}
-                  >
-                    <Avatar
-                      avatarRef={u.avatarRef}
-                      username={u.peerId}
-                      displayName={u.username}
-                      size="sm"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-foreground/90">{u.username}</p>
-                      <div className="flex items-center gap-1 text-foreground/40">
-                        {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
-                        {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
-                      </div>
-                    </div>
-                  </button>
+                  <Popover key={u.peerId}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
+                          u.isSpeaking && 'ring-1 ring-primary',
+                        )}
+                        title={`@${u.username} — user tools`}
+                      >
+                        <Avatar
+                          avatarRef={u.avatarRef}
+                          username={u.peerId}
+                          displayName={u.username}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1 truncate text-foreground/90">
+                            <span className="truncate">{u.username}</span>
+                            {blockedIds.has(u.peerId) ? (
+                              <Shield className="h-2.5 w-2.5 shrink-0 text-destructive" />
+                            ) : isPeerMuted(u.peerId) ? (
+                              <VolumeX className="h-2.5 w-2.5 shrink-0 text-amber-400" />
+                            ) : null}
+                          </p>
+                          <div className="flex items-center gap-1 text-foreground/40">
+                            {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
+                            {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
+                          </div>
+                        </div>
+                      </button>
+                    </PopoverTrigger>
+                    {renderUserTools(u.username, u.peerId, undefined)}
+                  </Popover>
                 ))}
               </div>
             </ScrollArea>
@@ -760,8 +885,27 @@ export function BrainChatPanel({
             </p>
           ) : (
             <div className="space-y-2">
-              {allLines.map((line) => {
+              {renderedLines.map((entry) => {
+                if (entry.kind === 'placeholder') {
+                  return (
+                    <div
+                      key={`hidden-${entry.key}`}
+                      className="rounded-md border border-white/10 bg-black/10 px-2 py-1.5 text-[11px] italic text-foreground/50"
+                    >
+                      Message from {entry.status} user{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleUnhide(entry.status, entry.line)}
+                        className="not-italic text-primary/70 hover:text-primary"
+                      >
+                        ({entry.status === 'muted' ? 'Unmute?' : 'Unblock?'})
+                      </button>
+                    </div>
+                  );
+                }
+                const line = entry.line;
                 const isInfinity = !isClassic && line.author === ENTITY_DISPLAY_NAME;
+                const hasUserTools = !isInfinity && Boolean(line.peerId || line.authorId);
                 const isLong = line.text.length > LONG_MESSAGE_THRESHOLD;
                 const isExpanded = expanded.has(line.id);
                 const display = isLong && !isExpanded
@@ -794,14 +938,29 @@ export function BrainChatPanel({
                           displayName={line.author}
                           size="sm"
                         />
-                        <span
-                          className={cn(
-                            'truncate font-medium',
-                            isInfinity && 'text-[hsl(180,90%,70%)]',
-                          )}
-                        >
-                          {line.author}
-                        </span>
+                        {hasUserTools ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="truncate font-medium hover:underline"
+                                title={`@${line.author} — user tools`}
+                              >
+                                {line.author}
+                              </button>
+                            </PopoverTrigger>
+                            {renderUserTools(line.author, line.peerId, line.authorId)}
+                          </Popover>
+                        ) : (
+                          <span
+                            className={cn(
+                              'truncate font-medium',
+                              isInfinity && 'text-[hsl(180,90%,70%)]',
+                            )}
+                          >
+                            {line.author}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         <span>{new Date(line.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>

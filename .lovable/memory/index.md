@@ -60,6 +60,7 @@
 - [Brain Apartment Reference](mem://features/brain-apartment-reference) — Canonical mostly-stable builder structure on Earth surface; physics 'piece' body + Earth-local frame; known bugs: scale, no collider
 - [Virtual Hub Builder](mem://features/virtual-hub-builder) — Sims-style 3D builder, members-only edits, magnetic snap 0.4m, real chemical compounds
 - [Granular Block Permissions](mem://features/p2p-granular-block-permissions) — Content, Messaging, Mining, Discovery blocks
+- [Brain mute and block tools](mem://features/brain-mute-block) — Chat name-click Mute (local-only, one "Unmute?" placeholder) / Block (blocklist + auto-mute)
 - [Unified Data Pipeline](mem://encryption/unified-data-pipeline) — 4-stage V2 encrypt: Sign/Encrypt, Chunking, Transport, Local Reassembly
 - [Signature Enforcement](mem://security/signature-enforcement) — Stage 4+ strictly rejects invalid signatures
 - [File Key Wrapping](mem://encryption/file-key-wrapping) — fileKey wrapped via PBKDF2 (100k, SHA-256)

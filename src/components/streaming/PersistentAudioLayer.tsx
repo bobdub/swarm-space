@@ -9,10 +9,14 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
+import { isPeerMuted, useMutedPeers } from "@/lib/brain/mutedPeersStore";
 
 export function PersistentAudioLayer() {
   const { user } = useAuth();
   const [participants, setParticipants] = useState<VideoParticipant[]>([]);
+  // Brain mute is local-only: silences the peer's audio element without
+  // touching the mesh connection.
+  const mutedPeers = useMutedPeers();
 
   useEffect(() => {
     if (!user) return;
@@ -40,6 +44,7 @@ export function PersistentAudioLayer() {
             key={`persistent-audio-${p.peerId}`}
             autoPlay
             playsInline
+            muted={isPeerMuted(p.peerId)}
             ref={(el) => {
               if (!el || !p.stream) return;
               if (el.srcObject !== p.stream) {

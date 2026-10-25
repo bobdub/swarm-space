@@ -164,6 +164,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
@@ -1287,6 +1288,19 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
 
+  // Muted peers vanish from the scene entirely on this device — no avatar,
+  // no camera tile, no audio (audio is muted in PersistentAudioLayer).
+  // Blocked peers also carry a mute entry, so one store covers both.
+  const mutedPeers = useMutedPeers();
+  const visibleVoicePeers = useMemo(
+    () => voicePeers.filter((p) => !isPeerMuted(p.peerId)),
+    [voicePeers, mutedPeers],
+  );
+  const visibleRtcParticipants = useMemo(
+    () => rtcParticipants.filter((p) => !isPeerMuted(p.peerId)),
+    [rtcParticipants, mutedPeers],
+  );
+
   // Entering the Brain marks this room as synced: leaving the page keeps
   // the conversation going until the user presses Disconnect.
   useEffect(() => {
@@ -1790,6 +1804,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           text: remote.text,
           ts: remote.ts,
           authorId: remote.authorId,
+          peerId: remote.peerId,
         };
         return [...prev, line].slice(-100);
       });
@@ -2444,14 +2459,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
-        {selfId && <RemoteAvatarLayer peers={voicePeers} />}
+        {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} />}
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
       {ready && (
         <BrainVideoGrid
-          participants={rtcParticipants}
+          participants={visibleRtcParticipants}
           localStream={localStream}
           localUsername={user?.username ?? 'You'}
           localMuted={isMuted}
