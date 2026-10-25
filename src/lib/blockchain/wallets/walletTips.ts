@@ -5,6 +5,7 @@ import { getAllLiveChains, getChainBalance } from "../multiChainManager";
 import { getUserProfileTokenHoldings } from "../profileTokenBalance";
 import { getAppWalletBalances } from "./appWallet";
 import { getChainMintmeBalance } from "../deposits/mintmeDeposit";
+import { getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
@@ -40,6 +41,12 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
     if (balance > 0) assets.push({ id: `external:${ticker}`, ticker, name: "External asset record",
       kind: "external", balance,
       unavailable: `${ticker} delivery is unavailable until its transfer bridge is connected. No funds will be deducted.` });
+  }
+  for (const token of listCustomTokens(userId)) {
+    const balance = getRecordedTokenBalance(userId, token.address);
+    if (balance > 0) assets.push({ id: `custom:${token.address}`, ticker: token.symbol,
+      name: "Custom MintMe token", kind: "external", balance,
+      unavailable: `${token.symbol} mesh transfers await verified settlement. No funds will be deducted.` });
   }
   return assets;
 }
