@@ -23,6 +23,7 @@ interface SignalEnvelope {
     | 'candidate'
     | 'join-room'
     | 'leave-room'
+    | 'room-heartbeat'
     | 'room-sync'
     | 'reconnect-request'
     | 'reconnect-ack'
@@ -220,7 +221,7 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
     if (left !== undefined && envelope.msgType !== 'presence') return;
     if (left !== undefined) departedAt.delete(fromKey);
   }
-  if (envelope.msgType !== 'leave-room' && joinedRooms.get(envelope.roomId)?.has(envelope.from)) {
+  if (envelope.msgType !== 'leave-room' && joinedRooms.has(envelope.roomId)) {
     lastHeardAt.set(fromKey, Date.now());
   }
 
@@ -257,7 +258,14 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       const room = joinedRooms.get(envelope.roomId);
       if (room) {
         const participants = envelope.participants ?? [];
-        for (const p of participants) room.add(p);
+        for (const p of participants) {
+          if (p !== envelope.from && departedAt.has(roomKey(envelope.roomId, p))) continue;
+          room.add(p);
+          if (!lastHeardAt.has(roomKey(envelope.roomId, p))) lastHeardAt.set(roomKey(envelope.roomId, p), Date.now());
+        }
+        envelope.participants = participants.filter(
+          (p) => p === envelope.from || !departedAt.has(roomKey(envelope.roomId, p)),
+        );
       }
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
@@ -268,9 +276,9 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
     case 'leave-room': {
       const room = joinedRooms.get(envelope.roomId);
       if (room) {
-        room.delete(envelope.from);
         console.log(`[WebRTC-Bridge] 👋 ${envelope.from} left room ${envelope.roomId}`);
       }
+      evictRoomPeer(envelope.roomId, envelope.from, 'left');
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
