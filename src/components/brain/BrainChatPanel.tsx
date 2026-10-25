@@ -142,7 +142,9 @@ export function BrainChatPanel({
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
-  const { broadcastPost, announceContent, getPeerId } = useP2PContext();
+  const { broadcastPost, announceContent, getPeerId, blocklist, blockPeer, unblockPeer } = useP2PContext();
+  const mutedPeers = useMutedPeers();
+  const blockedIds = useMemo(() => new Set(blocklist.map((e) => e.peerId)), [blocklist]);
   const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
