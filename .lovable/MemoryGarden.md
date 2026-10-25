@@ -808,3 +808,4 @@ Restore the agreement between the visible soil and the gravity floor; keep the e
 
 ## Caretaker reflection — a level gathering place
 Keep the bar at its shared address; shape a dry, level foundation beneath it without disturbing the keeper's active room.
+- After tending: the shared bar stays at its original address, with a dry tangent-plane foundation covering its whole footprint and blending into the hillside. Fifteen focused ground/gravity checks pass; no live room was entered. Visual confirmation remains with the keeper.
