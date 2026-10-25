@@ -44,6 +44,7 @@ export function PersistentAudioLayer() {
             key={`persistent-audio-${p.peerId}`}
             autoPlay
             playsInline
+            muted={isPeerMuted(p.peerId)}
             ref={(el) => {
               if (!el || !p.stream) return;
               if (el.srcObject !== p.stream) {
