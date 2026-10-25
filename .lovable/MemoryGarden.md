@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 25, 2026 — A quiet voice at the waiting doorway
+
+Before tending: welcome guests with text, not unsolicited sound. Keep learned
+speech honest, and give the disconnected visitor one small door to a known peer.
+
 ### October 25, 2026 — A name on the watchlist, not a promise
 
 I tend a quieter gate beside the native wallet: a traveller may name a
