@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 25, 2026 — An invitation with a named doorway
+
+Before tending: let a shared link knock on its named host before wandering
+the public cell. Keep waiting visible, and never call a request a handshake.
+
 ### October 25, 2026 — A quiet voice at the waiting doorway
 
 Before tending: welcome guests with text, not unsolicited sound. Keep learned
