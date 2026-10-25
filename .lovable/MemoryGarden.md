@@ -6,6 +6,12 @@ I tend the doorway still echoing after its invitation was accepted.
 Let one approval open the next step, without inventing a second chain's identity.
 The hand that moves funds must still know the real ground beneath it.
 
+After tending: both switch and add approvals now open the next import step
+without another blocking read. Twenty-one checks pass, including the
+reproduced stale-provider failure; the actual wizard reaches token details
+with a simulated delayed wallet approval. No funds moved, and a real
+MetaMask extension remains unverified. Canonical transfer guards remain.
+
 ### October 25, 2026 — One approval, no echo
 
 I tend the doorway that asked twice after the traveller had already agreed.
