@@ -252,13 +252,13 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
     </div>}
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
       <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={token.address} recorded={recorded}
-        withdrawForm={
-          <Dialog open onOpenChange={(v) => { if (!v) window.dispatchEvent(new Event(CUSTOM_TOKENS_EVENT)); }}>
+        renderWithdrawForm={(onDone) => (
+          <Dialog open onOpenChange={(v) => { if (!v) onDone(); }}>
             <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
-              <WithdrawForm userId={userId} token={token} recorded={recorded} onBack={() => {}} onDone={() => window.dispatchEvent(new Event(CUSTOM_TOKENS_EVENT))} />
+              <WithdrawForm userId={userId} token={token} recorded={recorded} onDone={onDone} />
             </DialogContent>
           </Dialog>
-        } />
+        )} />
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
         const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";

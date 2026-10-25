@@ -115,13 +115,13 @@ export function MintMeNativeActions({ userId, amount }: { userId: string; amount
 }
 
 /** Receive + Transfer/Withdraw for an imported MintMe token row, with network dropdowns. */
-export function CustomTokenNetworkActions({ userId, symbol, address, recorded, withdrawForm }: {
+export function CustomTokenNetworkActions({ userId, symbol, address, recorded, renderWithdrawForm }: {
   userId: string;
   symbol: string;
   address: string;
   recorded: number;
-  /** Rendered when the MintMe send network is selected (cold-key withdrawal form). */
-  withdrawForm: React.ReactNode;
+  /** Renders the cold-key withdrawal form when the MintMe send network is selected. */
+  renderWithdrawForm: (onDone: () => void) => React.ReactNode;
 }) {
   const subChains = useUserSubChains(userId);
   const [receiveNet, setReceiveNet] = useState<AssetNetwork>("swarm");
