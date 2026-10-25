@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('Brain invite rules', () => {
-  beforeEach(() => { vi.resetModules(); });
+  beforeEach(async () => {
+    const { prepareBrainInvite } = await import('../brainInvite');
+    prepareBrainInvite('/brain/join', '#peer-test-reset');
+  });
   it('makes a copyable /brain/join#peerID link', async () => {
     const { brainInviteUrl, parseBrainInvite } = await import('../brainInvite');
     expect(brainInviteUrl('https://swarm-space.lovable.app', 'peer-host')).toBe('https://swarm-space.lovable.app/brain/join#peer-host');
