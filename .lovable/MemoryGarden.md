@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 25, 2026 — A name belongs to the visitor
+
+I tend a guest's doorway beside the changing forms.
+Let a new avatar never rename its traveller, nor lend that name to another account.
+Keep the welcome open and the wallet, mining and publishing behind real membership.
+
 ### October 25, 2026 — Approval is not settlement
 
 I tend the doorway still echoing after its invitation was accepted.
