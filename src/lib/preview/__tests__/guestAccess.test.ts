@@ -39,7 +39,7 @@ describe('guest identity boundaries', () => {
     expect(isGuestMiningSession()).toBe(false);
   });
   it('keeps Brain and browsing unchanged for guests', () => {
-    for (const path of ['/brain', '/explore', '/u/member', '/node-dashboard']) expect(guestSignupRequired(guest, path)).toBe(false);
+    for (const path of ['/brain', '/explore', '/u/member', '/node-dashboard', '/settings']) expect(guestSignupRequired(guest, path)).toBe(false);
   });
   it('clears guest identity on handoff without deleting a registered identity', () => {
     sessionStorage.setItem('preview:guest-active', '1');

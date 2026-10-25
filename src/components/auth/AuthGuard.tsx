@@ -1,5 +1,8 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "@/hooks/useSession";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ensureGuestIdentity } from "@/lib/preview/guestMode";
 
 import { isHomelessRedirect } from "@/lib/routing/canonicalHome";
 import { guestSignupRequired } from '@/lib/preview/guestAccess';
@@ -13,6 +16,21 @@ export function AuthGuard() {
   const { user, status, storageUnavailable } = useSession();
   const isReady = status !== "unknown";
   const location = useLocation();
+  const [guestEntryFailed, setGuestEntryFailed] = useState(false);
+  const [guestEntryAttempt, setGuestEntryAttempt] = useState(0);
+  const enteringBrainAsGuest = isReady && !user && location.pathname === "/brain";
+
+  useEffect(() => {
+    if (!enteringBrainAsGuest) return;
+    let cancelled = false;
+    setGuestEntryFailed(false);
+    void ensureGuestIdentity().then((guest) => {
+      if (!cancelled && !guest) setGuestEntryFailed(true);
+    }).catch(() => {
+      if (!cancelled) setGuestEntryFailed(true);
+    });
+    return () => { cancelled = true; };
+  }, [enteringBrainAsGuest, guestEntryAttempt]);
 
   // Public share-link short-circuit on Index.
   const params = new URLSearchParams(location.search);
@@ -40,6 +58,20 @@ export function AuthGuard() {
   }
 
   if (!user && !isPublicSharePreview) {
+    if (enteringBrainAsGuest) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4">
+          {guestEntryFailed ? (
+            <>
+              <p className="text-sm text-muted-foreground">Could not open guest access. Please try again.</p>
+              <Button type="button" onClick={() => setGuestEntryAttempt((attempt) => attempt + 1)}>Try again</Button>
+            </>
+          ) : (
+            <div role="status" aria-label="Opening guest access" className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+          )}
+        </div>
+      );
+    }
     // Only carry the `from` hint forward when it points at a real deep link.
     // Bare `/` collapses to "no preference" so post-login can route to the
     // canonical home (currently /brain) instead of bouncing back to root.
