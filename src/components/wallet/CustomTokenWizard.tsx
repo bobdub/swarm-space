@@ -354,8 +354,8 @@ function TokenTransferWithdrawDialog({ userId, token, recorded }: { userId: stri
 }
 
 /** Cold-key withdrawal form — sends the token to any MintMe address. Mounted only while shown. */
-function WithdrawForm({ userId, token, recorded, onBack, onDone }: {
-  userId: string; token: CustomToken; recorded: number; onBack: () => void; onDone: () => void;
+export function WithdrawForm({ userId, token, recorded, onDone }: {
+  userId: string; token: CustomToken; recorded: number; onDone: () => void;
 }) {
   const { address } = useMetaMask();
   const [amount, setAmount] = useState("");

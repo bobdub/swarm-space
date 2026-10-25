@@ -150,7 +150,7 @@ export function CustomTokenNetworkActions({ userId, symbol, address, recorded, r
           </Button>
         )}
         {sendNet.startsWith("chain:") && <SubChainNotice label={symbol} chain={sendChain} />}
-        {sendOpen && sendNet === "mintme" && withdrawForm}
+        {sendOpen && sendNet === "mintme" && renderWithdrawForm(() => setSendOpen(false))}
       </div>
     </>
   );
