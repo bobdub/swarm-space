@@ -67,3 +67,13 @@ export const firstYoutubeVideoId = (content: string): string | null =>
 
 export const youtubeEmbedUrl = (videoId: string): string =>
   `https://www.youtube.com/embed/${videoId}`;
+
+/** Remove YouTube links from text (used when the video is already embedded). */
+export const stripYoutubeLinks = (content: string): string =>
+  (content ?? "")
+    .replace(new RegExp(URL_REGEX), (raw) =>
+      extractYoutubeVideoIds(raw).length > 0 ? "" : raw,
+    )
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();

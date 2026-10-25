@@ -27,3 +27,13 @@ describe("youtube link awareness", () => {
     expect(youtubeEmbedUrl("AAA111")).toBe("https://www.youtube.com/embed/AAA111");
   });
 });
+
+import { stripYoutubeLinks } from "../youtube";
+describe("stripYoutubeLinks", () => {
+  it("removes youtube links but keeps other links and text", () => {
+    expect(stripYoutubeLinks("Watch this https://youtu.be/AAA111 and https://example.com")).toBe(
+      "Watch this  and https://example.com",
+    );
+    expect(stripYoutubeLinks("https://www.youtube.com/watch?v=abc")).toBe("");
+  });
+});

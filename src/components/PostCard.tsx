@@ -41,7 +41,8 @@ import { Input } from "@/components/ui/input";
 import { ensurePostMetrics, recordPostView } from "@/lib/postMetrics";
 import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/walledPost";
 import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
-import { extractYoutubeVideoIds } from "@/lib/blogging/youtube";
+import { extractYoutubeVideoIds, stripYoutubeLinks } from "@/lib/blogging/youtube";
+import { YouTubeFacade } from "@/components/blogging/YouTubeFacade";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -173,8 +174,13 @@ export function PostCard({ post }: PostCardProps) {
   const isStreamPost = post.type === "stream" && Boolean(post.stream);
   const hasRecordedView = useRef(false);
   const youtubeVideoIds = useMemo(() => extractYoutubeVideoIds(post.content), [post.content]);
+  const hidesYoutubeLinks = youtubeVideoIds.length > 0 && (!post.manifestIds || post.manifestIds.length === 0);
+  const displayContent = useMemo(
+    () => (hidesYoutubeLinks ? stripYoutubeLinks(post.content) : post.content),
+    [hidesYoutubeLinks, post.content],
+  );
   const mentionCacheRef = useMemo(() => buildMentionCache(), []);
-  const renderedContent = useMemo(() => renderContentWithLinks(post.content, mentionCacheRef), [post.content, mentionCacheRef]);
+  const renderedContent = useMemo(() => renderContentWithLinks(displayContent, mentionCacheRef), [displayContent, mentionCacheRef]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);
@@ -1310,17 +1316,8 @@ export function PostCard({ post }: PostCardProps) {
                         key={videoId}
                         className="rounded-2xl border border-[hsla(174,59%,56%,0.18)] overflow-hidden bg-[hsla(245,70%,12%,0.45)] backdrop-blur"
                       >
-                        <div className="aspect-video">
-                          <iframe
-                            src={`https://www.youtube.com/embed/${videoId}`}
-                            title={`YouTube video player ${videoId}`}
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                            allowFullScreen
-                            loading="lazy"
-                            referrerPolicy="strict-origin-when-cross-origin"
-                            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-                            className="h-full w-full"
-                          />
+                        <div className="relative aspect-video">
+                          <YouTubeFacade videoId={videoId} title={`YouTube video ${videoId}`} />
                         </div>
                       </div>
                     ))}
