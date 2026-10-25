@@ -1862,8 +1862,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     }
     const line: BrainChatLine = {
       id: crypto.randomUUID(),
-      author: selfId.startsWith('guest-') ? 'You' : selfId.slice(0, 8),
+      author: user ? brainDisplayName(user) : 'You',
       text, ts: Date.now(),
+      authorId: user?.id,
+      avatarRef: user?.profile?.avatarRef,
     };
     setChatLines((prev) => [...prev, line].slice(-100));
     enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId, learned: true });

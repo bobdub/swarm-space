@@ -38,9 +38,10 @@ export function BrainInviteStatus() {
   const state = useSyncExternalStore(subscribeBrainInvite, getBrainInviteState);
   if (state.phase === 'idle') return null;
   const pending = state.phase === 'starting' || state.phase === 'connecting';
+  const syncing = state.phase === 'syncing';
   return <div role="status" aria-live="polite" className="flex shrink-0 items-center gap-2 border-b border-border bg-muted px-3 py-2 text-xs text-foreground">
-    {pending && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
-    <span className="min-w-0 flex-1 break-words">{pending ? 'Connecting to host peer…' : state.phase === 'connected' ? 'Connected to host peer' : state.phase === 'invalid' ? 'This invite is invalid, your own, or blocked.' : 'Host has not connected. Other peer connections remain available.'}</span>
+    {(pending || syncing) && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />}
+    <span className="min-w-0 flex-1 break-words">{pending ? 'Connecting to host peer…' : syncing ? 'Connected to host — syncing room…' : state.phase === 'connected' ? 'Connected to host peer' : state.phase === 'invalid' ? 'This invite is invalid, your own, or blocked.' : 'Host has not connected. Other peer connections remain available.'}</span>
     {state.phase === 'unavailable' && <Button type="button" size="sm" variant="outline" className="h-7 shrink-0 text-xs" onClick={retryBrainInvite}>Retry</Button>}
   </div>;
 }
