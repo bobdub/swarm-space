@@ -31,6 +31,7 @@ import {
   getEarthPose,
   quatRotate,
   type Vec3,
+  GAME_DAY_SECONDS,
 } from '@/lib/brain/earth';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getBrainPhysics, worldToLattice } from '@/lib/brain/uqrcPhysics';

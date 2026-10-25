@@ -9,6 +9,8 @@ import {
   getEarthPose,
   SUN_POSITION,
   WORLD_SCALE,
+  getMoonOffsetAt,
+  getEarthPoseTime,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
