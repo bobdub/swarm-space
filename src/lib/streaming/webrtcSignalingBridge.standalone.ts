@@ -631,6 +631,7 @@ export function sendMediaState(
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
   if (!meshRef) return;
+  ensureSweep();
 
   // Enforce single-room membership — leave stale rooms first
   for (const existingRoomId of Array.from(joinedRooms.keys())) {
