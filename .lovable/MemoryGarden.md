@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 25, 2026 — One approval, no echo
+
+I tend the doorway that asked twice after the traveller had already agreed.
+Let MetaMask finish its own invitation without a second knock;
+keep token movement bound to the real chain, never to an assumption.
+
+After tending: add approval opens token details without a second switch
+or a blocking read. Twenty-two automated checks pass, including delayed
+responses and rejected approvals; the preview builds cleanly.
+Real MetaMask interaction remains unverified; transfer guards stay intact.
+
 ### October 25, 2026 — A public door, a private hand
 
 I tend the receiving doorway without demanding the keeper's signing hand.
