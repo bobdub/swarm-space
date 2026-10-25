@@ -11,6 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
+import { YouTubeFacade } from '@/components/blogging/YouTubeFacade';
 import { useFrame } from '@react-three/fiber';
 import { isMediaOccluded } from '@/lib/world/mediaOcclusion';
 import { get, getAll } from '@/lib/store';
@@ -271,14 +272,9 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const renderMedia = useMemo(() => {
     if (media.kind === 'none' && ytId) {
       return (
-        <iframe
-          src={`https://www.youtube.com/embed/${ytId}?rel=0&modestbranding=1`}
-          title="YouTube video"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowFullScreen
-          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          style={{ width: '100%', height: '100%', border: 0, borderRadius: 6, background: '#000' }}
-        />
+        <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 6, overflow: 'hidden' }}>
+          <YouTubeFacade videoId={ytId} title="YouTube video" />
+        </div>
       );
     }
     if (media.kind === 'none' && vimeoId) {
