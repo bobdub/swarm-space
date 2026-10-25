@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
+  AtSign,
   CornerDownRight,
   Maximize2,
   Mic,
@@ -10,6 +11,7 @@ import {
   Send,
   Settings2,
   MessageSquare,
+  Shield,
   Upload,
   Users,
   Video,
@@ -48,6 +50,8 @@ import {
 import type { SwarmCoin } from '@/lib/blockchain/types';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 
 export interface BrainChatLine {
   id: string;
@@ -56,6 +60,8 @@ export interface BrainChatLine {
   ts: number;
   /** Original peerId/userId of the sender, used for avatar lookup. */
   authorId?: string;
+  /** WebRTC peer id of the sender (remote lines only) — used for mute/block. */
+  peerId?: string;
   avatarRef?: string;
   infinityReplyTo?: string;
   replyTo?: { id: string; author: string; preview: string };
