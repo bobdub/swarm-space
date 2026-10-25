@@ -82,6 +82,10 @@ export function addCustomToken(uid: string, t: Omit<CustomToken, "addedAt">): Cu
   save(uid, [...rest, token]);
   return token;
 }
+/** Remove an imported token from this wallet. Ledger records stay; re-importing restores the balance. */
+export function removeCustomToken(uid: string, address: string) {
+  save(uid, listCustomTokens(uid).filter((t) => t.address !== address.toLowerCase()));
+}
 /** Hiding is only allowed when nothing is held in MetaMask or recorded natively. */
 export function canHideToken(metaMaskBalance: number | null, recorded: number): boolean {
   return metaMaskBalance === 0 && recorded <= 0;
