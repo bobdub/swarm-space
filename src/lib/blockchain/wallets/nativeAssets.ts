@@ -19,9 +19,22 @@ export interface NativeAssetSnapshot {
   holdings: ProfileTokenHolding[];
 }
 
+/**
+ * Everything the native wallet knows about, unfiltered. The wallet list
+ * never hides assets automatically — zero balances stay visible until the
+ * owner hides them manually (SWARM can never be hidden).
+ */
+export function nativeWalletInventory(snapshot: NativeAssetSnapshot): NativeAsset[] {
+  return buildAssets(snapshot);
+}
+
 /** Native ownership is shared by Assets and Market, independent of MetaMask connection. */
 export function nativeWalletAssets(snapshot: NativeAssetSnapshot): NativeAsset[] {
-  return positiveBalanceAssets<NativeAsset>([
+  return positiveBalanceAssets<NativeAsset>(buildAssets(snapshot));
+}
+
+function buildAssets(snapshot: NativeAssetSnapshot): NativeAsset[] {
+  return [
     { id: "SWARM", label: "SWARM", symbol: "SWARM", kind: "swarm", amount: snapshot.swarm, available: snapshot.swarm },
     { id: "CREDIT", label: "Credits", symbol: "Credits", kind: "credits", amount: snapshot.credits, available: snapshot.credits },
     { id: "MINTME", label: "MintMe", symbol: "MINTME", kind: "external", amount: snapshot.mintme, available: snapshot.mintme },

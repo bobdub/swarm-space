@@ -8,7 +8,7 @@
  */
 export const HIDDEN_ASSETS_EVENT = "swarm-hidden-assets";
 
-const KEY = (uid: string) => `swarm-hidden-assets:${uid`;
+const KEY = (uid: string) => `swarm-hidden-assets:${uid}`;
 
 export function listHiddenAssets(uid: string): string[] {
   if (!uid) return [];
