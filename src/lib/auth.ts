@@ -250,15 +250,7 @@ export async function getCachedPrivateKey(): Promise<string | null> {
     }
   }
   if (isWalletExplicitlyLocked()) return null;
-  let restored = (await restoreFromSessionSeal()) ?? (await restoreFromDeviceSeal(owner));
-  if (!restored) {
-    // Accounts stored without a passphrase wrap can authorize silently.
-    try {
-      const user = getCurrentUser();
-      const w = user ? await get<{ k: string; v: WrappedKey }>("meta", user.wrappedKeyRef) : null;
-      if (w?.v?.rawStored) restored = w.v.wrapped;
-    } catch { /* ignore */ }
-  }
+  const restored = (await restoreFromSessionSeal()) ?? (await restoreFromDeviceSeal(owner));
   if (getCurrentUser()?.id !== owner || hasIntentionalSignOut()) return null;
   if (restored) {
     try {
