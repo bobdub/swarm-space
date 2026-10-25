@@ -14,6 +14,7 @@
 - Brain invites use the shared one-shot invite coordinator at signaling readiness before general discovery; already-running sessions use its guarded manual path, and chat status follows the named host connection rather than aggregate peer counts.
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
+- The shared bar footprint and offsets live in barTerrain; bake its dry tangent-plane foundation into the shared solid terrain with a tessellation margin and feathered perimeter, keeping its anchor unchanged so room/game identities remain stable.
 - Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 
 ## Verification compatibility
