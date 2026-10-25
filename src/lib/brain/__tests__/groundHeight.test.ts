@@ -29,7 +29,9 @@ describe('solid globe floor', () => {
     const mesh = new THREE.Mesh(getGroundGeometry(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     mesh.updateMatrixWorld();
     const raycaster = new THREE.Raycaster();
-    const samples: Vec3[] = [[0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 0, 0]];
+    // Slightly inside the polar cap: exact pole rays can miss Three's
+    // degenerate pole fan and hit the opposite hemisphere instead.
+    const samples: Vec3[] = [[1e-6, Math.sqrt(1 - 1e-12), 0], [1e-6, -Math.sqrt(1 - 1e-12), 0], [-1, 0, 0], [1, 0, 0]];
     for (let i = 0; i < 80; i++) {
       const v = new THREE.Vector3(Math.cos(i * 2.4), Math.sin(i * 0.7), Math.sin(i * 2.4)).normalize();
       samples.push([v.x, v.y, v.z]);
