@@ -211,9 +211,47 @@ export function isWalletExplicitlyLocked(): boolean {
   try { return localStorage.getItem(LOCK_FLAG(owner)) === "1"; } catch { return false; }
 }
 
-/** Lock the wallet: keeps the account signed in, but signing needs the passphrase again. */
-export async function lockWallet(): Promise<void> {
+// Optional wallet-only passphrase: the private key wrapped (PBKDF2 + AES-GCM)
+// under a passphrase independent of the account passphrase.
+const WALLET_LOCK_WRAP_PREFIX = "wallet-lock-wrap:";
+const LOCK_QUIZ_FLAG = (uid: string) => `swarm-wallet-lock-quiz:${uid}`;
+
+/** Users who already locked before the safety quiz existed are treated as having passed it. */
+export function hasPassedWalletLockQuiz(): boolean {
   const owner = getCurrentUser()?.id;
+  if (!owner) return false;
+  try {
+    return localStorage.getItem(LOCK_QUIZ_FLAG(owner)) === "1" || localStorage.getItem(LOCK_FLAG(owner)) === "1";
+  } catch { return false; }
+}
+export function markWalletLockQuizPassed(): void {
+  const owner = getCurrentUser()?.id;
+  if (!owner) return;
+  try { localStorage.setItem(LOCK_QUIZ_FLAG(owner), "1"); } catch { /* ignore */ }
+}
+
+export async function hasSeparateWalletPassphrase(): Promise<boolean> {
+  const owner = getCurrentUser()?.id;
+  if (!owner) return false;
+  try { return !!(await get<{ k: string; v: unknown }>("meta", WALLET_LOCK_WRAP_PREFIX + owner))?.v; } catch { return false; }
+}
+
+/**
+ * Lock the wallet: keeps the account signed in, but signing needs a passphrase again.
+ * Pass `separatePassphrase` to require a wallet-only passphrase instead of the account one.
+ */
+export async function lockWallet(opts: { separatePassphrase?: string } = {}): Promise<void> {
+  const owner = getCurrentUser()?.id;
+  if (owner) {
+    if (opts.separatePassphrase) {
+      const pk = await getCachedPrivateKey();
+      if (!pk) throw new Error("Unlock the wallet before setting a separate passphrase.");
+      const wrapped = await wrapPrivateKey(pk, opts.separatePassphrase);
+      await put("meta", { k: WALLET_LOCK_WRAP_PREFIX + owner, v: wrapped });
+    } else {
+      try { await remove("meta", WALLET_LOCK_WRAP_PREFIX + owner); } catch { /* ignore */ }
+    }
+  }
   clearUnlockedPrivateKeyCache();
   if (owner) {
     await clearDeviceSeal(owner);
@@ -222,8 +260,17 @@ export async function lockWallet(): Promise<void> {
   try { window.dispatchEvent(new Event(WALLET_LOCK_EVENT)); } catch { /* ignore */ }
 }
 
-/** Unlock the wallet with the account passphrase. Throws on a wrong passphrase. */
+/** Unlock with the wallet passphrase if one was set, otherwise the account passphrase. Throws when wrong. */
 export async function unlockWallet(passphrase: string): Promise<void> {
+  const owner = getCurrentUser()?.id;
+  if (owner) {
+    const entry = await get<{ k: string; v: { wrapped: string; salt: string; iv: string } }>("meta", WALLET_LOCK_WRAP_PREFIX + owner).catch(() => null);
+    if (entry?.v) {
+      const pk = await unwrapPrivateKey(entry.v, passphrase); // throws on wrong passphrase
+      await cacheUnlockedPrivateKey(pk, owner);
+      return;
+    }
+  }
   const key = await loginUser(passphrase);
   if (!key) throw new Error("Could not unlock — no account key found on this device.");
 }
