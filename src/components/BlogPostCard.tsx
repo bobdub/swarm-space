@@ -87,7 +87,7 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
     const lines = post.content.split("\n");
     const bodyStart = lines.findIndex((l, i) => i > 0 && l.trim().length > 0);
     const rawBody = bodyStart >= 0 ? lines.slice(bodyStart).join(" ").trim() : "";
-    const body = youtubeId ? stripYoutubeLinks(rawBody) : rawBody;
+    const body = stripYoutubeLinks(rawBody);
     return body.length > 280 ? `${body.slice(0, 277)}…` : body;
   }, [post.content, isWalledHidden]);
 
