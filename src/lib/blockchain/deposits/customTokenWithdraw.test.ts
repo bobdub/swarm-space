@@ -22,6 +22,7 @@ vi.mock("../wallets/mintmeNetwork", () => ({
 }));
 vi.mock("../wallets/coldKey", () => ({
   deriveColdKey: async () => ({ address: mocks.coldAddress, wallet: {} }),
+  getColdKeyReceivingAddress: async () => mocks.coldAddress,
   getColdKeyAuthority: async () => mocks.authority,
   sendColdKeyTokenTransfer: mocks.send,
 }));

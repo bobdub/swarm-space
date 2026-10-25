@@ -13,7 +13,7 @@ import { isDepositSynced, markDepositsSynced, connectedPeerCount } from "./depos
 import { METAMASK_RESPONSE_TIMEOUT_MS } from "../wallets/metaMaskRequestTimeout";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
-import { deriveColdKey, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
+import { deriveColdKey, getColdKeyReceivingAddress, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
 import type { SwarmTransaction } from "../types";
 import { connectMetaMask, getMetaMaskAccount, requestMetaMask } from "../wallets/metaMaskBridge";
 import { MINTME_CHAIN_ID_HEX, isMintMeChain, readMintMeChainId, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
@@ -59,7 +59,7 @@ export async function hydrateCustomTokens(uid: string): Promise<CustomToken[]> {
   try {
     const { get } = await import("../../store");
     const entry = await get<{ k: string; v: CustomToken[] }>("meta", KEY(uid));
-    const durable = Array.isArray(entry?.v) ? entry!.v : [];
+    const durable = entry && Array.isArray(entry.v) ? entry.v : [];
     const byAddr = new Map<string, CustomToken>();
     for (const t of [...durable, ...local]) if (t && isContractAddress(t.address)) byAddr.set(t.address.toLowerCase(), t);
     const merged = [...byAddr.values()];
@@ -260,7 +260,7 @@ async function recordCustomTokenDeposit(p: { swarmId: string; token: CustomToken
   // cold-wallet key address — the native wallet's EVM face, which the owner
   // alone can later sign from to withdraw. A self-transfer would confirm
   // without moving any balance.
-  const destination = (await deriveColdKey(swarmId)).address;
+  const destination = await getColdKeyReceivingAddress(swarmId);
   const units = numberToUnits(amount, token.decimals);
   const data = ERC20.encodeFunctionData("transfer", [destination, units]);
   const txHash = String(await requestMetaMask<string>("eth_sendTransaction", [

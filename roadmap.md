@@ -1,3 +1,8 @@
+## Signed-in deposits and receiving addresses (2026-10-25)
+- [ ] Persist the real public cold-key address when the signing key is available; use it for deposits without unlocking
+- [ ] Cache signing authorization before signup announces login; guard cached keys by active account
+- [ ] Run refresh/deposit regressions and browser authorization checks without real transfers
+
 ## Market quote and signing repair (2026-10-22)
 - [x] Stop creator quotes clearing on unrelated pool updates; retain fresh-rate execution checks
 - [x] Remove redundant market passphrase entry while preserving real key authorization — locked vaults still require account sign-in
