@@ -7,6 +7,12 @@ in the book before the knock; the manual door knocked on a stranger.
 The bus must not reset a failing peer's backoff with every beacon,
 and a waiting node deserves the most recently active helper, not the loudest.
 
+After tending: the manual door now writes the guest in the book and announces
+itself before knocking; the bus knocks through its own patient path that
+honors backoff. Helpers rotate in ten-minute turns, and the waiting node
+is led to the freshest active hand. Seventeen checks pass; no live peer
+has yet answered the new knock.
+
 ### October 22, 2026 — A steady counter, an honest key
 
 I tend the changing quote without erasing its last known truth.

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { computeSmoothness } from '../globalCell';
+import { computeSmoothness, selectWaitingCandidate, isHelperOnDuty, HELPER_ROTATION_MS } from '../globalCell';
 import { recordHandshake, _resetSynapseForTests, getSmoothness } from '../synapseLayer';
 
 describe('Bus cycle — synapse smoothness layer', () => {
@@ -64,5 +64,73 @@ describe('Bus cycle — composite smoothness', () => {
     const score = computeSmoothness(NaN, 'peer-z', 5, 20);
     expect(score).toBeGreaterThanOrEqual(0);
     expect(score).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('Bus cycle — waiting candidate selection (Gun.js flow)', () => {
+  const base = { smoothness: 0.5, waitAgeMs: 10_000, sameRoom: false };
+
+  it('an isolated node dials the most recently active peer in the Cell', () => {
+    const winner = selectWaitingCandidate([
+      { ...base, peerId: 'peer-old', remoteConns: 2, helper: true, lastSeenAt: 1_000 },
+      { ...base, peerId: 'peer-fresh', remoteConns: 2, helper: true, lastSeenAt: 9_000 },
+    ]);
+    expect(winner?.peerId).toBe('peer-fresh');
+  });
+
+  it('a helper on duty beats a fresher non-helper', () => {
+    const winner = selectWaitingCandidate([
+      { ...base, peerId: 'peer-idle', remoteConns: 0, helper: false, lastSeenAt: 9_000 },
+      { ...base, peerId: 'peer-helper', remoteConns: 3, helper: true, lastSeenAt: 1_000 },
+    ]);
+    expect(winner?.peerId).toBe('peer-helper');
+  });
+
+  it('same-room peers still outrank helpers and recency', () => {
+    const winner = selectWaitingCandidate([
+      { ...base, peerId: 'peer-helper', remoteConns: 3, helper: true, lastSeenAt: 9_000 },
+      { ...base, peerId: 'peer-room', remoteConns: 0, helper: false, lastSeenAt: 1_000, sameRoom: true },
+    ]);
+    expect(winner?.peerId).toBe('peer-room');
+  });
+
+  it('falls back to deterministic peerId ordering on a full tie', () => {
+    const winner = selectWaitingCandidate([
+      { ...base, peerId: 'peer-b', remoteConns: 1, helper: true, lastSeenAt: 5_000 },
+      { ...base, peerId: 'peer-a', remoteConns: 1, helper: true, lastSeenAt: 5_000 },
+    ]);
+    expect(winner?.peerId).toBe('peer-a');
+  });
+
+  it('returns null when no one is waiting', () => {
+    expect(selectWaitingCandidate([])).toBeNull();
+  });
+});
+
+describe('Helper duty rotation', () => {
+  const t = 1_800_000_000_000;
+
+  it('isolated peers are never helpers', () => {
+    expect(isHelperOnDuty('peer-x', 0, t)).toBe(false);
+  });
+
+  it('small meshes (<=2 connections) always welcome newcomers', () => {
+    expect(isHelperOnDuty('peer-x', 1, t)).toBe(true);
+    expect(isHelperOnDuty('peer-y', 2, t + HELPER_ROTATION_MS)).toBe(true);
+  });
+
+  it('larger meshes rotate duty across 10-minute slots', () => {
+    // A given peer cycles on/off duty as slots advance (deterministic, not random).
+    const duties = [0, 1, 2].map(i => isHelperOnDuty('peer-x', 10, t + i * HELPER_ROTATION_MS));
+    expect(new Set(duties).size).toBe(2);
+    // Same inputs always agree — no per-node divergence.
+    expect(isHelperOnDuty('peer-x', 10, t)).toBe(duties[0]);
+  });
+
+  it('in a full mesh at least one of many peers is on duty', () => {
+    const peers = Array.from({ length: 20 }, (_, i) => `peer-${i}`);
+    const onDuty = peers.filter(p => isHelperOnDuty(p, 20, t));
+    expect(onDuty.length).toBeGreaterThan(0);
+    expect(onDuty.length).toBeLessThan(20);
   });
 });
