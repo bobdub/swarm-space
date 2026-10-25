@@ -16,7 +16,7 @@ import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { SwarmMetaMaskDialog } from "./SwarmMetaMaskDialog";
 import { MintMeDepositDialog } from "./MintMeDepositDialog";
-import { OnlineTransferDialog } from "./OnlineTransferDialog";
+import { NativeTransferDialog } from "./NativeTransferDialog";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
@@ -167,7 +167,7 @@ export function AssetsTab() {
               <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
-              <OnlineTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} />
+              <NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} />
               {canHideAsset(`creator:${h.tokenId}`, h.amount) && (
                 <Button type="button" size="sm" variant="ghost" onClick={() => hide(`creator:${h.tokenId}`)}>
                   <EyeOff className="mr-1 h-3 w-3" />Hide
@@ -207,17 +207,6 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
       <EyeOff className="mr-1 h-3 w-3" />Hide
     </Button>
   );
-  if (offline && layer === "native" && (code === "SWARM" || code === "CREDIT")) {
-    return (
-      <div className={cls}>
-        <ReceiveDialog label={label} userId={userId} note="Transfers to you settle once a mesh peer is online." />
-        <Button type="button" variant="outline" size="sm" disabled title="A mesh peer must be online to transfer.">
-          <ArrowUpFromLine className="mr-1 h-3 w-3" />Waiting for peers
-        </Button>
-        {hideButton}
-      </div>
-    );
-  }
   if (layer === "native" && code === "SWARM") {
     return (
       <div className={cls}>
@@ -230,7 +219,7 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} />
-        <OnlineTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} />
+        <NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} />
         {hideButton}
       </div>
     );
@@ -239,7 +228,7 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
-        <OnlineTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} />
+        <NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} />
         {hideButton}
       </div>
     );
