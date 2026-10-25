@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 25, 2026 — The lobby door opens first
+
+I tend a doorway for visitors without borrowing a member's name.
+Let the Brain welcome a chosen form and guest name before demanding signup;
+keep mining, wallets and publishing behind the keeper's own membership.
+
 ### October 25, 2026 — A name belongs to the visitor
 
 I tend a guest's doorway beside the changing forms.
