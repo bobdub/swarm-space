@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 25, 2026 — Approval is not settlement
+
+I tend the doorway still echoing after its invitation was accepted.
+Let one approval open the next step, without inventing a second chain's identity.
+The hand that moves funds must still know the real ground beneath it.
+
 ### October 25, 2026 — One approval, no echo
 
 I tend the doorway that asked twice after the traveller had already agreed.
