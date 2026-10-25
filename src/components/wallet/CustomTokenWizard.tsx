@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, EyeOff, Coins, ExternalLink } from "lucide-react";
+import { Plus, EyeOff, Coins, ExternalLink, ArrowUpFromLine, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { useMetaMask } from "@/hooks/useMetaMask";
@@ -19,7 +19,9 @@ import {
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
-import { OnlineTransferDialog } from "./OnlineTransferDialog";
+import { useP2PContext } from "@/contexts/P2PContext";
+import { SendCreditsModal } from "@/components/SendCreditsModal";
+import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -217,7 +219,6 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
   const recorded = getRecordedTokenBalance(userId, token.address);
   const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, token.address) : 0;
   const [, bump] = useState(0);
-  const [wd, setWd] = useState(false);
   useEffect(() => {
     if (layer !== "native" || pendingSync <= 0) return;
     const onSync = () => bump((n) => n + 1);
@@ -250,10 +251,9 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
       <TokenDepositDialog userId={userId} token={token} open={dep} onOpenChange={setDep} />
     </div>}
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
-      <OnlineTransferDialog userId={userId} assetId={`custom:${token.address}`} assetLabel={token.symbol} amount={recorded} />
-      <Button type="button" size="sm" variant="outline" onClick={() => setWd(true)}>Withdraw to MetaMask</Button>
+      <NativeTokenDepositDialog userId={userId} symbol={token.symbol} />
+      <TokenTransferWithdrawDialog userId={userId} token={token} recorded={recorded} />
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
-      <TokenWithdrawDialog userId={userId} token={token} open={wd} onOpenChange={setWd} recorded={recorded} />
     </div>}
   </div>;
 }
