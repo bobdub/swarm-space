@@ -1287,6 +1287,19 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
 
+  // Muted peers vanish from the scene entirely on this device — no avatar,
+  // no camera tile, no audio (audio is muted in PersistentAudioLayer).
+  // Blocked peers also carry a mute entry, so one store covers both.
+  const mutedPeers = useMutedPeers();
+  const visibleVoicePeers = useMemo(
+    () => voicePeers.filter((p) => !isPeerMuted(p.peerId)),
+    [voicePeers, mutedPeers],
+  );
+  const visibleRtcParticipants = useMemo(
+    () => rtcParticipants.filter((p) => !isPeerMuted(p.peerId)),
+    [rtcParticipants, mutedPeers],
+  );
+
   // Entering the Brain marks this room as synced: leaving the page keeps
   // the conversation going until the user presses Disconnect.
   useEffect(() => {
