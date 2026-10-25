@@ -19,6 +19,7 @@ import {
 } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
+import { OnlineTransferDialog } from "./OnlineTransferDialog";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -207,8 +208,8 @@ function usePrepRemaining(token: CustomToken): number {
   return left;
 }
 
-/** Token row for either tab. Native shows only deposited tokens; MetaMask shows all non-hidden ones. */
-export function CustomTokenRow({ userId, token, layer }: { userId: string; token: CustomToken; layer: "native" | "metamask" }) {
+/** Token row for either tab. Native lists every imported token (zero balances stay visible until the owner hides them); MetaMask shows all non-hidden ones. */
+export function CustomTokenRow({ userId, token, layer, onHide }: { userId: string; token: CustomToken; layer: "native" | "metamask"; onHide?: () => void }) {
   const { address } = useMetaMask();
   const [held, setHeld] = useState<number | null>(null);
   const [dep, setDep] = useState(false);
