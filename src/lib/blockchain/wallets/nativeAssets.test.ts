@@ -20,3 +20,13 @@ describe("Native Market payment ownership", () => {
     expect(nativeMarketPayments(nativeWalletAssets({ ...base, credits: 50, mintme: 2, eth: 0, btc: NaN })).map(({ id }) => id)).toEqual(["CREDIT", "MINTME"]);
   });
 });
+
+describe("Native wallet inventory visibility", () => {
+  it("lists every known asset including zero balances — nothing is hidden automatically", () => {
+    const inventory = nativeWalletInventory({ ...base, swarm: 0, holdings: [{ userId: "mike", tokenId: "deployed", ticker: "MIKE", creatorUserId: "mike", amount: 0, lastUpdated: "2026-10-25" }] });
+    expect(inventory.map(({ id }) => id)).toEqual(["SWARM", "CREDIT", "MINTME", "ETH", "BTC", "creator:deployed"]);
+  });
+  it("keeps the positive-balance filter for Market Buy", () => {
+    expect(nativeWalletAssets({ ...base, swarm: 0 }).map(({ id }) => id)).toEqual([]);
+  });
+});
