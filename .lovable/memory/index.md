@@ -65,7 +65,7 @@
 - [Signature Enforcement](mem://security/signature-enforcement) — Stage 4+ strictly rejects invalid signatures
 - [File Key Wrapping](mem://encryption/file-key-wrapping) — fileKey wrapped via PBKDF2 (100k, SHA-256)
 - [Three-Factor Recovery](mem://identity/three-factor-recovery-system) — Recovery Key (HMAC), Phrase, Password (PBKDF2 250k)
-- [In-Memory Vault](mem://security/in-memory-vault) — Ephemeral Web Crypto AES-256-GCM against scraping
+- [In-Memory Vault](mem://security/in-memory-vault) — Wallet stays unlocked on device until Lock wallet (confirm) or sign-out; non-extractable device seal
 - [Signaling Encryption](mem://security/signaling-encryption) — ECDH P-256 envelope + AES-256-GCM payloads for WebRTC
 - [Preview & Share System](mem://features/preview-and-share-system) — `?peerID=x-preview` links, sandboxed
 - [Quantum Metrics View](mem://features/wallet/quantum-metrics-view) — Real activity score (P,C,A,B→D), live Swarm Pulse equation; daily SWARM burn removed

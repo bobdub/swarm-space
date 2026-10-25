@@ -1,7 +1,7 @@
 // Local authentication and identity management
 
 import { genIdentityKeyPair, wrapPrivateKey, unwrapPrivateKey, computeUserId, arrayBufferToBase64, base64ToArrayBuffer } from "./crypto";
-import { put, get, getAll } from "./store";
+import { put, get, getAll, remove } from "./store";
 import { awardGenesisCredits } from "./credits";
 import { vault, type SealedValue } from "./crypto/memoryVault";
 import { setFeatureFlag } from "../config/featureFlags";
@@ -127,6 +127,41 @@ async function restoreFromSessionSeal(): Promise<string | null> {
   }
 }
 
+// ── Device unlock (stays unlocked until the user presses Lock wallet) ────────
+// Sealed under a NON-EXTRACTABLE AES-GCM CryptoKey stored in IndexedDB: the
+// raw key bytes can never be exported by script; only ciphertext persists.
+const DEVICE_SEAL_PREFIX = "wallet-device-seal:";
+export const WALLET_LOCK_EVENT = "wallet-lock-changed";
+
+interface DeviceSealRecord { key: CryptoKey; iv: string; ciphertext: string }
+
+async function sealOnDevice(privateKey: string, userId: string): Promise<void> {
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const buf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(privateKey));
+  const v: DeviceSealRecord = { key, iv: arrayBufferToBase64(iv.buffer as ArrayBuffer), ciphertext: arrayBufferToBase64(buf) };
+  await put("meta", { k: DEVICE_SEAL_PREFIX + userId, v });
+}
+
+async function restoreFromDeviceSeal(userId: string): Promise<string | null> {
+  try {
+    const entry = await get<{ k: string; v: DeviceSealRecord }>("meta", DEVICE_SEAL_PREFIX + userId);
+    if (!entry?.v?.key) return null;
+    const buf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: new Uint8Array(base64ToArrayBuffer(entry.v.iv)) },
+      entry.v.key,
+      base64ToArrayBuffer(entry.v.ciphertext),
+    );
+    return new TextDecoder().decode(buf);
+  } catch {
+    return null;
+  }
+}
+
+async function clearDeviceSeal(userId: string): Promise<void> {
+  try { await remove("meta", DEVICE_SEAL_PREFIX + userId); } catch { /* ignore */ }
+}
+
 async function cacheUnlockedPrivateKey(privateKey: string, userId?: string) {
   const owner = userId ?? getCurrentUser()?.id;
   if (!owner) return;
@@ -142,14 +177,21 @@ async function cacheUnlockedPrivateKey(privateKey: string, userId?: string) {
     console.warn("[auth] Unable to session-seal private key", error);
   }
   try {
+    await sealOnDevice(privateKey, owner);
+  } catch (error) {
+    console.warn("[auth] Unable to device-seal private key", error);
+  }
+  try {
     const { rememberColdKeyAddress } = await import("./blockchain/wallets/coldKey");
     await rememberColdKeyAddress(owner, privateKey);
   } catch (error) {
     console.warn("[auth] Unable to save public receiving address", error);
   }
+  try { window.dispatchEvent(new Event(WALLET_LOCK_EVENT)); } catch { /* non-browser */ }
 }
 
 function clearUnlockedPrivateKeyCache() {
+  const owner = sealedPrivateKeyOwner ?? getCurrentUser()?.id;
   sealedPrivateKey = null;
   sealedPrivateKeyOwner = null;
   try {
@@ -157,6 +199,25 @@ function clearUnlockedPrivateKeyCache() {
     sessionStorage.removeItem(SESSION_WRAP_KEY);
   } catch { /* ignore */ }
   sessionWrapKey = null;
+  if (owner) void clearDeviceSeal(owner);
+}
+
+/** Lock the wallet: keeps the account signed in, but signing needs the passphrase again. */
+export async function lockWallet(): Promise<void> {
+  const owner = getCurrentUser()?.id;
+  clearUnlockedPrivateKeyCache();
+  if (owner) await clearDeviceSeal(owner);
+  try { window.dispatchEvent(new Event(WALLET_LOCK_EVENT)); } catch { /* ignore */ }
+}
+
+/** Unlock the wallet with the account passphrase. Throws on a wrong passphrase. */
+export async function unlockWallet(passphrase: string): Promise<void> {
+  const key = await loginUser(passphrase);
+  if (!key) throw new Error("Could not unlock — no account key found on this device.");
+}
+
+export async function isWalletUnlocked(): Promise<boolean> {
+  return (await getCachedPrivateKey()) != null;
 }
 
 /**
@@ -176,7 +237,7 @@ export async function getCachedPrivateKey(): Promise<string | null> {
       sealedPrivateKey = null;
     }
   }
-  const restored = await restoreFromSessionSeal();
+  const restored = (await restoreFromSessionSeal()) ?? (await restoreFromDeviceSeal(owner));
   if (getCurrentUser()?.id !== owner || hasIntentionalSignOut()) return null;
   if (restored) {
     try {
