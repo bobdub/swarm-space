@@ -10,7 +10,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { isWalletUnlocked, lockWallet, unlockWallet, WALLET_LOCK_EVENT } from "@/lib/auth";
+import { isWalletExplicitlyLocked, isWalletUnlocked, lockWallet, unlockWallet, WALLET_LOCK_EVENT } from "@/lib/auth";
 
 export function WalletLockControl() {
   const [unlocked, setUnlocked] = useState<boolean | null>(null);
@@ -47,7 +47,7 @@ export function WalletLockControl() {
         </Button>
       ) : (
         <Button type="button" size="sm" onClick={() => setUnlockOpen(true)}>
-          <Unlock className="mr-1 h-3 w-3" />Unlock wallet
+          <Unlock className="mr-1 h-3 w-3" />{isWalletExplicitlyLocked() ? "Unlock wallet" : "Set up signing on this device"}
         </Button>
       )}
 
@@ -76,6 +76,7 @@ export function WalletLockControl() {
             <Input id="wl-pass" type="password" value={pass} autoComplete="current-password"
               onChange={(e) => setPass(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter" && pass) void doUnlock(); }} />
+            {!isWalletExplicitlyLocked() && <p className="text-xs text-muted-foreground">One time only: this device has not saved your signing key yet (it was signed in before auto-unlock existed). Your passphrase is the only thing that can create it.</p>}
             <p className="text-xs text-muted-foreground">Stays unlocked on this device until you lock it or sign out.</p>
           </div>
           <DialogFooter>

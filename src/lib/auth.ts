@@ -187,6 +187,7 @@ async function cacheUnlockedPrivateKey(privateKey: string, userId?: string) {
   } catch (error) {
     console.warn("[auth] Unable to save public receiving address", error);
   }
+  try { localStorage.removeItem(LOCK_FLAG(owner)); } catch { /* ignore */ }
   try { window.dispatchEvent(new Event(WALLET_LOCK_EVENT)); } catch { /* non-browser */ }
 }
 
@@ -202,11 +203,22 @@ function clearUnlockedPrivateKeyCache() {
   if (owner) void clearDeviceSeal(owner);
 }
 
+const LOCK_FLAG = (uid: string) => `swarm-wallet-locked:${uid}`;
+/** True only when the user pressed Lock wallet on this device. */
+export function isWalletExplicitlyLocked(): boolean {
+  const owner = getCurrentUser()?.id;
+  if (!owner) return false;
+  try { return localStorage.getItem(LOCK_FLAG(owner)) === "1"; } catch { return false; }
+}
+
 /** Lock the wallet: keeps the account signed in, but signing needs the passphrase again. */
 export async function lockWallet(): Promise<void> {
   const owner = getCurrentUser()?.id;
   clearUnlockedPrivateKeyCache();
-  if (owner) await clearDeviceSeal(owner);
+  if (owner) {
+    await clearDeviceSeal(owner);
+    try { localStorage.setItem(LOCK_FLAG(owner), "1"); } catch { /* ignore */ }
+  }
   try { window.dispatchEvent(new Event(WALLET_LOCK_EVENT)); } catch { /* ignore */ }
 }
 
@@ -237,6 +249,7 @@ export async function getCachedPrivateKey(): Promise<string | null> {
       sealedPrivateKey = null;
     }
   }
+  if (isWalletExplicitlyLocked()) return null;
   const restored = (await restoreFromSessionSeal()) ?? (await restoreFromDeviceSeal(owner));
   if (getCurrentUser()?.id !== owner || hasIntentionalSignOut()) return null;
   if (restored) {
