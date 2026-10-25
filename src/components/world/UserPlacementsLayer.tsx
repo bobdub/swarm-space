@@ -27,6 +27,7 @@ import { ownsPlacement } from '@/lib/world/buildOwnership';
 import { WallViewerControls } from '@/components/world/WallViewerControls';
 import { listWallInteractions, subscribeWallInteractions } from '@/lib/world/wallInteractionsStore';
 import { canViewerInteract, goldLustre, VIEWER_REACH_M } from '@/lib/world/wallInteractionRules';
+import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 
 interface UserPlacementsLayerProps {
   selfId: string;
@@ -52,6 +53,8 @@ export function UserPlacementsLayer({
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
   useEffect(() => subscribePlacements(setRecords), []);
+  // Muted (or blocked) peers' building items are hidden on this device.
+  const mutedPeers = useMutedPeers();
   const [held, setHeld] = useState<HeldTool | null>(() => getHeldTool());
   useEffect(() => subscribeHeldTool(setHeld), []);
   const [toolTarget, setSelectedToolTarget] = useState<ToolTarget | null>(() => getToolTarget());
@@ -73,6 +76,7 @@ export function UserPlacementsLayer({
       {records.map((rec) => {
         const prefab = getPrefab(rec.prefabId);
         if (!prefab) return null;
+        if (isPeerMuted(rec.actorId)) return null;
         const bodyId = `${prefab.id}:${rec.placementId}`;
         const owned = ownsPlacement(rec, selfId);
         const isHoldable =
