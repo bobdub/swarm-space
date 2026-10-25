@@ -1,3 +1,4 @@
+- [ ] Restore avatar/visible-ground agreement with one terrain floor; preserve gravity and causal timing, focused automated checks only.
 - [x] Reconcile Brain terrain support with a solid seabed and carry globe headings in local tangent space.
 - [x] Correct water over land: restore historical continent noise and keep water at sea level; no further live browser tests.
 - [x] Run focused terrain/navigation regressions (30 passed); user handles live Brain verification.
