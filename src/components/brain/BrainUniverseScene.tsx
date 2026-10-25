@@ -1937,7 +1937,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const fusion = getSharedNeuralEngine().getDualLearning();
       fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }
-  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine]);
+  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
 
   // ── Drop a portal at the player's current position ────────────────
   // If `hitPoint` is provided (raycast cast from AssetCaster), the portal

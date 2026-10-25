@@ -18,6 +18,7 @@
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 
 ## Brain chat participation
+- Keep guest participation preferences separate from member preferences; disconnected guest guidance is local interface status and uses the existing manual connection path, not fabricated Infinity output.
 - Keep Infinity participation as an explicit saved mode separate from temporary voice mute; gate generation and delayed replies with current mode and invalidate queued replies on disable/unmount so silence is immediate.
 - Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
 - Chat and media wrapping share ledger-backed coin recovery; count historical containers and balance so spent coins cannot be recreated.
