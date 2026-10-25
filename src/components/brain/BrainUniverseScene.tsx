@@ -162,6 +162,7 @@ import {
   subscribeAvatarChange,
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
+import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
 import { syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
@@ -1232,6 +1233,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // /brain (or when an outer wizard navigates here right after collecting
   // the same info), because `entryOpen` defaulted to `true` unconditionally.
   const entryAlreadyComplete = (() => {
+    if (isGuestUser(user) && !user.guestName?.trim()) return false;
     try {
       const raw = localStorage.getItem('brain-entry-complete');
       if (!raw) return false;
@@ -2443,7 +2445,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={voicePeers} />}
-        {selfId && <SelfAvatarBody selfId={selfId} username={user?.username ?? 'You'} />}
+        {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
@@ -2601,7 +2603,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* Pub games — walk up to the dartboard, press E, play or watch. */}
       {ready && selfId && !isBuilding && (
-        <PubGameLayer selfId={selfId} username={user?.username ?? 'Player'} mobile={isMobile} />
+        <PubGameLayer selfId={selfId} username={user ? brainDisplayName(user) : 'Player'} mobile={isMobile} />
       )}
 
       {/* Compass + Mini-Map (always available once spawned) */}

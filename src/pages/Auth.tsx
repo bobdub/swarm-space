@@ -20,12 +20,13 @@ import { usePreview } from "@/contexts/PreviewContext";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { SignupWizard } from "@/components/onboarding/SignupWizard";
 import { resolvePostAuthTarget } from "@/lib/routing/canonicalHome";
+import { isGuestUser } from '@/lib/preview/guestAccess';
 
 export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const [checkingAccounts, setCheckingAccounts] = useState(true);
   const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
-  const [signupOpen, setSignupOpen] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(() => new URLSearchParams(window.location.search).get('signup') === '1');
 
   const [recoveryPrivateKey, setRecoveryPrivateKey] = useState("");
   const [recoveryPassword, setRecoveryPassword] = useState("");
@@ -56,7 +57,7 @@ export default function Auth() {
 
   useEffect(() => {
     if (!authReady) return;
-    if (user) {
+    if (user && !isGuestUser(user)) {
       navigate(redirectTo, { replace: true });
     }
   }, [authReady, user, navigate, redirectTo]);
