@@ -176,6 +176,13 @@ export function ensureSessionRestore(): Promise<SessionSnapshot> {
 
   restorePromise = restoreSessionAttempt()
     .then((result) => {
+      // Guest entry or login can complete while durable restoration is still
+      // resolving. Its stale 'none' result must not erase the new session.
+      const current = getCurrentUser();
+      if (current) {
+        setSignedIn(current);
+        return snapshot;
+      }
       if (result.status === "restored") {
         setSignedIn(result.user);
       } else if (result.status === "none") {
