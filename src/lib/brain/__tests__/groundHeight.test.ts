@@ -26,12 +26,15 @@ describe('solid globe floor', () => {
   });
 
   it('places feet on the actual rendered triangles across slopes, ocean, seams and poles', () => {
-    const mesh = new THREE.Mesh(getGroundGeometry(), new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+    const geometry = getGroundGeometry();
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
     mesh.updateMatrixWorld();
     const raycaster = new THREE.Raycaster();
-    // Slightly inside the polar cap: exact pole rays can miss Three's
-    // degenerate pole fan and hit the opposite hemisphere instead.
-    const samples: Vec3[] = [[1e-6, Math.sqrt(1 - 1e-12), 0], [1e-6, -Math.sqrt(1 - 1e-12), 0], [-1, 0, 0], [1, 0, 0]];
+    // Verify pole vertices directly; Three's raycaster can miss its pole fan.
+    const positions = geometry.getAttribute('position');
+    expect(feetRadiusAt([0, 1, 0])).toBeCloseTo(Math.abs(positions.getY(0)) + FOOT_CUSHION, 6);
+    expect(feetRadiusAt([0, -1, 0])).toBeCloseTo(Math.abs(positions.getY(positions.count - 1)) + FOOT_CUSHION, 6);
+    const samples: Vec3[] = [[-1, 0, 0], [1, 0, 0]];
     for (let i = 0; i < 80; i++) {
       const v = new THREE.Vector3(Math.cos(i * 2.4), Math.sin(i * 0.7), Math.sin(i * 2.4)).normalize();
       samples.push([v.x, v.y, v.z]);
