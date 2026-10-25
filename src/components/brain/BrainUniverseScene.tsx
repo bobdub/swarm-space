@@ -164,6 +164,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
@@ -2458,14 +2459,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
-        {selfId && <RemoteAvatarLayer peers={voicePeers} />}
+        {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} />}
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
       {ready && (
         <BrainVideoGrid
-          participants={rtcParticipants}
+          participants={visibleRtcParticipants}
           localStream={localStream}
           localUsername={user?.username ?? 'You'}
           localMuted={isMuted}
