@@ -179,6 +179,7 @@ export function PostCard({ post }: PostCardProps) {
     () => (hidesYoutubeLinks ? stripYoutubeLinks(post.content) : post.content),
     [hidesYoutubeLinks, post.content],
   );
+  const mentionCacheRef = useMemo(() => buildMentionCache(), []);
   const renderedContent = useMemo(() => renderContentWithLinks(displayContent, mentionCacheRef), [displayContent, mentionCacheRef]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
