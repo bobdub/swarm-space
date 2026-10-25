@@ -14,6 +14,7 @@ import {
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT, WATER_WADE_DEPTH } from '@/lib/brain/surfaceProfile';
+import { getGroundGeometry } from '@/lib/brain/groundHeight';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
@@ -38,6 +39,7 @@ const earthVertex = /* glsl */ `
   uniform float uLandLift;      // metres land sits above ocean baseline
   uniform float uSeabedDepth;
   uniform float uWaterLayer;
+  uniform float uTerrainBaked;
 
   // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
   // shoreline pixels and the JS-sampled land mask agree exactly.
@@ -92,6 +94,7 @@ const earthVertex = /* glsl */ `
     lift -= (1.0 - dry) * uSeabedDepth;
     // Water is a sea-level shell, never a coating displaced onto land.
     if (uWaterLayer > 0.5) lift = 0.0;
+    if (uTerrainBaked > 0.5) lift = 0.0;
     vec3 displaced = position + nrm * lift;
     vLocalPos = displaced;
     vec4 wp = modelMatrix * vec4(displaced, 1.0);
@@ -281,6 +284,7 @@ export function EarthBody() {
         uLandLift: { value: LAND_LIFT },
         uSeabedDepth: { value: WATER_WADE_DEPTH },
         uWaterLayer: { value: 0 },
+        uTerrainBaked: { value: 1 },
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
@@ -307,6 +311,7 @@ export function EarthBody() {
     ...uniforms,
     uSeabedDepth: { value: 0 },
     uWaterLayer: { value: 1 },
+    uTerrainBaked: { value: 0 },
   }), [uniforms]);
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
@@ -347,14 +352,7 @@ export function EarthBody() {
       position={initialPose.center}
     >
       <group ref={ref} rotation-y={initialPose.spinAngle}>
-      <mesh castShadow receiveShadow>
-        {/* High-tessellation sphere so the volcano vertex displacement
-            actually resolves a cone instead of falling between vertices.
-            Segment counts come from earth.ts so SURFACE_TESS_CLEARANCE
-            (which feeds BODY_SHELL_RADIUS) always matches the rendered
-            chord deflection — no more "analytic ground sits 11 m below
-            the visible ground" phasing. */}
-        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
+      <mesh castShadow receiveShadow geometry={getGroundGeometry()} dispose={null}>
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}

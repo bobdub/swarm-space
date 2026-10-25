@@ -18,7 +18,7 @@ import {
   earthLocalToWorld,
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { groundElevationAt } from '@/lib/brain/groundHeight';
 
 export interface BuilderBlockSpec {
   /** Stable id (engine prefixes with kind for the underlying body id). */
@@ -94,12 +94,13 @@ function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
   // baseline. Without this, trees placed over land sink their trunks
   // into the displaced terrain (the user saw "tree tops with no
   // trunks" because the canopy stuck up while the trunk was buried).
+  const localRadius = Math.hypot(...localPos);
   const localUnit: [number, number, number] = [
-    localPos[0] / EARTH_RADIUS,
-    localPos[1] / EARTH_RADIUS,
-    localPos[2] / EARTH_RADIUS,
+    localPos[0] / localRadius,
+    localPos[1] / localRadius,
+    localPos[2] / localRadius,
   ];
-  const lift = sampleSurfaceLift(localUnit);
+  const lift = groundElevationAt(localUnit);
   const k = (FEET_SHELL_RADIUS + lift + spec.upOffset) / r;
   return [
     pose.center[0] + dx * k,
