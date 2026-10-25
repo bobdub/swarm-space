@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { WalletLockControl } from "@/components/wallet/WalletLockControl";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -321,7 +322,10 @@ export default function Wallet() {
               <p className="text-muted-foreground text-xs sm:text-sm">Your local SWARM blockchain wallet</p>
             </div>
           </div>
-          <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
+          <div className="flex items-center gap-2 shrink-0">
+            <WalletLockControl />
+            <WalletIcon className="h-10 w-10 text-primary hidden sm:block" />
+          </div>
         </div>
 
         <NativeWalletAddress userId={user?.id ?? ""} />
