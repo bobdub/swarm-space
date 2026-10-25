@@ -143,6 +143,8 @@ import {
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { feetRadiusAt } from '@/lib/brain/groundHeight';
+import { surfaceHeading } from '@/lib/brain/surfaceNavigation';
 import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { worldPosToLocalNormal } from '@/lib/brain/earth';
 import { FOOT_CUSHION } from '@/lib/brain/earth';
@@ -292,6 +294,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // toward the live up so micro jitter doesn't roll the horizon.
   const smoothUp = useRef<[number, number, number] | null>(null);
   const smoothFwd = useRef<[number, number, number] | null>(null);
+  const headingLocal = useRef<[number, number, number] | null>(null);
   /** Scratch buffer for the interpolated body position (no per-frame alloc). */
   const renderPos = useRef<[number, number, number]>([0, 0, 0]);
 
@@ -357,7 +360,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, rawDelta) => {
     // 1. Drain drag deltas into persistent yaw/pitch state.
     const topView = getBuilderTopView();
     if (topView !== prevTopView.current) {
@@ -433,20 +436,16 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Project the village forward into the plane orthogonal to the body's
     // local up so the basis stays orthonormal even when the body is far
     // from the village anchor (curved surface).
-    const fdot = siteLive.forward[0] * liveUp[0] + siteLive.forward[1] * liveUp[1] + siteLive.forward[2] * liveUp[2];
-    let liveFwd: [number, number, number] = [
-      siteLive.forward[0] - liveUp[0] * fdot,
-      siteLive.forward[1] - liveUp[1] * fdot,
-      siteLive.forward[2] - liveUp[2] * fdot,
-    ];
-    const fwdLen = Math.hypot(liveFwd[0], liveFwd[1], liveFwd[2]) || 1;
-    liveFwd = [liveFwd[0] / fwdLen, liveFwd[1] / fwdLen, liveFwd[2] / fwdLen];
+    const localUp = quatRotate(pose.invSpinQuat, liveUp);
+    const seed = quatRotate(pose.invSpinQuat, siteLive.forward);
+    headingLocal.current = surfaceHeading(localUp, headingLocal.current ?? seed, seed);
+    const liveFwd = quatRotate(pose.spinQuat, headingLocal.current);
     const frame = { up: liveUp, forward: liveFwd, right: siteLive.right };
 
     // Lerp the basis toward the live frame (slow) so micro jitter in the
     // body position doesn't snap the horizon. On the very first frame,
     // seed straight from the live frame so the camera starts level.
-    const lerp = 0.15;
+    const lerp = 1 - Math.exp(-9.75 * Math.min(rawDelta, 0.05));
     if (!smoothUp.current) smoothUp.current = [frame.up[0], frame.up[1], frame.up[2]];
     if (!smoothFwd.current) smoothFwd.current = [frame.forward[0], frame.forward[1], frame.forward[2]];
     for (let k = 0; k < 3; k++) {
@@ -455,12 +454,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     }
     // Re-orthonormalize the smoothed basis.
     const upN = (() => {
-      const v = smoothUp.current!;
+      const v = smoothUp.current ?? liveUp;
       const n = Math.hypot(v[0], v[1], v[2]) || 1;
       return [v[0] / n, v[1] / n, v[2] / n] as [number, number, number];
     })();
     // forward = (smoothFwd projected to plane ⟂ upN), then normalized.
-    const fRaw = smoothFwd.current!;
+    const fRaw = smoothFwd.current ?? liveFwd;
     const dot = fRaw[0] * upN[0] + fRaw[1] * upN[1] + fRaw[2] * upN[2];
     let fwdN: [number, number, number] = [
       fRaw[0] - upN[0] * dot,
@@ -543,10 +542,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       let terrainR = 0;
       try {
         const eyeLocalN = worldPosToLocalNormal([eyeX, eyeY, eyeZ], pose);
-        terrainR = FEET_SHELL_RADIUS
-          + sampleVolcanoElevation(getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), eyeLocalN)
-          + sampleSurfaceLift(eyeLocalN)
-          + FOOT_CUSHION + 1.2;
+        terrainR = feetRadiusAt(eyeLocalN) + 1.2;
       } catch { /* organ unavailable — fall back to body-relative floor */ }
       const minR = Math.max(bodyR + 0.9, terrainR);
       if (eyeR < minR) {
