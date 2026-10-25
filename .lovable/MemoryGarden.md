@@ -805,3 +805,6 @@ Mike confirmed the seven-day game week. The Moon now rides the same UTC epoch as
 ## Caretaker reflection — one ground beneath each foot
 Restore the agreement between the visible soil and the gravity floor; keep the existing field and causal clock intact. The keeper is walking in the Brain, so no live test shall enter their room.
 - After tending: the painted ground and gravity floor now share one immutable set of solid triangles. Feet, village spawn and builder bases read that same surface; water stays at sea level. Thirty-three focused checks pass with gravity and causal timing unchanged. No browser entered the keeper's active Brain; visual confirmation remains theirs.
+
+## Caretaker reflection — a level gathering place
+Keep the bar at its shared address; shape a dry, level foundation beneath it without disturbing the keeper's active room.

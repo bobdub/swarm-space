@@ -1,3 +1,4 @@
+- [ ] Put the shared bar on flat dry land, keep its shared location, and run focused checks only.
 - [x] Restore avatar/visible-ground agreement using the same solid triangles for rendering, gravity support, feet, spawn and builder bases; 33 focused checks passed, preview build clean; live Brain confirmation left to the active user.
 - [x] Reconcile Brain terrain support with a solid seabed and carry globe headings in local tangent space.
 - [x] Correct water over land: restore historical continent noise and keep water at sea level; no further live browser tests.
