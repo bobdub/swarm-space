@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nativeMarketPayments, nativeWalletAssets, type NativeAssetSnapshot } from "./nativeAssets";
+import { nativeMarketPayments, nativeWalletAssets, nativeWalletInventory, type NativeAssetSnapshot } from "./nativeAssets";
 
 const base: NativeAssetSnapshot = { swarm: 12, credits: 0, mintme: 0, eth: 0, btc: 0, custom: [], holdings: [] };
 
