@@ -17,6 +17,7 @@ import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.st
 import { saveMiningSession } from "@/lib/blockchain/storage";
 import type { MiningSession } from "@/lib/blockchain/types";
 import { toast } from "sonner";
+import { canUseMemberFeatures } from '@/lib/preview/guestAccess';
 
 // Module-level flag — survives re-renders and re-mounts from navigation
 let globalNotified = false;
@@ -35,7 +36,7 @@ export function AutoMiningService() {
 
   useEffect(() => {
     const flags = getFeatureFlags();
-    const shouldMine = flags.swarmMeshMode && isEnabled && stats.connectedPeers > 0 && !!user;
+    const shouldMine = flags.swarmMeshMode && isEnabled && stats.connectedPeers > 0 && canUseMemberFeatures(user) && !!user;
 
     if (shouldMine && !miningRef.current) {
       miningRef.current = true;

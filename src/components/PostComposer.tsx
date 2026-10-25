@@ -27,6 +27,7 @@ import { applyBlogIdentity } from "@/lib/blogging/awareness";
 import { MentionPopover } from "@/components/MentionPopover";
 import { parseMentions, containsEntityMention } from "@/lib/mentions";
 import { createNotification } from "@/lib/notifications";
+import { canUseMemberFeatures, isGuestUser } from '@/lib/preview/guestAccess';
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -99,7 +100,7 @@ export const PostComposer = ({
   }, [showPostHistory, user]);
 
   useEffect(() => {
-    if (!user) {
+    if (!canUseMemberFeatures(user)) {
       setShowAccountSetup(true);
       setUserPosts([]);
       return;
@@ -155,7 +156,7 @@ export const PostComposer = ({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!user) {
+    if (!user || !canUseMemberFeatures(user)) {
       setShowAccountSetup(true);
       toast.error("Please complete account setup first");
       return;
@@ -423,6 +424,12 @@ export const PostComposer = ({
     return ["space-y-6", className].filter(Boolean).join(" ");
   }, [className]);
 
+  if (isGuestUser(user)) return (
+    <div className={wrapperClasses}>
+      <Button type="button" onClick={() => { window.location.assign('/auth?signup=1&redirect=/create'); }}>Sign up to post</Button>
+    </div>
+  );
+
   return (
     <div className={wrapperClasses}>
       <AccountSetupModal
@@ -438,7 +445,7 @@ export const PostComposer = ({
         <h1 className="text-3xl font-bold">Create Post</h1>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <div role="form">
         <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6 backdrop-blur-xl">
           <div className="relative space-y-2">
             <Label htmlFor="content" className="text-sm font-semibold uppercase tracking-wider">
@@ -676,7 +683,8 @@ export const PostComposer = ({
               </Button>
             )}
             <Button
-              type="submit"
+              type="button"
+              onClick={handleSubmit}
               disabled={loading || !content.trim() || isEncrypting}
               className="gap-2 bg-gradient-to-r from-[hsl(326,71%,62%)] to-[hsl(174,59%,56%)] hover:opacity-90"
             >
@@ -684,7 +692,7 @@ export const PostComposer = ({
             </Button>
           </div>
         </Card>
-      </form>
+      </div>
 
       {showPostHistory && userPosts.length > 0 && (
         <div className="space-y-4">

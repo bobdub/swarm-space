@@ -6,6 +6,7 @@ import { awardGenesisCredits } from "./credits";
 import { vault, type SealedValue } from "./crypto/memoryVault";
 import { setFeatureFlag } from "../config/featureFlags";
 import { updateConnectionState, type NetworkMode } from "./p2p/connectionState";
+import { isGuestActive, stopGuestMode, isGuestUser } from './preview/guestMode';
 
 export interface UserMeta {
   id: string;
@@ -246,6 +247,8 @@ function clearSignOutMarker(): void {
  */
 async function activateSession(user: UserMeta, options: { announce?: boolean } = {}): Promise<void> {
   const { announce = true } = options;
+
+  if (!isGuestUser(user) && isGuestActive()) stopGuestMode();
 
   clearSignOutMarker();
   try {

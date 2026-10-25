@@ -6,6 +6,7 @@
 - Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
+- Guest names live only on the guest identity, never shared avatar preferences; gate member routes, mining and post creation independently because guests retain P2P identities.
 - The Global Cell Bus dials via `dialViaBus()` (backoff-respecting), never the manual `connectToPeer()` path; manual connect registers in the library and pulses presence before dialing — this keeps every flow on the working library pattern and prevents redial storms.
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.

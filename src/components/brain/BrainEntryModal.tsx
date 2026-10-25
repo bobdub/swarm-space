@@ -8,6 +8,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from '@/hooks/useAuth';
+import { isGuestUser, setGuestName } from '@/lib/preview/guestMode';
 import { AvatarSelector } from "@/components/virtualHub/AvatarSelector";
 import { DeviceCheckStep } from "@/components/virtualHub/DeviceCheckStep";
 import {
@@ -30,6 +34,9 @@ type Step = "avatar" | "devices";
  * `swarm-virtual-hub-prefs` key so the choice carries across virtual hubs.
  */
 export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryModalProps) {
+  const { user } = useAuth();
+  const guest = isGuestUser(user);
+  const [guestName, setGuestNameInput] = useState('');
   const [step, setStep] = useState<Step>("avatar");
   const [avatarId, setAvatarId] = useState<string>(DEFAULT_AVATAR_ID);
   const [audioInputId, setAudioInputId] = useState<string | undefined>();
@@ -38,6 +45,7 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
 
   useEffect(() => {
     if (open) {
+      setGuestNameInput(isGuestUser(user) ? user.guestName ?? '' : '');
       const prefs = loadHubPrefs();
       setAvatarId(prefs.avatarId);
       setAudioInputId(prefs.audioInputId);
@@ -45,9 +53,10 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
       setStep("avatar");
       setPermissionGranted(false);
     }
-  }, [open]);
+  }, [open, user?.id]);
 
   const handleEnter = () => {
+    if (guest && (!user || !setGuestName(user.id, guestName))) return;
     saveHubPrefs({
       avatarId,
       audioInputId,
@@ -82,7 +91,16 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
         </DialogHeader>
 
         {step === "avatar" ? (
-          <AvatarSelector selectedId={avatarId} onSelect={setAvatarId} />
+          <div className="space-y-4">
+            {guest && (
+              <div className="space-y-2">
+                <Label htmlFor="brain-guest-name">Guest Name</Label>
+                <Input id="brain-guest-name" value={guestName} maxLength={32}
+                  autoComplete="off" onChange={(e) => setGuestNameInput(e.target.value)} />
+              </div>
+            )}
+            <AvatarSelector selectedId={avatarId} onSelect={setAvatarId} />
+          </div>
         ) : (
           <DeviceCheckStep
             audioInputId={audioInputId}
@@ -105,7 +123,7 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
             Cancel
           </Button>
           {step === "avatar" ? (
-            <Button type="button" onClick={() => setStep("devices")}>
+            <Button type="button" disabled={guest && !guestName.trim()} onClick={() => setStep("devices")}>
               Continue
             </Button>
           ) : (

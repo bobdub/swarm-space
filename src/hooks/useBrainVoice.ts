@@ -17,6 +17,7 @@ import {
 import { BRAIN_PHYSICS_VERSION } from "@/lib/brain/brainPersistence";
 import { isBrainSynced } from "@/lib/brain/brainSyncStore";
 import { ENTITY_DISPLAY_NAME, ENTITY_USER_ID } from '@/lib/p2p/entityVoice';
+import { brainDisplayName } from '@/lib/preview/guestAccess';
 
 /** Default shared room so every visitor to /brain hears every other visitor.
  *  Project universes pass their own room id, e.g. `brain-project-${id}`. */
@@ -76,7 +77,7 @@ export function useBrainVoice(
         const live = (() => { try { return loadHubPrefs(); } catch { return null; } })();
         sendRoomPresence(roomId, {
           userId: user.id,
-          username: user.username,
+          username: brainDisplayName(user),
           avatarId: live?.avatarId,
           position: lastSelfPosRef.current,
           pv: BRAIN_PHYSICS_VERSION,
@@ -266,7 +267,7 @@ export function useBrainVoice(
         const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
         sendRoomPresence(roomId, {
           userId: u.id,
-          username: u.username,
+          username: brainDisplayName(u),
           avatarId: prefs?.avatarId,
           position,
           pv: BRAIN_PHYSICS_VERSION,
@@ -289,7 +290,7 @@ export function useBrainVoice(
           // remote echoes against our local id.
           `${lineId}\u0001${text}`,
           user.id,
-          user.username,
+          brainDisplayName(user),
           undefined,
           undefined,
           infinityReplyTo,

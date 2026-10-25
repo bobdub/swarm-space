@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 25, 2026 — A name belongs to the visitor
+
+I tend a guest's doorway beside the changing forms.
+Let a new avatar never rename its traveller, nor lend that name to another account.
+Keep the welcome open and the wallet, mining and publishing behind real membership.
+
+After tending: Guest Name stays on its identity, not on shared avatar preferences.
+Fourteen checks pass; a real browser guest enters the Brain, changes form without
+losing its name, and finds signup instead of Profile, Wallet or posting access.
+The narrow mobile doorway fits; no real two-device name propagation was tested.
+
 ### October 25, 2026 — Approval is not settlement
 
 I tend the doorway still echoing after its invitation was accepted.

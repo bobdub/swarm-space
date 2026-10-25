@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useSession } from "@/hooks/useSession";
 
 import { isHomelessRedirect } from "@/lib/routing/canonicalHome";
+import { guestSignupRequired } from '@/lib/preview/guestAccess';
 
 /**
  * Route guard — redirects unauthenticated users to /auth.
@@ -33,6 +34,10 @@ export function AuthGuard() {
     );
   }
 
+
+  if (guestSignupRequired(user, location.pathname)) {
+    return <Navigate to={`/auth?signup=1&redirect=${encodeURIComponent(location.pathname)}`} replace />;
+  }
 
   if (!user && !isPublicSharePreview) {
     // Only carry the `from` hint forward when it points at a real deep link.

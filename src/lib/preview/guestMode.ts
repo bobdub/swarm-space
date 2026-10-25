@@ -18,20 +18,31 @@
 
 import { genIdentityKeyPair, computeUserId } from '@/lib/crypto';
 import type { UserMeta } from '@/lib/auth';
+import { isGuestUser } from './guestAccess';
+export { isGuestUser } from './guestAccess';
 
 const GUEST_FLAG_KEY = 'preview:guest-active';
 const GUEST_ME_KEY = 'me';
 
 export interface GuestIdentity extends UserMeta {
   _guest: true;
+  guestName?: string;
 }
 
 export function isGuestActive(): boolean {
   return sessionStorage.getItem(GUEST_FLAG_KEY) === '1';
 }
 
-export function isGuestUser(user: unknown): boolean {
-  return !!user && typeof user === 'object' && (user as { _guest?: boolean })._guest === true;
+export function setGuestName(userId: string, name: string): boolean {
+  const normalized = name.trim().replace(/\s+/g, ' ').slice(0, 32);
+  if (!normalized) return false;
+  try {
+    const current = JSON.parse(localStorage.getItem(GUEST_ME_KEY) || 'null');
+    if (!isGuestUser(current) || current.id !== userId) return false;
+    localStorage.setItem(GUEST_ME_KEY, JSON.stringify({ ...current, guestName: normalized, displayName: normalized }));
+    window.dispatchEvent(new Event('user-login'));
+    return true;
+  } catch { return false; }
 }
 
 /**
