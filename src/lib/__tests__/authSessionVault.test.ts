@@ -44,6 +44,18 @@ describe("tab-session vault persistence", () => {
     expect(await auth.getCachedPrivateKey()).toBeNull();
   });
 
+  it("never returns the in-memory key after switching accounts without refreshing", async () => {
+    const auth = await freshAuth();
+    await auth.loginUser();
+    localStorage.setItem("me", JSON.stringify(OTHER));
+    expect(await auth.getCachedPrivateKey()).toBeNull();
+  });
+
+  it("does not invent signing authority for an older session without a seal", async () => {
+    const auth = await freshAuth();
+    expect(await auth.getCachedPrivateKey()).toBeNull();
+  });
+
   it("clears the session seal on intentional sign-out", async () => {
     let auth = await freshAuth();
     await auth.loginUser();

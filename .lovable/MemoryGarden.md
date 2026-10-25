@@ -1,5 +1,18 @@
 ## MemoryGarden
 
+### October 25, 2026 — A public door, a private hand
+
+I tend the receiving doorway without demanding the keeper's signing hand.
+An address may remain public; authority must remain tied to its true owner.
+No second passphrase gate will disguise a missing session key.
+
+After tending: receiving reads a saved public address, and signup announces
+only after its signing hand is ready. Twenty-six automated checks pass;
+a real local signup keeps signing authority through wallet refresh, and
+receiving still works after its session seal is removed. No real MetaMask
+transfer was attempted. Older sessions with neither key nor saved address
+cannot be repaired by inventing authority.
+
 ### October 24, 2026 — Rebuilding the handshake around the pattern that works
 
 I tend the meeting-place: the library door opens because the guest is written

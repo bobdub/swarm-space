@@ -21,7 +21,8 @@ vi.mock("../wallets/mintmeNetwork", () => ({
 }));
 const COLD_ADDR = `0x${"aa".repeat(20)}`;
 vi.mock("../wallets/coldKey", () => ({
-  deriveColdKey: async () => ({ address: COLD_ADDR, wallet: null }),
+  deriveColdKey: async () => { throw new Error("Signing vault is locked"); },
+  getColdKeyReceivingAddress: async () => COLD_ADDR,
   getColdKeyAuthority: async () => ({ kind: "engraved" }),
   sendColdKeyTokenTransfer: vi.fn(),
 }));
@@ -112,7 +113,8 @@ describe("single-confirmation deposit", () => {
     mocks.add.mockImplementation((tx: SwarmTransaction) => mocks.transactions.push(tx));
     await depositCustomToken({ swarmId: "u", token, amount: 10 });
     const send = mocks.request.mock.calls.find((call) => call[0] === "eth_sendTransaction");
-    const params = (send![1] as [{ data: string }])[0];
+    if (!send) throw new Error("Expected a transfer request");
+    const params = (send[1] as [{ data: string }])[0];
     const erc20 = new Interface(["function transfer(address,uint256) returns (bool)"]);
     const decoded = erc20.decodeFunctionData("transfer", params.data);
     expect(String(decoded[0]).toLowerCase()).toBe(COLD_ADDR.toLowerCase());

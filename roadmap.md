@@ -1,3 +1,9 @@
+## Signed-in deposits and receiving addresses (2026-10-25)
+- [x] Persist the real public cold-key address when the signing key is available; use it for deposits without unlocking
+- [x] Cache signing authorization before signup announces login; guard cached keys by active account
+- [x] Run refresh/deposit regressions and browser authorization checks without real transfers — 26 tests pass; real local signup/refresh restores signing, receiving survives removal of the session seal
+- [ ] Recover older sessions with no signing seal and no saved cold-key address — requires actual identity unlock/recovery; metadata alone cannot reconstruct the key. Real MetaMask transfer remains unverified (extension unavailable).
+
 ## Market quote and signing repair (2026-10-22)
 - [x] Stop creator quotes clearing on unrelated pool updates; retain fresh-rate execution checks
 - [x] Remove redundant market passphrase entry while preserving real key authorization — locked vaults still require account sign-in

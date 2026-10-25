@@ -32,6 +32,7 @@ const LAST_ACTIVE_META_KEY = "meta:lastActiveUserId";
 
 /** In-memory vault-sealed private key (never stored as plaintext in heap) */
 let sealedPrivateKey: SealedValue | null = null;
+let sealedPrivateKeyOwner: string | null = null;
 
 // ── Tab-session persistence ─────────────────────────────────────────────────
 // A page refresh wipes the in-memory vault, which used to leave a signed-in
@@ -126,21 +127,30 @@ async function restoreFromSessionSeal(): Promise<string | null> {
 }
 
 async function cacheUnlockedPrivateKey(privateKey: string, userId?: string) {
+  const owner = userId ?? getCurrentUser()?.id;
+  if (!owner) return;
   try {
     sealedPrivateKey = await vault.seal(privateKey);
+    sealedPrivateKeyOwner = owner;
   } catch (error) {
     console.warn("[auth] Unable to vault-seal private key", error);
   }
   try {
-    const owner = userId ?? getCurrentUser()?.id;
-    if (owner) await sealWithSessionKey(privateKey, owner);
+    await sealWithSessionKey(privateKey, owner);
   } catch (error) {
     console.warn("[auth] Unable to session-seal private key", error);
+  }
+  try {
+    const { rememberColdKeyAddress } = await import("./blockchain/wallets/coldKey");
+    await rememberColdKeyAddress(owner, privateKey);
+  } catch (error) {
+    console.warn("[auth] Unable to save public receiving address", error);
   }
 }
 
 function clearUnlockedPrivateKeyCache() {
   sealedPrivateKey = null;
+  sealedPrivateKeyOwner = null;
   try {
     sessionStorage.removeItem(SESSION_SEALED_KEY);
     sessionStorage.removeItem(SESSION_WRAP_KEY);
@@ -154,21 +164,26 @@ function clearUnlockedPrivateKeyCache() {
  * Returns null if no key is cached for the signed-in account.
  */
 export async function getCachedPrivateKey(): Promise<string | null> {
-  if (sealedPrivateKey) {
+  const owner = getCurrentUser()?.id;
+  if (!owner || hasIntentionalSignOut()) return null;
+  if (sealedPrivateKey && sealedPrivateKeyOwner === owner) {
     try {
-      return await vault.unseal(sealedPrivateKey);
+      const privateKey = await vault.unseal(sealedPrivateKey);
+      return getCurrentUser()?.id === owner && !hasIntentionalSignOut() ? privateKey : null;
     } catch (error) {
       console.warn("[auth] Failed to unseal cached private key", error);
       sealedPrivateKey = null;
     }
   }
   const restored = await restoreFromSessionSeal();
+  if (getCurrentUser()?.id !== owner || hasIntentionalSignOut()) return null;
   if (restored) {
     try {
       sealedPrivateKey = await vault.seal(restored);
+      sealedPrivateKeyOwner = owner;
     } catch { /* non-fatal — the session seal still works next time */ }
   }
-  return restored;
+  return getCurrentUser()?.id === owner && !hasIntentionalSignOut() ? restored : null;
 }
 
 function logAuthError(message: string, error: unknown) {
@@ -351,10 +366,10 @@ export async function createLocalAccount(
   });
   setFeatureFlag("swarmMeshMode", true);
   
-  // Notify other components about login
-  window.dispatchEvent(new Event("user-login"));
-
   await cacheUnlockedPrivateKey(keys.privateKey, userId);
+
+  // Announce only once the signing key and public deposit address are ready.
+  window.dispatchEvent(new Event("user-login"));
 
   return userMeta;
 }

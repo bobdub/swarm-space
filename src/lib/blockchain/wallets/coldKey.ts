@@ -100,19 +100,47 @@ export interface DerivedColdKey {
   wallet: Wallet;
 }
 
+const receivingAddressKey = (userId: string) => `cold-key-address:${userId}`;
+const validReceivingAddress = (address: unknown): address is string =>
+  typeof address === "string" && /^0x[a-fA-F0-9]{40}$/.test(address) && !/^0x0{40}$/.test(address);
+
+/** Store only the public address, never the derived secret or wallet object. */
+export async function rememberColdKeyAddress(userId: string, identityKey: string): Promise<string> {
+  const wallet = walletFromIdentityKey(identityKey);
+  await put("meta", { k: receivingAddressKey(userId), v: { userId, address: wallet.address } });
+  return wallet.address;
+}
+
+function walletFromIdentityKey(identityKey: string): Wallet {
+  return new Wallet(keccak256(toUtf8Bytes(`swarm-coldkey:${identityKey.trim().toLowerCase()}`)));
+}
+
+/** Receiving needs a public address, not withdrawal signing authority. */
+export async function getColdKeyReceivingAddress(userId: string): Promise<string> {
+  const { getCurrentUser } = await import("../../auth");
+  if (!userId || getCurrentUser()?.id !== userId) throw new Error("This wallet does not belong to the active account.");
+  const saved = await get<{ k: string; v: { userId: string; address: string } }>("meta", receivingAddressKey(userId));
+  if (saved?.v.userId === userId && validReceivingAddress(saved.v.address)) return saved.v.address;
+  // Older unlocked sessions can establish the public address once, safely.
+  // Never substitute the native display alias: it has no external signing key.
+  return (await deriveColdKey(userId)).address;
+}
+
 /**
  * Derive the user's cold-wallet key from their identity private key.
  * Requires the unlocked session (passphrase) — the raw key never leaves
  * the wallet object and is never displayed.
  */
-export async function deriveColdKey(_userId: string): Promise<DerivedColdKey> {
-  const { getCachedPrivateKey } = await import("../../auth");
+export async function deriveColdKey(userId: string): Promise<DerivedColdKey> {
+  const { getCachedPrivateKey, getCurrentUser } = await import("../../auth");
+  if (!userId || getCurrentUser()?.id !== userId) throw new Error("This wallet does not belong to the active account.");
   const identityKey = await getCachedPrivateKey();
   if (!identityKey) {
     throw new Error("Your signing vault is locked. Sign in again to unlock it; no tokens have moved.");
   }
-  const seed = keccak256(toUtf8Bytes(`swarm-coldkey:${identityKey.trim().toLowerCase()}`));
-  const wallet = new Wallet(seed);
+  if (getCurrentUser()?.id !== userId) throw new Error("The active account changed. No tokens have moved.");
+  const wallet = walletFromIdentityKey(identityKey);
+  await put("meta", { k: receivingAddressKey(userId), v: { userId, address: wallet.address } });
   return { address: wallet.address, wallet };
 }
 
