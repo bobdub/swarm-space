@@ -33,6 +33,14 @@ function now(): number {
   return Date.now();
 }
 
+// Keep this module standalone: guest identities may relay, but never mine.
+export function isGuestMiningSession(): boolean {
+  try {
+    const user = JSON.parse(localStorage.getItem('me') || 'null');
+    return user?._guest === true;
+  } catch { return true; }
+}
+
 // ── Network Genesis — inline helpers (standalone, no imports) ──────────
 
 const NETWORK_GENESIS_KEY = 'swarm-network-genesis';
@@ -916,6 +924,7 @@ export class StandaloneSwarmMesh {
 
   private startMiningLoop(): void {
     this.stopMiningLoop();
+    if (isGuestMiningSession()) return;
 
     // ── Gate check: mining toggle ──
     if (!this.toggles.mining) {
@@ -938,6 +947,10 @@ export class StandaloneSwarmMesh {
     );
 
     this.miningTimer = setInterval(() => {
+      if (isGuestMiningSession()) {
+        this.stopMiningLoop();
+        return;
+      }
       // ── Per-tick gate checks ──
       if (this.phase !== 'online') {
         console.log(`[SwarmMesh][Mining] ⛏️ TICK HALTED — phase changed to "${this.phase}"`);
