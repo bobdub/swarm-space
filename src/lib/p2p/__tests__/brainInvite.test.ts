@@ -42,16 +42,45 @@ describe('Brain invite rules', () => {
     expect(dialBrainInviteFirst({ ...options, hash: '#peer-blocked' })).toBe(false);
     expect(dial).not.toHaveBeenCalled();
   });
-  it('does not unlock connected status until the actual host is connected', async () => {
-    const { dialBrainInviteFirst, getBrainInviteState, updateBrainInviteConnection } = await import('../brainInvite');
+  it('passes through a syncing stage before fully connected status', async () => {
+    const { dialBrainInviteFirst, getBrainInviteState, updateBrainInviteConnection, markBrainInviteSynced } = await import('../brainInvite');
     dialBrainInviteFirst({ pathname: '/brain/join', hash: '#peer-host', selfId: 'peer-self', isBlocked: () => false, dial: () => true });
     expect(getBrainInviteState().phase).toBe('connecting');
     updateBrainInviteConnection(false);
     expect(getBrainInviteState().phase).toBe('connecting');
     updateBrainInviteConnection(true);
+    expect(getBrainInviteState().phase).toBe('syncing');
+    markBrainInviteSynced();
     expect(getBrainInviteState().phase).toBe('connected');
     updateBrainInviteConnection(false);
     expect(getBrainInviteState().phase).toBe('unavailable');
+  });
+  it('re-dials automatically while still connecting, on a slow interval, up to a cap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { dialBrainInviteFirst } = await import('../brainInvite');
+      const dial = vi.fn(() => true);
+      const options = { pathname: '/brain/join', hash: '#peer-host', selfId: 'peer-self', isBlocked: () => false, dial };
+      expect(dialBrainInviteFirst(options)).toBe(true);
+      // Immediate repeat calls are ignored.
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(1);
+      // After the re-dial interval, the invite knocks again on its own.
+      vi.advanceTimersByTime(10_000);
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(10_000);
+      dialBrainInviteFirst(options);
+      vi.advanceTimersByTime(10_000);
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(4);
+      // Cap reached — no further automatic dials.
+      vi.advanceTimersByTime(10_000);
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('allows an explicit retry but not repeated automatic dials', async () => {
     const { dialBrainInviteFirst, retryBrainInvite, getBrainInviteState } = await import('../brainInvite');
