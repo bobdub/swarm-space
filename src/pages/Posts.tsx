@@ -21,6 +21,7 @@ export default function Posts() {
   const [hiddenPostIds, setHiddenPostIds] = useState<string[]>([]);
   const [entangledUserIds, setEntangledUserIds] = useState<string[]>([]);
   const [filterMode, setFilterMode] = useState<"all" | "entangled">("all");
+  const [visibleCount, setVisibleCount] = useState(12);
   const { user } = useAuth();
 
   const loadPosts = useCallback(async ({ background = false }: { background?: boolean } = {}) => {
@@ -156,13 +157,20 @@ export default function Posts() {
             </div>
           ) : (
             <div className="space-y-6">
-              {filteredPosts.map((post) => {
+              {filteredPosts.slice(0, visibleCount).map((post) => {
                 const { classification } = classifyPost(post);
                 const isBlogOrBook = classification === "blog" || classification === "book";
                 return isBlogOrBook
                   ? <BlogPostCard key={post.id} post={post} />
                   : <PostCard key={post.id} post={post} />;
               })}
+              {filteredPosts.length > visibleCount && (
+                <div className="flex justify-center">
+                  <Button type="button" variant="outline" onClick={() => setVisibleCount((c) => c + 12)}>
+                    Show more posts
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>

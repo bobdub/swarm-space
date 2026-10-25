@@ -590,7 +590,7 @@ const Explore = () => {
                   </Card>
                 ) : (
                   <div className="space-y-6">
-                    {ranked.map(({ post, breakdown }) => {
+                    {ranked.slice(0, visibleCount).map(({ post, breakdown }) => {
                       const { classification } = classifyPost(post);
                       const isBlog = classification === "blog" || classification === "book";
                       const hypeRaw = breakdown.raw.creditTotal;
@@ -616,6 +616,13 @@ const Explore = () => {
                           </div>
                         );
                     })}
+                    {ranked.length > visibleCount && (
+                      <div className="flex justify-center">
+                        <Button type="button" variant="outline" onClick={() => setVisibleCount((c) => c + FEED_BATCH)}>
+                          Show more posts
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

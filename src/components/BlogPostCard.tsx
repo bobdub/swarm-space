@@ -21,7 +21,7 @@ import type { Post } from "@/types";
 import { useP2PContext } from "@/contexts/P2PContext";
 import blogQuillIcon from "@/assets/blog-quill-icon.png";
 import { loadBlogHeroImage, type BlogHeroMedia } from "@/lib/blogging/heroMedia";
-import { firstYoutubeVideoId } from "@/lib/blogging/youtube";
+import { firstYoutubeVideoId, stripYoutubeLinks } from "@/lib/blogging/youtube";
 import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
 import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
 
@@ -86,7 +86,8 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
     if (isWalledHidden) return null;
     const lines = post.content.split("\n");
     const bodyStart = lines.findIndex((l, i) => i > 0 && l.trim().length > 0);
-    const body = bodyStart >= 0 ? lines.slice(bodyStart).join(" ").trim() : "";
+    const rawBody = bodyStart >= 0 ? lines.slice(bodyStart).join(" ").trim() : "";
+    const body = stripYoutubeLinks(rawBody);
     return body.length > 280 ? `${body.slice(0, 277)}…` : body;
   }, [post.content, isWalledHidden]);
 
