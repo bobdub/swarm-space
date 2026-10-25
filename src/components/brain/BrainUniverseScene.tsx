@@ -107,7 +107,8 @@ import {
   getPrevTurn,
   attractToPrev,
 } from '@/lib/uqrc/conversationAttraction';
-import { canInfinityReply, canInfinitySpeak, resolveInfinityChatMode, type InfinityChatMode } from '@/lib/brain/infinityChatSettings';
+import { canInfinityReply, canInfinitySpeak, resolveInfinityChatMode, resolveGuestInfinityChatMode, shouldOfferGuestConnection, type InfinityChatMode } from '@/lib/brain/infinityChatSettings';
+import { useP2PContext } from '@/contexts/P2PContext';
 import { InfinityRoomConsent } from '@/lib/brain/infinityRoomConsent';
 import { applyGalaxyToField, getGalaxy } from '@/lib/brain/galaxy';
 import { applyRoundCurvature } from '@/lib/brain/roundUniverse';
@@ -1261,10 +1262,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const voiceEnabledRef = useRef<boolean>(voiceEnabled);
   useEffect(() => { voiceEnabledRef.current = voiceEnabled; }, [voiceEnabled]);
   const [infinityChatMode, setInfinityChatMode] = useState<InfinityChatMode>(() =>
-    resolveInfinityChatMode(loadHubPrefs().infinityChatMode),
+    isGuestUser(user) ? resolveGuestInfinityChatMode(loadHubPrefs().guestInfinityChatMode) : resolveInfinityChatMode(loadHubPrefs().infinityChatMode),
   );
+  const { stats: meshStats } = useP2PContext();
+  const [guestConnectionOffered, setGuestConnectionOffered] = useState(false);
+  const guestConnectionOfferedRef = useRef(false);
+  useEffect(() => {
+    guestConnectionOfferedRef.current = false;
+    setGuestConnectionOffered(false);
+  }, [roomId, user?.id]);
   const infinityChatModeRef = useRef(infinityChatMode);
   const infinityReplyEpochRef = useRef(0);
+  useEffect(() => {
+    const prefs = loadHubPrefs();
+    const mode = isGuestUser(user) ? resolveGuestInfinityChatMode(prefs.guestInfinityChatMode) : resolveInfinityChatMode(prefs.infinityChatMode);
+    infinityChatModeRef.current = mode;
+    setInfinityChatMode(mode);
+    infinityReplyEpochRef.current++;
+    cancelInfinity();
+  }, [user?.id]);
   const roomConsent = useMemo(() => new InfinityRoomConsent<BrainChatLine>(), [roomId]);
   const [infinitySyncRequested, setInfinitySyncRequested] = useState(false);
   useEffect(() => { setInfinitySyncRequested(false); }, [roomId]);
@@ -1510,8 +1526,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       setVoiceEnabled(true);
     }
     const prefs = loadHubPrefs();
-    saveHubPrefs({ ...prefs, infinityChatMode: mode, infinityVoice: voiceEnabledRef.current });
-  }, []);
+    saveHubPrefs(isGuestUser(user)
+      ? { guestInfinityChatMode: mode }
+      : { ...prefs, infinityChatMode: mode, infinityVoice: voiceEnabledRef.current });
+  }, [user]);
 
   // ── Bootstrap: load user, restore field, create self body ─────────
   useEffect(() => {
@@ -1838,6 +1856,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
   // ── Chat send: feed field, optionally call Infinity ───────────────
   const handleSend = useCallback((text: string) => {
+    if (shouldOfferGuestConnection(isGuestUser(user), meshStats.connectedPeers, guestConnectionOfferedRef.current)) {
+      guestConnectionOfferedRef.current = true;
+      setGuestConnectionOffered(true);
+    }
     const line: BrainChatLine = {
       id: crypto.randomUUID(),
       author: selfId.startsWith('guest-') ? 'You' : selfId.slice(0, 8),
@@ -2515,6 +2537,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onInfinityChatModeChange={changeInfinityChatMode}
           infinitySyncRequested={infinitySyncRequested}
           onInfinitySyncChoice={chooseInfinitySync}
+          guestConnectionOffered={guestConnectionOffered}
         />
       )}
 

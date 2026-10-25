@@ -55,6 +55,8 @@ export interface VirtualHubPrefs {
   infinityVoice?: boolean;
   /** Explicit opt-in to Infinity replies; absent means off. */
   infinityChatMode?: InfinityChatMode;
+  /** Guest choice is isolated from member participation preferences. */
+  guestInfinityChatMode?: InfinityChatMode;
 }
 
 const PREFS_KEY = "swarm-virtual-hub-prefs";
