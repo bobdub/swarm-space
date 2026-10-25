@@ -80,7 +80,7 @@ export function spikeHealth(domain: HealthDomain, key: string, amplitude = 0.6):
 export async function seedHealthBaseline(): Promise<void> {
   if (disabled()) return;
   try {
-    const baseline = await import('./baseline.json', { with: { type: 'json' } } as any).then(
+    const baseline = await import('./baseline.json').then(
       (m: any) => m.default ?? m,
       () => null,
     );
