@@ -813,30 +813,40 @@ export function BrainChatPanel({
                   </p>
                 )}
                 {railUsers.map((u) => (
-                  <button
-                    key={u.peerId}
-                    type="button"
-                    onClick={() => insertMention(u.username)}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
-                      u.isSpeaking && 'ring-1 ring-primary',
-                    )}
-                    title={`@${u.username}`}
-                  >
-                    <Avatar
-                      avatarRef={u.avatarRef}
-                      username={u.peerId}
-                      displayName={u.username}
-                      size="sm"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-foreground/90">{u.username}</p>
-                      <div className="flex items-center gap-1 text-foreground/40">
-                        {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
-                        {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
-                      </div>
-                    </div>
-                  </button>
+                  <Popover key={u.peerId}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-xs transition-colors hover:bg-white/5',
+                          u.isSpeaking && 'ring-1 ring-primary',
+                        )}
+                        title={`@${u.username} — user tools`}
+                      >
+                        <Avatar
+                          avatarRef={u.avatarRef}
+                          username={u.peerId}
+                          displayName={u.username}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-1 truncate text-foreground/90">
+                            <span className="truncate">{u.username}</span>
+                            {blockedIds.has(u.peerId) ? (
+                              <Shield className="h-2.5 w-2.5 shrink-0 text-destructive" />
+                            ) : isPeerMuted(u.peerId) ? (
+                              <VolumeX className="h-2.5 w-2.5 shrink-0 text-amber-400" />
+                            ) : null}
+                          </p>
+                          <div className="flex items-center gap-1 text-foreground/40">
+                            {u.micOn ? <Mic className="h-2.5 w-2.5 text-primary" /> : <MicOff className="h-2.5 w-2.5" />}
+                            {u.cameraOn ? <Video className="h-2.5 w-2.5 text-primary" /> : <VideoOff className="h-2.5 w-2.5" />}
+                          </div>
+                        </div>
+                      </button>
+                    </PopoverTrigger>
+                    {renderUserTools(u.username, u.peerId, undefined)}
+                  </Popover>
                 ))}
               </div>
             </ScrollArea>
