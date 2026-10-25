@@ -44,17 +44,23 @@ export function YouTubeFacade({ videoId, title }: YouTubeFacadeProps) {
 
   return (
     <button
+      ref={ref}
       type="button"
       onClick={() => setPlaying(true)}
       aria-label={`Play ${label}`}
       className="group absolute inset-0 h-full w-full"
     >
-      <img
-        src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
-        alt=""
-        loading="lazy"
-        className="h-full w-full object-cover"
-      />
+      {inView ? (
+        <img
+          src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <span className="block h-full w-full bg-muted" />
+      )}
       <span className="absolute inset-0 flex items-center justify-center">
         <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform group-hover:scale-110">
           <Play className="ml-1 h-6 w-6" fill="currentColor" />
