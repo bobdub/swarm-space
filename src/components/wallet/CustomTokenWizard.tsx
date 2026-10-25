@@ -68,7 +68,8 @@ export function CustomTokenWizard({ userId }: { userId: string }) {
       setStep(1);
     }
     catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not switch to MintMe");
+      const message = typeof e === "object" && e !== null && "message" in e && typeof e.message === "string" ? e.message : "MetaMask could not complete the request. Open MetaMask and try again.";
+      toast.error(message);
     }
     finally { setBusy(false); }
   };

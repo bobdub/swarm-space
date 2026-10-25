@@ -62,12 +62,21 @@ export async function addMintMeToMetaMask(): Promise<void> {
   // token details without issuing a competing switch; transfers verify separately.
 }
 
-/** One user action; the wallet itself collects approval for a confirmed missing network. */
+/** Import setup trusts wallet approval; actual transfers use the strict helper below. */
 export async function switchOrAddMintMeNetwork(): Promise<void> {
+  const current = await readMintMeChainId();
+  if (isMintMeChain(current)) return;
+  if (current == null) throw new Error("Could not read MetaMask's active network. Open MetaMask and try again.");
   try {
-    await switchToMintMeNetwork();
+    await waitForMetaMask(requestMetaMask("wallet_switchEthereumChain", [
+      { chainId: MINTME_CHAIN_ID_HEX },
+    ]), "MetaMask did not answer the switch request. Open MetaMask and try again.");
+    // The approval opens token details, not settlement. Do not poll a provider
+    // still transitioning out of the approval dialog or issue a second switch.
   } catch (error) {
-    if (!(error instanceof MintMeNetworkMissingError)) throw error;
+    if ((error as { code?: number } | null)?.code !== 4902) throw error;
+    // Only a missing-network error warrants a read before offering addition.
+    if (isMintMeChain(await readMintMeChainId())) return;
     await addMintMeToMetaMask();
   }
 }
