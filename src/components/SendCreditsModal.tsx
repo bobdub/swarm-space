@@ -45,10 +45,10 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
       setAmount("");
       setMessage("");
       setMode("transfer");
-      setAssetId("credits");
+      setAssetId(initialAssetId ?? "credits");
       setPassphrase("");
     }
-  }, [isOpen, toUserId]);
+  }, [isOpen, toUserId, initialAssetId]);
 
   const loadBalance = async () => {
     const user = await getCurrentUser();
