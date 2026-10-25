@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS, FOOT_CUSHION, type Vec3 } from './earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID, sampleVolcanoElevation, sampleTerrainDryMask } from './volcanoOrgan';
 import { sampleSurfaceLift, WATER_WADE_DEPTH } from './surfaceProfile';
+import { barFoundationElevation } from './barTerrain';
 
 /**
  * Radius (from Earth centre) where an avatar's FEET rest at an Earth-local
@@ -12,7 +13,8 @@ import { sampleSurfaceLift, WATER_WADE_DEPTH } from './surfaceProfile';
 function terrainElevationAt(localN: Vec3): number {
   const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
   const waterDip = (1 - sampleTerrainDryMask(organ, localN)) * WATER_WADE_DEPTH;
-  return sampleVolcanoElevation(organ, localN) + sampleSurfaceLift(localN) - waterDip;
+  const original = sampleVolcanoElevation(organ, localN) + sampleSurfaceLift(localN) - waterDip;
+  return barFoundationElevation(localN, original);
 }
 
 // One immutable solid surface: rendering and collision use the same vertices,

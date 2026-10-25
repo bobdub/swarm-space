@@ -7,10 +7,28 @@ import { surfaceHeading } from '../surfaceNavigation';
 import * as THREE from 'three';
 import { getGroundGeometry } from '../groundHeight';
 import { blockWorldPos } from '../builderBlockEngine';
+import { BAR_SITE, getBarGroundNormal } from '../barTerrain';
+import { getEarthLocalSiteFrame } from '../earth';
+import { LAND_LIFT } from '../surfaceProfile';
 
 afterEach(() => setEarthPoseTime(null));
 
 describe('solid globe floor', () => {
+  it('keeps the full 24 by 20 metre bar footprint on one dry flat plane', () => {
+    const frame = getEarthLocalSiteFrame(BAR_SITE.anchorId);
+    const normal = new THREE.Vector3(...getBarGroundNormal());
+    for (const x of [-12, 0, 12]) {
+      for (const z of [-10, 0, 10]) {
+        const n = new THREE.Vector3(...frame.normal).multiplyScalar(EARTH_RADIUS)
+          .addScaledVector(new THREE.Vector3(...frame.right), BAR_SITE.rightOffset + x)
+          .addScaledVector(new THREE.Vector3(...frame.forward), BAR_SITE.forwardOffset + z).normalize();
+        const radius = EARTH_RADIUS + groundElevationAt([n.x, n.y, n.z]);
+        expect(n.clone().multiplyScalar(radius).dot(normal)).toBeCloseTo(EARTH_RADIUS + LAND_LIFT, 3);
+        expect(radius).toBeGreaterThan(EARTH_RADIUS + 5.9);
+      }
+    }
+  });
+
   it('provides a seabed below open water instead of supporting feet inside an unrendered shell', () => {
     let ocean: Vec3 | undefined;
     for (let i = 0; i < 360; i++) {
