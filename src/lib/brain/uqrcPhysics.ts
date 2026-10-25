@@ -79,6 +79,7 @@ import {
 } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
+import { groundElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -992,18 +993,7 @@ export class UqrcPhysics {
           let elevation = 0;
           if (isSurfaceHumanoid) {
             const localN = worldPosToLocalNormal(b.pos, pose);
-            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            // Land lift + volcano cone are both real terrain. Subtract a
-            // wade depth when the foot is over open water so avatars
-            // stop walking ON the ocean and start walking IN it.
-            const landMask = sampleTerrainDryMask(organ, localN);
-            // Open water dips the feet by the wade depth so avatars
-            // walk IN the ocean, not on it.
-            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-            elevation =
-              sampleVolcanoElevation(organ, localN)
-              + sampleSurfaceLift(localN)
-              - waterDip;
+            elevation = groundElevationAt(localN);
           }
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
@@ -1120,14 +1110,7 @@ export class UqrcPhysics {
                 // spherical baseline shell (which would phase the body
                 // through the visible cone).
                 const localN = worldPosToLocalNormal(b.pos, pose);
-                const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const landMask = sampleTerrainDryMask(organ, localN);
-                // Open water dips the feet by the wade depth.
-                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-                const elevation =
-                  sampleVolcanoElevation(organ, localN)
-                  + sampleSurfaceLift(localN)
-                  - waterDip;
+                const elevation = groundElevationAt(localN);
                 const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {
