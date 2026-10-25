@@ -52,6 +52,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
+import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
 
 export interface BrainChatLine {
   id: string;
@@ -113,6 +114,7 @@ interface Props {
   onInfinityChatModeChange?: (mode: InfinityChatMode) => void;
   infinitySyncRequested?: boolean;
   onInfinitySyncChoice?: (accept: boolean) => void;
+  guestConnectionOffered?: boolean;
 }
 
 /**
@@ -139,6 +141,7 @@ export function BrainChatPanel({
   onInfinityChatModeChange,
   infinitySyncRequested = false,
   onInfinitySyncChoice,
+  guestConnectionOffered = false,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -1006,6 +1009,7 @@ export function BrainChatPanel({
       </div>
 
       {/* Reply banner */}
+      {!viewingCoin && guestConnectionOffered && <GuestPeerConnectionPrompt />}
       {!viewingCoin && infinitySyncRequested && onInfinitySyncChoice && (
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-muted px-3 py-2 text-xs text-foreground" role="status">
           <span className="flex-1">Peer is chatting with Infinity: View Response?</span>
