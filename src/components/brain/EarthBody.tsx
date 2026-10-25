@@ -37,12 +37,13 @@ const earthVertex = /* glsl */ `
   uniform float uEarthR;        // EARTH_RADIUS, world units
   uniform float uLandLift;      // metres land sits above ocean baseline
   uniform float uSeabedDepth;
+  uniform float uWaterLayer;
 
   // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
   // shoreline pixels and the JS-sampled land mask agree exactly.
   float vHash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-    p = fract(p + dot(p, p.yzx + 19.19));
+    p += dot(p, p.yzx + 19.19);
     return fract((p.x + p.y) * p.z);
   }
   float vNoise(vec3 x) {
@@ -89,6 +90,8 @@ const earthVertex = /* glsl */ `
     float lift = volcElevation(nrm) + vLandMask(nrm) * uLandLift;
     float dry = max(vLandMask(nrm), smoothstep(0.05, ${WATER_WADE_DEPTH.toFixed(2)}, lift));
     lift -= (1.0 - dry) * uSeabedDepth;
+    // Water is a sea-level shell, never a coating displaced onto land.
+    if (uWaterLayer > 0.5) lift = 0.0;
     vec3 displaced = position + nrm * lift;
     vLocalPos = displaced;
     vec4 wp = modelMatrix * vec4(displaced, 1.0);
@@ -127,7 +130,7 @@ const earthFragment = /* glsl */ `
   // Cheap value noise — enough for a believable continents pattern.
   float hash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-    p = fract(p + dot(p, p.yzx + 19.19));
+    p += dot(p, p.yzx + 19.19);
     return fract((p.x + p.y) * p.z);
   }
   float noise(vec3 x) {
@@ -162,7 +165,7 @@ const earthFragment = /* glsl */ `
       volcLift = max(0.0, volcLift);
     }
     float dry = max(landMask, smoothstep(0.05, ${WATER_WADE_DEPTH.toFixed(2)}, volcLift + landMask * uLandLift));
-    if (uWaterLayer > 0.5 && dry > 0.999) discard;
+    if (uWaterLayer > 0.5 && volcLift + landMask * uLandLift > 0.05) discard;
     // Shore band — landMask transition zone.
     float shoreMask = smoothstep(0.42, 0.50, continents) * (1.0 - smoothstep(0.50, 0.58, continents));
     // Mix ocean → shore → land, then overlay volcLand where uplift is
