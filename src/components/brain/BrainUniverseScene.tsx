@@ -1116,7 +1116,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
   const [selfId, setSelfId] = useState<string>('');
   const [qScore, setQScore] = useState(0);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(() => window.location.pathname === '/brain/join');
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);

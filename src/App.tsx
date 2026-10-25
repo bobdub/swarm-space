@@ -29,6 +29,7 @@ import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
 import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
 import { BrainSyncHost } from "@/components/brain/BrainSyncHost";
+import { BrainInviteConnection } from "@/components/brain/BrainInviteConnection";
 import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
@@ -158,6 +159,7 @@ function AppContent() {
       <NodeDashboardEventBridge />
       <MetaMaskGatewayService />
       <BrainChunkPreloader />
+      <BrainInviteConnection />
 
       <div className="pb-16 md:pb-0">
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
@@ -202,6 +204,7 @@ function AppContent() {
               <Route path="/projects/:projectId/settings" element={<ProjectSettings />} />
               <Route path="/projects/:projectId/hub" element={<VirtualHub />} />
               <Route path="/brain" element={<BrainUniverse />} />
+              <Route path="/brain/join" element={<BrainUniverse />} />
               <Route path="/node-dashboard" element={<NodeDashboard />} />
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/search" element={<Search />} />

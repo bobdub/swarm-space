@@ -900,6 +900,9 @@ export class StandaloneBuilderMode {
       this.clearReconnectTimer();
 
       this.setPhase('online');
+      const { dialBrainInviteFirst } = await import('./brainInvite');
+      dialBrainInviteFirst({ pathname: window.location.pathname, hash: window.location.hash,
+        selfId: this.peerId, isBlocked: id => this.blockedPeers.has(id), dial: id => this.connectToPeer(id) });
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[BuilderMode] ✅ Online as ${this.peerId}`);
 
