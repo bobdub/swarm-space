@@ -15,6 +15,7 @@ import {
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT, WATER_WADE_DEPTH } from '@/lib/brain/surfaceProfile';
 import { getGroundGeometry } from '@/lib/brain/groundHeight';
+import { getBarGroundNormal } from '@/lib/brain/barTerrain';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
@@ -131,6 +132,7 @@ const earthFragment = /* glsl */ `
   uniform float uLandLift;
 
   // Cheap value noise — enough for a believable continents pattern.
+  uniform vec3 uBarGroundNormal;
   float hash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
     p += dot(p, p.yzx + 19.19);
@@ -151,6 +153,9 @@ const earthFragment = /* glsl */ `
     vec3 n = normalize(vNormalLocal);
     float continents = noise(n * 3.5) * 0.6 + noise(n * 8.0) * 0.3 + noise(n * 16.0) * 0.1;
     float landMask = smoothstep(0.48, 0.55, continents);
+    float barArc = acos(clamp(dot(n, uBarGroundNormal), -1.0, 1.0)) * uEarthR;
+    float barDry = 1.0 - smoothstep(65.0, 110.0, barArc);
+    landMask = max(landMask, barDry);
     // Re-derive volcano elevation in fragment so volcLand classification
     // is per-pixel, not vertex-interpolated. Mirrors volcElevation() in
     // the vertex shader and sampleVolcanoElevation() in JS.
@@ -282,6 +287,7 @@ export function EarthBody() {
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
         uLandLift: { value: LAND_LIFT },
+        uBarGroundNormal: { value: new THREE.Vector3(...getBarGroundNormal()) },
         uSeabedDepth: { value: WATER_WADE_DEPTH },
         uWaterLayer: { value: 0 },
         uTerrainBaked: { value: 1 },
