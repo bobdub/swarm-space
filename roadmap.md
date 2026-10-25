@@ -1,3 +1,5 @@
 - [x] Add identity-scoped Guest Name to Brain avatar selection without avatar/name leakage.
 - [x] Present signup on guest Profile and restrict Wallet, mining and posting.
 - [x] Verify guest naming, avatar changes and signup/access boundaries (14 checks; desktop/mobile browser flow).
+- [x] Allow direct Brain guest entry with avatar/name selection and preserve member-only actions.
+- [x] Verify direct guest entry, roaming and signup boundaries (29 focused checks; browser lobby/chat, Explore, Nodes, Settings and signup prompts; live peer delivery unverified).

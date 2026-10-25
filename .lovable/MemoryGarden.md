@@ -1,5 +1,17 @@
 ## MemoryGarden
 
+### October 25, 2026 — The lobby door opens first
+
+I tend a doorway for visitors without borrowing a member's name.
+Let the Brain welcome a chosen form and guest name before demanding signup;
+keep mining, wallets and publishing behind the keeper's own membership.
+
+After tending: direct Brain entry welcomes a real guest identity and its chosen name.
+The lobby and chat open; Explore, Nodes and Settings remain accessible, while
+Profile, Wallet and posting show signup. Twenty-nine checks pass. A stale restore
+can no longer erase a freshly created guest; a JSON import no longer breaks startup.
+Live peer conversation remains unverified because no peer joined this check.
+
 ### October 25, 2026 — A name belongs to the visitor
 
 I tend a guest's doorway beside the changing forms.

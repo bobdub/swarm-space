@@ -23,6 +23,7 @@ export { isGuestUser } from './guestAccess';
 
 const GUEST_FLAG_KEY = 'preview:guest-active';
 const GUEST_ME_KEY = 'me';
+let guestIdentityPromise: Promise<GuestIdentity | null> | null = null;
 
 export interface GuestIdentity extends UserMeta {
   _guest: true;
@@ -51,6 +52,16 @@ export function setGuestName(userId: string, name: string): boolean {
  * can pick it up and enable the mesh.
  */
 export async function ensureGuestIdentity(): Promise<GuestIdentity | null> {
+  if (guestIdentityPromise) return guestIdentityPromise;
+  guestIdentityPromise = provisionGuestIdentity();
+  try {
+    return await guestIdentityPromise;
+  } finally {
+    guestIdentityPromise = null;
+  }
+}
+
+async function provisionGuestIdentity(): Promise<GuestIdentity | null> {
   const existing = localStorage.getItem(GUEST_ME_KEY);
   if (existing) {
     // Respect any pre-existing identity (real or guest).
@@ -63,6 +74,15 @@ export async function ensureGuestIdentity(): Promise<GuestIdentity | null> {
   try {
     const keys = await genIdentityKeyPair();
     const userId = await computeUserId(keys.publicKey);
+    // A member may have signed in while guest keys were being generated.
+    // Never replace that account (or a guest another entry flow created).
+    const current = localStorage.getItem(GUEST_ME_KEY);
+    if (current) {
+      try {
+        const parsed: unknown = JSON.parse(current);
+        return isGuestUser(parsed) ? parsed : null;
+      } catch { return null; }
+    }
     const guest: GuestIdentity = {
       id: userId,
       username: `guest-${userId.slice(0, 6)}`,

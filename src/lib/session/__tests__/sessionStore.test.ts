@@ -73,4 +73,16 @@ describe("sessionStore", () => {
     const snap = await ensureSessionRestore();
     expect(snap.status).toBe("signed-out");
   });
+
+  it("preserves a guest created while durable restore is pending", async () => {
+    let finish: ((result: { status: string }) => void) | undefined;
+    mocks.restoreSessionAttempt.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const restoring = ensureSessionRestore();
+    mocks.getCurrentUser.mockReturnValue({ ...USER, _guest: true });
+    window.dispatchEvent(new Event('user-login'));
+    finish?.({ status: 'none' });
+    const restored = await restoring;
+    expect(restored.status).toBe('signed-in');
+    expect(restored.user?.id).toBe('u1');
+  });
 });
