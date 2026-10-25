@@ -938,14 +938,29 @@ export function BrainChatPanel({
                           displayName={line.author}
                           size="sm"
                         />
-                        <span
-                          className={cn(
-                            'truncate font-medium',
-                            isInfinity && 'text-[hsl(180,90%,70%)]',
-                          )}
-                        >
-                          {line.author}
-                        </span>
+                        {hasUserTools ? (
+                          <Popover>
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                className="truncate font-medium hover:underline"
+                                title={`@${line.author} — user tools`}
+                              >
+                                {line.author}
+                              </button>
+                            </PopoverTrigger>
+                            {renderUserTools(line.author, line.peerId, line.authorId)}
+                          </Popover>
+                        ) : (
+                          <span
+                            className={cn(
+                              'truncate font-medium',
+                              isInfinity && 'text-[hsl(180,90%,70%)]',
+                            )}
+                          >
+                            {line.author}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1">
                         <span>{new Date(line.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
