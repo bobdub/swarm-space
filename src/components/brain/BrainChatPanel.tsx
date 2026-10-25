@@ -53,6 +53,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
+import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 
 export interface BrainChatLine {
   id: string;
@@ -763,13 +764,15 @@ export function BrainChatPanel({
 
       <TabsContent value="chat" className="m-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
 
+      {!isClassic && <BrainInviteStatus />}
+
       {/* Body: users rail + messages */}
       <div className={cn('flex min-h-0 flex-1', isMobile && 'flex-col')}>
         {/* Users rail */}
         {isMobile ? (
           <div className="shrink-0 border-b border-[hsla(180,80%,60%,0.15)] bg-black/20">
             <div className="flex snap-x gap-2 overflow-x-auto px-2 py-1.5">
-              {railUsers.length === 0 && (
+              {isClassic && railUsers.length === 0 && (
                 <p className="px-1 py-2 text-[10px] italic text-foreground/40">No peers yet</p>
               )}
               {railUsers.map((u) => (
@@ -805,12 +808,13 @@ export function BrainChatPanel({
                 </Popover>
               ))}
             </div>
+            {!isClassic && <BrainInviteControl />}
           </div>
         ) : (
           <div className="w-[140px] shrink-0 border-r border-[hsla(180,80%,60%,0.15)] bg-black/20">
             <ScrollArea className="h-full">
               <div className="space-y-1 p-2">
-                {railUsers.length === 0 && (
+                {isClassic && railUsers.length === 0 && (
                   <p className="px-1 py-2 text-[10px] italic text-foreground/40">
                     No peers yet
                   </p>
@@ -851,6 +855,7 @@ export function BrainChatPanel({
                     {renderUserTools(u.username, u.peerId, undefined)}
                   </Popover>
                 ))}
+                {!isClassic && <BrainInviteControl />}
               </div>
             </ScrollArea>
           </div>

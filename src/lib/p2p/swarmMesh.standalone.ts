@@ -1726,6 +1726,10 @@ export class StandaloneSwarmMesh {
       this.clearReconnectTimer();
 
       this.setPhase('online');
+      // An explicit Brain invite knocks first, before subscribing to the Cell.
+      const { dialBrainInviteFirst } = await import('./brainInvite');
+      dialBrainInviteFirst({ pathname: window.location.pathname, hash: window.location.hash,
+        selfId: this.peerId, isBlocked: id => this.blockedPeers.has(id), dial: id => this.connectToPeer(id) });
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
 

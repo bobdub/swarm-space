@@ -869,6 +869,10 @@ export class P2PManager {
         state: 'ready',
       });
       console.log('[P2P] ✅ PeerJS initialized with ID:', this.peerId);
+      const { dialBrainInviteFirst } = await import('./brainInvite');
+      dialBrainInviteFirst({ pathname: window.location.pathname, hash: window.location.hash,
+        selfId: this.peerId, isBlocked: id => this.isPeerBlocked(id),
+        dial: id => this.connectToPeer(id, { manual: true, source: 'brain-invite' }) });
       this.accountSkin.setLocalPeerId(this.peerId);
       // Anchor on the human-readable handle so cells survive peer-id rotation.
       try {

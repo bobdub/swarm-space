@@ -29,7 +29,7 @@ export function BrainChatLauncher(): JSX.Element | null {
 
   // Hide on routes that already host the Brain/live scene inline.
   const path = location.pathname;
-  const isBrainScene = path === '/brain' || /^\/projects\/[^/]+\/hub$/.test(path);
+  const isBrainScene = path === '/brain' || path === '/brain/join' || /^\/projects\/[^/]+\/hub$/.test(path);
 
   // Re-open the floating dock for the active live room. Brain entry
   // lives inside the dock's room menu — the launcher only restores

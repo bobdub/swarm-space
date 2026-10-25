@@ -18,7 +18,7 @@ export function AuthGuard() {
   const location = useLocation();
   const [guestEntryFailed, setGuestEntryFailed] = useState(false);
   const [guestEntryAttempt, setGuestEntryAttempt] = useState(0);
-  const enteringBrainAsGuest = isReady && !user && location.pathname === "/brain";
+  const enteringBrainAsGuest = isReady && !user && (location.pathname === "/brain" || location.pathname === "/brain/join");
 
   useEffect(() => {
     if (!enteringBrainAsGuest) return;
