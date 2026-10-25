@@ -28,6 +28,7 @@ import { StreamNotificationBanner } from "@/components/streaming/StreamNotificat
 import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
 import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
+import { BrainSyncHost } from "@/components/brain/BrainSyncHost";
 import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
@@ -220,6 +221,7 @@ function AppContent() {
       <BrainChatLauncher />
       <FloatingLiveDock />
       <LiveRoomVoiceHost />
+      <BrainSyncHost />
       <PersistentAudioLayer />
       <StreamNotificationBanner onJoin={handleJoinStream} />
       <PreJoinModal
