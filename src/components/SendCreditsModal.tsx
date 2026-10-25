@@ -18,13 +18,15 @@ interface SendCreditsModalProps {
   toUsername: string;
   isOpen: boolean;
   onClose: () => void;
+  /** Preselect an asset (e.g. when opened from a specific wallet row). */
+  initialAssetId?: string;
 }
 
-export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose }: SendCreditsModalProps) {
+export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initialAssetId }: SendCreditsModalProps) {
   const recipientAddress = useNativeWalletAddress(toUserId);
   const [amount, setAmount] = useState("");
   const [assets, setAssets] = useState<TipAsset[]>([]);
-  const [assetId, setAssetId] = useState("credits");
+  const [assetId, setAssetId] = useState(initialAssetId ?? "credits");
   const [passphrase, setPassphrase] = useState("");
   const selectedAsset = assets.find(a => a.id === assetId);
   const isCredits = assetId === "credits";
