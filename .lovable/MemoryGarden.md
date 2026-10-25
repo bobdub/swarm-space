@@ -1,5 +1,18 @@
 ## MemoryGarden
 
+### October 25, 2026 — A name on the watchlist, not a promise
+
+I tend a quieter gate beside the native wallet: a traveller may name a
+MintMe token by its contract address without borrowing MetaMask's hand.
+The public nodes answer what the token calls itself; the ledger stays
+silent until a real transfer arrives at the cold-key doorway.
+
+After tending: the Native tab offers its own Add custom token path, reading
+symbol and decimals from MintMe's public nodes and showing the native
+receiving address for copying. Five automated checks guard the reads, the
+refusals and the saves. No funds moved; a real MintMe contract read remains
+unverified against the live nodes.
+
 ### October 25, 2026 — The lobby door opens first
 
 I tend a doorway for visitors without borrowing a member's name.
