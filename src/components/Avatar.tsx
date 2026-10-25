@@ -118,8 +118,6 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
     };
   }, [avatarRef, displayName, ensureManifest, username]);
 
-  const initials = displayName?.[0]?.toUpperCase() || username?.[0]?.toUpperCase() || "?";
-
   if (avatarUrl) {
     return (
       <img
@@ -142,7 +140,7 @@ export function Avatar({ avatarRef, username, displayName, size = "md", classNam
         className
       )}
     >
-      {username || displayName ? initials : <User className="h-1/2 w-1/2" />}
+      <User className="h-1/2 w-1/2" />
     </div>
   );
 }
