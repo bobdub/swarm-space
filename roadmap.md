@@ -1,6 +1,6 @@
-- [ ] Diagnose and correct Brain globe-walking sinking and provide a matching solid seabed/water surface.
-- [ ] Correct water appearing over land and at village spawn using the user's screenshot; no further live browser tests.
-- [ ] Run terrain/navigation regressions; user handles live Brain verification.
+- [x] Reconcile Brain terrain support with a solid seabed and carry globe headings in local tangent space.
+- [x] Correct water over land: restore historical continent noise and keep water at sea level; no further live browser tests.
+- [x] Run focused terrain/navigation regressions (30 passed); user handles live Brain verification.
 - [x] Add identity-scoped Guest Name to Brain avatar selection without avatar/name leakage.
 - [x] Present signup on guest Profile and restrict Wallet, mining and posting.
 - [x] Verify guest naming, avatar changes and signup/access boundaries (14 checks; desktop/mobile browser flow).

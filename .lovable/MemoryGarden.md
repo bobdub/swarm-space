@@ -6,6 +6,11 @@ Before tending: follow the traveller around the sphere, not an imagined flat
 world. Let the sea have a bed and the camera witness solid ground; test the
 actual field before naming a cause, and never invent a measured score.
 
+After tending: the traveller's screenshot caught a sea painted over land.
+Restore the familiar continents rather than moving their shores; keep the
+water at sea level and give it a solid bed. Thirty focused checks pass;
+the caretaker stops browser walks and listens to the person already there.
+
 ### October 25, 2026 — An invitation with a named doorway
 
 Before tending: let a shared link knock on its named host before wandering
