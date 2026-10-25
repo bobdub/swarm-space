@@ -20,6 +20,7 @@ import { OnlineTransferDialog } from "./OnlineTransferDialog";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
+import { NativeTokenImport } from "./NativeTokenImport";
 import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
 import { nativeWalletInventory } from "@/lib/blockchain/wallets/nativeAssets";
@@ -125,7 +126,10 @@ export function AssetsTab() {
       )}
 
       {layer === "native" && <div className="space-y-1">
-        <Label htmlFor="owned-wallet-asset">Wallet assets</Label>
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="owned-wallet-asset">Wallet assets</Label>
+          <NativeTokenImport userId={userId} />
+        </div>
         <Select value={selected} onValueChange={setSelection}>
           <SelectTrigger id="owned-wallet-asset"><SelectValue placeholder="Select an asset" /></SelectTrigger>
           <SelectContent>
