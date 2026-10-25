@@ -1,4 +1,4 @@
-import { youtubeEmbedUrl } from "@/lib/blogging/youtube";
+import { YouTubeFacade } from "./YouTubeFacade";
 
 interface BlogVideoHeroProps {
   videoId: string;
@@ -6,25 +6,14 @@ interface BlogVideoHeroProps {
   className?: string;
 }
 
-/**
- * Playable YouTube banner used as a blog hero when the post links a video.
- * No autoplay — the reader presses play.
- */
+/** YouTube banner for blog heroes; loads only after the reader taps play. */
 export function BlogVideoHero({ videoId, title, className }: BlogVideoHeroProps) {
   return (
     <div
       className={`relative aspect-video w-full overflow-hidden bg-black ${className ?? ""}`}
       data-testid="blog-video-hero"
     >
-      <iframe
-        src={youtubeEmbedUrl(videoId)}
-        title={title ? `${title} — video` : "Blog video"}
-        className="absolute inset-0 h-full w-full"
-        loading="lazy"
-        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-      />
+      <YouTubeFacade videoId={videoId} title={title ? `${title} — video` : "Blog video"} />
     </div>
   );
 }
