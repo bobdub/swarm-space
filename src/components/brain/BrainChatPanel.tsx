@@ -885,8 +885,27 @@ export function BrainChatPanel({
             </p>
           ) : (
             <div className="space-y-2">
-              {allLines.map((line) => {
+              {renderedLines.map((entry) => {
+                if (entry.kind === 'placeholder') {
+                  return (
+                    <div
+                      key={`hidden-${entry.key}`}
+                      className="rounded-md border border-white/10 bg-black/10 px-2 py-1.5 text-[11px] italic text-foreground/50"
+                    >
+                      Message from {entry.status} user{' '}
+                      <button
+                        type="button"
+                        onClick={() => handleUnhide(entry.status, entry.line)}
+                        className="not-italic text-primary/70 hover:text-primary"
+                      >
+                        ({entry.status === 'muted' ? 'Unmute?' : 'Unblock?'})
+                      </button>
+                    </div>
+                  );
+                }
+                const line = entry.line;
                 const isInfinity = !isClassic && line.author === ENTITY_DISPLAY_NAME;
+                const hasUserTools = !isInfinity && Boolean(line.peerId || line.authorId);
                 const isLong = line.text.length > LONG_MESSAGE_THRESHOLD;
                 const isExpanded = expanded.has(line.id);
                 const display = isLong && !isExpanded
