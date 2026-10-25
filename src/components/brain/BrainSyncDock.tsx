@@ -49,7 +49,8 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute }: Props) {
     <div
       role="region"
       aria-label="Brain synced"
-      className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur"
+      style={{ top: 'calc(var(--app-header-h, 4.5rem) + 1rem)' }}
+      className="fixed left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-full border border-border bg-card/95 px-2 py-1 shadow-lg backdrop-blur"
     >
       <button
         type="button"
