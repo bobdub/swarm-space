@@ -43,3 +43,4 @@
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
 - Read `src/lib/blockchain/AGENTS.md` for vault/key rules. Native Assets and Market share positive-balance inventory; unsupported payments fail closed.
 - Persist public cold-key receiving metadata at identity unlock, independently of the tab-session signing seal, so receiving never requires a withdrawal key when the address is known.
+- Brain room membership is app-level (brainSyncStore + BrainSyncHost); leaving the Brain page keeps the call and only explicit Disconnect or a live-room takeover ends it. A refresh is a disconnect (pagehide leave + silence sweep with departed tombstones), never a resume — prevents ghost peers.

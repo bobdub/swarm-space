@@ -66,6 +66,13 @@ export class WebRTCManager {
     this.userId = userId;
     this.username = username;
     this.setupSignalListener();
+    // A refresh or tab close is a disconnect, never a resume: drop every
+    // call connection so peers see us leave instead of a frozen avatar.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => {
+        try { void this.leaveRoom(); } catch { /* ignore */ }
+      });
+    }
   }
 
   /** Polite peer = lexicographically smaller ID */

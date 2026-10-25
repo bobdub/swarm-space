@@ -10,10 +10,14 @@
  * <PersistentAudioLayer/> mounted in App.tsx; this component owns only
  * the join lifecycle.
  */
+import { useEffect } from 'react';
 import { useBrainVoice, BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
+import { clearBrainSync } from '@/lib/brain/brainSyncStore';
 import { useLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
 
 function LiveRoomVoiceBinding({ roomId, audio }: { roomId: string; audio: boolean }) {
+  // A live room takes over: end any Brain sync so the user is never in two calls.
+  useEffect(() => { clearBrainSync(); }, [roomId]);
   // Spectator binding: passive join (no mic). Participants will upgrade by
   // calling manager.startLocalStream directly from the dock UI.
   useBrainVoice(true, roomId, { audio });

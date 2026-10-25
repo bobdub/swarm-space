@@ -163,6 +163,7 @@ import {
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
   speakInfinity,
@@ -1217,7 +1218,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     [builder],
   );
   const [portals, setPortals] = useState<BrainPortal[]>([]);
-  const [cameraOn, setCameraOn] = useState(false);
+  const [cameraOn, setCameraOn] = useState(() =>
+    user ? getWebRTCManager(user.id, user.username).isCameraOn() : false,
+  );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
@@ -1281,6 +1284,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     onChatLine,
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
+
+  // Entering the Brain marks this room as synced: leaving the page keeps
+  // the conversation going until the user presses Disconnect.
+  useEffect(() => {
+    if (ready) syncBrainRoom(roomId);
+  }, [ready, roomId]);
 
   // Names from Brain presence, so every video box and screen share is
   // labelled with the person's username instead of a placeholder.

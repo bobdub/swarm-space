@@ -23,6 +23,7 @@ interface SignalEnvelope {
     | 'candidate'
     | 'join-room'
     | 'leave-room'
+    | 'room-heartbeat'
     | 'room-sync'
     | 'reconnect-request'
     | 'reconnect-ack'
@@ -120,6 +121,84 @@ const MAX_CHAT_MESSAGES_PER_ROOM = 200;
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
 const joinedRooms = new Map<string, Set<string>>();
 
+// ── Departed / silent peer tracking ────────────────────────────────────
+/** `${roomId}|${peerId}` -> time the peer left. Stale echoes never revive them. */
+const departedAt = new Map<string, number>();
+/** `${roomId}|${peerId}` -> last time we heard anything from the peer. */
+const lastHeardAt = new Map<string, number>();
+const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void>();
+export const ROOM_PEER_SILENCE_MS = 20_000;
+const ROOM_HEARTBEAT_MS = 7_000;
+let sweepTimer: ReturnType<typeof setInterval> | null = null;
+const roomKey = (roomId: string, peerId: string) => `${roomId}|${peerId}`;
+
+/** Subscribe to "this peer is gone from the room" (left or went silent). */
+export function onRoomPresenceRemoved(handler: (roomId: string, peerId: string) => void): () => void {
+  presenceRemovedHandlers.add(handler);
+  return () => { presenceRemovedHandlers.delete(handler); };
+}
+
+/** Forget a peer in a room everywhere and tell local listeners. */
+function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'): void {
+  joinedRooms.get(roomId)?.delete(peerId);
+  roomPresenceLog.get(roomId)?.delete(peerId);
+  lastHeardAt.delete(roomKey(roomId, peerId));
+  departedAt.set(roomKey(roomId, peerId), Date.now());
+  if (reason === 'silent') {
+    console.log(`[WebRTC-Bridge] 💤 ${peerId} silent in ${roomId} — removing`);
+    for (const h of signalHandlers) {
+      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now() }); } catch { /* ignore */ }
+    }
+  }
+  for (const h of presenceRemovedHandlers) {
+    try { h(roomId, peerId); } catch { /* ignore */ }
+  }
+}
+
+/** Test/internal: remove peers silent longer than the window. */
+export function sweepSilentRoomPeers(now: number = Date.now()): void {
+  const myPeerId = meshRef?.getPeerId();
+  for (const [roomId, members] of joinedRooms) {
+    for (const peerId of Array.from(members)) {
+      if (peerId === myPeerId) continue;
+      const heard = lastHeardAt.get(roomKey(roomId, peerId));
+      if (heard !== undefined && now - heard > ROOM_PEER_SILENCE_MS) {
+        evictRoomPeer(roomId, peerId, 'silent');
+      }
+    }
+  }
+  for (const [k, t] of departedAt) {
+    if (now - t > 5 * 60_000) departedAt.delete(k);
+  }
+}
+
+function heartbeatRooms(): void {
+  if (!meshRef) return;
+  const from = meshRef.getPeerId();
+  for (const roomId of joinedRooms.keys()) {
+    meshRef.broadcast(SIGNAL_CHANNEL, {
+      msgType: 'room-heartbeat',
+      from,
+      roomId,
+      ts: Date.now(),
+    } satisfies SignalEnvelope);
+  }
+}
+
+function ensureSweep(): void {
+  if (sweepTimer || typeof window === 'undefined') return;
+  sweepTimer = setInterval(() => {
+    heartbeatRooms();
+    sweepSilentRoomPeers();
+  }, ROOM_HEARTBEAT_MS);
+  // A refresh or tab close is a clean disconnect: tell every room now.
+  window.addEventListener('pagehide', () => {
+    for (const roomId of Array.from(joinedRooms.keys())) {
+      try { announceLeaveRoom(roomId); } catch { /* ignore */ }
+    }
+  });
+}
+
 // ── Incoming Handler ───────────────────────────────────────────────────
 
 function handleIncoming(_fromPeerId: string, raw: unknown): void {
@@ -132,7 +211,24 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
   // If directed signal, only process if addressed to us
   if (envelope.to && envelope.to !== myPeerId) return;
 
+  const fromKey = roomKey(envelope.roomId, envelope.from);
+  if (envelope.msgType === 'join-room' || envelope.msgType === 'room-hello') {
+    // A fresh join is the only thing that brings a departed peer back.
+    departedAt.delete(fromKey);
+  } else if (envelope.msgType !== 'leave-room') {
+    const left = departedAt.get(fromKey);
+    if (left !== undefined && (envelope.ts ?? 0) <= left + 1_000) return;
+    if (left !== undefined && envelope.msgType !== 'presence') return;
+    if (left !== undefined) departedAt.delete(fromKey);
+  }
+  if (envelope.msgType !== 'leave-room' && joinedRooms.has(envelope.roomId)) {
+    lastHeardAt.set(fromKey, Date.now());
+  }
+
   switch (envelope.msgType) {
+    case 'room-heartbeat':
+      break;
+
     case 'join-room': {
       // A peer wants to join a room we're in
       const room = joinedRooms.get(envelope.roomId);
@@ -162,7 +258,14 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
       const room = joinedRooms.get(envelope.roomId);
       if (room) {
         const participants = envelope.participants ?? [];
-        for (const p of participants) room.add(p);
+        for (const p of participants) {
+          if (p !== envelope.from && departedAt.has(roomKey(envelope.roomId, p))) continue;
+          room.add(p);
+          if (!lastHeardAt.has(roomKey(envelope.roomId, p))) lastHeardAt.set(roomKey(envelope.roomId, p), Date.now());
+        }
+        envelope.participants = participants.filter(
+          (p) => p === envelope.from || !departedAt.has(roomKey(envelope.roomId, p)),
+        );
       }
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
@@ -173,9 +276,9 @@ function handleIncoming(_fromPeerId: string, raw: unknown): void {
     case 'leave-room': {
       const room = joinedRooms.get(envelope.roomId);
       if (room) {
-        room.delete(envelope.from);
         console.log(`[WebRTC-Bridge] 👋 ${envelope.from} left room ${envelope.roomId}`);
       }
+      evictRoomPeer(envelope.roomId, envelope.from, 'left');
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
@@ -528,6 +631,7 @@ export function sendMediaState(
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
   if (!meshRef) return;
+  ensureSweep();
 
   // Enforce single-room membership — leave stale rooms first
   for (const existingRoomId of Array.from(joinedRooms.keys())) {

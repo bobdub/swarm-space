@@ -10,10 +10,12 @@ import {
   onRoomPresence,
   getRoomPresences,
   helloRoom,
+  onRoomPresenceRemoved,
   type RoomPresence,
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
 import { BRAIN_PHYSICS_VERSION } from "@/lib/brain/brainPersistence";
+import { isBrainSynced } from "@/lib/brain/brainSyncStore";
 import { ENTITY_DISPLAY_NAME, ENTITY_USER_ID } from '@/lib/p2p/entityVoice';
 
 /** Default shared room so every visitor to /brain hears every other visitor.
@@ -52,7 +54,9 @@ export function useBrainVoice(
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
   // Mute lives on the call layer so it survives camera toggles, reconnects
   // and re-entering the Brain.
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() =>
+    user ? getWebRTCManager(user.id, user.username).isSelfMuted() : false,
+  );
   const isMutedRef = useRef(false);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
   const [joined, setJoined] = useState(false);
@@ -144,13 +148,29 @@ export function useBrainVoice(
       }
     })();
 
+    const unsubRemoved = onRoomPresenceRemoved((rid, peerId) => {
+      if (rid !== roomId) return;
+      setPresenceById((prev) => {
+        if (!(peerId in prev)) return prev;
+        const next = { ...prev };
+        delete next[peerId];
+        return next;
+      });
+      setRawParticipants(manager.getParticipants());
+    });
+
     return () => {
       cancelled = true;
       unsub();
       unsubPresence();
+      unsubRemoved();
       if (joinedRef.current) {
         joinedRef.current = false;
-        try { void manager.leaveRoom(); } catch { /* ignore */ }
+        // A Brain-synced room stays joined when the page changes; the
+        // sync host (or the Brain page) picks it up. Only Disconnect ends it.
+        if (!isBrainSynced(roomId)) {
+          try { void manager.leaveRoom(); } catch { /* ignore */ }
+        }
         // Do NOT stop the local stream here. The audio effect below owns
         // mic enable/disable so that toggling `audio` does not re-join the
         // room.
