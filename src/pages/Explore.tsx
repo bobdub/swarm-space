@@ -51,6 +51,9 @@ const Explore = () => {
   const { isEnabled: p2pEnabled, stats: p2pStats } = useP2PContext();
   const [projects, setProjects] = useState<Project[]>([]);
   const [recentPosts, setRecentPosts] = useState<Post[]>([]);
+  // Render the feed in small batches so mobile browsers aren't flooded at load.
+  const FEED_BATCH = 12;
+  const [visibleCount, setVisibleCount] = useState(FEED_BATCH);
   const [postMetricsMap, setPostMetricsMap] = useState<Map<string, PostMetrics>>(() => new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [postsLoading, setPostsLoading] = useState(true);
@@ -408,13 +411,20 @@ const Explore = () => {
                 </Card>
               ) : (
                 <div className="space-y-6">
-                  {recentPosts.map((post) => {
+                  {recentPosts.slice(0, visibleCount).map((post) => {
                     const { classification } = classifyPost(post);
                     const isBlog = classification === "blog" || classification === "book";
                     return isBlog
                       ? <BlogPostCard key={post.id} post={post} />
                       : <PostCard key={post.id} post={post} />;
                   })}
+                  {recentPosts.length > visibleCount && (
+                    <div className="flex justify-center">
+                      <Button type="button" variant="outline" onClick={() => setVisibleCount((c) => c + FEED_BATCH)}>
+                        Show more posts
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </TabsContent>
