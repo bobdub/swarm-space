@@ -257,6 +257,8 @@ export class UqrcPhysics {
   private lastStepAtMs = 0;
 
   private listeners = new Set<() => void>();
+  /** Exclusive passenger pose ownership; never changes the global field clock. */
+  private bodyControls = new Map<string, symbol>();
   private lastQ = 0;
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
@@ -415,6 +417,7 @@ export class UqrcPhysics {
   }
 
   removeBody(id: string): void {
+    this.bodyControls.delete(id);
     this.bodies.delete(id);
     this.intent.delete(id);
     this.stableSurfaceLocal.delete(id);
@@ -431,6 +434,26 @@ export class UqrcPhysics {
   getBody(id: string): Body | undefined {
     return this.bodies.get(id);
   }
+
+  acquireBodyControl(id: string) {
+    if (!this.bodies.has(id) || this.bodyControls.has(id)) return null;
+    const token = Symbol(id);
+    this.bodyControls.set(id, token);
+    this.setIntent(id, { fwd: 0, right: 0, yaw: 0 });
+    return {
+      update: (position: [number, number, number], velocity: [number, number, number] = [0, 0, 0]) => {
+        const body = this.bodies.get(id);
+        if (!body || this.bodyControls.get(id) !== token || !position.every(Number.isFinite) || !velocity.every(Number.isFinite)) return;
+        body.pos = [...position]; body.prevPos = [...position]; body.vel = [...velocity];
+        body.local = undefined; body.prevLocal = undefined;
+      },
+      release: () => {
+        if (this.bodyControls.get(id) === token) this.bodyControls.delete(id);
+      },
+    };
+  }
+
+  isBodyControlled(id: string): boolean { return this.bodyControls.has(id); }
 
   getBodies(): Body[] {
     return Array.from(this.bodies.values());
@@ -700,6 +723,7 @@ export class UqrcPhysics {
     if (solids.length === 0) return;
     for (const b of this.bodies.values()) {
       if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (this.bodyControls.has(b.id)) continue;
       if (!b.pos.every(Number.isFinite)) continue;
       const ux0 = b.pos[0] - pose.center[0];
       const uy0 = b.pos[1] - pose.center[1];
@@ -786,6 +810,8 @@ export class UqrcPhysics {
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
 
+        if (this.bodyControls.has(b.id)) continue;
+
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
@@ -804,6 +830,7 @@ export class UqrcPhysics {
 
       // 3. Integrate body motion from field forces + intent
       for (const b of this.bodies.values()) {
+        if (this.bodyControls.has(b.id)) continue;
         if (b.kind === 'portal' || b.kind === 'piece') continue;
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
