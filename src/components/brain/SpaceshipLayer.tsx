@@ -14,7 +14,7 @@ import { getAvatarById, loadHubPrefs } from '@/lib/virtualHub/avatars';
 import { isPeerMuted } from '@/lib/brain/mutedPeersStore';
 import { getRoomPresences, onRoomPresenceRemoved } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { shipPadPose, shipSiteNormal } from '@/lib/brain/spaceshipSite';
-import { chargeShipLaunch } from '@/lib/brain/spaceshipLaunch';
+import { chargeShipLaunch, consumeShipAdmission } from '@/lib/brain/spaceshipLaunch';
 import { advanceFlight, BOARD_HOLD_MS, COUNTDOWN_MS, ASCENT_MS, SPACE_ALTITUDE, countdownAt, type ShipState, type V3, type Q4 } from '@/lib/brain/spaceshipRules';
 import { acceptShip, getShips, getPilotShip, setLocalShip, padClaim, sweepShips, removeShip, useShipsVersion } from '@/lib/brain/spaceshipStore';
 import { leaveSeat } from '@/lib/pub/seating';
@@ -155,6 +155,7 @@ export function SpaceshipLayer({ selfId, roomId, enabled }: { selfId: string; ro
       await chargeShipLaunch(selfId, s.session, () => mounted.current && generation.current === epoch);
       if (!mounted.current || generation.current !== epoch) { lease.current?.release(); lease.current = null; s.phase = 'ended'; publish(s); return; }
       s.phase = 'countdown'; s.startedAt = Date.now(); localFlight = s; publish(s);
+      consumeShipAdmission(selfId);
     } catch (err) {
       lease.current?.release(); lease.current = null; s.phase = 'ended'; publish(s);
       if (mounted.current) toast.error(err instanceof Error ? err.message : 'Launch failed');

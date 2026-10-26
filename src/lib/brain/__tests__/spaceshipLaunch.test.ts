@@ -25,4 +25,10 @@ describe('paid boarding', () => {
     mocks.burn.mockRejectedValueOnce(new Error('Ledger refused'));
     await expect(chargeShipLaunch('pilot', 'refused')).rejects.toThrow('Ledger refused'); expect(mocks.deduct).not.toHaveBeenCalled();
   });
+  it('preserves paid admission if departure interrupts payment before boarding', async () => {
+    let admission: string | null = null;
+    const charge = createLaunchCharger({ currentUserId: () => 'pilot', swarmBalance: mocks.swarm, creditBalance: mocks.credits, burn: mocks.burn, deduct: mocks.deduct, readAdmission: () => admission, saveAdmission: (_, label) => { admission = label; } });
+    await charge('pilot', 'interrupted'); expect(admission).toBe('5 SWARM');
+    await charge('pilot', 'next-attempt'); expect(mocks.burn).toHaveBeenCalledTimes(1);
+  });
 });
