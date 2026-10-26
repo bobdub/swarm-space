@@ -13,7 +13,6 @@ import { feetRadiusAt } from '@/lib/brain/groundHeight';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { Billboard, Text } from '@react-three/drei';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
-import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 
 interface Props {
   position: [number, number, number];
@@ -33,8 +32,6 @@ interface Props {
   intentDriven?: boolean;
   /** Active world-space travel direction. Omitted while input is idle. */
   movementDirection?: [number, number, number];
-  /** Self only: sample the same interpolated physics pose as the camera. */
-  localBodyId?: string;
 }
 
 /**
@@ -52,7 +49,6 @@ export function RemoteAvatarBody({
   pinned,
   intentDriven = false,
   movementDirection,
-  localBodyId,
 }: Props) {
   const def = useMemo(() => getAvatarById(avatarId), [avatarId]);
   const color = useMemo(() => `hsl(${Math.floor((trust * 200) % 360)}, 70%, 60%)`, [trust]);
@@ -77,7 +73,6 @@ export function RemoteAvatarBody({
    *  smoothed Earth-relative and remapped through the frame pose. */
   const targetRel = useRef(new THREE.Vector3());
   const smoothRel = useRef(new THREE.Vector3());
-  const renderPosition = useRef<[number, number, number]>([0, 0, 0]);
 
   // Refresh target whenever the prop changes.
   useMemo(() => {
@@ -171,17 +166,7 @@ export function RemoteAvatarBody({
     }
     const g = groupRef.current;
     if (!g) return;
-    const pose = getEarthPose();
-    const center = pose.center;
-    if (localBodyId && !pinned) {
-      const position = getBrainPhysics().getBodyRenderPos(localBodyId, performance.now(), renderPosition.current);
-      if (!position) return;
-      // The local solver already owns grounding. Do not re-ground its pose
-      // or cache a tick-era world position while the camera follows live Earth.
-      targetRel.current.set(position[0] - center[0], position[1] - center[1], position[2] - center[2]);
-      const up = _up.current.copy(targetRel.current).normalize();
-      targetQuat.current.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
-    }
+    const center = getEarthPose().center;
     if (!seeded.current || pinned) {
       // Seat-locked peers snap: no intermediate standing pose is ever
       // shown while the smoother catches up to the stool.

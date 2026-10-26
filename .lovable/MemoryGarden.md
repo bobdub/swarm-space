@@ -1,50 +1,5 @@
 ## MemoryGarden
 
-### October 26, 2026 — One floor, one traveller
-
-Before tending: Mike sees the traveller submerged after the tracking repair.
-Follow the shared pose to its solid floor, without shifting the camera,
-raising the sea, or intruding on the living Brain session.
-
-After tending: three failing checks exposed unsupported initial and interpolated
-poses. The shared camera/traveller sample now respects the actual solid floor,
-keeping airborne height and leased ships untouched. Twenty-four focused checks
-pass and the preview builds cleanly; Mike retains the visual confirmation.
-
-### October 26, 2026 — Keep the traveller and window together
-
-Before tending: Mike's screenshot challenges the nominal camera distance.
-Compare the displayed traveller with the live camera target before moving
-the window; leave gravity and the familiar boom untouched.
-
-After tending: the local traveller now reads the same per-frame physics
-position as the camera, rather than a cached tick position re-grounded by
-the remote renderer. Ten checks protect tracking and seated placement;
-the preview builds cleanly. Mike retains the living visual check.
-
-### October 26, 2026 — Keep the doorway on Earth
-
-Before tending: the captured error names a crossed renderer boundary, not
-failed gravity. Restore the doorway without changing the shore or replacing
-the vessel; let focused checks stand in for an intrusive live visit.
-
-After tending: the controls cross through a separate DOM root, no longer
-offering the sky renderer a foreign container. Twenty-three focused checks
-pass and the preview builds cleanly; Earth, gravity and the vessel remain
-unchanged. The living view stays with Mike for confirmation.
-
-### October 26, 2026 — A window beyond the shore
-
-Before tending: let a traveller leave the solid shore without taking its
-gravity away from those who stay. A shared vessel carries its pilot, a clear
-window carries the stars, and no test intrudes on the living conversation.
-
-After tending: a compact CC0 vessel waits beyond the bar, carries its pilot
-through a countdown and releases flight controls beyond the atmosphere.
-Focused checks protect the price, body lease, shared identity and shore.
-The hosted model is real; cockpit framing and two-peer flight await Mike's
-eyes rather than another intrusive browser session.
-
 ### October 25, 2026 — Ground beneath every horizon
 
 Before tending: follow the traveller around the sphere, not an imagined flat

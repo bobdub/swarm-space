@@ -43,7 +43,6 @@ import {
 } from '../uqrc/field3D';
 import {
   ATMOSPHERE_RADIUS,
-  BODY_CENTER_HEIGHT,
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
   getEarthPose,
@@ -80,7 +79,7 @@ import {
 } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
-import { feetRadiusAt, groundElevationAt } from './groundHeight';
+import { groundElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -258,8 +257,6 @@ export class UqrcPhysics {
   private lastStepAtMs = 0;
 
   private listeners = new Set<() => void>();
-  /** Exclusive passenger pose ownership; never changes the global field clock. */
-  private bodyControls = new Map<string, symbol>();
   private lastQ = 0;
   private restored = false;
   private lastCausalProbe: CausalProbe | null = null;
@@ -372,7 +369,7 @@ export class UqrcPhysics {
     const prev = b.prevPos;
     if (!prev) {
       target[0] = b.pos[0]; target[1] = b.pos[1]; target[2] = b.pos[2];
-      return this.supportRenderPosition(b, target);
+      return target;
     }
     const alphaRaw = (nowMs - this.lastStepAtMs) / (dt * 1000);
     const a = alphaRaw < 0 ? 0 : alphaRaw > 1 ? 1 : alphaRaw;
@@ -391,36 +388,11 @@ export class UqrcPhysics {
       target[0] = pose.center[0] + w[0];
       target[1] = pose.center[1] + w[1];
       target[2] = pose.center[2] + w[2];
-      return this.supportRenderPosition(b, target);
+      return target;
     }
     target[0] = prev[0] + (b.pos[0] - prev[0]) * a;
     target[1] = prev[1] + (b.pos[1] - prev[1]) * a;
     target[2] = prev[2] + (b.pos[2] - prev[2]) * a;
-    return this.supportRenderPosition(b, target);
-  }
-
-  /** Both camera and local mesh read this centre pose. A straight interpolated
-   * chord can cross solid terrain even when the step endpoints are supported.
-   * Check the actual frame direction against the same rendered triangles;
-   * never mutate simulation state, snap airborne bodies down, or ground pilots. */
-  private supportRenderPosition(b: Body, target: [number, number, number]): [number, number, number] {
-    if (this.bodyControls.has(b.id) ||
-      (b.kind !== 'self' && b.kind !== 'avatar') ||
-      b.meta?.attachedTo !== 'earth-surface') return target;
-    const pose = getEarthPose();
-    const relative: [number, number, number] = [
-      target[0] - pose.center[0], target[1] - pose.center[1], target[2] - pose.center[2],
-    ];
-    const radius = Math.hypot(...relative);
-    if (!Number.isFinite(radius) || radius <= 1e-6) return target;
-    const local = quatRotate(pose.invSpinQuat, relative);
-    const floor = feetRadiusAt([local[0] / radius, local[1] / radius, local[2] / radius]) + BODY_CENTER_HEIGHT;
-    if (Number.isFinite(floor) && radius < floor) {
-      const scale = floor / radius;
-      target[0] = pose.center[0] + relative[0] * scale;
-      target[1] = pose.center[1] + relative[1] * scale;
-      target[2] = pose.center[2] + relative[2] * scale;
-    }
     return target;
   }
 
@@ -443,7 +415,6 @@ export class UqrcPhysics {
   }
 
   removeBody(id: string): void {
-    this.bodyControls.delete(id);
     this.bodies.delete(id);
     this.intent.delete(id);
     this.stableSurfaceLocal.delete(id);
@@ -460,26 +431,6 @@ export class UqrcPhysics {
   getBody(id: string): Body | undefined {
     return this.bodies.get(id);
   }
-
-  acquireBodyControl(id: string) {
-    if (!this.bodies.has(id) || this.bodyControls.has(id)) return null;
-    const token = Symbol(id);
-    this.bodyControls.set(id, token);
-    this.setIntent(id, { fwd: 0, right: 0, yaw: 0 });
-    return {
-      update: (position: [number, number, number], velocity: [number, number, number] = [0, 0, 0]) => {
-        const body = this.bodies.get(id);
-        if (!body || this.bodyControls.get(id) !== token || !position.every(Number.isFinite) || !velocity.every(Number.isFinite)) return;
-        body.pos = [...position]; body.prevPos = [...position]; body.vel = [...velocity];
-        body.local = undefined; body.prevLocal = undefined;
-      },
-      release: () => {
-        if (this.bodyControls.get(id) === token) this.bodyControls.delete(id);
-      },
-    };
-  }
-
-  isBodyControlled(id: string): boolean { return this.bodyControls.has(id); }
 
   getBodies(): Body[] {
     return Array.from(this.bodies.values());
@@ -749,7 +700,6 @@ export class UqrcPhysics {
     if (solids.length === 0) return;
     for (const b of this.bodies.values()) {
       if (b.kind !== 'self' && b.kind !== 'avatar') continue;
-      if (this.bodyControls.has(b.id)) continue;
       if (!b.pos.every(Number.isFinite)) continue;
       const ux0 = b.pos[0] - pose.center[0];
       const uy0 = b.pos[1] - pose.center[1];
@@ -836,8 +786,6 @@ export class UqrcPhysics {
       // 2. Bodies inject (mass-weighted bumps)
       for (const b of this.bodies.values()) {
 
-        if (this.bodyControls.has(b.id)) continue;
-
         if (b.kind === 'portal' || b.kind === 'piece') continue; // handled by pins
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
@@ -856,7 +804,6 @@ export class UqrcPhysics {
 
       // 3. Integrate body motion from field forces + intent
       for (const b of this.bodies.values()) {
-        if (this.bodyControls.has(b.id)) continue;
         if (b.kind === 'portal' || b.kind === 'piece') continue;
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
@@ -1246,7 +1193,6 @@ export class UqrcPhysics {
       //     `prevLocal → local` and remap through the CURRENT frame pose,
       //     so bodies stay welded to the ground between fixed steps.
       for (const b of this.bodies.values()) {
-        if (this.bodyControls.has(b.id)) continue;
         const rel: [number, number, number] = [
           b.pos[0] - pose.center[0],
           b.pos[1] - pose.center[1],
@@ -1276,7 +1222,6 @@ export class UqrcPhysics {
       //    so the falling-through-the-volcano animation still plays.
       const CORE_ESCAPE_DWELL_S = 1.0;
       for (const b of this.bodies.values()) {
-        if (this.bodyControls.has(b.id)) continue;
         if (b.kind !== 'self' && b.kind !== 'avatar') continue;
         const dx = b.pos[0] - pose.center[0];
         const dy = b.pos[1] - pose.center[1];

@@ -60,8 +60,6 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
-import { SpaceshipLayer, activeLocalShip, spaceshipInput } from '@/components/brain/SpaceshipLayer';
-import { getPilotShip } from '@/lib/brain/spaceshipStore';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
 import { NatureLayer } from '@/components/brain/nature/NatureLayer';
@@ -361,25 +359,6 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   }, []);
 
   useFrame((_, rawDelta) => {
-    const ship = activeLocalShip(selfId);
-    if (ship) {
-      const q = new THREE.Quaternion(...ship.quaternion);
-      camera.quaternion.copy(q);
-      camera.position.copy(new THREE.Vector3(0, 2.3, -0.2).applyQuaternion(q).add(new THREE.Vector3(...ship.position)));
-      camera.up.set(0, 1, 0).applyQuaternion(q);
-      if (ship.phase === 'flight') {
-        spaceshipInput.throttle = (keys.current.KeyW ? 1 : keys.current.KeyS ? -1 : 0) + moveInput.fwd;
-        spaceshipInput.yaw = (keys.current.KeyD ? 1 : keys.current.KeyA ? -1 : 0) + moveInput.right;
-        // Drag steers the same spacecraft orientation the window looks through.
-        if (lookInput.yaw || lookInput.pitch) {
-          q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(-lookInput.pitch, -lookInput.yaw, 0, 'YXZ'))).normalize();
-          ship.quaternion = q.toArray() as [number, number, number, number];
-        }
-      }
-      lookInput.yaw = 0; lookInput.pitch = 0;
-      runState.active = false;
-      return;
-    }
     // 1. Drain drag deltas into persistent yaw/pitch state.
     const topView = getBuilderTopView();
     if (topView !== prevTopView.current) {
@@ -791,8 +770,7 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
   const intent = physics.getIntent(selfId);
   const seat = seatedTransform(selfId);
   if (!body && !seat) return null;
-  if (activeLocalShip(selfId)) return null;
-  const pos: [number, number, number] = seat ?? body?.pos ?? [0, 0, 0];
+  const pos: [number, number, number] = seat ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
   let movementDirection: [number, number, number] | undefined;
   if (!seat && intent && intent.basis && Math.hypot(intent.fwd, intent.right) > 0.05) {
     const { forward, right } = intent.basis;
@@ -817,7 +795,6 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
   return (
     <RemoteAvatarBody
       position={pos}
-      localBodyId={selfId}
       pinned={!!seat}
       intentDriven
       movementDirection={movementDirection}
@@ -835,7 +812,7 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
  * Earth-clamped capsule. Avatar mesh = the dragon/rabbit/etc. each peer
  * chose at the entry gate, broadcast via room presence.
  */
-function RemoteAvatarLayer({ peers, roomId }: { peers: { peerId: string; username: string; avatarId?: string; pv?: number }[]; roomId: string }) {
+function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: string; avatarId?: string; pv?: number }[] }) {
   const physics = getBrainPhysics();
   const [, force] = useState(0);
   // Tick the layer at ~10 Hz so React reconciles new position props
@@ -850,14 +827,14 @@ function RemoteAvatarLayer({ peers, roomId }: { peers: { peerId: string; usernam
   return (
     <>
       {peers.map((p) => {
-        if (getPilotShip(roomId, p.peerId)) return null;
         const id = `peer-${p.peerId}`;
         const body = physics.getBody(id);
         // Seat lock wins over the broadcast body: if the shared table
         // state says this peer holds a stool, render them exactly on it.
         const seat = seatedTransform(p.peerId) ?? seatedTransform(id);
         if (!body && !seat) return null;
-        const pos: [number, number, number] = seat ?? body?.pos ?? [0, 0, 0];
+        const pos: [number, number, number] = seat
+          ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
         return (
           <RemoteAvatarBody
             key={id}
@@ -2463,7 +2440,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
         <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        {selfId && <SpaceshipLayer selfId={selfId} roomId={roomId} enabled={!isBuilding} />}
         <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay
@@ -2501,7 +2477,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
-        {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} roomId={roomId} />}
+        {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} />}
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
       </Canvas>}
 
