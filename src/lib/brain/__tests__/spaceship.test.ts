@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { launchPayment, countdownAt, padAvailableAt, advanceFlight, FLIGHT_SPEED, type ShipState } from '../spaceshipRules';
 import { acceptShip, getPilotShip, resetShips, padClaim, sweepShips } from '../spaceshipStore';
 import { UqrcPhysics } from '../uqrcPhysics';

@@ -39,6 +39,9 @@ All colors MUST be HSL.
     --ring: 326 71% 62%;
 
     --radius: 0.75rem;
+    --ship-hull: 210 12% 72%;
+    --ship-panel: 210 12% 28%;
+    --ship-pad: 210 8% 32%;
 
     --app-header-h: 4.5rem;
 

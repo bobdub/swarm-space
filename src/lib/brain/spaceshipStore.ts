@@ -8,7 +8,7 @@ const key = (room: string, peer: string) => `${room}|${peer}`;
 function emit() { revision++; listeners.forEach(fn => fn()); }
 export function useShipsVersion() { return useSyncExternalStore(cb => { listeners.add(cb); return () => { listeners.delete(cb); }; }, () => revision, () => revision); }
 export function getShips(room: string): ShipState[] { return [...ships.values()].filter(x => x.state.roomId === room).map(x => x.state); }
-export function getPilotShip(room: string, peer: string): ShipState | undefined { const s = ships.get(key(room, peer))?.state; return s?.phase !== 'ended' ? s : undefined; }
+export function getPilotShip(room: string, peer: string): ShipState | undefined { const s = ships.get(key(room, peer))?.state; return s && s.phase !== 'ended' && s.phase !== 'claim' ? s : undefined; }
 export function setLocalShip(s: ShipState) { ships.set(key(s.roomId, s.pilotPeerId), { state: { ...s }, heard: Date.now() }); emit(); }
 export function acceptShip(value: unknown, sender: string, room: string, now = Date.now()): boolean {
   if (!validShipState(value, sender, room)) return false;
