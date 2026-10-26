@@ -2,7 +2,6 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
-import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, Home, Octagon, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -219,13 +218,13 @@ export function SpaceshipLayer({ selfId, roomId, enabled }: { selfId: string; ro
     </group>
     {remote.map(s => <ShipView key={s.session} state={s} local={false} />)}
     {flight && <ShipView state={flight} local />}
-    {createPortal(<>
-      {near && !flight && <div className="fixed bottom-40 left-1/2 z-40 -translate-x-1/2 w-64 max-w-[85vw] text-center">
+    <Html fullscreen calculatePosition={(_, __, size) => [size.width / 2, size.height / 2]} onOcclude={() => {}} zIndexRange={[40, 40]} style={{ pointerEvents: 'none' }}>
+      {near && !flight && <div className="absolute bottom-40 left-1/2 z-40 -translate-x-1/2 w-64 max-w-[85vw] text-center pointer-events-auto">
         <Button type="button" className="w-full touch-none gap-2" disabled={busy || blocked} onPointerDown={e => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); held.current = performance.now(); }} onPointerUp={() => { held.current = 0; setProgress(0); }} onPointerCancel={() => { held.current = 0; setProgress(0); }} onLostPointerCapture={() => { held.current = 0; setProgress(0); }}><Rocket className="h-4 w-4" />{busy ? 'Preparing launch…' : blocked ? 'Launchpad occupied' : 'Launch to Space (5 SWARM)'}</Button>
         <div role="progressbar" aria-valuenow={Math.round(progress * 100)} className="h-1 mt-1 bg-muted overflow-hidden"><div className="h-full bg-accent origin-left" style={{ transform: `scaleX(${progress})` }} /></div>
         <span className="text-xs text-muted-foreground">500 game credits fallback</span>
       </div>}
-      {flight && <div className="fixed inset-0 pointer-events-none z-30">
+      {flight && <div className="absolute inset-0 pointer-events-none z-30">
         <div className="absolute top-28 left-1/2 -translate-x-1/2 text-center bg-background/80 text-foreground px-4 py-2 rounded-md">
           <div className="text-sm">{flight.phase === 'countdown' ? 'Launch countdown' : flight.phase === 'launch' ? 'Launching to space' : flight.phase === 'return' ? 'Returning to launchpad' : 'Spaceflight'}</div>
           {flight.phase === 'countdown' ? <div className="text-4xl font-mono tabular-nums">{countdownAt(flight.startedAt, clock)}</div> : <div className="text-xs font-mono">{Math.round(Math.hypot(...flight.velocity))} m/s</div>}
@@ -238,6 +237,6 @@ export function SpaceshipLayer({ selfId, roomId, enabled }: { selfId: string; ro
           <Button type="button" variant="secondary" size="icon" title="Return to bar" aria-label="Return to bar" onClick={() => { returning.current = { from: [...flight.position], q: [...flight.quaternion], at: Date.now() }; flight.phase = 'return'; publish(flight); }}><Home className="h-4 w-4" /></Button>
         </div>}
       </div>}
-    </>, document.body)}
+    </Html>
   </>;
 }
