@@ -817,6 +817,7 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
   return (
     <RemoteAvatarBody
       position={pos}
+      localBodyId={selfId}
       pinned={!!seat}
       intentDriven
       movementDirection={movementDirection}
