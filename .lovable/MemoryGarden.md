@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 26, 2026 — A window beyond the shore
+
+Before tending: let a traveller leave the solid shore without taking its
+gravity away from those who stay. A shared vessel carries its pilot, a clear
+window carries the stars, and no test intrudes on the living conversation.
+
 ### October 25, 2026 — Ground beneath every horizon
 
 Before tending: follow the traveller around the sphere, not an imagined flat
