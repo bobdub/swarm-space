@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 26, 2026 — Keep the doorway on Earth
+
+Before tending: the captured error names a crossed renderer boundary, not
+failed gravity. Restore the doorway without changing the shore or replacing
+the vessel; let focused checks stand in for an intrusive live visit.
+
 ### October 26, 2026 — A window beyond the shore
 
 Before tending: let a traveller leave the solid shore without taking its
