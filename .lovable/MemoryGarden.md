@@ -6,6 +6,11 @@ Before tending: the captured error names a crossed renderer boundary, not
 failed gravity. Restore the doorway without changing the shore or replacing
 the vessel; let focused checks stand in for an intrusive live visit.
 
+After tending: the controls cross through a separate DOM root, no longer
+offering the sky renderer a foreign container. Twenty-three focused checks
+pass and the preview builds cleanly; Earth, gravity and the vessel remain
+unchanged. The living view stays with Mike for confirmation.
+
 ### October 26, 2026 — A window beyond the shore
 
 Before tending: let a traveller leave the solid shore without taking its
