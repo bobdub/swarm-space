@@ -43,6 +43,7 @@ import {
 } from '../uqrc/field3D';
 import {
   ATMOSPHERE_RADIUS,
+  BODY_CENTER_HEIGHT,
   EARTH_RADIUS,
   EARTH_SPIN_PERIOD,
   getEarthPose,
@@ -79,7 +80,7 @@ import {
 } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
-import { groundElevationAt } from './groundHeight';
+import { feetRadiusAt, groundElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -371,7 +372,7 @@ export class UqrcPhysics {
     const prev = b.prevPos;
     if (!prev) {
       target[0] = b.pos[0]; target[1] = b.pos[1]; target[2] = b.pos[2];
-      return target;
+      return this.supportRenderPosition(b, target);
     }
     const alphaRaw = (nowMs - this.lastStepAtMs) / (dt * 1000);
     const a = alphaRaw < 0 ? 0 : alphaRaw > 1 ? 1 : alphaRaw;
@@ -390,11 +391,36 @@ export class UqrcPhysics {
       target[0] = pose.center[0] + w[0];
       target[1] = pose.center[1] + w[1];
       target[2] = pose.center[2] + w[2];
-      return target;
+      return this.supportRenderPosition(b, target);
     }
     target[0] = prev[0] + (b.pos[0] - prev[0]) * a;
     target[1] = prev[1] + (b.pos[1] - prev[1]) * a;
     target[2] = prev[2] + (b.pos[2] - prev[2]) * a;
+    return this.supportRenderPosition(b, target);
+  }
+
+  /** Both camera and local mesh read this centre pose. A straight interpolated
+   * chord can cross solid terrain even when the step endpoints are supported.
+   * Check the actual frame direction against the same rendered triangles;
+   * never mutate simulation state, snap airborne bodies down, or ground pilots. */
+  private supportRenderPosition(b: Body, target: [number, number, number]): [number, number, number] {
+    if (this.bodyControls.has(b.id) ||
+      (b.kind !== 'self' && b.kind !== 'avatar') ||
+      b.meta?.attachedTo !== 'earth-surface') return target;
+    const pose = getEarthPose();
+    const relative: [number, number, number] = [
+      target[0] - pose.center[0], target[1] - pose.center[1], target[2] - pose.center[2],
+    ];
+    const radius = Math.hypot(...relative);
+    if (!Number.isFinite(radius) || radius <= 1e-6) return target;
+    const local = quatRotate(pose.invSpinQuat, relative);
+    const floor = feetRadiusAt([local[0] / radius, local[1] / radius, local[2] / radius]) + BODY_CENTER_HEIGHT;
+    if (Number.isFinite(floor) && radius < floor) {
+      const scale = floor / radius;
+      target[0] = pose.center[0] + relative[0] * scale;
+      target[1] = pose.center[1] + relative[1] * scale;
+      target[2] = pose.center[2] + relative[2] * scale;
+    }
     return target;
   }
 
