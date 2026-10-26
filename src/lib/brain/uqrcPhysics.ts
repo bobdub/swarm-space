@@ -1220,6 +1220,7 @@ export class UqrcPhysics {
       //     `prevLocal → local` and remap through the CURRENT frame pose,
       //     so bodies stay welded to the ground between fixed steps.
       for (const b of this.bodies.values()) {
+        if (this.bodyControls.has(b.id)) continue;
         const rel: [number, number, number] = [
           b.pos[0] - pose.center[0],
           b.pos[1] - pose.center[1],
@@ -1249,6 +1250,7 @@ export class UqrcPhysics {
       //    so the falling-through-the-volcano animation still plays.
       const CORE_ESCAPE_DWELL_S = 1.0;
       for (const b of this.bodies.values()) {
+        if (this.bodyControls.has(b.id)) continue;
         if (b.kind !== 'self' && b.kind !== 'avatar') continue;
         const dx = b.pos[0] - pose.center[0];
         const dy = b.pos[1] - pose.center[1];
