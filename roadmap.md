@@ -1,4 +1,4 @@
-- [ ] Correct submerged local avatar at the shared physics/render floor; preserve camera boom, gravity, seabed and spacecraft leases; use focused checks, no live Brain visit.
+- [x] Add shared camera/avatar render-floor support at the interpolated terrain direction; preserve camera boom, gravity, seabed and spacecraft leases. Reproduced three failing cases, then 24 focused checks passed; preview build clean, Mike's visual confirmation pending.
 - [x] Align local avatar with the camera's live interpolated position; preserve camera distance and gravity. Ten focused checks pass; Mike's visual confirmation remains pending, no live Brain testing.
 - [x] Fix the confirmed spaceship DOM-portal crash preventing Earth entry using a safe Html boundary; 23 focused checks passed, preview build clean; live Earth entry confirmation left to Mike.
 - [x] Add horizon spaceship, held paid boarding, ten-second countdown, automatic launch, cockpit flight and room-synced ships; focused checks and hosted model verified, live cockpit/two-peer flight left to Mike's active testing.
