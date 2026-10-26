@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { Html, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, ArrowLeft, ArrowRight, Home, Octagon, Rocket } from 'lucide-react';
+import { ArrowDown, ArrowUp, Home, Octagon, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import shipAsset from '@/assets/brain-spaceship.asset.json';
@@ -186,7 +186,7 @@ export function SpaceshipLayer({ selfId, roomId, enabled }: { selfId: string; ro
     lease.current?.update(passenger.toArray() as V3, s.velocity);
     if (now - lastSend.current >= 200 && !document.hidden) { lastSend.current = now; publish(s); }
   });
-  const remote = getShips(roomId).filter(s => s.phase !== 'claim' && s.phase !== 'ended' && s.pilotId !== selfId && !isPeerMuted(s.pilotPeerId, s.pilotId));
+  const remote = getShips(roomId).filter(s => s.phase !== 'claim' && s.phase !== 'ended' && s.pilotId !== selfId && !isPeerMuted(s.pilotPeerId) && !isPeerMuted(s.pilotId));
   const flightButton = (label: string, icon: React.ReactNode, axis: 'throttle' | 'yaw' | 'pitch', value: number) => <Button type="button" variant="secondary" size="icon" title={label} aria-label={label} className="touch-none" onPointerDown={e => { e.stopPropagation(); e.currentTarget.setPointerCapture(e.pointerId); spaceshipInput[axis] = value; }} onPointerUp={() => { spaceshipInput[axis] = 0; }} onPointerCancel={() => { spaceshipInput[axis] = 0; }} onLostPointerCapture={() => { spaceshipInput[axis] = 0; }}>{icon}</Button>;
   return <>
     <group ref={pad}>

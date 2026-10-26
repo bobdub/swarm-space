@@ -6,6 +6,7 @@
 - Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
+- Spaceships use a reversible exclusive physics-body lease, a single cockpit branch in the existing camera rig, and room-scoped ephemeral pilot-owned mesh snapshots; fixed-rate sync and departure cleanup keep flight from changing walker gravity or leaving ghost ships.
 - Brain terrain renders the immutable CPU-displaced geometry from getGroundGeometry; groundElevationAt intersects its local triangles so gravity support, feet, spawn and builder bases agree with visible land/seabed rather than a different analytic slope. CPU noise mirrors the historical Earth shader hash without an extra fract after the dot addition. Water remains at sea level; Earth-local tangent headings preserve globe traversal. Gravity and causal clocks remain owned by existing physics.
 - Guest names live only on the guest identity, never shared avatar preferences; gate member routes, mining and post creation independently because guests retain P2P identities.
 - Direct Brain guest entry runs only after session restoration resolves signed-out and before mounting the scene; deduplicate guest provisioning and recheck identity after key generation so returning or concurrently signed-in members are never overwritten.
