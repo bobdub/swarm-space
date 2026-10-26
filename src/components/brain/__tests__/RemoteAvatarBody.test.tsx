@@ -30,6 +30,9 @@ function mountedAvatar(pinned = false) {
   if (!group) throw new Error('Avatar ref missing');
   const spatial = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() };
   Object.assign(group, spatial);
+  const body = group.querySelector('group');
+  if (!body) throw new Error('Avatar mesh ref missing');
+  Object.assign(body, { position: new THREE.Vector3(), rotation: new THREE.Euler() });
   const frame = harness.frame;
   if (!frame) throw new Error('Frame missing');
   return { spatial, frame };
