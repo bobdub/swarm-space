@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 26, 2026 — Keep the traveller and window together
+
+Before tending: Mike's screenshot challenges the nominal camera distance.
+Compare the displayed traveller with the live camera target before moving
+the window; leave gravity and the familiar boom untouched.
+
 ### October 26, 2026 — Keep the doorway on Earth
 
 Before tending: the captured error names a crossed renderer boundary, not
