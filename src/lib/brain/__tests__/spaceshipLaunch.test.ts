@@ -1,12 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({
+const mocks = {
   user: vi.fn(() => ({ id: 'pilot' })), swarm: vi.fn(async () => 5), credits: vi.fn(async () => 500),
   burn: vi.fn(async () => ({})), deduct: vi.fn(async () => undefined),
-}));
-vi.mock('@/lib/auth', () => ({ getCurrentUser: mocks.user }));
-vi.mock('@/lib/credits', () => ({ getCreditBalance: mocks.credits, deductCredits: mocks.deduct }));
-vi.mock('@/lib/blockchain/token', () => ({ getSwarmBalance: mocks.swarm, burnSwarm: mocks.burn }));
-import { chargeShipLaunch } from '../spaceshipLaunch';
+};
+import { createLaunchCharger } from '../spaceshipPayment';
+const chargeShipLaunch = createLaunchCharger({ currentUserId: () => mocks.user()?.id, swarmBalance: mocks.swarm, creditBalance: mocks.credits, burn: mocks.burn, deduct: mocks.deduct });
 beforeEach(() => { vi.clearAllMocks(); mocks.user.mockReturnValue({ id: 'pilot' }); mocks.swarm.mockResolvedValue(5); mocks.credits.mockResolvedValue(500); mocks.burn.mockResolvedValue({}); });
 describe('paid boarding', () => {
   it('deduplicates held-action completion and debits exactly five SWARM', async () => {
