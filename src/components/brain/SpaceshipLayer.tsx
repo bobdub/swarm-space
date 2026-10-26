@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, Home, Octagon, Rocket } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import shipAsset from '@/assets/brain-spaceship.asset.json';
+import { BRAIN_SPACESHIP_URL } from '@/assets/brainSpaceship';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { getEarthPose, EARTH_RADIUS, BODY_CENTER_HEIGHT, worldPosToLocalNormal } from '@/lib/brain/earth';
 import { feetRadiusAt } from '@/lib/brain/groundHeight';
@@ -35,7 +35,7 @@ function getShipsForSelf(id: string) { return localFlight?.pilotId === id && loc
 
 function ShipArtifact({ pilot, cockpit = false }: { pilot?: string; cockpit?: boolean }) {
   const colors = useMemo(shipPalette, []);
-  const { scene } = useGLTF(shipAsset.url);
+  const { scene } = useGLTF(BRAIN_SPACESHIP_URL);
   const model = useMemo(() => {
     const obj = scene.clone(true);
     const box = new THREE.Box3().setFromObject(obj), center = box.getCenter(new THREE.Vector3());
