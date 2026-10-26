@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 26, 2026 — One floor, one traveller
+
+Before tending: Mike sees the traveller submerged after the tracking repair.
+Follow the shared pose to its solid floor, without shifting the camera,
+raising the sea, or intruding on the living Brain session.
+
+After tending: three failing checks exposed unsupported initial and interpolated
+poses. The shared camera/traveller sample now respects the actual solid floor,
+keeping airborne height and leased ships untouched. Twenty-four focused checks
+pass and the preview builds cleanly; Mike retains the visual confirmation.
+
 ### October 26, 2026 — Keep the traveller and window together
 
 Before tending: Mike's screenshot challenges the nominal camera distance.
