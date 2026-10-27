@@ -6,3 +6,5 @@
 - [x] Native wallet dual-class actions: MintMe tokens Deposit + Transfer/Withdraw (Send to MintMe); native assets peer list + address send (24 checks; build clean; live two-device transfer unverified).
 - [x] Default guest Infinity to text only and add one-time disconnected-chat manual peer prompt (13 checks passed; browser verified learned reply, text-only default, manual request and dismissal; live peer handshake unverified).
 - [x] Add copyable Brain join links beneath online peers, host-first dialing and honest chat-panel connection status (9 focused tests; browser guest entry, copied URL and retry indicator verified; real two-device handshake unverified).
+- [ ] Isolated stability Step 1: retain exchanged contact identity and reconcile library updates; add focused regression checks.
+- [ ] Live three-participant guest/member contact verification — awaits coordinated user testing; audio, camera and weather remain outside this isolated fix.
