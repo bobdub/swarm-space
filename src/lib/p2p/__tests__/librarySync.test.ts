@@ -100,6 +100,24 @@ describe('isolated A–B–C contact library synchronization', () => {
     expect(b.mesh.getLibrary().map(peer => peer.peerId)).toEqual(['peer-c']);
   });
 
+  it('keeps panel contact changes in the authoritative map through the next exchange save without dialing', () => {
+    const a = createMesh('a', [contact('peer-c', { displayName: 'C', avatarRef: 'avatar-c' })]);
+    a.mesh.rememberKnownPeer('c', 'My friend');
+    a.mesh.rememberKnownPeer('peer-d', 'D');
+    expect(a.mesh.getLibrary().find(peer => peer.peerId === 'peer-c')).toMatchObject({ alias: 'My friend', avatarRef: 'avatar-c' });
+    a.mesh.forgetKnownPeer('peer-d');
+    a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-e' }] });
+    expect(loadKnownPeers().find(peer => peer.peerId === 'peer-d')).toBeUndefined();
+    expect(loadKnownPeers().find(peer => peer.peerId === 'peer-c')?.label).toBe('My friend');
+    expect(a.mesh.getConnectedPeerIds()).toEqual([]);
+  });
+
+  it('does not erase retained names or human aliases with blank relayed fields', () => {
+    const a = createMesh('a', [contact('peer-c', { displayName: 'C', avatarRef: 'avatar-c', alias: 'My friend' })]);
+    a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c', alias: 'Node c', displayName: '', avatarRef: '' }] });
+    expect(a.mesh.getLibrary()[0]).toMatchObject({ displayName: 'C', avatarRef: 'avatar-c', alias: 'My friend' });
+  });
+
   it('uses identity-local Guest Name rather than guest account username', () => {
     const a = createMesh('a', []);
     localStorage.setItem('me', JSON.stringify({ _guest: true, username: 'guest-internal-id', guestName: '  Guest Mike  ', profile: { avatarRef: 'guest-avatar' } }));
