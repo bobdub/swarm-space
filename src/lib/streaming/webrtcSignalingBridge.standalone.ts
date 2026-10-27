@@ -40,6 +40,8 @@ interface SignalEnvelope {
   avatarRef?: string;
   data?: unknown;      // SDP or ICE candidate
   participants?: string[]; // for room-sync
+  /** Relay hop count (absent = direct). */
+  hops?: number;
   ts: number;
 }
 
