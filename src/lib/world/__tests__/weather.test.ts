@@ -62,11 +62,3 @@ describe('weather as a field observable', () => {
     expect(weatherCurvatureBoost([0, 1, 0])).toBe(0);
   });
 });
-
-describe('game-time pacing', () => {
-  it('scales weather deltas to minutes, not seconds', async () => {
-    const { WEATHER_PACE } = await import('@/lib/world/weather');
-    // rain drain of 0.09/tick paced → a full charge drains over > 3 minutes
-    expect(1 / (0.09 * WEATHER_PACE)).toBeGreaterThan(180);
-  });
-});

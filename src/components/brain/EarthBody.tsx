@@ -9,8 +9,6 @@ import {
   getEarthPose,
   SUN_POSITION,
   WORLD_SCALE,
-  getMoonOffsetAt,
-  getEarthPoseTime,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
@@ -225,11 +223,16 @@ export function EarthBody() {
   const initialPose = useMemo(() => getEarthPose(), []);
   const MOON_RADIUS = EARTH_RADIUS * 0.27;
   const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
-  // Moon follows the shared UTC epoch so every peer sees the same sky.
-  const initialMoonPos = useMemo<[number, number, number]>(
-    () => getMoonOffsetAt(getEarthPoseTime(), MOON_ORBIT_RADIUS),
-    [MOON_ORBIT_RADIUS],
-  );
+  const MOON_ORBIT_PERIOD = 40; // seconds per revolution (sim time)
+  const initialMoonPos = useMemo<[number, number, number]>(() => {
+    // Mirror the moon orbit math used in useFrame so frame 0 matches.
+    const t = 0; // mount-time t — pose clock starts at 0 too
+    const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
+    const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
+    const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
+    const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
+    return [mx, my, mz];
+  }, [MOON_ORBIT_RADIUS]);
   const uniforms = useMemo(
     () => {
       const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
@@ -309,7 +312,11 @@ export function EarthBody() {
 
     // Moon orbit — slight inclination so it doesn't always eclipse the Sun.
     if (moonGroupRef.current) {
-      const [mx, my, mz] = getMoonOffsetAt(getEarthPoseTime(), MOON_ORBIT_RADIUS);
+      const t = (matRef.current?.uniforms.uTime.value as number) ?? 0;
+      const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
+      const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
+      const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
+      const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
       moonGroupRef.current.position.set(mx, my, mz);
     }
   });

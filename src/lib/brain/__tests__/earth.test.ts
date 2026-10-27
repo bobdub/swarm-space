@@ -239,17 +239,3 @@ describe('earth (UQRC pure)', () => {
     }
   });
 });
-
-describe('shared celestial time', () => {
-  it('7 in-game days per real day', async () => {
-    const { GAME_DAY_SECONDS, EARTH_SPIN_PERIOD } = await import('@/lib/brain/earth');
-    expect(GAME_DAY_SECONDS * 7).toBeCloseTo(86400, 6);
-    expect(EARTH_SPIN_PERIOD).toBe(GAME_DAY_SECONDS);
-  });
-  it('two peers agree on the Moon for the same epoch time', async () => {
-    const { getMoonOffsetAt, getLunarPhaseAt, LUNAR_CYCLE_SECONDS } = await import('@/lib/brain/earth');
-    expect(getMoonOffsetAt(123456, 100)).toEqual(getMoonOffsetAt(123456, 100));
-    expect(LUNAR_CYCLE_SECONDS / (86400 / 7)).toBeCloseTo(28, 6);
-    expect(getLunarPhaseAt(LUNAR_CYCLE_SECONDS / 2)).toBeCloseTo(0.5, 6);
-  });
-});

@@ -31,7 +31,6 @@ import {
   getEarthPose,
   quatRotate,
   type Vec3,
-  GAME_DAY_SECONDS,
 } from '@/lib/brain/earth';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getBrainPhysics, worldToLattice } from '@/lib/brain/uqrcPhysics';
@@ -49,13 +48,7 @@ const SAMPLES = 96;
 /** Curvature penalty in the condensation score. */
 const W_CURVE = 0.6;
 /** Score a site must reach before the field supports a cloud. */
-const NUCLEATION_SCORE = 0.08;
-/**
- * Game-time pacing: charge/drain/drift deltas are scaled from the in-game day
- * (GAME_DAY_SECONDS) instead of raw wall-clock ticks, so storms build over
- * minutes rather than seconds. ≈0.049 per 1 s tick.
- */
-export const WEATHER_PACE = ((TICK_MS / 1000) / GAME_DAY_SECONDS) * 600;
+const NUCLEATION_SCORE = 0.06;
 /** Minimum angular separation between two clouds (rad). */
 const MIN_SEPARATION = 0.05;
 
@@ -267,20 +260,20 @@ export function tickWeather(): WeatherSnapshot {
     const tanZ = localGrad[2] - c.normal[2] * radial;
     const DRIFT = 900; // lattice-gradient → arc-metres, ℓ_min bookkeeping only
     c.normal = normalise([
-      c.normal[0] + (tanX * DRIFT * WEATHER_PACE) / EARTH_RADIUS,
-      c.normal[1] + (tanY * DRIFT * WEATHER_PACE) / EARTH_RADIUS,
-      c.normal[2] + (tanZ * DRIFT * WEATHER_PACE) / EARTH_RADIUS,
+      c.normal[0] + (tanX * DRIFT) / EARTH_RADIUS,
+      c.normal[1] + (tanY * DRIFT) / EARTH_RADIUS,
+      c.normal[2] + (tanZ * DRIFT) / EARTH_RADIUS,
     ]);
 
     if (!c.raining) {
-      c.charge += Math.max(0, c.score) * WEATHER_PACE;
+      c.charge += Math.max(0, c.score);
       c.radius = 34 + Math.min(1.6, Math.max(0, c.score)) * 78;
       if (c.charge >= 1) c.raining = true;
       // A well that flattens out never becomes a storm — it evaporates.
       if (c.score <= 0 && c.charge <= 0.02) clouds.splice(i, 1);
-      else c.charge = Math.max(0, c.charge - (c.score <= 0 ? 0.12 * WEATHER_PACE : 0));
+      else c.charge = Math.max(0, c.charge - (c.score <= 0 ? 0.12 : 0));
     } else {
-      c.charge -= 0.09 * WEATHER_PACE;
+      c.charge -= 0.09;
 
       // Back-reaction: the moisture leaves the air …
       physics.injectAt(world, -(0.06 + c.charge * 0.05), MOISTURE_AXIS);
@@ -292,7 +285,7 @@ export function tickWeather(): WeatherSnapshot {
       // Ground under the storm gets wet.
       wetness.set(
         digCellKeyFor(c.normal),
-        Math.min(1, (wetness.get(digCellKeyFor(c.normal)) ?? 0) + 0.18 * WEATHER_PACE * 4),
+        Math.min(1, (wetness.get(digCellKeyFor(c.normal)) ?? 0) + 0.18),
       );
 
       if (c.charge <= 0) clouds.splice(i, 1);
