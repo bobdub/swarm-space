@@ -199,6 +199,55 @@ function ensureSweep(): void {
   });
 }
 
+// ── Relay (multi-hop room signaling) ───────────────────────────────────
+// Media signals and room announcements travel at most MAX_SIGNAL_HOPS
+// relays so peers without a direct mesh edge can still form a full media
+// mesh. Dedup keys stop the same envelope from acting twice.
+const MAX_SIGNAL_HOPS = 2;
+const seenSignals = new Set<string>();
+const seenOrder: string[] = [];
+const MAX_SEEN_SIGNALS = 2000;
+const RELAYED_ANNOUNCEMENTS = new Set<SignalEnvelope['msgType']>([
+  'join-room', 'leave-room', 'presence', 'media-state', 'screen-share-state', 'room-heartbeat', 'chat-message',
+]);
+
+/** Test/internal: identity of an envelope for dedup. */
+export function signalDedupKey(e: SignalEnvelope): string {
+  const id = (e.data as { id?: unknown } | undefined)?.id;
+  return `${e.from}|${e.to ?? ''}|${e.roomId}|${e.msgType}|${e.ts}|${typeof id === 'string' ? id : ''}`;
+}
+
+function rememberSignal(key: string): void {
+  seenSignals.add(key);
+  seenOrder.push(key);
+  if (seenOrder.length > MAX_SEEN_SIGNALS) {
+    const old = seenOrder.shift();
+    if (old) seenSignals.delete(old);
+  }
+}
+
+function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
+  if (!meshRef || !envelope.to) return;
+  const hops = envelope.hops ?? 0;
+  if (hops >= MAX_SIGNAL_HOPS) return;
+  if (!meshRef.getConnectedPeerIds().includes(envelope.to)) return;
+  if (envelope.to === fromPeerId) return;
+  void meshRef.send(SIGNAL_CHANNEL, envelope.to, { ...envelope, hops: hops + 1 }).catch(() => undefined);
+}
+
+function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): void {
+  if (!meshRef || !RELAYED_ANNOUNCEMENTS.has(envelope.msgType)) return;
+  // Only members of the room forward its announcements.
+  if (!joinedRooms.has(envelope.roomId)) return;
+  const hops = envelope.hops ?? 0;
+  if (hops >= MAX_SIGNAL_HOPS) return;
+  const next = { ...envelope, hops: hops + 1 };
+  for (const peerId of meshRef.getConnectedPeerIds()) {
+    if (peerId === fromPeerId || peerId === envelope.from) continue;
+    void meshRef.send(SIGNAL_CHANNEL, peerId, next).catch(() => undefined);
+  }
+}
+
 // ── Incoming Handler ───────────────────────────────────────────────────
 
 function handleIncoming(fromPeerId: string, raw: unknown): void {
