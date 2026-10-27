@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2, Clock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,35 @@ import {
   type KnownPeerEntry
 } from '@/lib/p2p/knownPeers';
 import { formatDistanceToNow } from 'date-fns';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { loadConnectionState } from '@/lib/p2p/connectionState';
 
 export function KnownPeersPanel() {
   const [peers, setPeers] = useState<KnownPeerEntry[]>(loadKnownPeers());
   const [autoConnect, setAutoConnect] = useState(isAutoConnectEnabled());
   const [newPeerId, setNewPeerId] = useState('');
   const [newLabel, setNewLabel] = useState('');
+
+  useEffect(() => {
+    const refresh = () => setPeers(loadKnownPeers());
+    const unsubscribe = getSwarmMeshStandalone().onLibraryChange(library => {
+      setPeers(library.map(peer => ({
+        peerId: peer.peerId,
+        addedAt: peer.addedAt,
+        label: peer.alias,
+        lastSeen: peer.lastSeenAt,
+        kind: peer.peerId.startsWith('peer-') ? 'peer' : 'node',
+      })));
+    });
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'swarm-mesh-connection-library' || event.key === null) refresh();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   const handleToggleAutoConnect = (enabled: boolean) => {
     setAutoConnectEnabled(enabled);
@@ -30,14 +53,22 @@ export function KnownPeersPanel() {
   const handleAddPeer = () => {
     if (!newPeerId.trim()) return;
 
-    addKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    if (loadConnectionState().mode === 'swarm') {
+      getSwarmMeshStandalone().rememberKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    } else {
+      addKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    }
     setPeers(loadKnownPeers());
     setNewPeerId('');
     setNewLabel('');
   };
 
   const handleRemovePeer = (peerId: string) => {
-    removeKnownPeer(peerId);
+    if (loadConnectionState().mode === 'swarm') {
+      getSwarmMeshStandalone().forgetKnownPeer(peerId);
+    } else {
+      removeKnownPeer(peerId);
+    }
     setPeers(loadKnownPeers());
   };
 

@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### October 27, 2026 — Names across a quiet bridge
+
+Before tending: carry the friend's name intact across the contact bridge,
+let the library announce its own changes, and leave the camera and voices rooted.
+Prove the small crossing before claiming the whole room is healed.
+
+After tending: names cross the active-contact bridge, late profiles follow,
+and library-only changes awaken the list without borrowing a voice.
+Forty-six focused checks pass; the camera and weather code remain untouched.
+The real three-person meeting still awaits its witnesses.
+
 ### October 25, 2026 — An invitation with a named doorway
 
 Before tending: let a shared link knock on its named host before wandering
