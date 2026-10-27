@@ -5,7 +5,7 @@
  * even when no React tree has explicitly called `joinRoom` from a hook.
  * Mount ONCE at the app root.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
@@ -40,21 +40,38 @@ export function PersistentAudioLayer() {
     <div aria-hidden className="sr-only">
       {participants.map((p) =>
         p.stream ? (
-          <audio
+          <RemoteAudio
             key={`persistent-audio-${p.peerId}`}
-            autoPlay
-            playsInline
+            stream={p.stream}
             muted={isPeerMuted(p.peerId)}
-            ref={(el) => {
-              if (!el || !p.stream) return;
-              if (el.srcObject !== p.stream) {
-                el.srcObject = p.stream;
-              }
-              void el.play().catch(() => {});
-            }}
           />
         ) : null,
       )}
     </div>
   );
+}
+
+/**
+ * One <audio> per remote participant. Tracks are merged into the same
+ * MediaStream after it is bound, so playback is restarted whenever a track
+ * is added or unmutes — otherwise a late mic track stays silent.
+ */
+function RemoteAudio({ stream, muted }: { stream: MediaStream; muted: boolean }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    const kick = () => { void el.play().catch(() => {}); };
+    const bindTrack = (t: MediaStreamTrack) => t.addEventListener("unmute", kick);
+    stream.getAudioTracks().forEach(bindTrack);
+    const onAdd = (e: MediaStreamTrackEvent) => { bindTrack(e.track); kick(); };
+    stream.addEventListener("addtrack", onAdd);
+    kick();
+    return () => {
+      stream.removeEventListener("addtrack", onAdd);
+      stream.getAudioTracks().forEach((t) => t.removeEventListener("unmute", kick));
+    };
+  }, [stream]);
+  return <audio ref={ref} autoPlay playsInline muted={muted} />;
 }

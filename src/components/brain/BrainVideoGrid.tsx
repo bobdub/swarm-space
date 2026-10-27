@@ -40,6 +40,11 @@ function TileVideo({
     if (el.srcObject !== stream) {
       el.srcObject = stream;
     }
+    // Tracks join the bound stream later; restart playback when they do.
+    const kick = () => { void el.play().catch(() => {}); };
+    stream.addEventListener("addtrack", kick);
+    kick();
+    return () => stream.removeEventListener("addtrack", kick);
   }, [stream]);
   return <video ref={ref} autoPlay playsInline muted={muted} className={className} />;
 }
