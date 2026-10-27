@@ -1216,6 +1216,27 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  /** Update saved contacts without dialing or changing active connections. */
+  rememberKnownPeer(peerIdOrNodeId: string, label?: string): void {
+    const peerId = peerIdOrNodeId.startsWith('peer-') ? peerIdOrNodeId : `peer-${peerIdOrNodeId}`;
+    if (peerId === this.peerId || this.blockedPeers.has(peerId)) return;
+    const existing = this.library.get(peerId);
+    if (existing) {
+      if (label?.trim()) existing.alias = label.trim();
+    } else {
+      this.library.set(peerId, {
+        peerId, nodeId: peerId.replace(/^peer-/, ''), alias: label?.trim() || `Node ${peerId.slice(5, 11)}`,
+        addedAt: now(), lastSeenAt: 0, autoConnect: true, source: 'manual',
+      });
+    }
+    this.saveLibrary();
+  }
+
+  forgetKnownPeer(peerId: string): void {
+    this.library.delete(peerId);
+    this.saveLibrary();
+  }
+
   getLibrary(): LibraryPeer[] {
     return Array.from(this.library.values());
   }

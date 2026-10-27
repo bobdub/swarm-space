@@ -16,6 +16,7 @@ import {
 } from '@/lib/p2p/knownPeers';
 import { formatDistanceToNow } from 'date-fns';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { loadConnectionState } from '@/lib/p2p/connectionState';
 
 export function KnownPeersPanel() {
   const [peers, setPeers] = useState<KnownPeerEntry[]>(loadKnownPeers());
@@ -52,14 +53,22 @@ export function KnownPeersPanel() {
   const handleAddPeer = () => {
     if (!newPeerId.trim()) return;
 
-    addKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    if (loadConnectionState().mode === 'swarm') {
+      getSwarmMeshStandalone().rememberKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    } else {
+      addKnownPeer(newPeerId.trim(), newLabel.trim() || undefined);
+    }
     setPeers(loadKnownPeers());
     setNewPeerId('');
     setNewLabel('');
   };
 
   const handleRemovePeer = (peerId: string) => {
-    removeKnownPeer(peerId);
+    if (loadConnectionState().mode === 'swarm') {
+      getSwarmMeshStandalone().forgetKnownPeer(peerId);
+    } else {
+      removeKnownPeer(peerId);
+    }
     setPeers(loadKnownPeers());
   };
 
