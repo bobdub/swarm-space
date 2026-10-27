@@ -6,7 +6,6 @@
 - Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
-- Brain terrain renders the immutable CPU-displaced geometry from getGroundGeometry; groundElevationAt intersects its local triangles so gravity support, feet, spawn and builder bases agree with visible land/seabed rather than a different analytic slope. CPU noise mirrors the historical Earth shader hash without an extra fract after the dot addition. Water remains at sea level; Earth-local tangent headings preserve globe traversal. Gravity and causal clocks remain owned by existing physics.
 - Guest names live only on the guest identity, never shared avatar preferences; gate member routes, mining and post creation independently because guests retain P2P identities.
 - Direct Brain guest entry runs only after session restoration resolves signed-out and before mounting the scene; deduplicate guest provisioning and recheck identity after key generation so returning or concurrently signed-in members are never overwritten.
 - Session restoration rechecks the current identity before applying an asynchronous result, because guest entry or member login may have completed while the durable read was pending.
@@ -14,7 +13,6 @@
 - Brain invites use the shared one-shot invite coordinator at signaling readiness before general discovery; already-running sessions use its guarded manual path, and chat status follows the named host connection rather than aggregate peer counts.
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
-- The shared bar footprint and offsets live in barTerrain; bake its dry tangent-plane foundation into the shared solid terrain with a tessellation margin and feathered perimeter, keeping its anchor unchanged so room/game identities remain stable.
 - Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 
 ## Verification compatibility

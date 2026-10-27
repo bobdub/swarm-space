@@ -7,7 +7,6 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
-import { BAR_SITE } from '@/lib/brain/barTerrain';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -26,8 +25,8 @@ import { BAR_SITE } from '@/lib/brain/barTerrain';
 // Sized for future fit-out: bar counter along the back wall, a cluster
 // of tables + stools in the middle, a games nook to one side, and
 // plenty of circulation space for avatars.
-const HALF_W = BAR_SITE.halfWidth;
-const HALF_D = BAR_SITE.halfDepth;
+const HALF_W = 12;     // half-width along right axis (X) → 24 m wide
+const HALF_D = 10;     // half-depth along forward axis (Z) → 20 m deep
 const WALL_H = 4.0;    // wall height
 const WALL_T = 0.5;    // wall thickness
 const SEG_LEN = 2.5;   // length of one wall segment / basin spacing
@@ -119,8 +118,8 @@ function buildSegments(): SegmentSpec[] {
 
 export function SurfaceBar({
   anchorPeerId,
-  rightOffset = BAR_SITE.rightOffset,
-  forwardOffset = BAR_SITE.forwardOffset,
+  rightOffset = -22,
+  forwardOffset = 26,
   id = 'bar-01',
 }: {
   anchorPeerId: string;

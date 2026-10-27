@@ -47,7 +47,7 @@ function hash3(x: number, y: number, z: number): number {
   let py = fract(y * 397.2973);
   let pz = fract(z * 491.1871);
   const d = px * (py + 19.19) + py * (pz + 19.19) + pz * (px + 19.19);
-  px += d; py += d; pz += d;
+  px = fract(px + d); py = fract(py + d); pz = fract(pz + d);
   return fract((px + py) * pz);
 }
 

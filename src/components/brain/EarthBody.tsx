@@ -13,9 +13,7 @@ import {
   getEarthPoseTime,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
-import { LAND_LIFT, WATER_WADE_DEPTH } from '@/lib/brain/surfaceProfile';
-import { getGroundGeometry } from '@/lib/brain/groundHeight';
-import { getBarGroundNormal } from '@/lib/brain/barTerrain';
+import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
@@ -38,9 +36,6 @@ const earthVertex = /* glsl */ `
   uniform float uVolcCraterD;   // crater depth (m)
   uniform float uEarthR;        // EARTH_RADIUS, world units
   uniform float uLandLift;      // metres land sits above ocean baseline
-  uniform float uSeabedDepth;
-  uniform float uWaterLayer;
-  uniform float uTerrainBaked;
 
   // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
   // shoreline pixels and the JS-sampled land mask agree exactly.
@@ -91,11 +86,6 @@ const earthVertex = /* glsl */ `
     // visible geometry, not just a colour boundary. Volcano lift adds on
     // top of that.
     float lift = volcElevation(nrm) + vLandMask(nrm) * uLandLift;
-    float dry = max(vLandMask(nrm), smoothstep(0.05, ${WATER_WADE_DEPTH.toFixed(2)}, lift));
-    lift -= (1.0 - dry) * uSeabedDepth;
-    // Water is a sea-level shell, never a coating displaced onto land.
-    if (uWaterLayer > 0.5) lift = 0.0;
-    if (uTerrainBaked > 0.5) lift = 0.0;
     vec3 displaced = position + nrm * lift;
     vLocalPos = displaced;
     vec4 wp = modelMatrix * vec4(displaced, 1.0);
@@ -128,11 +118,8 @@ const earthFragment = /* glsl */ `
   uniform float uVolcCraterR;
   uniform float uVolcCraterD;
   uniform float uEarthR;
-  uniform float uWaterLayer;
-  uniform float uLandLift;
 
   // Cheap value noise — enough for a believable continents pattern.
-  uniform vec3 uBarGroundNormal;
   float hash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
     p += dot(p, p.yzx + 19.19);
@@ -153,9 +140,6 @@ const earthFragment = /* glsl */ `
     vec3 n = normalize(vNormalLocal);
     float continents = noise(n * 3.5) * 0.6 + noise(n * 8.0) * 0.3 + noise(n * 16.0) * 0.1;
     float landMask = smoothstep(0.48, 0.55, continents);
-    float barArc = acos(clamp(dot(n, uBarGroundNormal), -1.0, 1.0)) * uEarthR;
-    float barDry = 1.0 - smoothstep(65.0, 110.0, barArc);
-    landMask = max(landMask, barDry);
     // Re-derive volcano elevation in fragment so volcLand classification
     // is per-pixel, not vertex-interpolated. Mirrors volcElevation() in
     // the vertex shader and sampleVolcanoElevation() in JS.
@@ -166,19 +150,12 @@ const earthFragment = /* glsl */ `
       float vu = varc / max(1e-6, uVolcBaseR);
       float vt = 1.0 - vu;
       volcLift = uVolcHeight * vt * vt * (3.0 - 2.0 * vt);
-      if (varc < uVolcCraterR) {
-        float ct = 1.0 - varc / max(1e-6, uVolcCraterR);
-        volcLift -= uVolcCraterD * ct * ct * (3.0 - 2.0 * ct);
-      }
-      volcLift = max(0.0, volcLift);
     }
-    float dry = max(landMask, smoothstep(0.05, ${WATER_WADE_DEPTH.toFixed(2)}, volcLift + landMask * uLandLift));
-    if (uWaterLayer > 0.5 && volcLift + landMask * uLandLift > 0.05) discard;
     // Shore band — landMask transition zone.
     float shoreMask = smoothstep(0.42, 0.50, continents) * (1.0 - smoothstep(0.50, 0.58, continents));
     // Mix ocean → shore → land, then overlay volcLand where uplift is
     // tall enough to count as dry surface. Polar ice last (latitude wins).
-    vec3 col = mix(uColShore * 0.65, uColShore, shoreMask);
+    vec3 col = mix(uColOcean, uColShore, shoreMask);
     col = mix(col, uColLand, landMask);
     float volcMask = smoothstep(2.0, 8.0, volcLift);
     col = mix(col, uColVolc, volcMask);
@@ -214,13 +191,8 @@ const earthFragment = /* glsl */ `
       groundCol *= 0.85 + stripes * 0.3;
       // Where the planet shader said "land", paint ground; over ocean, ripple.
       vec3 oceanRipple = ocean * (0.85 + sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0) * 0.15);
-      vec3 seabed = uColShore * (0.55 + micro * 0.5);
-      vec3 surfaceCol = mix(seabed, groundCol, max(landMask, volcMask));
+      vec3 surfaceCol = mix(oceanRipple, groundCol, max(landMask, volcMask));
       col = mix(col, surfaceCol, nearMix);
-    }
-    if (uWaterLayer > 0.5) {
-      float ripple = sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0 + uTime * 0.3);
-      col = uColOcean * (0.9 + ripple * 0.1);
     }
 
     // Sun direction derived from the real scene Sun's world position —
@@ -236,12 +208,12 @@ const earthFragment = /* glsl */ `
     float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.5);
     col += vec3(0.3, 0.55, 0.95) * rim * 0.6;
 
-    gl_FragColor = vec4(col, uWaterLayer > 0.5 ? 0.45 * (1.0 - dry) : 1.0);
+    gl_FragColor = vec4(col, 1.0);
   }
 `;
 
 export function EarthBody() {
-  const ref = useRef<THREE.Group>(null);
+  const ref = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
   const moonGroupRef = useRef<THREE.Group>(null);
   const moonMatRef = useRef<THREE.ShaderMaterial>(null);
@@ -287,10 +259,6 @@ export function EarthBody() {
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
         uLandLift: { value: LAND_LIFT },
-        uBarGroundNormal: { value: new THREE.Vector3(...getBarGroundNormal()) },
-        uSeabedDepth: { value: WATER_WADE_DEPTH },
-        uWaterLayer: { value: 0 },
-        uTerrainBaked: { value: 1 },
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
@@ -313,12 +281,6 @@ export function EarthBody() {
     },
     [],
   );
-  const waterUniforms = useMemo(() => ({
-    ...uniforms,
-    uSeabedDepth: { value: 0 },
-    uWaterLayer: { value: 1 },
-    uTerrainBaked: { value: 0 },
-  }), [uniforms]);
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
   const moonUniforms = useMemo(
@@ -357,8 +319,14 @@ export function EarthBody() {
       ref={groupRef}
       position={initialPose.center}
     >
-      <group ref={ref} rotation-y={initialPose.spinAngle}>
-      <mesh castShadow receiveShadow geometry={getGroundGeometry()} dispose={null}>
+      <mesh ref={ref} castShadow receiveShadow rotation-y={initialPose.spinAngle}>
+        {/* High-tessellation sphere so the volcano vertex displacement
+            actually resolves a cone instead of falling between vertices.
+            Segment counts come from earth.ts so SURFACE_TESS_CLEARANCE
+            (which feeds BODY_SHELL_RADIUS) always matches the rendered
+            chord deflection — no more "analytic ground sits 11 m below
+            the visible ground" phasing. */}
+        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}
@@ -367,18 +335,6 @@ export function EarthBody() {
           side={THREE.DoubleSide}
         />
       </mesh>
-      <mesh renderOrder={1}>
-        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
-        <shaderMaterial
-          vertexShader={earthVertex}
-          fragmentShader={earthFragment}
-          uniforms={waterUniforms}
-          transparent
-          depthWrite={false}
-          side={THREE.DoubleSide}
-        />
-      </mesh>
-      </group>
       {/* Soft glow halo */}
       <mesh>
         <sphereGeometry args={[EARTH_RADIUS * 1.08, 32, 24]} />
