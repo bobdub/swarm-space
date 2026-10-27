@@ -25,7 +25,15 @@ export function KnownPeersPanel() {
 
   useEffect(() => {
     const refresh = () => setPeers(loadKnownPeers());
-    const unsubscribe = getSwarmMeshStandalone().onLibraryChange(refresh);
+    const unsubscribe = getSwarmMeshStandalone().onLibraryChange(library => {
+      setPeers(library.map(peer => ({
+        peerId: peer.peerId,
+        addedAt: peer.addedAt,
+        label: peer.alias,
+        lastSeen: peer.lastSeenAt,
+        kind: peer.peerId.startsWith('peer-') ? 'peer' : 'node',
+      })));
+    });
     const onStorage = (event: StorageEvent) => {
       if (event.key === 'swarm-mesh-connection-library' || event.key === null) refresh();
     };

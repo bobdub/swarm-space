@@ -371,6 +371,7 @@ export function useP2P() {
   // every effect below sees the resolved user on the same render tick.
   const { user: readyUser, isReady: authIsReady } = useAuthReady();
   const [stats, setStats] = useState<P2PStats>(() => createOfflineStats());
+  const [libraryRevision, setLibraryRevision] = useState(0);
   const [isEnabled, setIsEnabled] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   // Refs mirror state to break dependency cycles in effects
@@ -744,6 +745,7 @@ export function useP2P() {
         });
 
         const unsubscribeLibrary = sm.onLibraryChange((library) => {
+          setLibraryRevision(revision => revision + 1);
           setStats(prev => ({ ...prev, discoveredPeers: library.length }));
         });
         standalonePeersUnsubscribeRef.current = () => {
@@ -1710,7 +1712,7 @@ export function useP2P() {
         healthStatus: (connected.has(peerId) ? 'healthy' : 'unknown') as 'healthy' | 'degraded' | 'stale' | 'unknown',
       };
     }).sort((a, b) => b.lastSeen.getTime() - a.lastSeen.getTime());
-  }, [p2pManager]);
+  }, [p2pManager, libraryRevision]);
 
   const connectToPeer = useCallback((peerId: string, options: ConnectOptions = {}) => {
     const trimmed = peerId.trim();

@@ -2346,7 +2346,10 @@ export class StandaloneSwarmMesh {
       if (existing) {
         const prevLastSeen = existing.lastSeenAt;
         existing.nodeId = nextNodeId;
-        existing.alias = nextAlias;
+        if (typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
+          if (existing.alias !== rp.alias) metadataChanged = true;
+          existing.alias = rp.alias;
+        }
         existing.lastSeenAt = Math.max(existing.lastSeenAt, activeLastSeen);
         if (nextTrust !== undefined) existing.trustScore = nextTrust;
         if (existing.source !== 'manual') existing.source = 'exchange';
@@ -2372,10 +2375,15 @@ export class StandaloneSwarmMesh {
       if (entry) {
         for (const key of ['username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
-          if (typeof value === 'string' && entry[key] !== value) {
+          if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             entry[key] = value;
             metadataChanged = true;
           }
+        }
+        const label = entry.displayName || entry.username;
+        if (label && entry.source !== 'manual' && entry.alias !== label) {
+          entry.alias = label;
+          metadataChanged = true;
         }
       }
 
