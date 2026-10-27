@@ -13,6 +13,7 @@
 - Brain invites use the shared one-shot invite coordinator at signaling readiness before general discovery; already-running sessions use its guarded manual path, and chat status follows the named host connection rather than aggregate peer counts.
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
+- Contact identity travels through active-peer library exchange; library subscriptions reconcile independently of media, and direct peer profiles take precedence over relayed hints to keep reachability, contacts and audio distinct.
 - Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 
 ## Verification compatibility
