@@ -201,15 +201,26 @@ function ensureSweep(): void {
 
 // ── Incoming Handler ───────────────────────────────────────────────────
 
-function handleIncoming(_fromPeerId: string, raw: unknown): void {
+function handleIncoming(fromPeerId: string, raw: unknown): void {
   if (!raw || typeof raw !== 'object') return;
   const envelope = raw as SignalEnvelope;
   if (typeof envelope.msgType !== 'string' || !envelope.roomId) return;
 
   const myPeerId = meshRef?.getPeerId();
+  if (envelope.from === myPeerId) return;
 
-  // If directed signal, only process if addressed to us
-  if (envelope.to && envelope.to !== myPeerId) return;
+  // Deduplicate: a relayed copy and the direct copy must not both act.
+  const dedupKey = signalDedupKey(envelope);
+  if (seenSignals.has(dedupKey)) return;
+  rememberSignal(dedupKey);
+
+  // Directed signal for someone else: relay one hop if we can reach them,
+  // so A and C can negotiate media through B when they share no edge.
+  if (envelope.to && envelope.to !== myPeerId) {
+    relayDirected(fromPeerId, envelope);
+    return;
+  }
+  relayRoomAnnouncement(fromPeerId, envelope);
 
   const fromKey = roomKey(envelope.roomId, envelope.from);
   if (envelope.msgType === 'join-room' || envelope.msgType === 'room-hello') {
