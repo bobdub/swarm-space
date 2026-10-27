@@ -2257,6 +2257,9 @@ export class StandaloneSwarmMesh {
     alias: string;
     lastSeenAt: number;
     trustScore: number;
+    username?: string;
+    displayName?: string;
+    avatarRef?: string;
   }> {
     const activeSeenAt = now();
     return Array.from(this.connections.keys())
@@ -2270,6 +2273,9 @@ export class StandaloneSwarmMesh {
           alias: entry?.alias ?? `Node ${nodeId.slice(0, 6)}`,
           lastSeenAt: activeSeenAt,
           trustScore: entry?.trustScore ?? 0.3,
+          username: entry?.username,
+          displayName: entry?.displayName,
+          avatarRef: entry?.avatarRef,
         };
       });
   }
@@ -2289,7 +2295,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
@@ -2314,10 +2320,11 @@ export class StandaloneSwarmMesh {
     const currentTime = now();
     let added = 0;
     let refreshed = 0;
+    let metadataChanged = false;
     const dialCandidates = new Map<string, { peerId: string; lastSeenAt: number; trustScore: number }>();
 
     for (const rp of remote) {
-      if (!rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
+      if (!rp || typeof rp.peerId !== 'string' || !rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
       const activeLastSeen = currentTime;
       const nextNodeId = rp.nodeId ?? rp.peerId.replace(/^peer-/, '');
@@ -2358,6 +2365,20 @@ export class StandaloneSwarmMesh {
         added++;
       }
 
+      // Relayed identity enriches disconnected contacts only; a connected
+      // peer's own profile-exchange remains authoritative. Older packets
+      // without profile fields must not erase previously learned identity.
+      const entry = this.library.get(rp.peerId);
+      if (entry) {
+        for (const key of ['username', 'displayName', 'avatarRef'] as const) {
+          const value = rp[key];
+          if (typeof value === 'string' && entry[key] !== value) {
+            entry[key] = value;
+            metadataChanged = true;
+          }
+        }
+      }
+
       if (!this.isPeerCoolingDown(rp.peerId)) {
         this.restorePeerEligibility(rp.peerId);
         dialCandidates.set(rp.peerId, {
@@ -2368,7 +2389,7 @@ export class StandaloneSwarmMesh {
       }
     }
 
-    if (added > 0 || refreshed > 0) {
+    if (added > 0 || refreshed > 0 || metadataChanged) {
       this.saveLibrary();
       console.log(`[SwarmMesh] 📚 Active-peer exchange from ${fromPeerId}: added=${added}, refreshed=${refreshed}`);
 
@@ -3248,8 +3269,8 @@ export class StandaloneSwarmMesh {
       if (!raw) return {};
       const user = JSON.parse(raw);
       return {
-        username: user.username || undefined,
-        displayName: user.displayName || user.username || undefined,
+        username: user._guest === true ? undefined : user.username || undefined,
+        displayName: user._guest === true ? user.guestName?.trim() || 'Guest' : user.displayName || user.username || undefined,
         avatarRef: user.profile?.avatarRef || undefined,
       };
     } catch { return {}; }
@@ -3283,7 +3304,9 @@ export class StandaloneSwarmMesh {
       entry.avatarRef = avatarRef;
       if (displayName) entry.alias = displayName;
       this.saveLibrary();
-      this.emitLibrary();
+      // Initial library exchange can precede profile arrival. Share the
+      // updated active contact with other peers once its own identity arrives.
+      if (this.toggles.libraryExchange) this.rebroadcastLibrary(fromPeerId);
       console.log(`[SwarmMesh] 👤 Profile received from ${fromPeerId}: ${displayName ?? username}`);
     }
   }

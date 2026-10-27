@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2, Clock } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,12 +15,26 @@ import {
   type KnownPeerEntry
 } from '@/lib/p2p/knownPeers';
 import { formatDistanceToNow } from 'date-fns';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 
 export function KnownPeersPanel() {
   const [peers, setPeers] = useState<KnownPeerEntry[]>(loadKnownPeers());
   const [autoConnect, setAutoConnect] = useState(isAutoConnectEnabled());
   const [newPeerId, setNewPeerId] = useState('');
   const [newLabel, setNewLabel] = useState('');
+
+  useEffect(() => {
+    const refresh = () => setPeers(loadKnownPeers());
+    const unsubscribe = getSwarmMeshStandalone().onLibraryChange(refresh);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === 'swarm-mesh-connection-library' || event.key === null) refresh();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
 
   const handleToggleAutoConnect = (enabled: boolean) => {
     setAutoConnectEnabled(enabled);

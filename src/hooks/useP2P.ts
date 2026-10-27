@@ -734,7 +734,7 @@ export function useP2P() {
           }
         });
         standalonePeersUnsubscribeRef.current?.();
-        standalonePeersUnsubscribeRef.current = sm.onPeersChange(() => {
+        const unsubscribePeers = sm.onPeersChange(() => {
           const live = sm.getStats();
           setStats(prev => ({
             ...prev,
@@ -742,6 +742,14 @@ export function useP2P() {
             connectedPeers: live.connectedPeers,
           }));
         });
+
+        const unsubscribeLibrary = sm.onLibraryChange((library) => {
+          setStats(prev => ({ ...prev, discoveredPeers: library.length }));
+        });
+        standalonePeersUnsubscribeRef.current = () => {
+          unsubscribePeers();
+          unsubscribeLibrary();
+        };
 
         import('sonner').then(({ toast }) => {
           toast.dismiss('p2p-connecting');
