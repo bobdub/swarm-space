@@ -20,11 +20,12 @@ export function MintMeMiningService() {
       const miner = minerModule.getMintMeMiner();
       const cell = cellModule.getMintMeMiningCell();
       let lastEndpoint: string | null = null;
+      let attemptedContext = "";
       const reconcile = () => {
-        if (!getMintMeMinerEnabled()) { cell.stop(); miner.stop("off"); return; }
+        if (!getMintMeMinerEnabled()) { attemptedContext = ""; cell.stop(); miner.stop("off"); return; }
         const peers = mesh.getConnectedPeers();
         if (mesh.getPhase() !== "online" || !peers.length) {
-          cell.stop(); miner.stop("needs-mesh", "Waiting for a mesh connection."); return;
+          attemptedContext = ""; cell.stop(); miner.stop("needs-mesh", "Waiting for a mesh connection."); return;
         }
         const peerId = mesh.getPeerId();
         if (!peerId) return;
@@ -33,6 +34,9 @@ export function MintMeMiningService() {
         });
         const endpoint = cell.selectedEndpoint;
         if (endpoint !== lastEndpoint) { miner.stop(); lastEndpoint = endpoint; }
+        const context = `${peerId}:${endpoint ?? ""}`;
+        if (attemptedContext === context) return;
+        attemptedContext = context;
         miner.start({ peerId, mesh, proxyUrl: endpoint });
       };
       // Cell callbacks only reconcile mining, avoiding recursive discovery starts.
@@ -42,6 +46,7 @@ export function MintMeMiningService() {
         lastEndpoint = endpoint;
         miner.stop();
         if (getMintMeMinerEnabled() && mesh.getPhase() === "online" && mesh.getConnectedPeers().length) {
+          attemptedContext = `${mesh.getPeerId()}:${endpoint ?? ""}`;
           miner.start({ peerId: mesh.getPeerId(), mesh, proxyUrl: endpoint });
         }
       };
