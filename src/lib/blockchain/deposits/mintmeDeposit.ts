@@ -21,7 +21,8 @@ import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "../wall
 import { isMintMeChain, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { readMintMeBalance, sendMintMe } from "../wallets/mintmeBridge";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
-import { mintMeAmount } from "../wallets/nativeMintmeLedger";
+import { mintMeAmount, mintMeUnits, mintMeCustodyMessage, NATIVE_MINTME_CUSTODY } from "../wallets/nativeMintmeLedger";
+import { deriveColdKey, getColdKeyReceivingAddress } from "../wallets/coldKey";
 
 export const MINTME = "MINTME";
 
@@ -115,8 +116,8 @@ async function requireBoundWallet(swarmId: string): Promise<string> {
 }
 
 /**
- * Move MintMe into the Swarm wallet. The transfer is signed in MetaMask and
- * sent to the user's own bound address, then recorded on the SWARM chain.
+ * External import only: MetaMask sends to native cold-key custody. The
+ * receipt and custody authorization must verify before native funds appear.
  */
 export async function depositMintMe(params: {
   swarmId: string;
@@ -124,45 +125,48 @@ export async function depositMintMe(params: {
 }): Promise<SwarmTransaction> {
   const { swarmId, amount } = params;
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Enter an amount above zero");
-  const address = await requireBoundWallet(swarmId);
+  const address = await getMetaMaskAccount();
+  if (!address) throw new Error("Connect MetaMask to deposit from your external wallet.");
+  if (!isMintMeChain(await getMetaMaskChainId())) await switchToMintMeNetwork();
+  const destination = await getColdKeyReceivingAddress(swarmId);
+  if (destination.toLowerCase() === address.toLowerCase()) throw new Error("A self-transfer cannot fund the native wallet.");
+  const units = mintMeUnits(amount);
 
   const before = await readMintMeBalance(address);
   if (before != null && before < amount) {
     throw new Error(`MetaMask holds ${before.toFixed(6)} MINTME — not enough for this deposit`);
   }
 
-  // Self-transfer on the MintMe chain: custody stays with the user, MetaMask
-  // produces the on-chain hash that anchors the record.
-  const txHash = await sendMintMe({ to: address, amountEth: amount });
-  const observed = await readMintMeBalance(address);
+  const txHash = await sendMintMe({ to: destination, amountEth: amount });
+  return recordNativeMintMeCustody({ swarmId, from: address, txHash, amountUnits: units });
+}
 
+/** Also accepts a real pool receipt into the configured community identity.
+ * The same hash is the deposit id on every device, preventing duplicate credit.
+ */
+export async function recordNativeMintMeCustody(params: {
+  swarmId: string; from: string; txHash: string; amountUnits: bigint;
+}): Promise<SwarmTransaction> {
+  const { swarmId, from, amountUnits } = params;
+  const txHash = params.txHash.toLowerCase();
+  const { wallet, address } = await deriveColdKey(swarmId);
   const at = Date.now();
-  const claim = {
-    type: "deposit",
-    currency: MINTME,
-    swarmId,
-    address,
-    amount,
-    txHash,
-    reportedBalance: observed ?? before ?? 0,
-    at,
-  };
-  const { message, signature } = await signClaim(address, claim);
-
   const tx: SwarmTransaction = {
-    id: generateTransactionId(),
-    type: "external_deposit",
-    from: address,
-    to: swarmId,
-    amount: round8(amount),
-    timestamp: new Date(at).toISOString(),
-    signature,
-    publicKey: address,
-    nonce: at,
-    fee: 0,
-    meta: { kind: "external_deposit", currency: MINTME, address, txHash, claim, message, signature },
+    id: `mintme-custody:${txHash}`, type: "external_deposit", from, to: swarmId,
+    amount: mintMeAmount(amountUnits), chainId: "SWARM", timestamp: new Date(at).toISOString(),
+    publicKey: address, signature: await wallet.signMessage(mintMeCustodyMessage(swarmId, address, txHash, amountUnits)),
+    nonce: at, fee: 0,
+    meta: { currency: MINTME, custody: NATIVE_MINTME_CUSTODY, custodyAddress: address,
+      txHash, amountUnits: amountUnits.toString() },
   };
-  commit(tx);
+  const deadline = Date.now() + 300_000;
+  while (!await getSwarmChain().acceptNativeMintMeDeposit(tx)) {
+    if (Date.now() >= deadline) throw new Error(`MintMe has not confirmed custody yet. No native funds were credited. Retry recording ${txHash} after confirmation.`);
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  window.dispatchEvent(new Event("blockchain-transaction"));
+  const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+  getSwarmMeshStandalone().broadcast("wallet-tips", tx);
   return tx;
 }
 

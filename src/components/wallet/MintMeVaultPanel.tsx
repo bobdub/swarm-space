@@ -22,7 +22,6 @@ import {
 import {
   depositMintMe,
   getChainMintmeBalance,
-  migrateLocalMintMe,
   recordMintMeWithdrawal,
   reconcileMintMe,
   type ReconcileResult,
@@ -69,19 +68,6 @@ export function MintMeVaultPanel() {
     window.addEventListener("blockchain-transaction", onTx);
     return () => window.removeEventListener("blockchain-transaction", onTx);
   }, [refreshChain]);
-
-  // Carry any leftover side-ledger MintMe onto the chain once bound.
-  useEffect(() => {
-    if (!userId || !link) return;
-    void migrateLocalMintMe(userId).then((moved) => {
-      if (moved > 0) {
-        toast.message("Old MintMe balance carried onto the chain", {
-          description: `${moved.toFixed(6)} MINTME recorded against your linked wallet.`,
-        });
-        refreshChain();
-      }
-    });
-  }, [userId, link, refreshChain]);
 
   const runCheck = useCallback(async (write: boolean) => {
     if (!userId || !link) return;
@@ -231,14 +217,13 @@ export function MintMeVaultPanel() {
               </Button>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              MetaMask signs the transfer on the MintMe chain and the amount is
-              written onto the Swarm chain with the transaction hash and your
-              signature. Your coins never leave your own wallet.
+              MetaMask sends to your native custody address. Your SWARM balance
+              updates after MintMe confirms the transfer.
             </p>
           </div>
 
           <div className="space-y-2 border-t pt-3">
-            <Label className="text-xs">Send MintMe to a peer</Label>
+            <Label className="text-xs">Send from MetaMask on MintMe</Label>
             <Input placeholder="0x… recipient" value={sendTo} onChange={(e) => setSendTo(e.target.value)} />
             <div className="flex gap-2">
               <Input
