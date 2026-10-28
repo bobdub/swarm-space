@@ -6,6 +6,10 @@ Before tending: no borrowed login guards the shared doorway.
 Bind each witness to the same receipt and the same gathering;
 never let an echo spend the commons twice.
 
+After tending: the obsolete account gate gives way to an isolated certificate.
+Two witnesses must both agree; no certificate paints money into a wallet.
+Funding, membership and durable settlement remain separate promises to prove.
+
 ### October 28, 2026 — Agreement without a borrowed account
 
 Before tending: let the commons belong to no traveller's login.
