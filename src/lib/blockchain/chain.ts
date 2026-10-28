@@ -198,6 +198,26 @@ export class SwarmChain {
     return nativeMintMeBalanceUnits([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], address);
   }
 
+  /** Verify first, then synchronously check and append the complete batch.
+   * No partially paid batch can survive an insufficient balance or interruption.
+   */
+  async acceptNativeMintMeBatch(transactions: SwarmTransaction[]): Promise<boolean> {
+    await this.whenReady();
+    if (!transactions.length) return false;
+    for (const tx of transactions) if (!isNativeMintMeTip(tx) || !await verifyWalletTip(tx)) return false;
+    const accepted = [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
+    for (const tx of transactions) {
+      if (accepted.some(prev => prev.id === tx.id || (prev.type === "wallet_tip" && prev.from === tx.from
+        && prev.meta?.assetId === tx.meta?.assetId && prev.nonce === tx.nonce))) return false;
+      const units = nativeMintMeUnits(tx);
+      if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return false;
+      accepted.push(tx);
+    }
+    this.pendingTransactions.push(...transactions);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
   /** Mark state dirty and schedule an async flush (debounced) */
   private _markDirtyAndScheduleFlush(): void {
     this._dirty = true;

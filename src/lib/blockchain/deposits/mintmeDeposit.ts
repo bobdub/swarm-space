@@ -21,6 +21,7 @@ import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "../wall
 import { isMintMeChain, switchToMintMeNetwork } from "../wallets/mintmeNetwork";
 import { readMintMeBalance, sendMintMe } from "../wallets/mintmeBridge";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
+import { mintMeAmount } from "../wallets/nativeMintmeLedger";
 
 export const MINTME = "MINTME";
 
@@ -82,7 +83,7 @@ export function getMintMeLedger(swarmId: string): MintMeLedger {
 }
 
 export function getChainMintmeBalance(swarmId: string): number {
-  return getMintMeLedger(swarmId).recorded;
+  return mintMeAmount(getSwarmChain().getNativeMintMeBalanceUnits(swarmId));
 }
 
 function commit(tx: SwarmTransaction): void {

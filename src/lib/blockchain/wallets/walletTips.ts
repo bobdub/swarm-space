@@ -4,7 +4,6 @@ import { getSwarmChain } from "../chain";
 import { getAllLiveChains, getChainBalance } from "../multiChainManager";
 import { getUserProfileTokenHoldings } from "../profileTokenBalance";
 import { getAppWalletBalances } from "./appWallet";
-import { getChainMintmeBalance } from "../deposits/mintmeDeposit";
 import { getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
