@@ -1,34 +1,17 @@
 /**
  * MintMe share receipts. Accepted pool shares become unsigned advisory receipts
- * (`mintme-share-proof`) so connected peers can see contribution. The split is
- * share-weight accounting (80 miner / 15 connected peers / 5 community vault);
- * it does not move MINTME by itself. Peer reports are unverified and must never
+ * (`mintme-share-proof`) so connected peers can see contribution. Share weights
+ * do not determine rewards: payoutPolicy defines an equal connected-peer split.
+ * This does not move MINTME by itself. Peer reports are unverified and must never
  * authorize payouts. The controller logs in only with community receiving metadata.
  */
 export const MINTME_SHARE_CHANNEL = "mintme-share-proof";
-export const MINTME_SPLIT = { miner: 0.8, peers: 0.15, vault: 0.05 } as const;
 
 export interface ShareReceipt {
   minerPeerId: string;
   jobId: string;
   difficulty: number;
   acceptedAt: number;
-}
-
-export interface SplitResult {
-  miner: number;
-  perPeer: number;
-  peersTotal: number;
-  vault: number;
-}
-
-/** Split a difficulty-weighted amount. With no connected peers, their part goes to the vault. */
-export function splitShareWeight(weight: number, connectedPeers: number): SplitResult {
-  const w = Number.isFinite(weight) && weight > 0 ? weight : 0;
-  const miner = w * MINTME_SPLIT.miner;
-  const peersTotal = connectedPeers > 0 ? w * MINTME_SPLIT.peers : 0;
-  const vault = w - miner - peersTotal;
-  return { miner, perPeer: connectedPeers > 0 ? peersTotal / connectedPeers : 0, peersTotal, vault };
 }
 
 export function isShareReceipt(v: unknown): v is ShareReceipt {

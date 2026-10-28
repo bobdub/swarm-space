@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { difficultyToTarget, targetToDifficulty, StratumClient } from "../stratum";
-import { splitShareWeight, ShareTracker, MINTME_SHARE_CHANNEL } from "../shareTracker";
+import { ShareTracker, MINTME_SHARE_CHANNEL } from "../shareTracker";
 
 describe("mintme stratum", () => {
   it("round-trips difficulty 12,500 through the compact target", () => {
@@ -18,15 +18,7 @@ describe("mintme stratum", () => {
   });
 });
 
-describe("mintme share split", () => {
-  it("splits 80/15/5 across connected peers", () => {
-    const s = splitShareWeight(1000, 3);
-    expect(s.miner).toBe(800); expect(s.peersTotal).toBe(150); expect(s.perPeer).toBe(50); expect(s.vault).toBeCloseTo(50);
-  });
-  it("sends the peer share to the vault when alone", () => {
-    const s = splitShareWeight(1000, 0);
-    expect(s.peersTotal).toBe(0); expect(s.vault).toBeCloseTo(200);
-  });
+describe("mintme advisory share receipts", () => {
   it("broadcasts local receipts once and rejects spoofed peer receipts", () => {
     let handler: any; const broadcast = vi.fn();
     const t = new ShareTracker({ broadcast, onMessage: (_c, h) => { handler = h; return () => {}; } }, () => {});

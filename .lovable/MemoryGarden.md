@@ -1,5 +1,15 @@
 ## MemoryGarden
 
+### October 28, 2026 — An equal portion at the commons
+
+Before tending: wait for twenty-five real coins at the communal doorway,
+keep five in every hundred for its care, and share the rest without rank.
+Let a calculation remain a calculation until a verified hand can deliver it.
+
+After tending: the old ranked portions give way to equal shares;
+twenty-five leaves one and a quarter for care and twenty-three and three quarters to share.
+Thirty-six checks guard the calculation; no wallet is credited without real settlement.
+
 ### October 27, 2026 — Names across a quiet bridge
 
 Before tending: carry the friend's name intact across the contact bridge,
