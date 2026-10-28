@@ -4,6 +4,8 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 import { verifyWalletTip } from "./wallets/tipSignature";
+import { isNativeMintMeDeposit, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
+import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 
 export class SwarmChain {
@@ -149,6 +151,7 @@ export class SwarmChain {
 
   addTransaction(transaction: SwarmTransaction): void {
     if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
+    if (isNativeMintMeDeposit(transaction)) throw new Error("MINTME custody requires verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
@@ -170,10 +173,29 @@ export class SwarmChain {
     await this.whenReady();
     if (!await verifyWalletTip(transaction)) return false;
     if (this.hasTransaction(transaction.id)) return true;
-    if (this.getBalance(transaction.from) < (transaction.amount ?? 0)) return false;
+    const transactions = [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
+    if (transactions.some(tx => tx.type === "wallet_tip" && tx.from === transaction.from
+      && tx.meta?.assetId === transaction.meta?.assetId && tx.nonce === transaction.nonce)) return false;
+    if (isNativeMintMeTip(transaction)) {
+      const units = nativeMintMeUnits(transaction);
+      if (units === null || nativeMintMeBalanceUnits(transactions, transaction.from) < units) return false;
+    } else if (this.getBalance(transaction.from) < (transaction.amount ?? 0)) return false;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
+  }
+
+  async acceptNativeMintMeDeposit(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (!await verifyNativeMintMeDeposit(transaction)) return false;
+    if (this.hasTransaction(transaction.id)) return true;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
+  getNativeMintMeBalanceUnits(address: string): bigint {
+    return nativeMintMeBalanceUnits([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], address);
   }
 
   /** Mark state dirty and schedule an async flush (debounced) */
@@ -320,6 +342,7 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
+    if (isNativeMintMeTip(tx)) return 0;
     if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     // SWARM moved between a native identity and its MetaMask-key-controlled ledger slot.
     const swarmExternal = (tx.type === "external_withdraw" || tx.type === "external_deposit")
@@ -449,13 +472,23 @@ export class SwarmChain {
   private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {
     const balances = new Map<string, number>();
     const seen = new Set<string>();
+    const accepted: SwarmTransaction[] = [];
+    const nonces = new Set<string>();
     for (const block of blocks) {
       for (const tx of block.transactions) {
+        if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx))) return false;
         if (tx.type === "wallet_tip") {
           if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
-          if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
+          const nonceKey = `${tx.from}:${tx.meta?.assetId}:${tx.nonce}`;
+          if (nonces.has(nonceKey)) return false;
+          nonces.add(nonceKey);
+          if (isNativeMintMeTip(tx)) {
+            const units = nativeMintMeUnits(tx);
+            if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return false;
+          } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
         }
         seen.add(tx.id);
+        accepted.push(tx);
         for (const address of new Set([tx.from, tx.to])) {
           balances.set(address, (balances.get(address) ?? 0) + this.applyTransactionToBalance(tx, address));
         }

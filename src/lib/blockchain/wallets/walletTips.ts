@@ -11,6 +11,7 @@ import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
 import { assertStorageWritable } from "@/lib/storage/quotaGuard";
 import type { SwarmTransaction } from "../types";
+import { isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
 
 export type { TipAsset } from "./tipRules";
 
@@ -36,11 +37,11 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
       unavailable: "Creator token tips await verified ownership settlement. No funds will be deducted." });
   }
   const bridge = getAppWalletBalances(userId);
-  const external = { ...bridge, MINTME: Math.max(bridge.MINTME, getChainMintmeBalance(userId)) };
+  const external = { ...bridge, MINTME: mintMeAmount(chain.getNativeMintMeBalanceUnits(userId)) };
   for (const [ticker, balance] of Object.entries(external)) {
     if (balance > 0) assets.push({ id: `external:${ticker}`, ticker, name: "External asset record",
       kind: "external", balance,
-      unavailable: `${ticker} delivery is unavailable until its transfer bridge is connected. No funds will be deducted.` });
+      unavailable: ticker === "MINTME" ? undefined : `${ticker} delivery is unavailable until its transfer bridge is connected. No funds will be deducted.` });
   }
   for (const token of listCustomTokens(userId)) {
     const balance = getRecordedTokenBalance(userId, token.address);
@@ -94,13 +95,14 @@ export async function sendWalletTip(params: {
     }
     await assertStorageWritable();
     const privateKey = await getCachedPrivateKey();
-    if (!privateKey) throw new Error("Unlock your account before sending wallet tokens");
+    if (!privateKey) throw new Error("Your wallet is locked. Sign in again before sending tokens.");
     const tx = await signWalletTip({
       id: crypto.randomUUID(), type: "wallet_tip", from: user.id, to: recipient.id,
       amount: params.amount, chainId: asset.chainId ?? "SWARM", tokenId: asset.tokenId,
       timestamp: new Date().toISOString(), nonce: Date.now(), fee: 0,
       signature: "", publicKey: user.publicKey,
       meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
+        ...(asset.id === NATIVE_MINTME_ASSET_ID ? { currency: "MINTME", amountUnits: mintMeUnits(params.amount).toString() } : {}),
         intent: params.intent ?? "tip", message: message ?? null,
         fromAddress: await nativeWalletAddress(user.id), toAddress: await nativeWalletAddress(recipient.id) },
     }, privateKey);
@@ -115,7 +117,13 @@ export function startWalletTipSync(): () => void {
   let stopped = false;
   let unsubscribe: (() => void) | undefined;
   const accept = (value: unknown) => {
-    if (value && typeof value === "object") void receiveWalletTip(value as SwarmTransaction).catch(() => {});
+    if (value && typeof value === "object") {
+      const tx = value as SwarmTransaction;
+      if (isNativeMintMeDeposit(tx)) void getSwarmChain().acceptNativeMintMeDeposit(tx).then(ok => {
+        if (ok) window.dispatchEvent(new Event("blockchain-transaction"));
+      }).catch(() => {});
+      else void receiveWalletTip(tx).catch(() => {});
+    }
   };
   let bc: BroadcastChannel | undefined;
   try { bc = new BroadcastChannel("swarm-wallet-tips"); bc.onmessage = e => accept(e.data); } catch { /* unavailable */ }
@@ -126,7 +134,7 @@ export function startWalletTipSync(): () => void {
     const chain = getSwarmChain();
     await chain.whenReady();
     for (const tx of [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()]) {
-      if (tx.type === "wallet_tip" && !stopped) {
+      if ((tx.type === "wallet_tip" || isNativeMintMeDeposit(tx)) && !stopped) {
         await broadcastTip(tx).catch(() => {});
       }
     }
