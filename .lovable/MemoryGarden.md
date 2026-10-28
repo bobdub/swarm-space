@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### October 28, 2026 — The wallet already has a doorway
+
+Before tending: follow the commons' gift to the traveller's existing SWARM home;
+keep the asset's name and backing intact, and never paint a receipt as a real coin.
+
 ### October 28, 2026 — An equal portion at the commons
 
 Before tending: wait for twenty-five real coins at the communal doorway,
