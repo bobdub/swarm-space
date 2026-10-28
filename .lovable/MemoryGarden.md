@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 28, 2026 — Agreement without a borrowed account
+
+Before tending: let the commons belong to no traveller's login.
+Follow the witnesses before opening the gate; a majority's promise must not
+be mistaken for the external chain's signing hand or counted twice.
+
 ### October 28, 2026 — One asset, two roads
 
 Before tending: carry MintMe through the signed SWARM doorway without changing
