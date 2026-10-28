@@ -31,7 +31,7 @@ import {
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useMarketGate } from "@/hooks/useMarketGate";
-import { WEIGHTED_COIN_LABEL, countOpenWeightedListings, weightedMarketMultiplier } from "@/lib/blockchain/weightedCoin";
+import { WEIGHTED_COIN_LABEL } from "@/lib/blockchain/weightedCoin";
 import { MarketVaultPanel } from "./MarketVaultPanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
