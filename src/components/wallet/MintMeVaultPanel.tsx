@@ -22,6 +22,7 @@ import {
 import {
   depositMintMe,
   getChainMintmeBalance,
+  getMintMeLedger,
   recordMintMeWithdrawal,
   reconcileMintMe,
   type ReconcileResult,
@@ -37,7 +38,7 @@ export function MintMeVaultPanel() {
   const [account, setAccount] = useState<string | null>(null);
   const [chainId, setChainId] = useState<string | null>(null);
   const [link, setLink] = useState<WalletLink | null>(() => (userId ? getLinkedWallet(userId) : null));
-  const [recorded, setRecorded] = useState(() => (userId ? getChainMintmeBalance(userId) : 0));
+  const [recorded, setRecorded] = useState(() => (userId ? getMintMeLedger(userId).recorded : 0));
   const [check, setCheck] = useState<ReconcileResult | null>(null);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -54,7 +55,7 @@ export function MintMeVaultPanel() {
   const refreshChain = useCallback(() => {
     if (!userId) return;
     setLink(getLinkedWallet(userId));
-    setRecorded(getChainMintmeBalance(userId));
+    setRecorded(getMintMeLedger(userId).recorded);
   }, [userId]);
 
   useEffect(() => {
@@ -141,7 +142,7 @@ export function MintMeVaultPanel() {
     <div className="rounded-md border p-3 space-y-3">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <div className="text-xs text-muted-foreground">MintMe on your Swarm wallet</div>
+          <div className="text-xs text-muted-foreground">External MintMe wallet records</div>
           <div className="font-semibold">
             {recorded.toFixed(6)} MINTME
             <span className="ml-2 text-[10px] text-muted-foreground">recorded on the Swarm chain</span>
