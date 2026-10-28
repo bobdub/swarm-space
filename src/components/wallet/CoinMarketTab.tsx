@@ -464,7 +464,9 @@ function ListingCard({
   currentUserId,
   onChange,
   canTrade,
+  weightedMultiplier = 1,
 }: {
+  weightedMultiplier?: number;
   listing: CoinListing;
   currentUserId: string;
   onChange: () => void;
@@ -477,7 +479,9 @@ function ListingCard({
   const isSwarmListing = (listing.assetType ?? "coin") === "swarm";
   const assetLabel = isSwarmListing
     ? `${(listing.swarmAmount ?? 0).toLocaleString()} SWARM`
-    : `Coin ${listing.coinId.slice(0, 10)}…`;
+    : listing.assetClass === "swarm-weighted"
+      ? `Weighted SWARM coin ${listing.coinId.slice(0, 8)}…`
+      : `Hollow SWARM coin ${listing.coinId.slice(0, 8)}…`;
 
   const run = async (fn: () => Promise<unknown>, label: string) => {
     setBusy(true);
@@ -512,6 +516,11 @@ function ListingCard({
             <CardDescription className="text-xs">
               {assetLabel} · Tier {listing.tier}
             </CardDescription>
+            {listing.assetClass === "swarm-weighted" && (
+              <Badge variant="outline" className="mt-1 gap-1 border-primary/50 text-primary" title={WEIGHTED_COIN_LABEL}>
+                <Stamp className="h-3 w-3" />Creator Proof · {weightedMultiplier}× weight
+              </Badge>
+            )}
           </div>
           <Badge variant={statusColor[listing.status] ?? "default"}>
             {listingStatusLabel(listing.status)}

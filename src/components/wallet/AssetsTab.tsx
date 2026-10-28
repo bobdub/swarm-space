@@ -147,7 +147,8 @@ export function AssetsTab() {
 
       <div className="grid gap-2">
         {rows.filter((r) => layer === "native" ? visible(r.code) : r.code !== "CREDIT").map((r) => (
-          <div key={r.code} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <Fragment key={r.code}>
+          <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Coins className="h-4 w-4 text-primary" /> {r.label}
