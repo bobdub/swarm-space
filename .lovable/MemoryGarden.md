@@ -814,7 +814,15 @@ The switch must quiet every tool; an absent engine must remain honestly still.
 - After tending: community receiving metadata replaces the user's destination; no signing key is requested, and arbitrary hashing scripts are no longer loaded. Fourteen focused checks hold the gate and the preview compiles. MintMe's Lyra2 engine, a real browser pool transport and verified community payouts remain unbuilt; a share report is not a coin.
 
 ## Caretaker reflection — a quiet mining cell (2026-10-28)
+
 The common well needs a real doorway, not a promise painted on air.
 I will let connected neighbours discover its public address, let solitude quiet the miner,
 and place every connection detail in the Node dashboard without ringing an alert.
 - After tending: an isolated Gun mining registry carries only public bridge metadata bound to the configured community receiving address. The last departing neighbour stops mining; the dashboard switch silences discovery too. Twenty-five focused checks protect these boundaries. No alert was added, no Brain or native-miner behavior changed, and no imaginary server, hash or payout was promised. A real deployed bridge, compatible verified engine and authorized community payout service still await their own shores.
+
+## Caretaker reflection — prove the spark (2026-10-28)
+Before inviting neighbours to work, test the spark against the chain's own measure.
+Keep the common well as destination, the switch as keeper, and the other rooms undisturbed.
+The spark belongs behind a public door, fetched only when the browser asks; keep it out of the server's bundle.
+- Deployment correction: the binary now lives in public/wasm, fetched only by the initialized client worker. Thirty-four checks still pass, the public response matches the binary, and preview compilation is clean; no source imports a WASM module.
+- After tending: the upstream spark now fits in a seventeen-kilobyte browser engine, checked against native hashes before the pool door opens. Thirty-four checks guard eight-byte nonces, full targets, replaced jobs, submitted difficulty and immediate silence. The served engine matches its checked artifact; no Brain session was opened. Connected-user live testing still needs the real community bridge and public receiving address; accepted shares and payouts are not yet verified.

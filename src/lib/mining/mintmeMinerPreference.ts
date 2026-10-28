@@ -5,8 +5,10 @@
 const KEY = "swarm-mintme-miner-enabled";
 type Listener = (enabled: boolean) => void;
 const listeners = new Set<Listener>();
+let storageFallback: boolean | null = null;
 
 export function getMintMeMinerEnabled(): boolean {
+  if (storageFallback !== null) return storageFallback;
   try {
     const raw = localStorage.getItem(KEY);
     return raw === null ? true : raw === "true";
@@ -18,8 +20,9 @@ export function getMintMeMinerEnabled(): boolean {
 export function setMintMeMinerEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(KEY, String(enabled));
+    storageFallback = null;
   } catch {
-    /* storage unavailable: keep in-memory listeners informed */
+    storageFallback = enabled;
   }
   listeners.forEach((l) => l(enabled));
 }
