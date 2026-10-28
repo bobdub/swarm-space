@@ -5,11 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pickaxe } from "lucide-react";
 import { getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
-import { getMintMeMiner, getHasherUrl, setHasherUrl, type MinerSnapshot } from "@/lib/blockchain/mintmeMiner/miner";
+import { getMintMeMiner, type MinerSnapshot } from "@/lib/blockchain/mintmeMiner/miner";
+import { getMintMeCommunityVaultAddress } from "@/lib/blockchain/mintmeMiner/communityCustody";
 import { getStratumProxyUrl, setStratumProxyUrl, MINTME_POOL_LOW_DIFF } from "@/lib/blockchain/mintmeMiner/stratum";
 import { splitShareWeight, MINTME_SPLIT } from "@/lib/blockchain/mintmeMiner/shareTracker";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { getCurrentUser } from "@/lib/auth";
+import { isGuestUser } from "@/lib/preview/guestAccess";
 
 export const MINTME_TOGGLE_OFF_MESSAGE = "Turn on Miner in the node dashboard to start mining";
 
@@ -17,27 +19,19 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
   const [enabled, setEnabled] = useState(getMintMeMinerEnabled());
   const [snap, setSnap] = useState<MinerSnapshot>(getMintMeMiner().snapshot);
   const [proxy, setProxy] = useState(getStratumProxyUrl() ?? "");
-  const [hasher, setHasher] = useState(getHasherUrl() ?? "");
   const [note, setNote] = useState("");
 
   useEffect(() => onMintMeMinerEnabledChange(setEnabled), []);
   useEffect(() => getMintMeMiner().subscribe(setSnap), []);
 
-  const start = async () => {
+  const start = () => {
     setNote("");
     setStratumProxyUrl(proxy || null);
-    setHasherUrl(hasher || null);
     const user = getCurrentUser();
-    if (!user) { setNote("Sign in to mine to your MintMe address."); return; }
-    try {
-      const { getColdKeyReceivingAddress } = await import("@/lib/blockchain/wallets/coldKey");
-      const address = await getColdKeyReceivingAddress(user.id);
-      let mesh = null, peerId = user.id;
-      try { const m = getSwarmMeshStandalone(); mesh = m; peerId = m.getPeerId() || user.id; } catch { /* offline */ }
-      getMintMeMiner().start({ address, peerId, mesh });
-    } catch {
-      setNote("Unlock your wallet so your MintMe receiving address is known.");
-    }
+    if (!user || isGuestUser(user)) { setNote("Sign in as a member to mine MintMe for the community."); return; }
+    let mesh = null, peerId = user.id;
+    try { const m = getSwarmMeshStandalone(); mesh = m; peerId = m.getPeerId() || user.id; } catch { /* offline */ }
+    getMintMeMiner().start({ peerId, mesh });
   };
 
   if (!enabled) {
@@ -61,7 +55,7 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
           <span className="flex items-center gap-2"><Pickaxe className="h-4 w-4" /> MintMe Miner</span>
           <Badge variant={snap.status === "mining" ? "default" : "secondary"}>{snap.status}</Badge>
         </CardTitle>
-        <CardDescription>Dual-mining on {MINTME_POOL_LOW_DIFF} (difficulty 12,500), throttled to stay light.</CardDescription>
+        <CardDescription>MintMe community mining · {MINTME_POOL_LOW_DIFF} · target difficulty 12,500</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <div className="grid grid-cols-3 gap-2">
@@ -74,12 +68,12 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
           <Row label={`You (${MINTME_SPLIT.miner * 100}%)`} value={split.miner} />
           <Row label={`Connected peers (${MINTME_SPLIT.peers * 100}%, ${connectedPeers})`} value={split.peersTotal} />
           <Row label={`Community vault (${MINTME_SPLIT.vault * 100}%${connectedPeers ? "" : " + peer share"})`} value={split.vault} />
-          <p className="text-xs text-muted-foreground">Share receipts from peers seen: {snap.peerShares}. This is share-weight accounting; pool payouts arrive at your MintMe address.</p>
+          <p className="text-xs text-muted-foreground">Peer-reported receipts: {snap.peerShares} (unverified). Shares are not MINTME balances. Pool proceeds must reach the community vault before the 80/15/5 split; payouts are not active yet.</p>
         </div>
+        <div className="text-xs text-muted-foreground break-all">Community MintMe address: {getMintMeCommunityVaultAddress() ?? "Not configured — mining paused"}</div>
         {!running && (
           <div className="space-y-2">
-            <Input placeholder="Pool bridge (wss://…)" value={proxy} onChange={(e) => setProxy(e.target.value)} />
-            <Input placeholder="Hashing module URL" value={hasher} onChange={(e) => setHasher(e.target.value)} />
+            <Input aria-label="MintMe pool bridge" placeholder="Pool bridge (wss://…)" value={proxy} onChange={(e) => setProxy(e.target.value)} />
           </div>
         )}
         {(snap.message || note) && <p className="text-xs text-muted-foreground">{note || snap.message}</p>}
