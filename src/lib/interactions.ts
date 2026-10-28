@@ -262,6 +262,7 @@ export async function addComment(
   };
 
   await put("comments", comment);
+  void import("./blockchain/contentPayload").then((m) => m.packLocalContent(user.id));
 
   // Record comment to blockchain
   try {
