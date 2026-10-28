@@ -1,51 +1,90 @@
-import { getCurrentUser, getCachedPrivateKey } from "@/lib/auth";
-import { getSwarmChain } from "../chain";
-import { getColdKeyReceivingAddress } from "../wallets/coldKey";
-import { signWalletTip } from "../wallets/tipSignature";
-import { getMintMeCommunityVaultAddress } from "./communityCustody";
-import { planMintMePayout } from "./payoutPolicy";
-import { mintMeAmount, NATIVE_MINTME_ASSET_ID } from "../wallets/nativeMintmeLedger";
-import type { SwarmTransaction } from "../types";
+import { createMintMeProposal, verifyMintMeApproval, verifyMintMeCertificate, verifyMintMeProposal,
+  type MintMeAgreementCertificate, type MintMeAgreementSnapshot, type MintMeAgreementVerifier,
+  type MintMeApproval, type MintMePayoutProposal } from "./payoutAgreement";
 
-/** Authorized community identity only. Call with a verified network membership
- * snapshot, not the browser's neighbour count or advisory share receipts.
- * Deposited funds must already be accepted by native custody verification.
+export const MINTME_AGREEMENT_CHANNEL = "mintme-community-agreement-v1";
+type AgreementMessage = { kind: "proposal"; proposal: MintMePayoutProposal }
+  | { kind: "approval"; proposal: MintMePayoutProposal; approval: MintMeApproval }
+  | { kind: "certificate"; certificate: MintMeAgreementCertificate };
+
+export interface MintMeAgreementTransport {
+  broadcast(channel: string, message: unknown): void;
+  onMessage(channel: string, handler: (peerId: string, message: unknown) => void): () => void;
+}
+
+/** Collects account-free agreement, not settlement. No default custody/membership
+ * verifier or ledger bypass exists. Certified rewards must pass a future durable,
+ * checkpoint-exclusive allocation acceptance rule before they credit a wallet.
  */
-export async function distributeNativeMintMe(batchId: string, recipientIds: readonly string[]): Promise<boolean> {
-  const user = getCurrentUser();
-  const key = await getCachedPrivateKey();
-  if (!user || !key) throw new Error("Sign in to the community wallet to distribute MINTME.");
-  const address = getMintMeCommunityVaultAddress();
-  if (!address || (await getColdKeyReceivingAddress(user.id)).toLowerCase() !== address.toLowerCase()) {
-    throw new Error("This account does not control the community wallet.");
+export class MintMePayoutCoordinator {
+  private proposals = new Map<string, { proposal: MintMePayoutProposal; approvals: Map<string, MintMeApproval> }>();
+  private completed = new Set<string>();
+  private unsubscribe: (() => void) | undefined;
+  private generation = 0;
+  constructor(private readonly verifier: MintMeAgreementVerifier,
+    private readonly onCertificate: (certificate: MintMeAgreementCertificate) => void) {}
+
+  start(transport: MintMeAgreementTransport): void {
+    this.stop();
+    this.unsubscribe = transport.onMessage(MINTME_AGREEMENT_CHANNEL, (_peer, message) => {
+      void this.receive(message, transport).catch(() => {});
+    });
   }
-  if (!/^[\w-]{1,80}$/.test(batchId)) throw new Error("Invalid payout batch identifier");
-  const recipients = [...new Set(recipientIds)].sort();
-  if (recipients.some(id => !/^[a-f0-9]{16}$/.test(id) || id === user.id)) throw new Error("Invalid community payout recipient");
-  const chain = getSwarmChain();
-  await chain.whenReady();
-  const history = [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()];
-  if (history.some(tx => tx.meta?.mintmePayoutBatch === batchId)) return true;
-  const reserved = history.reduce((sum, tx) => sum + (tx.from === user.id && typeof tx.meta?.communityRetainedUnits === "string"
-    ? BigInt(tx.meta.communityRetainedUnits) : 0n), 0n);
-  const available = chain.getNativeMintMeBalanceUnits(user.id) - reserved;
-  const plan = planMintMePayout(available, recipients);
-  if (plan.status !== "ready") return false;
-  const timestamp = new Date().toISOString();
-  const transactions: SwarmTransaction[] = [];
-  for (const [index, recipient] of plan.recipients.entries()) {
-    transactions.push(await signWalletTip({
-      id: `mintme-payout:${batchId}:${recipient}`, type: "wallet_tip", from: user.id, to: recipient,
-      amount: mintMeAmount(plan.perPeerUnits), chainId: "SWARM", timestamp,
-      nonce: Date.now() + index, fee: 0, signature: "", publicKey: user.publicKey,
-      meta: { assetId: NATIVE_MINTME_ASSET_ID, ticker: "MINTME", currency: "MINTME",
-        amountUnits: plan.perPeerUnits.toString(), mintmePayoutBatch: batchId,
-        ...(index === 0 ? { communityRetainedUnits: plan.communityUnits.toString() } : {}) },
-    }, key));
+
+  stop(): void {
+    this.generation++;
+    this.unsubscribe?.(); this.unsubscribe = undefined;
+    this.proposals.clear(); this.completed.clear();
   }
-  if (!await chain.acceptNativeMintMeBatch(transactions)) throw new Error("Community MINTME balance changed; retry the distribution.");
-  window.dispatchEvent(new Event("blockchain-transaction"));
-  const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
-  for (const tx of transactions) getSwarmMeshStandalone().broadcast("wallet-tips", tx);
-  return true;
+
+  async propose(snapshot: MintMeAgreementSnapshot, transport: MintMeAgreementTransport): Promise<MintMePayoutProposal | null> {
+    const proposal = await createMintMeProposal(snapshot);
+    if (!await this.receive({ kind: "proposal", proposal }, transport)) return null;
+    transport.broadcast(MINTME_AGREEMENT_CHANNEL, { kind: "proposal", proposal });
+    return proposal;
+  }
+
+  async approve(proposal: MintMePayoutProposal, approval: MintMeApproval, transport: MintMeAgreementTransport): Promise<boolean> {
+    const message: AgreementMessage = { kind: "approval", proposal, approval };
+    if (!await this.receive(message, transport)) return false;
+    transport.broadcast(MINTME_AGREEMENT_CHANNEL, message);
+    return true;
+  }
+
+  async receive(value: unknown, transport: MintMeAgreementTransport): Promise<boolean> {
+    const generation = this.generation;
+    try {
+      if (!value || typeof value !== "object") return false;
+      const message = value as AgreementMessage;
+      if (message.kind === "certificate") {
+        if (!await verifyMintMeCertificate(message.certificate, this.verifier) || generation !== this.generation) return false;
+        this.deliver(message.certificate, transport);
+        return true;
+      }
+      if (message.kind !== "proposal" && message.kind !== "approval") return false;
+      // Copy network data before awaiting; local callers cannot mutate an approved proposal.
+      const proposal = structuredClone(message.proposal);
+      const approval = message.kind === "approval" ? structuredClone(message.approval) : null;
+      if (!await verifyMintMeProposal(proposal, this.verifier) || generation !== this.generation) return false;
+      for (const [id, entry] of this.proposals) if (entry.proposal.expiresAt <= Date.now()) this.proposals.delete(id);
+      let entry = this.proposals.get(proposal.id);
+      if (!entry) {
+        if (this.proposals.size >= 64) return false;
+        entry = { proposal, approvals: new Map() }; this.proposals.set(proposal.id, entry);
+      }
+      if (!approval) return true;
+      if (!await verifyMintMeApproval(proposal, approval) || generation !== this.generation) return false;
+      entry.approvals.set(approval.voterId, approval);
+      const certificate = { proposal: entry.proposal, approvals: [...entry.approvals.values()].sort((a, b) => a.voterId.localeCompare(b.voterId)) };
+      if (await verifyMintMeCertificate(certificate, this.verifier) && generation === this.generation) this.deliver(certificate, transport);
+      return true;
+    } catch { return false; }
+  }
+
+  private deliver(certificate: MintMeAgreementCertificate, transport: MintMeAgreementTransport): void {
+    if (this.completed.has(certificate.proposal.id) || this.completed.size >= 256) return;
+    this.completed.add(certificate.proposal.id);
+    this.onCertificate(structuredClone(certificate));
+    transport.broadcast(MINTME_AGREEMENT_CHANNEL, { kind: "certificate", certificate });
+  }
 }
