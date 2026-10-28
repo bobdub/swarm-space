@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### October 28, 2026 — The wallet already has a doorway
+
+Before tending: follow the commons' gift to the traveller's existing SWARM home;
+keep the asset's name and backing intact, and never paint a receipt as a real coin.
+
+After tending: the intended destination is saved as the native SWARM wallet.
+The audit finds that signed native transfers currently settle SWARM alone;
+MINTME records have no community-backed native transfer path yet. No balances changed.
+
 ### October 28, 2026 — An equal portion at the commons
 
 Before tending: wait for twenty-five real coins at the communal doorway,
