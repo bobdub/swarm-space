@@ -31,6 +31,7 @@ import { getSwarmChain } from "./chain";
 import { derivePoolFromChain, getRewardPool } from "./storage";
 import { getSwarmBalance } from "./token";
 import { creditAppWallet } from "./wallets/appWallet";
+import { coinAssetClass } from "./weightedCoin";
 
 const LISTINGS_STORE = "coinListings";
 const COINS_STORE = "swarmCoins";
@@ -230,6 +231,7 @@ function recordMarketTx(
       buyerId: params.listing.buyerId,
       coinId: params.listing.coinId,
       assetType: params.listing.assetType ?? "coin",
+      assetClass: params.listing.assetClass,
       swarmAmount: params.listing.swarmAmount,
       askAmount: params.listing.askAmount,
       askCurrency: params.listing.askCurrency,
@@ -328,6 +330,7 @@ export async function listCoinForSale(params: {
     sellerId,
     coinId,
     assetType: "coin",
+    assetClass: coinAssetClass(coin),
     askAmount,
     askCurrency,
     receivingAddress: receivingAddress.trim(),
@@ -445,6 +448,7 @@ function listingFromMeta(meta: ListingMeta): CoinListing | null {
     sellerId,
     coinId,
     assetType: meta.assetType === "swarm" ? "swarm" : "coin",
+    assetClass: meta.assetClass === "swarm-weighted" ? "swarm-weighted" : meta.assetClass === "swarm-hollow" ? "swarm-hollow" : undefined,
     swarmAmount: meta.swarmAmount === undefined ? undefined : round6(Number(meta.swarmAmount)),
     askAmount: Number(meta.askAmount ?? 0),
     askCurrency,

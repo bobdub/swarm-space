@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp } from "lucide-react";
+import { ExternalLink, ShieldAlert, Stamp, Store, TrendingDown, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import type { CoinListing, CoinMarketCurrency } from "@/lib/blockchain/types";
@@ -31,6 +31,7 @@ import {
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useMarketGate } from "@/hooks/useMarketGate";
+import { WEIGHTED_COIN_LABEL, countOpenWeightedListings, weightedMarketMultiplier } from "@/lib/blockchain/weightedCoin";
 import { MarketVaultPanel } from "./MarketVaultPanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
@@ -444,6 +445,7 @@ function ListingGrid({
       </Card>
     );
   }
+  const weightedMultiplier = weightedMarketMultiplier(countOpenWeightedListings(listings));
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {listings.map((l) => (
@@ -453,6 +455,7 @@ function ListingGrid({
           currentUserId={currentUserId}
           onChange={onChange}
           canTrade={canTrade}
+          weightedMultiplier={weightedMultiplier}
         />
       ))}
     </div>
@@ -464,7 +467,9 @@ function ListingCard({
   currentUserId,
   onChange,
   canTrade,
+  weightedMultiplier = 1,
 }: {
+  weightedMultiplier?: number;
   listing: CoinListing;
   currentUserId: string;
   onChange: () => void;
@@ -477,7 +482,9 @@ function ListingCard({
   const isSwarmListing = (listing.assetType ?? "coin") === "swarm";
   const assetLabel = isSwarmListing
     ? `${(listing.swarmAmount ?? 0).toLocaleString()} SWARM`
-    : `Coin ${listing.coinId.slice(0, 10)}…`;
+    : listing.assetClass === "swarm-weighted"
+      ? `Weighted SWARM coin ${listing.coinId.slice(0, 8)}…`
+      : `Hollow SWARM coin ${listing.coinId.slice(0, 8)}…`;
 
   const run = async (fn: () => Promise<unknown>, label: string) => {
     setBusy(true);
@@ -512,6 +519,11 @@ function ListingCard({
             <CardDescription className="text-xs">
               {assetLabel} · Tier {listing.tier}
             </CardDescription>
+            {listing.assetClass === "swarm-weighted" && (
+              <Badge variant="outline" className="mt-1 gap-1 border-primary/50 text-primary" title={WEIGHTED_COIN_LABEL}>
+                <Stamp className="h-3 w-3" />Creator Proof · {weightedMultiplier}× weight
+              </Badge>
+            )}
           </div>
           <Badge variant={statusColor[listing.status] ?? "default"}>
             {listingStatusLabel(listing.status)}
