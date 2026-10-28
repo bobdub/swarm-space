@@ -70,7 +70,8 @@ async function pack(userId: string): Promise<number> {
     if (!coin) break;
     const bytes = measureContentBytes(item);
     const hash = await sha256Hex(JSON.stringify({ ...item, _coinId: undefined }));
-    const entries = [...(coin.payloadEntries ?? []), { id: item.id, type: store === "posts" ? "post" : "comment", sizeBytes: bytes, hash }];
+    const entryType: "post" | "comment" = store === "posts" ? "post" : "comment";
+    const entries = [...(coin.payloadEntries ?? []), { id: item.id, type: entryType, sizeBytes: bytes, hash }];
     let next: SwarmCoin = {
       ...coin, fillState: "filling", payloadEntries: entries,
       sealBytes: (coin.sealBytes ?? 0) + bytes,
