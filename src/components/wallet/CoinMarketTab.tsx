@@ -9,7 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ExternalLink, ShieldAlert, Store, TrendingDown, TrendingUp } from "lucide-react";
+import { ExternalLink, ShieldAlert, Stamp, Store, TrendingDown, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import type { CoinListing, CoinMarketCurrency } from "@/lib/blockchain/types";
@@ -31,6 +31,7 @@ import {
 import { formatSyncAge, usePoolConnectivity } from "@/hooks/usePoolConnectivity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useMarketGate } from "@/hooks/useMarketGate";
+import { WEIGHTED_COIN_LABEL, countOpenWeightedListings, weightedMarketMultiplier } from "@/lib/blockchain/weightedCoin";
 import { MarketVaultPanel } from "./MarketVaultPanel";
 
 const CURRENCIES: { value: CoinMarketCurrency; label: string; hint: string }[] = [
@@ -444,6 +445,7 @@ function ListingGrid({
       </Card>
     );
   }
+  const weightedMultiplier = weightedMarketMultiplier(countOpenWeightedListings(listings));
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {listings.map((l) => (
@@ -453,6 +455,7 @@ function ListingGrid({
           currentUserId={currentUserId}
           onChange={onChange}
           canTrade={canTrade}
+          weightedMultiplier={weightedMultiplier}
         />
       ))}
     </div>
