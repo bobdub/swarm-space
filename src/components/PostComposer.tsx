@@ -238,6 +238,7 @@ export const PostComposer = ({
       let signedPost = await signPost(applyBlogIdentity(post));
 
       await put("posts", signedPost);
+      void import("@/lib/blockchain/contentPayload").then((m) => m.packLocalContent(user.id));
 
       // Handle walled post locking — MUST happen before broadcast so peers
       // receive the post with `walled: true` already set.
