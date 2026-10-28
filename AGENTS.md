@@ -54,3 +54,4 @@
 - Room signaling relays directed media signals and room announcements at most 2 hops with dedup keys, because peers in one Brain room may share no direct mesh edge.
 - Weighted (Creator Proof) coins are identified only by the explicit creatorProof tag stamped in applySeal (src/lib/blockchain/weightedCoin.ts); legacy coins are never inferred weighted, so every seal path reaches one flag.
 - Posts/comments load into coins by flipping `_coinId` on the content itself (`src/lib/blockchain/contentPayload.ts`); unflipped content (incl. legacy) waits for the next hollow coin, so posting never depends on mined SWARM and nothing is loaded twice.
+- MintMe miner startup must check getMintMeMinerEnabled() in src/lib/mining/mintmeMinerPreference.ts — the dashboard switch is the single gate.

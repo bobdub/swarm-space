@@ -804,3 +804,4 @@ Sealed coins earn a mark of their own: one explicit Creator Proof tag at seal, a
 
 ## Caretaker reflection — the flip
 Content already rests and travels; it only needs a mark. A post without `_coinId` waits; a hollow coin arrives and the post steps inside. At 89% of a gigabyte the coin closes and earns its engraving. Three checks hold.
+- 2026-10-28: Tended the MintMe miner's first seed — a master switch, on by default, remembered.
