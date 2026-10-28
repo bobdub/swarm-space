@@ -323,6 +323,8 @@ export interface CoinListing {
   coinId: string;
   /** Market asset being sold. Undefined means legacy mined-coin listing. */
   assetType?: "swarm" | "coin";
+  /** Coin listings: hollow SWARM vs Creator Proof weighted coin (separate market asset). */
+  assetClass?: "swarm-hollow" | "swarm-weighted";
   /** Amount of wallet SWARM held in market escrow for amount-based listings. */
   swarmAmount?: number;
   askAmount: number;
@@ -437,6 +439,8 @@ export interface SwarmCoin {
   stressAccrued?: number;
   /** ISO timestamp at which the coin crystallized (fill ≥ 1, immutable). */
   sealedAt?: string;
+  /** Explicit Creator Proof tag stamped at seal; only tagged coins are weighted. */
+  creatorProof?: { version: 1; sealedAt: string; payloadBytes?: number; merkleRoot?: string };
   /** Crafted chemical payload — atoms condensed into the coin via the Forge. */
   wrappedChemicals?: { symbol: string; count: number }[];
   /** Sealed chat transcript — wrapped by "Save History" in Brain chat. */
