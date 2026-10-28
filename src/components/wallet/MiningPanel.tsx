@@ -10,6 +10,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.standalone";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
 import { formatDistanceToNow } from "date-fns";
+import { MintMeMiningCard } from "./MintMeMiningCard";
 
 const EMPTY_STATS: MiningStats = {
   blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
@@ -127,6 +128,7 @@ export function MiningPanel() {
 
 
   return (
+    <div className="space-y-4">
     <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -327,6 +329,8 @@ export function MiningPanel() {
         </div>
       </CardContent>
     </Card>
+    <MintMeMiningCard connectedPeers={activePeerCount} />
+    </div>
   );
 }
 
