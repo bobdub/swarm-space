@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { getMintMeMinerEnabled, setMintMeMinerEnabled, onMintMeMinerEnabledChange } from "../mintmeMinerPreference";
 
 describe("MintMe miner switch", () => {
@@ -22,5 +22,12 @@ describe("MintMe miner switch", () => {
     off();
     setMintMeMinerEnabled(true);
     expect(seen).toEqual([false]);
+  });
+  it("remains off if storage refuses to save the switch", () => {
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("Storage denied"); });
+    setMintMeMinerEnabled(false);
+    expect(getMintMeMinerEnabled()).toBe(false);
+    write.mockRestore();
+    setMintMeMinerEnabled(true);
   });
 });

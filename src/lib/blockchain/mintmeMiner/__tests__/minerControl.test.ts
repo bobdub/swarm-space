@@ -61,6 +61,22 @@ describe("MintMe custody and master control", () => {
     workers[0].emit("ready"); workers[0].emit("ready");
     expect(sockets).toHaveLength(1);
   });
+  it("rejects stale worker shares and keeps submitted difficulty across a new job", () => {
+    miner.start({ peerId: "member", mesh }); workers[0].emit("ready"); sockets[0].onopen?.();
+    const client = (miner as unknown as { client: { handle(data: string): void } }).client;
+    const blob = "00".repeat(76);
+    client.handle(JSON.stringify({ id: 1, result: { id: "w", job: { job_id: "j", blob, target: "ffffffffffffffff", algo: "lyra2v2-webchain" } } }));
+    const onWorker = miner as unknown as { onWorker(message: unknown): void };
+    const share = { type: "share", jobId: "j", generation: 0, nonce: "0102030405060708", result: "00".repeat(32) };
+    onWorker.onWorker(share);
+    expect(sockets[0].send).toHaveBeenCalledTimes(1);
+    onWorker.onWorker({ ...share, generation: 1 });
+    expect(sockets[0].send).toHaveBeenCalledTimes(2);
+    client.handle(JSON.stringify({ method: "job", params: { job_id: "new", blob, target: "0000000000000080" } }));
+    client.handle(JSON.stringify({ id: 2, result: { status: "OK" } }));
+    expect(miner.snapshot.acceptedWeight).toBe(1);
+    expect(miner.snapshot.accepted).toBe(1);
+  });
   it("turning the dashboard toggle off terminates the worker and closes the pool immediately", () => {
     miner.start({ peerId: "member", mesh }); workers[0].emit("ready");
     setMintMeMinerEnabled(false);
