@@ -10,3 +10,4 @@
 - [ ] Live three-participant guest/member contact verification — awaits coordinated user testing; audio, camera and weather remain outside this isolated fix.
 - [x] Correct MintMe pool custody, remove wallet unlock gate and user-supplied hashing fields; 14 focused Vitest checks pass and preview build clean; real pool flow not exercised.
 - [ ] Enable real MintMe hashing/payouts — requires a verified browser engine, pool transport and community custody configuration.
+- [ ] Add Gun.js community mining bridge discovery, mesh-only lifecycle and quiet Node dashboard connection details; verify focused regressions.
