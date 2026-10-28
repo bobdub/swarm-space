@@ -8,7 +8,7 @@ import { StratumClient, getStratumProxyUrl, MINTME_POOL_LOW_DIFF, type StratumJo
 import { ShareTracker, type MeshLike } from "./shareTracker";
 import { getMintMeCommunityVaultAddress } from "./communityCustody";
 
-export type MinerStatus = "off" | "idle" | "needs-vault" | "needs-proxy" | "needs-hasher" | "connecting" | "mining" | "error";
+export type MinerStatus = "off" | "idle" | "needs-mesh" | "needs-vault" | "needs-proxy" | "needs-hasher" | "connecting" | "mining" | "error";
 
 export interface MinerSnapshot {
   status: MinerStatus;
@@ -40,13 +40,14 @@ export class MintMeMiner {
   get snapshot() { return this.snap; }
   subscribe(l: Listener) { this.listeners.add(l); l(this.snap); return () => { this.listeners.delete(l); }; }
 
-  start(opts: { peerId: string; mesh: MeshLike | null }): void {
+  start(opts: { peerId: string; mesh: (MeshLike & { getConnectedPeers(): string[] }) | null; proxyUrl?: string | null }): void {
     if (!getMintMeMinerEnabled()) { this.set({ status: "off" }); return; }
+    if (!opts.mesh?.getConnectedPeers().length) { this.stop("needs-mesh", "Waiting for a mesh connection."); return; }
     if (this.client || this.worker) return;
     const address = getMintMeCommunityVaultAddress();
     if (!address) { this.set({ status: "needs-vault", message: "The community MintMe receiving address has not been configured. Mining is paused." }); return; }
-    const proxyUrl = getStratumProxyUrl();
-    if (!proxyUrl) { this.set({ status: "needs-proxy", message: "Add a pool bridge address to reach the MintMe pool." }); return; }
+    const proxyUrl = opts.proxyUrl ?? getStratumProxyUrl();
+    if (!proxyUrl) { this.set({ status: "needs-proxy", message: "Waiting for a community mining bridge. Connection details are in the Node dashboard." }); return; }
 
     this.tracker = new ShareTracker(opts.mesh, () => this.set({ peerShares: this.tracker?.fromPeers.length ?? 0 }));
     this.client = new StratumClient({
@@ -75,6 +76,7 @@ export class MintMeMiner {
       this.worker = worker;
       worker.onmessage = (e) => {
         if (this.worker !== worker || !getMintMeMinerEnabled()) return;
+        if (!opts.mesh?.getConnectedPeers().length) { this.stop("needs-mesh", "Waiting for a mesh connection."); return; }
         if (e.data.type === "ready") this.client?.connect();
         else this.onWorker(e.data);
       };

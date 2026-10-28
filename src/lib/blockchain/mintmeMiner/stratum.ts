@@ -2,7 +2,7 @@
  * MintMe (Webchain) Stratum client.
  *
  * Browsers cannot open raw TCP sockets, so the pool is reached through a
- * WebSocket→TCP proxy the user configures. Without a proxy the client
+ * public WebSocket→TCP bridge discovered through the mining cell. Without a bridge the client
  * reports `needs-proxy` and never pretends to be connected.
  */
 export const MINTME_POOL_LOW_DIFF = "pool.webchain.network:2222";
@@ -19,18 +19,33 @@ export interface StratumJob {
 
 export function getStratumProxyUrl(): string | null {
   try {
-    const v = localStorage.getItem(PROXY_KEY)?.trim();
-    return v && /^wss?:\/\//i.test(v) ? v : null;
+    return sanitizeStratumProxyUrl(localStorage.getItem(PROXY_KEY) ?? import.meta.env.VITE_MINTME_STRATUM_WSS_URL ?? "");
   } catch {
     return null;
   }
 }
 
-export function setStratumProxyUrl(url: string | null): void {
+/** Public endpoint only: no credentials, tokens, insecure sockets or private hosts. */
+export function sanitizeStratumProxyUrl(value: string): string | null {
   try {
-    if (url && /^wss?:\/\//i.test(url.trim())) localStorage.setItem(PROXY_KEY, url.trim());
+    const url = new URL(value.trim());
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "wss:" || url.username || url.password || url.search || url.hash ||
+        !host.includes(".") || host.includes(":") || host.endsWith(".local") || host.endsWith(".localhost") ||
+        /^\d+\.\d+\.\d+\.\d+$/.test(host)) return null;
+    return url.href;
+  } catch { return null; }
+}
+
+export function setStratumProxyUrl(url: string | null): boolean {
+  const sanitized = url ? sanitizeStratumProxyUrl(url) : null;
+  if (url && !sanitized) return false;
+  try {
+    if (sanitized) localStorage.setItem(PROXY_KEY, sanitized);
     else localStorage.removeItem(PROXY_KEY);
-  } catch { /* ignore */ }
+    window.dispatchEvent(new Event("mintme-bridge-config-change"));
+    return true;
+  } catch { return false; }
 }
 
 /** CryptoNote compact 4-byte little-endian target → difficulty. */

@@ -19,6 +19,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 import { getMintMeMinerEnabled, setMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
+import { MintMeConnectionDetails } from "./MintMeConnectionDetails";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
@@ -185,6 +186,7 @@ export function SwarmMeshModePanel({
               }}
             />
           </div>
+          <MintMeConnectionDetails />
         </CardContent>
       </Card>
 
