@@ -21,7 +21,6 @@ import {
 } from "@/lib/blockchain/wallets/walletLink";
 import {
   depositMintMe,
-  getChainMintmeBalance,
   getMintMeLedger,
   recordMintMeWithdrawal,
   reconcileMintMe,

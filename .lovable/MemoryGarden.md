@@ -6,6 +6,10 @@ Before tending: carry MintMe through the signed SWARM doorway without changing
 its name, borrowing another balance, or mistaking an old receipt for custody.
 Keep the external road separate and prove each native debit has one credit.
 
+After tending: custody receipts meet their own witness, and signed MintMe
+crosses the native road without borrowing SWARM. Twenty checks guard amounts,
+replays and whole batches; live pool money and membership still need witnesses.
+
 ### October 28, 2026 — The wallet already has a doorway
 
 Before tending: follow the commons' gift to the traveller's existing SWARM home;
