@@ -1,4 +1,3 @@
-// @vitest-environment node
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHashEngine, fromHex, HASH_TEST_INPUT, HASH_TEST_V1, HASH_TEST_V2, meetsTarget, targetValue, toHex, writeNonce } from "../hashEngine";
