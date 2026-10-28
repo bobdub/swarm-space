@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 28, 2026 — Two witnesses at the commons
+
+Before tending: no borrowed login guards the shared doorway.
+Bind each witness to the same receipt and the same gathering;
+never let an echo spend the commons twice.
+
 ### October 28, 2026 — Agreement without a borrowed account
 
 Before tending: let the commons belong to no traveller's login.
