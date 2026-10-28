@@ -10,5 +10,6 @@
 - [ ] Live three-participant guest/member contact verification — awaits coordinated user testing; audio, camera and weather remain outside this isolated fix.
 - [x] Correct MintMe pool custody, remove wallet unlock gate and user-supplied hashing fields; 14 focused Vitest checks pass and preview build clean; real pool flow not exercised.
 - [ ] Enable live MintMe testing/payouts — bundled hashing is ready; blocked by a deployed community WSS bridge, configured public community receiving address and authorized payout service. Real accepted pool shares remain unverified.
+- [ ] Replace MintMe 80/15/5 share attribution with a 25 MINTME community payout policy: 5% retained, 95% evenly distributed among connected peers; test threshold and allocation without fabricating settlement.
 - [x] Step 2: bundle pinned Lyra2v2-Webchain WASM with native-reference self-tests, wire full-target pool jobs/eight-byte nonces/shares, reject stale work and preserve submitted difficulty; 34 focused checks pass and preview compiles. Brain/native mining untouched; no browser sessions opened.
 - [x] Add Gun.js community mining bridge discovery, mesh-only lifecycle and quiet Node dashboard connection details; 25 focused checks pass, preview build clean. Live external bridge, hashing and payout flow remain blocked by the existing prerequisites above.
