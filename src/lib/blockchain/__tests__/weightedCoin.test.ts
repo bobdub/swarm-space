@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applySeal } from "../coinFill";
-import { coinAssetClass, isWeightedCoin, weightedMarketMultiplier } from "../weightedCoin";
+import { coinAssetClass, isWeightedCoin } from "../weightedCoin";
 
 describe("weighted coin tagging", () => {
   it("sealing stamps the Creator Proof tag", () => {
@@ -10,10 +10,5 @@ describe("weighted coin tagging", () => {
   });
   it("untagged sealed (legacy) coins stay hollow", () => {
     expect(isWeightedCoin({ fillState: "sealed" } as never)).toBe(false);
-  });
-  it("market premium shrinks with weighted supply", () => {
-    expect(weightedMarketMultiplier(0)).toBe(2);
-    expect(weightedMarketMultiplier(2)).toBe(1.5);
-    expect(weightedMarketMultiplier(1000)).toBeGreaterThanOrEqual(1.25);
   });
 });

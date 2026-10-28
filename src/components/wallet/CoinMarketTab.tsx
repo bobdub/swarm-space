@@ -445,7 +445,6 @@ function ListingGrid({
       </Card>
     );
   }
-  const weightedMultiplier = weightedMarketMultiplier(countOpenWeightedListings(listings));
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {listings.map((l) => (
@@ -455,7 +454,6 @@ function ListingGrid({
           currentUserId={currentUserId}
           onChange={onChange}
           canTrade={canTrade}
-          weightedMultiplier={weightedMultiplier}
         />
       ))}
     </div>
@@ -467,9 +465,7 @@ function ListingCard({
   currentUserId,
   onChange,
   canTrade,
-  weightedMultiplier = 1,
 }: {
-  weightedMultiplier?: number;
   listing: CoinListing;
   currentUserId: string;
   onChange: () => void;
@@ -482,9 +478,7 @@ function ListingCard({
   const isSwarmListing = (listing.assetType ?? "coin") === "swarm";
   const assetLabel = isSwarmListing
     ? `${(listing.swarmAmount ?? 0).toLocaleString()} SWARM`
-    : listing.assetClass === "swarm-weighted"
-      ? `Weighted SWARM coin ${listing.coinId.slice(0, 8)}…`
-      : `Hollow SWARM coin ${listing.coinId.slice(0, 8)}…`;
+    : `SWARM coin ${listing.coinId.slice(0, 8)}…`;
 
   const run = async (fn: () => Promise<unknown>, label: string) => {
     setBusy(true);
@@ -521,7 +515,7 @@ function ListingCard({
             </CardDescription>
             {listing.assetClass === "swarm-weighted" && (
               <Badge variant="outline" className="mt-1 gap-1 border-primary/50 text-primary" title={WEIGHTED_COIN_LABEL}>
-                <Stamp className="h-3 w-3" />Creator Proof · {weightedMultiplier}× weight
+                <Stamp className="h-3 w-3" />Sealed · Creator Proof
               </Badge>
             )}
           </div>
