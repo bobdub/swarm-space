@@ -56,6 +56,11 @@ describe("MintMe custody and master control", () => {
     const login = JSON.parse(sockets[0].send.mock.calls[0][0]);
     expect(login.params.login).toBe(vault); expect(login.params.pass).toBe("x");
   });
+  it("connects only once if engine readiness is repeated", () => {
+    miner.start({ peerId: "member", mesh });
+    workers[0].emit("ready"); workers[0].emit("ready");
+    expect(sockets).toHaveLength(1);
+  });
   it("turning the dashboard toggle off terminates the worker and closes the pool immediately", () => {
     miner.start({ peerId: "member", mesh }); workers[0].emit("ready");
     setMintMeMinerEnabled(false);
