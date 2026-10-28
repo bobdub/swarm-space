@@ -11,7 +11,7 @@ describe("mintme stratum", () => {
     const c = new StratumClient({ proxyUrl: "wss://x", pool: "p", address: "a", onEvent: (e) => events.push(e) });
     (c as any).pending.set(1, { kind: "login" });
     (c as any).pending.set(2, { kind: "submit", jobId: "j1" });
-    c.handle(JSON.stringify({ id: 1, result: { id: "w", job: { job_id: "j1", blob: "00ff", target: difficultyToTarget(12_500) } } }) + "\n"
+    c.handle(JSON.stringify({ id: 1, result: { id: "w", job: { job_id: "j1", blob: "00".repeat(76), target: difficultyToTarget(12_500), algo: "lyra2v2-webchain" } } }) + "\n"
       + JSON.stringify({ id: 2, result: { status: "OK" } }));
     expect(events.map((e) => e.type)).toEqual(["logged-in", "job", "share-accepted"]);
     expect(events[1].job.difficulty).toBe(12_500);
