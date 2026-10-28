@@ -55,3 +55,4 @@
 - Weighted (Creator Proof) coins are identified only by the explicit creatorProof tag stamped in applySeal (src/lib/blockchain/weightedCoin.ts); legacy coins are never inferred weighted, so every seal path reaches one flag.
 - Posts/comments load into coins by flipping `_coinId` on the content itself (`src/lib/blockchain/contentPayload.ts`); unflipped content (incl. legacy) waits for the next hollow coin, so posting never depends on mined SWARM and nothing is loaded twice.
 - MintMe miner startup must check getMintMeMinerEnabled() in src/lib/mining/mintmeMinerPreference.ts — the dashboard switch is the single gate.
+- MintMe controller uses public community receiving configuration only, waits for a verified bundled engine before pool connection, and treats unsigned mesh receipts as advisory, never payout authorization; user keys and CryptoNight assumptions cannot establish MintMe settlement.

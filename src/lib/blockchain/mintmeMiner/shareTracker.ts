@@ -1,8 +1,9 @@
 /**
- * MintMe share receipts. Accepted pool shares become signed-free mesh receipts
+ * MintMe share receipts. Accepted pool shares become unsigned advisory receipts
  * (`mintme-share-proof`) so connected peers can see contribution. The split is
  * share-weight accounting (80 miner / 15 connected peers / 5 community vault);
- * it does not move MINTME by itself — pool payouts land at the login address.
+ * it does not move MINTME by itself. Peer reports are unverified and must never
+ * authorize payouts. The controller logs in only with community receiving metadata.
  */
 export const MINTME_SHARE_CHANNEL = "mintme-share-proof";
 export const MINTME_SPLIT = { miner: 0.8, peers: 0.15, vault: 0.05 } as const;

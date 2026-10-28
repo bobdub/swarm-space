@@ -6,10 +6,9 @@
 import { getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
 import { StratumClient, getStratumProxyUrl, MINTME_POOL_LOW_DIFF, type StratumJob } from "./stratum";
 import { ShareTracker, type MeshLike } from "./shareTracker";
+import { getMintMeCommunityVaultAddress } from "./communityCustody";
 
-const HASHER_KEY = "swarm-mintme-hasher-url";
-
-export type MinerStatus = "off" | "idle" | "needs-proxy" | "needs-hasher" | "connecting" | "mining" | "error";
+export type MinerStatus = "off" | "idle" | "needs-vault" | "needs-proxy" | "needs-hasher" | "connecting" | "mining" | "error";
 
 export interface MinerSnapshot {
   status: MinerStatus;
@@ -22,16 +21,9 @@ export interface MinerSnapshot {
   acceptedWeight: number;
 }
 
-export function getHasherUrl(): string | null {
-  try { return localStorage.getItem(HASHER_KEY)?.trim() || null; } catch { return null; }
-}
-export function setHasherUrl(url: string | null): void {
-  try { url ? localStorage.setItem(HASHER_KEY, url.trim()) : localStorage.removeItem(HASHER_KEY); } catch { /* ignore */ }
-}
-
 type Listener = (s: MinerSnapshot) => void;
 
-class MintMeMiner {
+export class MintMeMiner {
   private snap: MinerSnapshot = { status: getMintMeMinerEnabled() ? "idle" : "off", message: "", hashrate: 0, difficulty: 0, accepted: 0, rejected: 0, peerShares: 0, acceptedWeight: 0 };
   private listeners = new Set<Listener>();
   private client: StratumClient | null = null;
@@ -39,38 +31,33 @@ class MintMeMiner {
   private tracker: ShareTracker | null = null;
   private job: StratumJob | null = null;
   private hashWindow: { t: number; n: number }[] = [];
+  private unsubscribePreference: () => void;
 
   constructor() {
-    onMintMeMinerEnabledChange((on) => { if (!on) this.stop("off"); else this.set({ status: "idle", message: "" }); });
+    this.unsubscribePreference = onMintMeMinerEnabledChange((on) => { if (!on) this.stop("off"); else this.set({ status: "idle", message: "" }); });
   }
 
   get snapshot() { return this.snap; }
   subscribe(l: Listener) { this.listeners.add(l); l(this.snap); return () => { this.listeners.delete(l); }; }
 
-  start(opts: { address: string; peerId: string; mesh: MeshLike | null }): void {
+  start(opts: { peerId: string; mesh: MeshLike | null }): void {
     if (!getMintMeMinerEnabled()) { this.set({ status: "off" }); return; }
-    if (this.client) return;
+    if (this.client || this.worker) return;
+    const address = getMintMeCommunityVaultAddress();
+    if (!address) { this.set({ status: "needs-vault", message: "The community MintMe receiving address has not been configured. Mining is paused." }); return; }
     const proxyUrl = getStratumProxyUrl();
     if (!proxyUrl) { this.set({ status: "needs-proxy", message: "Add a pool bridge address to reach the MintMe pool." }); return; }
-    const hasherUrl = getHasherUrl();
-    if (!hasherUrl) { this.set({ status: "needs-hasher", message: "Add a MintMe hashing module to start hashing." }); return; }
 
     this.tracker = new ShareTracker(opts.mesh, () => this.set({ peerShares: this.tracker?.fromPeers.length ?? 0 }));
-    this.worker = new Worker(new URL("./hash.worker.ts", import.meta.url), { type: "module" });
-    this.worker.onmessage = (e) => this.onWorker(e.data);
-    this.worker.postMessage({ type: "init", hasherUrl });
-
-    this.set({ status: "connecting", message: `Connecting to ${MINTME_POOL_LOW_DIFF}…` });
     this.client = new StratumClient({
-      proxyUrl, pool: MINTME_POOL_LOW_DIFF, address: opts.address,
+      proxyUrl, pool: MINTME_POOL_LOW_DIFF, address,
       onEvent: (ev) => {
         if (ev.type === "job") {
           this.job = ev.job;
           this.worker?.postMessage({ type: "job", job: ev.job });
-          this.set({ difficulty: ev.job.difficulty });
+          this.set({ difficulty: ev.job.difficulty, status: "mining", message: "" });
         } else if (ev.type === "logged-in") {
           this.worker?.postMessage({ type: "start" });
-          this.set({ status: "mining", message: "" });
         } else if (ev.type === "share-accepted") {
           const d = this.job?.difficulty ?? 0;
           this.tracker?.recordLocal({ minerPeerId: opts.peerId, jobId: ev.jobId, difficulty: d, acceptedAt: Date.now() });
@@ -82,8 +69,21 @@ class MintMeMiner {
         }
       },
     });
-    this.client.connect();
+    this.set({ status: "connecting", message: "Checking the MintMe browser hashing engine…" });
+    try {
+      const worker = new Worker(new URL("./hash.worker.ts", import.meta.url), { type: "module" });
+      this.worker = worker;
+      worker.onmessage = (e) => {
+        if (this.worker !== worker || !getMintMeMinerEnabled()) return;
+        if (e.data.type === "ready") this.client?.connect();
+        else this.onWorker(e.data);
+      };
+      worker.onerror = () => { if (this.worker === worker) this.stop("error", "MintMe hashing stopped unexpectedly."); };
+      worker.postMessage({ type: "init" });
+    } catch { this.stop("error", "The MintMe browser worker could not start."); }
   }
+
+  dispose(): void { this.stop(); this.unsubscribePreference(); this.listeners.clear(); }
 
   stop(status: MinerStatus = "idle", message = ""): void {
     this.client?.close(); this.client = null;
@@ -94,13 +94,13 @@ class MintMeMiner {
   }
 
   private onWorker(m: { type: string; count?: number; jobId?: string; nonce?: string; result?: string }) {
-    if (m.type === "unavailable") this.stop("needs-hasher", "The MintMe hashing module could not be loaded.");
+    if (m.type === "unavailable") this.stop("needs-hasher", "A verified Lyra2v2-Webchain browser engine is not installed. No hashes or payouts are being generated.");
     else if (m.type === "share" && m.jobId && m.nonce && m.result) this.client?.submit(m.jobId, m.nonce, m.result);
     else if (m.type === "hashes") {
       const now = Date.now();
       this.hashWindow.push({ t: now, n: m.count ?? 0 });
       this.hashWindow = this.hashWindow.filter((h) => now - h.t < 10_000);
-      const span = Math.max(1, (now - this.hashWindow[0].t) / 1000);
+      const span = Math.max(1, (now - (this.hashWindow[0]?.t ?? now)) / 1000);
       this.set({ hashrate: this.hashWindow.reduce((a, h) => a + h.n, 0) / span });
     }
   }

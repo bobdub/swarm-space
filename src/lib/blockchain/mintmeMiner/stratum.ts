@@ -36,7 +36,7 @@ export function setStratumProxyUrl(url: string | null): void {
 /** CryptoNote compact 4-byte little-endian target → difficulty. */
 export function targetToDifficulty(targetHex: string): number {
   if (!/^[0-9a-f]{8}$/i.test(targetHex)) return 0;
-  const bytes = targetHex.match(/../g)!.reverse().join("");
+  const bytes = (targetHex.match(/../g) ?? []).reverse().join("");
   const t = parseInt(bytes, 16);
   return t > 0 ? Math.floor(0xffffffff / t) : 0;
 }
@@ -44,7 +44,7 @@ export function targetToDifficulty(targetHex: string): number {
 /** Difficulty → CryptoNote compact 4-byte little-endian target. */
 export function difficultyToTarget(difficulty: number): string {
   const t = Math.max(1, Math.floor(0xffffffff / Math.max(1, difficulty)));
-  return t.toString(16).padStart(8, "0").match(/../g)!.reverse().join("");
+  return (t.toString(16).padStart(8, "0").match(/../g) ?? []).reverse().join("");
 }
 
 /** Parse a pool `job` payload (from login result or a `job` notification). */
@@ -95,7 +95,8 @@ export class StratumClient {
   close(): void {
     const ws = this.ws;
     this.ws = null;
-    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
+    this.pending.clear(); this.workerId = "";
+    if (ws) { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; ws.close(); }
   }
 
   /** Exposed for tests: process one newline-delimited pool message batch. */
@@ -111,7 +112,7 @@ export class StratumClient {
       }
       const req = typeof msg.id === "number" ? this.pending.get(msg.id) : undefined;
       if (!req) continue;
-      this.pending.delete(msg.id!);
+      if (typeof msg.id === "number") this.pending.delete(msg.id);
       if (req.kind === "login") {
         if (msg.error || !msg.result) { this.opts.onEvent({ type: "closed", reason: msg.error?.message ?? "Login refused" }); continue; }
         this.workerId = String(msg.result.id ?? "");

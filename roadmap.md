@@ -8,3 +8,5 @@
 - [x] Add copyable Brain join links beneath online peers, host-first dialing and honest chat-panel connection status (9 focused tests; browser guest entry, copied URL and retry indicator verified; real two-device handshake unverified).
 - [x] Isolated stability Step 1: retain exchanged contact identity, reconcile library-only updates and keep panel edits in the live map; 46 focused checks passed; preview build clean. No audio/scene changes.
 - [ ] Live three-participant guest/member contact verification — awaits coordinated user testing; audio, camera and weather remain outside this isolated fix.
+- [x] Correct MintMe pool custody, remove wallet unlock gate and user-supplied hashing fields; 14 focused Vitest checks pass and preview build clean; real pool flow not exercised.
+- [ ] Enable real MintMe hashing/payouts — requires a verified browser engine, pool transport and community custody configuration.
