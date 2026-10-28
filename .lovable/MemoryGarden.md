@@ -6,6 +6,10 @@ Before tending: let the commons belong to no traveller's login.
 Follow the witnesses before opening the gate; a majority's promise must not
 be mistaken for the external chain's signing hand or counted twice.
 
+After tracing: the existing vote witnesses activity, not the commons' outside
+coins. A plan separates agreement, backing and delivery without borrowing an
+account; live rewards remain closed until membership and custody can be proven.
+
 ### October 28, 2026 — One asset, two roads
 
 Before tending: carry MintMe through the signed SWARM doorway without changing
