@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +26,9 @@ import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens"
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
 import { nativeWalletInventory } from "@/lib/blockchain/wallets/nativeAssets";
 import { canHideAsset, hydrateHiddenAssets, listHiddenAssets, setAssetHidden, HIDDEN_ASSETS_EVENT } from "@/lib/blockchain/wallets/hiddenAssets";
+import { getUserWalletCoins } from "@/lib/blockchain/coinWrap";
+import { isWeightedCoin } from "@/lib/blockchain/weightedCoin";
+import { WeightedCoinRow } from "./WeightedCoinRow";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type Layer = "native" | "metamask";
@@ -47,6 +50,7 @@ export function AssetsTab() {
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
   const [layer, setLayer] = useState<Layer>("native");
   const [selection, setSelection] = useState("all");
+  const [weightedCount, setWeightedCount] = useState(0);
   const [holdings, setHoldings] = useState<ProfileTokenHolding[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>(() => listHiddenAssets(userId));
   const { address } = useMetaMask();
@@ -61,6 +65,7 @@ export function AssetsTab() {
       setMintme(getChainMintmeBalance(userId));
       try { setHoldings(await getUserProfileTokenHoldings(userId)); } catch { /* retain last known holdings */ }
       try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
+      try { setWeightedCount((await getUserWalletCoins(userId)).filter(isWeightedCoin).length); } catch { /* retain */ }
       try { setHiddenIds(await hydrateHiddenAssets(userId)); } catch { /* retain last known */ }
     };
     void refresh();
@@ -156,6 +161,8 @@ export function AssetsTab() {
               layer={layer} metaMaskAddress={address} offline={offline}
               onHide={layer === "native" && canHideAsset(r.code, r.amount) ? () => hide(r.code) : undefined} />
           </div>
+          {layer === "native" && r.code === "SWARM" && weightedCount > 0 && <WeightedCoinRow count={weightedCount} />}
+          </Fragment>
         ))}
         {customTokens.filter((t) => layer === "metamask" ? !t.hidden : visible(`custom:${t.address}`)).map((t) => (
           <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer}
