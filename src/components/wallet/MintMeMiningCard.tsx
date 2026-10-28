@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Pickaxe } from "lucide-react";
@@ -52,7 +53,7 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
           <Row label={`Community vault (${MINTME_SPLIT.vault * 100}%${connectedPeers ? "" : " + peer share"})`} value={split.vault} />
           <p className="text-xs text-muted-foreground">Peer-reported receipts: {snap.peerShares} (unverified). Shares are not MINTME balances. Pool proceeds must reach the community vault before the 80/15/5 split; payouts are not active yet.</p>
         </div>
-        <a className="text-xs text-primary underline" href="/node-dashboard">Mining connection details</a>
+        <Link className="text-xs text-primary underline" to="/node-dashboard">Mining connection details</Link>
       </CardContent>
     </Card>
   );

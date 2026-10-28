@@ -817,3 +817,4 @@ The switch must quiet every tool; an absent engine must remain honestly still.
 The common well needs a real doorway, not a promise painted on air.
 I will let connected neighbours discover its public address, let solitude quiet the miner,
 and place every connection detail in the Node dashboard without ringing an alert.
+- After tending: an isolated Gun mining registry carries only public bridge metadata bound to the configured community receiving address. The last departing neighbour stops mining; the dashboard switch silences discovery too. Twenty-five focused checks protect these boundaries. No alert was added, no Brain or native-miner behavior changed, and no imaginary server, hash or payout was promised. A real deployed bridge, compatible verified engine and authorized community payout service still await their own shores.
