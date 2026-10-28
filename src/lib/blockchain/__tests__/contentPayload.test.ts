@@ -6,7 +6,7 @@ vi.mock("../../store", () => ({
 }));
 import { packLocalContent, COIN_PAYLOAD_SEAL_BYTES } from "../contentPayload";
 import { isWeightedCoin } from "../weightedCoin";
-import { canSpendCoin } from "../coinSpend";
+import { isSpendable as canSpendCoin } from "../coinSpend";
 
 const coin = (id: string) => ({ coinId: id, ownerId: "u", status: "wallet", weight: 0, maxWeight: 100, wrappedTokens: [] });
 beforeEach(() => Object.values(db).forEach((m) => m.clear()));
