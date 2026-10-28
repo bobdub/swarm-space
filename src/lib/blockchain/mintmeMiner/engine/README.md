@@ -10,7 +10,10 @@ bridge.c is our bounded adapter. Build with Emscripten 4.0.12:
 nix shell nixpkgs#emscripten -c bash scripts/build-mintme-engine.sh
 ```
 
-The checked-in 17 KiB WASM uses fixed 16 MiB linear memory. Its hashing matrix is
+The checked-in `public/wasm/lyra2v2.wasm` is fetched by URL only inside the
+client worker after the hydrated mining service starts it; never import WASM
+from source, because this stack also bundles source for server deployment.
+The 17 KiB WASM uses fixed 16 MiB linear memory. Its hashing matrix is
 6 MiB: 16,384 rows × 4 columns × 12 uint64s. V2 time cost is 1; v1 is 4.
 This is NOT the generic Lyra2REv2 multi-hash pipeline.
 

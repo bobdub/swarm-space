@@ -5,7 +5,7 @@ import { MintMeHashLoop } from "../hashLoop";
 import { difficultyToTarget, parseJob, StratumClient } from "../stratum";
 
 afterEach(() => vi.useRealTimers());
-const engineBytes = readFileSync("src/lib/blockchain/mintmeMiner/engine/lyra2v2.wasm");
+const engineBytes = readFileSync("public/wasm/lyra2v2.wasm");
 describe("bundled MintMe engine", () => {
   it("matches the upstream v1 vector and independently GCC-generated v2 reference", async () => {
     const engine = await createHashEngine(engineBytes);

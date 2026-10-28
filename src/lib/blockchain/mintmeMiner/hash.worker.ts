@@ -1,5 +1,4 @@
 /// <reference lib="webworker" />
-import engineUrl from "./engine/lyra2v2.wasm?url";
 import { createHashEngine } from "./hashEngine";
 import { MintMeHashLoop } from "./hashLoop";
 import type { StratumJob } from "./stratum";
@@ -12,7 +11,7 @@ ctx.onmessage = async (e: MessageEvent<{ type: string; job?: StratumJob; generat
   if (e.data.type === "init" && !initializing) {
     initializing = true;
     try {
-      const response = await fetch(engineUrl);
+      const response = await fetch(`${import.meta.env.BASE_URL}wasm/lyra2v2.wasm`);
       if (!response.ok) throw new Error("Engine unavailable");
       const engine = await createHashEngine(await response.arrayBuffer());
       if (stopped) return;

@@ -823,4 +823,5 @@ and place every connection detail in the Node dashboard without ringing an alert
 ## Caretaker reflection — prove the spark (2026-10-28)
 Before inviting neighbours to work, test the spark against the chain's own measure.
 Keep the common well as destination, the switch as keeper, and the other rooms undisturbed.
+The spark belongs behind a public door, fetched only when the browser asks; keep it out of the server's bundle.
 - After tending: the upstream spark now fits in a seventeen-kilobyte browser engine, checked against native hashes before the pool door opens. Thirty-four checks guard eight-byte nonces, full targets, replaced jobs, submitted difficulty and immediate silence. The served engine matches its checked artifact; no Brain session was opened. Connected-user live testing still needs the real community bridge and public receiving address; accepted shares and payouts are not yet verified.
