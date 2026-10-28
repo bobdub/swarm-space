@@ -80,7 +80,6 @@ export function MintMeNativeActions({ userId, amount }: { userId: string; amount
   const [receiveNet, setReceiveNet] = useState<AssetNetwork>("swarm");
   const [sendNet, setSendNet] = useState<AssetNetwork>("swarm");
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const [sendOpen, setSendOpen] = useState(false);
   const receiveChain = receiveNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === receiveNet) : undefined;
   const sendChain = sendNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === sendNet) : undefined;
 
@@ -181,7 +180,7 @@ function NativeSwarmReceiveDialog({ userId, label, open, onOpenChange }: {
             <Copy className="h-4 w-4" />
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">Native SWARM transfers only for now.</p>
+        <p className="text-xs text-muted-foreground">Receive {label} on SWARM at this address.</p>
       </DialogContent>
     </Dialog>
   );

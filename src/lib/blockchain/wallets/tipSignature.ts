@@ -1,5 +1,6 @@
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "@/lib/crypto";
 import type { SwarmTransaction } from "../types";
+import { isNativeMintMeTip } from "./nativeMintmeLedger";
 
 function payload(tx: SwarmTransaction): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify({
@@ -21,7 +22,9 @@ export async function verifyWalletTip(tx: SwarmTransaction): Promise<boolean> {
   try {
     if (tx.type !== "wallet_tip" || await computeUserId(tx.publicKey) !== tx.from) return false;
     if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || tx.from === tx.to || tx.fee !== 0) return false;
-    if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM" || tx.meta?.assetId !== "chain:SWARM") return false;
+    if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
+    if (tx.meta?.assetId !== "chain:SWARM" && !isNativeMintMeTip(tx)) return false;
+    if (tx.meta?.assetId === "chain:SWARM" && tx.meta?.currency === "MINTME") return false;
     if (!/^[a-f0-9]{16}$/.test(tx.to) || !tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce)) return false;
     if (!Number.isFinite(Date.parse(tx.timestamp))) return false;
     const key = await crypto.subtle.importKey("spki", base64ToArrayBuffer(tx.publicKey),
