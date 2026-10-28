@@ -56,5 +56,6 @@ async function hydrate(userId: string, limit: number): Promise<number> {
       minedAt: latest.tx.timestamp, minedInBlock: latest.height,
     } satisfies SwarmCoin);
   }
+  void import('./contentPayload').then((m) => m.packLocalContent(userId));
   return count;
 }

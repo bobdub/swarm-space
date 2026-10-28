@@ -450,6 +450,8 @@ export interface SwarmCoin {
    *  excluded from the fungible pool, the market, the lab smelter, and
    *  the wallet UI. Absent ⇒ regular fungible SWARM coin. */
   kind?: "fungible" | "media";
+  /** Content payload entries loaded into this coin (posts/comments). */
+  payloadEntries?: { id: string; type: "post" | "comment"; sizeBytes: number; hash: string }[];
   /** Media coin: bytes currently engraved into this container. */
   sealBytes?: number;
   /** Media coin: cap after which the coin auto-seals (~100 MiB). */
