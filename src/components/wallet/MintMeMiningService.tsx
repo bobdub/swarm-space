@@ -56,5 +56,28 @@ export function MintMeMiningService() {
     });
     return () => { cancelled = true; cleanup(); };
   }, [isReady, user?.id]);
+
+  // Community payouts run for every signed-in member on the mesh, mining or not.
+  useEffect(() => {
+    let cancelled = false;
+    let cleanup = () => {};
+    if (!isReady || !user || isGuestUser(user)) return;
+    void Promise.all([
+      import("@/lib/p2p/swarmMesh.standalone"),
+      import("@/lib/blockchain/mintmeMiner/communityPayoutService"),
+    ]).then(async ([meshModule, payoutModule]) => {
+      if (cancelled) return;
+      const mesh = meshModule.getSwarmMeshStandalone();
+      const payout = await payoutModule.createMeshCommunityPayout(mesh);
+      if (cancelled) return;
+      payout.start();
+      const tick = () => { if (mesh.getPhase() === "online") void payout.tick().catch(() => {}); };
+      const timer = window.setInterval(tick, 60_000);
+      const unsub = mesh.onPeersChange(tick);
+      tick();
+      cleanup = () => { window.clearInterval(timer); unsub(); payout.stop(); };
+    }).catch(() => {});
+    return () => { cancelled = true; cleanup(); };
+  }, [isReady, user?.id]);
   return null;
 }

@@ -198,6 +198,18 @@ export class SwarmChain {
     return nativeMintMeBalanceUnits([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], address);
   }
 
+  /** Mesh-agreed community payout: signed member votes are the authority; one record per round. */
+  async acceptMintMeCommunityPayout(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    const { verifyCommunityPayoutTx, canAppendCommunityPayout } = await import("./mintmeMiner/communityPayout");
+    if (!await verifyCommunityPayoutTx(transaction)) return false;
+    if (this.hasTransaction(transaction.id)) return false;
+    if (!canAppendCommunityPayout([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], transaction)) return false;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
   /** Verify first, then synchronously check and append the complete batch.
    * No partially paid batch can survive an insufficient balance or interruption.
    */
