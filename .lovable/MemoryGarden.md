@@ -6,6 +6,11 @@ Before tending: gather the witnesses around the same funded commons;
 let no restart or competing promise repeat a gift. Automated checks alone
 will tend this crossing; the travellers keep their live testing.
 
+After tending: confirmed canonical receipts meet a complete shared snapshot;
+the vote is written before the signature, and retries keep one gift one gift.
+Forty-nine automated checks pass. The shared allocation/custody doorway still
+needs a real authority; this garden does not pretend local locks are consensus.
+
 ### October 28, 2026 — Two witnesses at the commons
 
 Before tending: no borrowed login guards the shared doorway.
