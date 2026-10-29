@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### October 29, 2026 — One gift, one receipt
+
+Before tending: gather the witnesses around the same funded commons;
+let no restart or competing promise repeat a gift. Automated checks alone
+will tend this crossing; the travellers keep their live testing.
+
 ### October 28, 2026 — Two witnesses at the commons
 
 Before tending: no borrowed login guards the shared doorway.
