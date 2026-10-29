@@ -43,6 +43,7 @@ export type TransactionType =
   | "coin_market_list"
   | "coin_market_reserve"
   | "coin_market_confirm_payment"
+  | "mintme_community_payout"
   | "coin_market_settle"
   | "coin_market_cancel"
   | "coin_market_dispute"

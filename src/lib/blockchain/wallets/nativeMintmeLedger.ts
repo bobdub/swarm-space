@@ -32,7 +32,31 @@ export function isNativeMintMeDeposit(tx: SwarmTransaction): boolean {
     && tx.meta?.custody === NATIVE_MINTME_CUSTODY;
 }
 
-/** Only accepted custody deposits and signed native transfers fund this asset.
+export const MINTME_COMMUNITY_PAYOUT_TYPE = "mintme_community_payout";
+export const MINTME_COMMUNITY_POOL = "community-pool";
+
+export interface MintMeCommunityPayoutCredits {
+  round: number;
+  recipients: string[];
+  perPeerUnits: bigint;
+  communityUnits: bigint;
+}
+
+/** Shape-only read of a mesh-agreed community payout; acceptance verifies the votes. */
+export function readCommunityPayout(tx: SwarmTransaction): MintMeCommunityPayoutCredits | null {
+  try {
+    if (tx.type !== MINTME_COMMUNITY_PAYOUT_TYPE || tx.from !== MINTME_COMMUNITY_POOL) return null;
+    const m = tx.meta ?? {};
+    const round = m.round, recipients = m.recipients;
+    if (!Number.isSafeInteger(round) || (round as number) < 0 || tx.id !== `mintme-community-payout-${round}`) return null;
+    if (!Array.isArray(recipients) || !recipients.length || recipients.some(r => typeof r !== "string")) return null;
+    if (typeof m.perPeerUnits !== "string" || !/^[1-9]\d*$/.test(m.perPeerUnits)) return null;
+    if (typeof m.communityUnits !== "string" || !/^\d+$/.test(m.communityUnits)) return null;
+    return { round: round as number, recipients: recipients as string[], perPeerUnits: BigInt(m.perPeerUnits), communityUnits: BigInt(m.communityUnits) };
+  } catch { return null; }
+}
+
+/** Custody deposits, signed native transfers and mesh-agreed community payouts fund this asset.
  * Legacy self-transfers, migrations and MetaMask balance snapshots are not custody.
  */
 export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction[], userId: string): bigint {
@@ -41,6 +65,11 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
   for (const tx of transactions) {
     if (seen.has(tx.id)) continue;
     seen.add(tx.id);
+    const payout = readCommunityPayout(tx);
+    if (payout) {
+      if (payout.recipients.includes(userId)) balance += payout.perPeerUnits;
+      continue;
+    }
     const units = nativeMintMeUnits(tx);
     if (units === null) continue;
     if (isNativeMintMeDeposit(tx) && tx.to === userId) balance += units;
