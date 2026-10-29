@@ -22,7 +22,8 @@ export class MintMePayoutCoordinator {
   private unsubscribe: (() => void) | undefined;
   private generation = 0;
   constructor(private readonly verifier: MintMeAgreementVerifier,
-    private readonly onCertificate: (certificate: MintMeAgreementCertificate) => void) {}
+    private readonly onCertificate: (certificate: MintMeAgreementCertificate) => void,
+    private readonly onProposal?: (proposal: MintMePayoutProposal) => Promise<void>) {}
 
   start(transport: MintMeAgreementTransport): void {
     this.stop();
@@ -57,8 +58,9 @@ export class MintMePayoutCoordinator {
       if (!value || typeof value !== "object") return false;
       const message = value as AgreementMessage;
       if (message.kind === "certificate") {
-        if (!await verifyMintMeCertificate(message.certificate, this.verifier) || generation !== this.generation) return false;
-        this.deliver(message.certificate, transport);
+        const certificate = structuredClone(message.certificate);
+        if (!await verifyMintMeCertificate(certificate, this.verifier) || generation !== this.generation) return false;
+        this.deliver(certificate, transport);
         return true;
       }
       if (message.kind !== "proposal" && message.kind !== "approval") return false;
@@ -71,6 +73,9 @@ export class MintMePayoutCoordinator {
       if (!entry) {
         if (this.proposals.size >= 64) return false;
         entry = { proposal, approvals: new Map() }; this.proposals.set(proposal.id, entry);
+        // Fire only after full independent validation and once per proposal.
+        // Do not await: automatic approval re-enters this collector.
+        void this.onProposal?.(structuredClone(proposal)).catch(() => {});
       }
       if (!approval) return true;
       if (!await verifyMintMeApproval(proposal, approval) || generation !== this.generation) return false;
