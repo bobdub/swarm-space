@@ -22,7 +22,7 @@ export class IndexedDBMintMeVoteJournal implements MintMeVoteJournal {
       let allowed = true, remaining = keys.length;
       tx.oncomplete = () => resolve(allowed);
       tx.onabort = () => { if (allowed) reject(tx.error ?? new Error("Payout journal aborted")); else resolve(false); };
-      tx.onerror = () => reject(tx.error ?? new Error("Payout journal failed"));
+      tx.onerror = () => { if (allowed) reject(tx.error ?? new Error("Payout journal failed")); };
       for (const key of keys) {
         const request = store.get(key);
         request.onsuccess = () => {
