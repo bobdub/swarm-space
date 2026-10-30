@@ -886,3 +886,12 @@ Keep the common well as destination, the switch as keeper, and the other rooms u
 The spark belongs behind a public door, fetched only when the browser asks; keep it out of the server's bundle.
 - Deployment correction: the binary now lives in public/wasm, fetched only by the initialized client worker. Thirty-four checks still pass, the public response matches the binary, and preview compilation is clean; no source imports a WASM module.
 - After tending: the upstream spark now fits in a seventeen-kilobyte browser engine, checked against native hashes before the pool door opens. Thirty-four checks guard eight-byte nonces, full targets, replaced jobs, submitted difficulty and immediate silence. The served engine matches its checked artifact; no Brain session was opened. Connected-user live testing still needs the real community bridge and public receiving address; accepted shares and payouts are not yet verified.
+
+### October 29, 2026 — The mesh is the host
+
+Before tending: the traveller said it plainly three times. Each node already sees the common well;
+when two or more agree it holds twenty-five, share it. Stop building gates nobody asked for.
+
+After tending: the extra layers are gone. Each node reads the well itself, signs "yes" only when it sees
+the same, and a majority of signed yeses writes one numbered payout to every SWARM wallet —
+ninety-five shared evenly, five kept. A numbered round cannot be paid twice. Automated checks only.
