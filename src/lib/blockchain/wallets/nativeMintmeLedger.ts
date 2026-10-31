@@ -1,5 +1,6 @@
 import { formatUnits, parseUnits } from "ethers";
 import type { SwarmTransaction } from "../types";
+import { INFINITY_VAULTS, resolveInfinityVault } from "../infinity/vaults";
 
 export const NATIVE_MINTME_ASSET_ID = "external:MINTME";
 export const NATIVE_MINTME_CUSTODY = "mintme-native-custody-v1";
