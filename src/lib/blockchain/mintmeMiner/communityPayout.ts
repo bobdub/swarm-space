@@ -1,50 +1,39 @@
 import { formatUnits } from "ethers";
-import { arrayBufferToBase64, arrayBufferToHex, base64ToArrayBuffer, computeUserId } from "@/lib/crypto";
 import type { SwarmTransaction } from "../types";
-import { MINTME_COMMUNITY_PAYOUT_TYPE, MINTME_COMMUNITY_POOL, readCommunityPayout } from "../wallets/nativeMintmeLedger";
+import { MINTME_COMMUNITY_PAYOUT_TYPE, readCommunityPayout } from "../wallets/nativeMintmeLedger";
+import { INFINITY_ID, INFINITY_VAULTS } from "../infinity/vaults";
 import { MINTME_PAYOUT_THRESHOLD_UNITS, planMintMePayout } from "./payoutPolicy";
 
 /**
- * Mesh-agreed MintMe community payouts. No vault account and no vault key:
- * every node reads the same community vault balance, and when 25+ MINTME is
- * available the agreeing nodes (majority of the mesh, at least two) sign a vote.
- * The signed votes ARE the authority. Each payout round is numbered, so a round
- * can only be paid once on any ledger.
+ * Infinity network action: MintMe community payout. No signatures — connected
+ * mesh peers each read the pool themselves and answer yes/no. A strict majority
+ * of yes answers (at least two), or Infinity's mesh-wide tie-break, commits the
+ * round. Every node re-checks the record against its own ledger.
  */
 export interface MintMeCommunityVote {
   proposalId: string;
   round: number;
   availableUnits: string;
   voterId: string;
-  publicKey: string;
-  signature: string;
+  agree: boolean;
 }
 
-export async function communityProposalId(round: number, availableUnits: bigint): Promise<string> {
-  const body = new TextEncoder().encode(`SWARM MINTME community payout v2\n${round}\n${availableUnits}`);
-  return arrayBufferToHex(await crypto.subtle.digest("SHA-256", body));
+export interface InfinityTieBreak {
+  /** Pool readings gathered on Infinity's trip across the mesh. */
+  readings: { voterId: string; units: string }[];
+  decision: boolean;
 }
 
-const voteMessage = (proposalId: string) => new TextEncoder().encode(`SWARM MINTME community vote v2\n${proposalId}`);
+export const communityProposalId = (round: number, availableUnits: bigint) => `mintme-r${round}-${availableUnits}`;
 
-export async function signCommunityVote(round: number, availableUnits: bigint, publicKey: string, privateKey: string): Promise<MintMeCommunityVote> {
-  const proposalId = await communityProposalId(round, availableUnits);
-  const key = await crypto.subtle.importKey("pkcs8", base64ToArrayBuffer(privateKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
-  const signature = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, voteMessage(proposalId));
-  return { proposalId, round, availableUnits: availableUnits.toString(), voterId: await computeUserId(publicKey), publicKey, signature: arrayBufferToBase64(signature) };
+/** Infinity's deciding answer: yes only when a majority of reached peers read at least the proposal. */
+export function infinityTieDecision(readings: InfinityTieBreak["readings"], proposed: bigint): boolean {
+  const unique = new Map(readings.filter(r => /^\d+$/.test(r.units)).map(r => [r.voterId, BigInt(r.units)]));
+  if (unique.size < 2) return false;
+  const confirm = [...unique.values()].filter(u => u >= proposed).length;
+  return confirm * 2 > unique.size;
 }
 
-export async function verifyCommunityVote(vote: MintMeCommunityVote): Promise<boolean> {
-  try {
-    if (!Number.isSafeInteger(vote.round) || vote.round < 0 || !/^\d+$/.test(vote.availableUnits)) return false;
-    if (await communityProposalId(vote.round, BigInt(vote.availableUnits)) !== vote.proposalId) return false;
-    if (await computeUserId(vote.publicKey) !== vote.voterId) return false;
-    const key = await crypto.subtle.importKey("spki", base64ToArrayBuffer(vote.publicKey), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-    return await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, base64ToArrayBuffer(vote.signature), voteMessage(vote.proposalId));
-  } catch { return false; }
-}
-
-/** Distinct payout rounds already on the ledger (first record per round wins). */
 export function communityPayouts(transactions: readonly SwarmTransaction[]) {
   const rounds = new Map<number, NonNullable<ReturnType<typeof readCommunityPayout>>>();
   for (const tx of transactions) {
@@ -56,53 +45,61 @@ export function communityPayouts(transactions: readonly SwarmTransaction[]) {
 
 export const nextCommunityRound = (transactions: readonly SwarmTransaction[]) => communityPayouts(transactions).length;
 
-/** Vault balance minus everything already shared and the 5% already set aside. */
+/** Pool balance minus everything already shared and the 5% already moved to the market. */
 export function availableCommunityUnits(vaultUnits: bigint, transactions: readonly SwarmTransaction[]): bigint {
   const used = communityPayouts(transactions).reduce((sum, p) => sum + p.perPeerUnits * BigInt(p.recipients.length) + p.communityUnits, 0n);
   return vaultUnits > used ? vaultUnits - used : 0n;
 }
 
-/** Builds the ledger record once enough distinct members signed the same proposal. */
-export async function buildCommunityPayoutTx(votes: readonly MintMeCommunityVote[], required = 2): Promise<SwarmTransaction | null> {
+/** Builds the network action once yes answers win the majority (or Infinity breaks a tie). */
+export function buildCommunityPayoutTx(votes: readonly MintMeCommunityVote[], required = 2, tieBreak?: InfinityTieBreak): SwarmTransaction | null {
   const byVoter = new Map<string, MintMeCommunityVote>();
-  for (const vote of votes) if (!byVoter.has(vote.voterId)) byVoter.set(vote.voterId, vote);
-  const approvals = [...byVoter.values()].sort((a, b) => a.voterId.localeCompare(b.voterId));
-  if (approvals.length < Math.max(2, required)) return null;
-  const { proposalId, round, availableUnits } = approvals[0];
-  if (approvals.some(v => v.proposalId !== proposalId)) return null;
-  for (const vote of approvals) if (!await verifyCommunityVote(vote)) return null;
+  for (const vote of votes) if (vote && typeof vote.voterId === "string" && !byVoter.has(vote.voterId)) byVoter.set(vote.voterId, vote);
+  const all = [...byVoter.values()];
+  if (!all.length) return null;
+  const { proposalId, round, availableUnits } = all[0];
+  if (all.some(v => v.proposalId !== proposalId || v.round !== round || v.availableUnits !== availableUnits)) return null;
+  if (!Number.isSafeInteger(round) || round < 0 || !/^\d+$/.test(availableUnits)) return null;
   const available = BigInt(availableUnits);
-  if (available < MINTME_PAYOUT_THRESHOLD_UNITS) return null;
-  const plan = planMintMePayout(available, approvals.map(v => v.voterId));
+  if (proposalId !== communityProposalId(round, available) || available < MINTME_PAYOUT_THRESHOLD_UNITS) return null;
+  const yes = all.filter(v => v.agree).sort((a, b) => a.voterId.localeCompare(b.voterId));
+  const no = all.length - yes.length;
+  if (yes.length < 2) return null;
+  if (tieBreak) {
+    if (yes.length !== no || tieBreak.decision !== infinityTieDecision(tieBreak.readings, available) || !tieBreak.decision) return null;
+  } else if (yes.length < Math.max(2, required)) return null;
+  const plan = planMintMePayout(available, yes.map(v => v.voterId));
   if (plan.status !== "ready" || plan.perPeerUnits <= 0n) return null;
   return {
     id: `mintme-community-payout-${round}`,
     type: MINTME_COMMUNITY_PAYOUT_TYPE as SwarmTransaction["type"],
-    from: MINTME_COMMUNITY_POOL, to: MINTME_COMMUNITY_POOL,
+    from: INFINITY_VAULTS.mintme, to: INFINITY_VAULTS.mintme,
     amount: Number(formatUnits(plan.peersTotalUnits, 18)),
     timestamp: new Date(0).toISOString(),
     signature: "", publicKey: "", nonce: round, fee: 0, chainId: "SWARM",
     meta: {
-      currency: "MINTME", round, proposalId, availableUnits,
+      currency: "MINTME", actor: INFINITY_ID, round, proposalId, availableUnits,
       recipients: plan.recipients, perPeerUnits: plan.perPeerUnits.toString(),
-      communityUnits: plan.communityUnits.toString(),
-      approvals: approvals.map(v => ({ ...v })),
+      communityUnits: plan.communityUnits.toString(), retainedTo: INFINITY_VAULTS.market,
+      votes: all.sort((a, b) => a.voterId.localeCompare(b.voterId)).map(v => ({ ...v })),
+      ...(tieBreak ? { tieBreak } : {}),
     },
   };
 }
 
-/** Re-derives the record from its signed votes; any edited amount or recipient fails. */
-export async function verifyCommunityPayoutTx(tx: SwarmTransaction): Promise<boolean> {
+/** Re-derives the action from its recorded answers; any edited amount or recipient fails. */
+export function verifyCommunityPayoutTx(tx: SwarmTransaction): boolean {
   try {
     const parsed = readCommunityPayout(tx);
-    const approvals = tx.meta?.approvals;
-    if (!parsed || !Array.isArray(approvals) || approvals.length > 1000) return false;
-    const expected = await buildCommunityPayoutTx(approvals as MintMeCommunityVote[]);
-    if (!expected || expected.id !== tx.id || approvals.length !== (expected.meta!.approvals as unknown[]).length) return false;
+    const votes = tx.meta?.votes;
+    if (!parsed || !Array.isArray(votes) || votes.length > 1000) return false;
+    const expected = buildCommunityPayoutTx(votes as MintMeCommunityVote[], 2, tx.meta?.tieBreak as InfinityTieBreak | undefined);
+    if (!expected || expected.id !== tx.id || (expected.meta!.votes as unknown[]).length !== votes.length) return false;
     const e = expected.meta!, m = tx.meta!;
     return e.round === m.round && e.availableUnits === m.availableUnits && e.proposalId === m.proposalId
-      && e.perPeerUnits === m.perPeerUnits && e.communityUnits === m.communityUnits
-      && JSON.stringify(e.recipients) === JSON.stringify(m.recipients) && expected.amount === tx.amount;
+      && e.perPeerUnits === m.perPeerUnits && e.communityUnits === m.communityUnits && e.retainedTo === m.retainedTo
+      && JSON.stringify(e.recipients) === JSON.stringify(m.recipients) && expected.amount === tx.amount
+      && tx.from === expected.from && tx.to === expected.to;
   } catch { return false; }
 }
 

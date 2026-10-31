@@ -1,5 +1,6 @@
 import { formatUnits, parseUnits } from "ethers";
 import type { SwarmTransaction } from "../types";
+import { INFINITY_VAULTS, resolveInfinityVault } from "../infinity/vaults";
 
 export const NATIVE_MINTME_ASSET_ID = "external:MINTME";
 export const NATIVE_MINTME_CUSTODY = "mintme-native-custody-v1";
@@ -33,30 +34,34 @@ export function isNativeMintMeDeposit(tx: SwarmTransaction): boolean {
 }
 
 export const MINTME_COMMUNITY_PAYOUT_TYPE = "mintme_community_payout";
-export const MINTME_COMMUNITY_POOL = "community-pool";
+/** Infinity's MintMe vault; the legacy "community-pool" id resolves to it. */
+export const MINTME_COMMUNITY_POOL = INFINITY_VAULTS.mintme;
 
 export interface MintMeCommunityPayoutCredits {
   round: number;
   recipients: string[];
   perPeerUnits: bigint;
   communityUnits: bigint;
+  /** Where the retained share goes (Infinity's market liquidity layer). */
+  retainedTo: string;
 }
 
-/** Shape-only read of a mesh-agreed community payout; acceptance verifies the votes. */
+/** Shape-only read of an Infinity payout action; acceptance re-derives it from the recorded answers. */
 export function readCommunityPayout(tx: SwarmTransaction): MintMeCommunityPayoutCredits | null {
   try {
-    if (tx.type !== MINTME_COMMUNITY_PAYOUT_TYPE || tx.from !== MINTME_COMMUNITY_POOL) return null;
+    if (tx.type !== MINTME_COMMUNITY_PAYOUT_TYPE || resolveInfinityVault(tx.from) !== INFINITY_VAULTS.mintme) return null;
     const m = tx.meta ?? {};
     const round = m.round, recipients = m.recipients;
     if (!Number.isSafeInteger(round) || (round as number) < 0 || tx.id !== `mintme-community-payout-${round}`) return null;
     if (!Array.isArray(recipients) || !recipients.length || recipients.some(r => typeof r !== "string")) return null;
     if (typeof m.perPeerUnits !== "string" || !/^[1-9]\d*$/.test(m.perPeerUnits)) return null;
     if (typeof m.communityUnits !== "string" || !/^\d+$/.test(m.communityUnits)) return null;
-    return { round: round as number, recipients: recipients as string[], perPeerUnits: BigInt(m.perPeerUnits), communityUnits: BigInt(m.communityUnits) };
+    const retainedTo = typeof m.retainedTo === "string" ? m.retainedTo : INFINITY_VAULTS.mintme;
+    return { round: round as number, recipients: recipients as string[], perPeerUnits: BigInt(m.perPeerUnits), communityUnits: BigInt(m.communityUnits), retainedTo };
   } catch { return null; }
 }
 
-/** Custody deposits, signed native transfers and mesh-agreed community payouts fund this asset.
+/** Custody deposits, signed native transfers and Infinity payout actions fund this asset.
  * Legacy self-transfers, migrations and MetaMask balance snapshots are not custody.
  */
 export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction[], userId: string): bigint {
@@ -68,6 +73,7 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
     const payout = readCommunityPayout(tx);
     if (payout) {
       if (payout.recipients.includes(userId)) balance += payout.perPeerUnits;
+      if (payout.retainedTo === userId) balance += payout.communityUnits;
       continue;
     }
     const units = nativeMintMeUnits(tx);
