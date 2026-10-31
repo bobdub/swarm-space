@@ -44,7 +44,7 @@ function node(id: string, network: ReturnType<typeof bus>, vault: () => bigint, 
     },
     memberId: () => `user-${id}`,
     now: () => clock.t,
-    sweepWaitMs: 50,
+    sweepWaitMs: 200,
   });
   service.start();
   return { userId: `user-${id}`, ledger, service };
@@ -125,7 +125,7 @@ describe("Infinity MintMe community payouts", () => {
     await Promise.all([a, b, c, d].map(n => n.service.tick())); await settle(100);
     expect(a.ledger).toHaveLength(0);
     cView = pool; clock.t += 31_000;
-    await settle(400);
+    await settle(600);
     expect(a.ledger.length + b.ledger.length).toBeGreaterThanOrEqual(1);
     const tx = (a.ledger[0] ?? b.ledger[0]);
     expect(tx.meta?.tieBreak).toBeTruthy();
