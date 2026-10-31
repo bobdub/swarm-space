@@ -1,4 +1,4 @@
-import { sha256, toUtf8Bytes } from "ethers";
+import { sha256 } from "ethers";
 
 /**
  * Infinity is the network. Its wallet holds the community pools as separate
@@ -19,7 +19,7 @@ export const LEGACY_COMMUNITY_POOL = "community-pool";
 
 /** Same mapping as gateway/addressMap.swarmIdToEvmAddress, but synchronous. */
 export function infinityVaultEvmAddress(vault: InfinityVaultId): string {
-  return "0x" + sha256(toUtf8Bytes(`swarm-evm:${vault}`)).slice(-40);
+  return "0x" + sha256("0x" + [...`swarm-evm:${vault}`].map(c => c.charCodeAt(0).toString(16).padStart(2, "0")).join("")).slice(-40);
 }
 
 /** Ledger aliases: the old community pool is Infinity's MintMe vault. Nothing is rewritten. */
