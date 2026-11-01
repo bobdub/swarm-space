@@ -142,7 +142,11 @@ export class MintMeCommunityPayout {
     const readings = new Map<string, string>();
     this.sweeps.set(proposalId, readings);
     const own = await this.view(true), me = this.deps.memberId();
-    if (own && me) readings.set(me, own.units.toString());
+    if (own && me) {
+      readings.set(me, own.units.toString());
+      this.seenSweep.add(`${proposalId}:${me}`);
+      this.deps.transport.broadcast(MINTME_COMMUNITY_CHANNEL, { kind: "reading", id: proposalId, voterId: me, units: own.units.toString(), hops: SWEEP_HOPS });
+    }
     this.seenSweep.add(proposalId);
     this.deps.transport.broadcast(MINTME_COMMUNITY_CHANNEL, { kind: "sweep", id: proposalId, round: votes[0].round, hops: SWEEP_HOPS });
     await new Promise(r => setTimeout(r, this.deps.sweepWaitMs ?? 4_000));
