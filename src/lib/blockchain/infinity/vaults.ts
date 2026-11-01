@@ -1,5 +1,3 @@
-import { sha256 } from "ethers";
-
 /**
  * Infinity is the network. Its wallet holds the community pools as separate
  * vaults. Each vault id is fixed, and its public 0x address is derived the same
@@ -17,10 +15,14 @@ export type InfinityVaultId = typeof INFINITY_VAULTS[keyof typeof INFINITY_VAULT
 /** Historical ledger id that now counts toward Infinity's MintMe vault. */
 export const LEGACY_COMMUNITY_POOL = "community-pool";
 
-/** Same mapping as gateway/addressMap.swarmIdToEvmAddress, but synchronous. */
-export function infinityVaultEvmAddress(vault: InfinityVaultId): string {
-  return "0x" + sha256("0x" + [...`swarm-evm:${vault}`].map(c => c.charCodeAt(0).toString(16).padStart(2, "0")).join("")).slice(-40);
-}
+/** Precomputed `swarm-evm:<id>` addresses (same mapping as gateway/addressMap; a test keeps them in sync). */
+const VAULT_ADDRESSES: Record<InfinityVaultId, string> = {
+  "infinity:mintme": "0x5ea719c834e9d8d360520beea627a0e70553321c",
+  "infinity:donations": "0x5c5a27b9f1c8aeabf65254971b910385d105d9ab",
+  "infinity:market": "0x69ede939fe1ea53594ba38ff2e3843618f548d02",
+};
+
+export const infinityVaultEvmAddress = (vault: InfinityVaultId): string => VAULT_ADDRESSES[vault];
 
 /** Ledger aliases: the old community pool is Infinity's MintMe vault. Nothing is rewritten. */
 export function resolveInfinityVault(id: string): string {
