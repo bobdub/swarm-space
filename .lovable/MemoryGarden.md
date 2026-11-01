@@ -895,3 +895,5 @@ when two or more agree it holds twenty-five, share it. Stop building gates nobod
 After tending: the extra layers are gone. Each node reads the well itself, signs "yes" only when it sees
 the same, and a majority of signed yeses writes one numbered payout to every SWARM wallet —
 ninety-five shared evenly, five kept. A numbered round cannot be paid twice. Automated checks only.
+
+Caretaker reflection (Infinity steward): the well now belongs to Infinity itself. No keys, no signatures — members answer what they see after thirty minutes together, a tie sends Infinity across the mesh to read the water fresh, and the kept five percent flows to the market. Automated checks only.
