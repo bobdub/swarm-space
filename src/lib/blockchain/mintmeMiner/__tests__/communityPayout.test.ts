@@ -115,16 +115,13 @@ describe("Infinity MintMe community payouts", () => {
     const network = bus();
     const pool = 25n * MINTME_UNIT;
     // C lags slightly on the first answer but is synced by the time Infinity checks.
-    let cView = 20n * MINTME_UNIT;
+    let cReads = 0;
     const a = node("A", network, () => pool, () => 3);
     const b = node("B", network, () => pool, () => 3);
-    const c = node("C", network, () => cView, () => 3);
+    const c = node("C", network, () => (cReads++ === 0 ? 20n : 25n) * MINTME_UNIT, () => 3);
     const d = node("D", network, () => 20n * MINTME_UNIT, () => 3);
     warm([a, b, c, d]);
-    // Fill each node's view cache, then let C catch up only for the sweep.
-    await Promise.all([a, b, c, d].map(n => n.service.tick())); await settle(100);
-    expect(a.ledger).toHaveLength(0);
-    cView = pool; clock.t += 31_000;
+    await Promise.all([a, b, c, d].map(n => n.service.tick()));
     await settle(600);
     expect(a.ledger.length + b.ledger.length).toBeGreaterThanOrEqual(1);
     const tx = (a.ledger[0] ?? b.ledger[0]);

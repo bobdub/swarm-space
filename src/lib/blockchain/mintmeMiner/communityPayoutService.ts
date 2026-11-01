@@ -69,8 +69,8 @@ export class MintMeCommunityPayout {
     return this.now() - this.togetherSince >= (this.deps.heartbeatWindowMs ?? INFINITY_HEARTBEAT_WINDOW_MS);
   }
 
-  private async view(): Promise<{ round: number; units: bigint } | null> {
-    if (!this.vaultCache || this.now() - this.vaultCache.at > 30_000) {
+  private async view(fresh = false): Promise<{ round: number; units: bigint } | null> {
+    if (fresh || !this.vaultCache || this.now() - this.vaultCache.at > 30_000) {
       this.vaultCache = { at: this.now(), units: await this.deps.readVaultUnits() };
     }
     if (this.vaultCache.units === null) return null;
@@ -141,7 +141,7 @@ export class MintMeCommunityPayout {
     if (this.sweeps.has(proposalId)) return;
     const readings = new Map<string, string>();
     this.sweeps.set(proposalId, readings);
-    const own = await this.view(), me = this.deps.memberId();
+    const own = await this.view(true), me = this.deps.memberId();
     if (own && me) readings.set(me, own.units.toString());
     this.seenSweep.add(proposalId);
     this.deps.transport.broadcast(MINTME_COMMUNITY_CHANNEL, { kind: "sweep", id: proposalId, round: votes[0].round, hops: SWEEP_HOPS });
@@ -156,7 +156,7 @@ export class MintMeCommunityPayout {
     if (typeof m.id !== "string" || this.seenSweep.has(m.id)) return;
     this.seenSweep.add(m.id);
     if (m.hops > 1) this.deps.transport.broadcast(MINTME_COMMUNITY_CHANNEL, { ...m, hops: m.hops - 1 });
-    const view = await this.view(), me = this.deps.memberId();
+    const view = await this.view(true), me = this.deps.memberId();
     if (!view || !me || view.round !== m.round) return;
     this.deps.transport.broadcast(MINTME_COMMUNITY_CHANNEL, { kind: "reading", id: m.id, voterId: me, units: view.units.toString(), hops: SWEEP_HOPS });
   }
