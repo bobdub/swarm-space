@@ -43,11 +43,9 @@ describe("MintMe custody and master control", () => {
     expect(workers).toHaveLength(0); expect(sockets).toHaveLength(0);
     expect(miner.snapshot.status).toBe("off");
   });
-  it("requires the community receiving address rather than falling back to a user", () => {
+  it("falls back to Infinity's MintMe vault, never to a user", () => {
     vi.stubEnv("VITE_MINTME_COMMUNITY_VAULT_ADDRESS", "");
-    miner.start({ peerId: "member", mesh });
-    expect(miner.snapshot.status).toBe("needs-vault");
-    expect(workers).toHaveLength(0); expect(sockets).toHaveLength(0);
+    expect(getMintMeCommunityVaultAddress()).toBe("0x5ea719c834e9d8d360520beea627a0e70553321c");
   });
   it("logs in only as the community vault, without any wallet key or user receiving address", () => {
     miner.start({ peerId: "member", mesh });
@@ -92,9 +90,9 @@ describe("MintMe custody and master control", () => {
   });
   it("rejects invalid and zero community addresses", () => {
     vi.stubEnv("VITE_MINTME_COMMUNITY_VAULT_ADDRESS", "swarm:member");
-    expect(getMintMeCommunityVaultAddress()).toBeNull();
+    expect(getMintMeCommunityVaultAddress()).toBe("0x5ea719c834e9d8d360520beea627a0e70553321c");
     vi.stubEnv("VITE_MINTME_COMMUNITY_VAULT_ADDRESS", `0x${"0".repeat(40)}`);
-    expect(getMintMeCommunityVaultAddress()).toBeNull();
+    expect(getMintMeCommunityVaultAddress()).toBe("0x5ea719c834e9d8d360520beea627a0e70553321c");
   });
   it("never starts hashing or a socket with zero mesh connections", () => {
     miner.start({ peerId: "member", mesh: { ...mesh, getConnectedPeers: () => [] } });
