@@ -16,3 +16,6 @@
 - [x] Replace MintMe 80/15/5 share attribution with a 25 MINTME community payout policy: 5% retained, 95% evenly distributed among connected peers; 36 focused checks pass and preview build clean. Real wallet distribution remains blocked by verified funds, authoritative recipient membership and authorized payout service.
 - [x] Step 2: bundle pinned Lyra2v2-Webchain WASM with native-reference self-tests, wire full-target pool jobs/eight-byte nonces/shares, reject stale work and preserve submitted difficulty; 34 focused checks pass and preview compiles. Brain/native mining untouched; no browser sessions opened.
 - [x] Add Gun.js community mining bridge discovery, mesh-only lifecycle and quiet Node dashboard connection details; 25 focused checks pass, preview build clean. Live external bridge, hashing and payout flow remain blocked by the existing prerequisites above.
+
+- [x] Infinity as network steward: keyless vaults (mintme/donations/market) with fixed addresses, unsigned payout actions, 30-min heartbeat, mesh tie-break, 95% members / 5% to market. 48 automated checks pass; live payout left to user testing.
+- [ ] Donate to Infinity from native wallets — blocked: native transfers currently resolve only user recipients; needs a vault recipient path (not built this round).
