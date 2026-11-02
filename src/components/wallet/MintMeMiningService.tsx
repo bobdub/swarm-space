@@ -79,5 +79,21 @@ export function MintMeMiningService() {
     }).catch(() => {});
     return () => { cancelled = true; cleanup(); };
   }, [isReady, user?.id]);
+
+  // Direct MintMe deposits (no MetaMask): credit what arrived at the native receiving address.
+  useEffect(() => {
+    if (!isReady || !user || isGuestUser(user)) return;
+    let cancelled = false;
+    const uid = user.id;
+    const sync = () => void import("@/lib/blockchain/wallets/nativeMintmeDirect")
+      .then(m => m.syncNativeMintMeDeposits(uid))
+      .then(credited => {
+        if (!cancelled && credited > 0) void import("sonner").then(({ toast }) => toast.success(`${credited} MINTME arrived in your native wallet`));
+      })
+      .catch(() => { /* locked vault or MintMe unreachable: retry next tick */ });
+    const first = window.setTimeout(sync, 5_000);
+    const timer = window.setInterval(sync, 120_000);
+    return () => { cancelled = true; window.clearTimeout(first); window.clearInterval(timer); };
+  }, [isReady, user?.id]);
   return null;
 }

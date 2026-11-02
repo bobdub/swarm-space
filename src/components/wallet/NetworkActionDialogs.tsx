@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getAllLiveChains, type LiveChainInfo } from "@/lib/blockchain/multiChainManager";
 import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
+import { MintMeWithdrawDialog } from "./MintMeWithdrawDialog";
 
 export type AssetNetwork = "swarm" | "mintme" | `chain:${string}`;
 
@@ -101,10 +102,7 @@ export function MintMeNativeActions({ userId, amount }: { userId: string; amount
           <NativeTransferDialog userId={userId} assetId="external:MINTME" assetLabel="MINTME" amount={amount} />
         )}
         {sendNet === "mintme" && (
-          <Button type="button" variant="outline" size="sm" disabled
-            title="Withdrawing MINTME itself to MintMe needs a gasless cold-key path that is not built yet.">
-            <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
-          </Button>
+          <MintMeWithdrawDialog userId={userId} amount={amount} />
         )}
         {sendNet.startsWith("chain:") && <SubChainNotice label="MINTME" chain={sendChain} />}
       </div>

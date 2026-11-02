@@ -16,6 +16,7 @@ import { getColdKeyReceivingAddress } from "@/lib/blockchain/wallets/coldKey";
 export function NativeTokenDepositDialog({ userId, symbol }: { userId: string; symbol: string }) {
   const [open, setOpen] = useState(false);
   const [addr, setAddr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (!open || !userId) return;
@@ -52,6 +53,15 @@ export function NativeTokenDepositDialog({ userId, symbol }: { userId: string; s
               <Copy className="h-4 w-4" />
             </Button>
           </div>
+          {symbol === "MINTME" && (
+            <Button type="button" size="sm" variant="secondary" disabled={!addr || checking} onClick={() => {
+              setChecking(true);
+              void import("@/lib/blockchain/wallets/nativeMintmeDirect").then(m => m.syncNativeMintMeDeposits(userId))
+                .then(n => n > 0 ? toast.success(`${n} MINTME added to your native wallet`) : toast.info("No new confirmed MINTME yet. It is checked automatically every couple of minutes."))
+                .catch(e => toast.error(e instanceof Error ? e.message : "Could not check MintMe right now."))
+                .finally(() => setChecking(false));
+            }}>{checking ? "Checking MintMe…" : "Check for my deposit"}</Button>
+          )}
         </DialogContent>
       </Dialog>
     </>
