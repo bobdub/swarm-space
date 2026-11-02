@@ -188,8 +188,8 @@ export class SwarmChain {
   async acceptNativeMintMeDeposit(transaction: SwarmTransaction): Promise<boolean> {
     await this.whenReady();
     const ledger = [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
-    if (this.hasTransaction(transaction.id)) return await verifyNativeMintMeDeposit(transaction, ledger);
-    if (!await verifyNativeMintMeDeposit(transaction, ledger)) return false;
+    if (this.hasTransaction(transaction.id)) return true;
+    if (!await verifyNativeMintMeDeposit(transaction, ledger, true)) return false;
     if (isNativeMintMeWithdraw(transaction)) {
       const units = nativeMintMeUnits(transaction);
       if (units === null || nativeMintMeBalanceUnits(ledger, transaction.from) < units) return false;
