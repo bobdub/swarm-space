@@ -4,7 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 import { verifyWalletTip } from "./wallets/tipSignature";
-import { isNativeMintMeDeposit, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
+import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 
@@ -187,8 +187,13 @@ export class SwarmChain {
 
   async acceptNativeMintMeDeposit(transaction: SwarmTransaction): Promise<boolean> {
     await this.whenReady();
-    if (!await verifyNativeMintMeDeposit(transaction)) return false;
-    if (this.hasTransaction(transaction.id)) return true;
+    const ledger = [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
+    if (this.hasTransaction(transaction.id)) return await verifyNativeMintMeDeposit(transaction, ledger);
+    if (!await verifyNativeMintMeDeposit(transaction, ledger)) return false;
+    if (isNativeMintMeWithdraw(transaction)) {
+      const units = nativeMintMeUnits(transaction);
+      if (units === null || nativeMintMeBalanceUnits(ledger, transaction.from) < units) return false;
+    }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
@@ -508,7 +513,7 @@ export class SwarmChain {
     const nonces = new Set<string>();
     for (const block of blocks) {
       for (const tx of block.transactions) {
-        if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx))) return false;
+        if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return false;
         if (tx.type === "wallet_tip") {
           if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
           const nonceKey = `${tx.from}:${tx.meta?.assetId}:${tx.nonce}`;
