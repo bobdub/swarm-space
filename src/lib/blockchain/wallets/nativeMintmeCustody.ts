@@ -66,7 +66,6 @@ export async function verifyNativeMintMeDeposit(
     if (!/^[a-f0-9]{16}$/.test(tx.to) || tx.from.toLowerCase() === address) return false;
     if (tx.id !== `mintme-custody:${hash}`) return false;
     if (verifyMessage(mintMeCustodyMessage(tx.to, address, hash, units), tx.signature).toLowerCase() !== address) return false;
-    if (!live) return true;
     const provider = mintMeReadProvider();
     try {
       const [network, receipt, transfer] = await Promise.all([
