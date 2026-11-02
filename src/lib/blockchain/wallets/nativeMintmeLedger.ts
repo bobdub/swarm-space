@@ -33,6 +33,42 @@ export function isNativeMintMeDeposit(tx: SwarmTransaction): boolean {
     && tx.meta?.custody === NATIVE_MINTME_CUSTODY;
 }
 
+/** Direct cold-key withdrawal to MintMe; units include the MINTME gas paid. */
+export function isNativeMintMeWithdraw(tx: SwarmTransaction): boolean {
+  return tx.type === "external_withdraw" && tx.meta?.currency === "MINTME"
+    && tx.meta?.custody === NATIVE_MINTME_CUSTODY;
+}
+
+/** Any custody record (deposit, balance sync or withdrawal) needs verified acceptance. */
+export function isNativeMintMeCustody(tx: SwarmTransaction): boolean {
+  return isNativeMintMeDeposit(tx) || isNativeMintMeWithdraw(tx);
+}
+
+/** Recorded inflow/outflow and balance-sync total for one cold-key address. */
+export function custodyFlows(transactions: readonly SwarmTransaction[], address: string, skipId?: string) {
+  const a = address.toLowerCase();
+  let inflow = 0n, outflow = 0n, synced = 0n;
+  const seen = new Set<string>();
+  for (const tx of transactions) {
+    if (tx.id === skipId || seen.has(tx.id)) continue;
+    seen.add(tx.id);
+    if (String(tx.meta?.custodyAddress ?? "").toLowerCase() !== a) continue;
+    const units = nativeMintMeUnits(tx);
+    if (units === null) continue;
+    if (isNativeMintMeDeposit(tx)) { inflow += units; if (tx.meta?.mode === "sync") synced += units; }
+    else if (isNativeMintMeWithdraw(tx)) outflow += units;
+  }
+  return { inflow, outflow, synced };
+}
+
+export function mintMeSyncMessage(userId: string, address: string, cumulative: bigint, units: bigint): string {
+  return `SWARM native MINTME sync v1\n${userId}\n${address.toLowerCase()}\n${cumulative}\n${units}`;
+}
+
+export function mintMeWithdrawMessage(userId: string, address: string, txHash: string, units: bigint): string {
+  return `SWARM native MINTME withdraw v1\n${userId}\n${address.toLowerCase()}\n${txHash.toLowerCase()}\n${units}`;
+}
+
 export const MINTME_COMMUNITY_PAYOUT_TYPE = "mintme_community_payout";
 /** Infinity's MintMe vault; the legacy "community-pool" id resolves to it. */
 export const MINTME_COMMUNITY_POOL = INFINITY_VAULTS.mintme;
@@ -79,6 +115,7 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
     const units = nativeMintMeUnits(tx);
     if (units === null) continue;
     if (isNativeMintMeDeposit(tx) && tx.to === userId) balance += units;
+    if (isNativeMintMeWithdraw(tx) && tx.from === userId) balance -= units;
     if (isNativeMintMeTip(tx)) {
       if (tx.from === userId) balance -= units;
       if (tx.to === userId) balance += units;

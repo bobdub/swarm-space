@@ -10,7 +10,7 @@ import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
 import { assertStorageWritable } from "@/lib/storage/quotaGuard";
 import type { SwarmTransaction } from "../types";
-import { isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
+import { isNativeMintMeCustody as isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
 
 export type { TipAsset } from "./tipRules";
 
