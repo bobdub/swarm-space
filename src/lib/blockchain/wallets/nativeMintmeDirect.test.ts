@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
 import { Wallet } from "ethers";
 const held = { value: 0n };
