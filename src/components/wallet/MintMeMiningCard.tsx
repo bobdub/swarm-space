@@ -7,6 +7,7 @@ import { getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/
 import { getMintMeMiner, type MinerSnapshot } from "@/lib/blockchain/mintmeMiner/miner";
 import { MINTME_POOL_LOW_DIFF } from "@/lib/blockchain/mintmeMiner/stratum";
 import { MINTME_PAYOUT_THRESHOLD, MINTME_PAYOUT_PERCENT } from "@/lib/blockchain/mintmeMiner/payoutPolicy";
+import { INFINITY_VAULTS, infinityVaultEvmAddress } from "@/lib/blockchain/infinity/vaults";
 
 export const MINTME_TOGGLE_OFF_MESSAGE = "Turn on Miner in the node dashboard to start mining";
 

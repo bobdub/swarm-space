@@ -11,7 +11,7 @@ import { NATIVE_MINTME_CUSTODY, mintMeSyncMessage, nativeMintMeBalanceUnits } fr
 import type { SwarmTransaction } from "../types";
 
 const user = "aabbccddeeff0011";
-const key = Wallet.createRandom();
+const key = new Wallet("0x" + "11".repeat(32));
 const address = key.address.toLowerCase();
 async function sync(cumulative: bigint, units: bigint): Promise<SwarmTransaction> {
   return { id: `mintme-sync:${address}:${cumulative}`, type: "external_deposit", from: address, to: user,
