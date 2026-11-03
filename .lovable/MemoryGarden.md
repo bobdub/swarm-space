@@ -897,3 +897,6 @@ the same, and a majority of signed yeses writes one numbered payout to every SWA
 ninety-five shared evenly, five kept. A numbered round cannot be paid twice. Automated checks only.
 
 Caretaker reflection (Infinity steward): the well now belongs to Infinity itself. No keys, no signatures — members answer what they see after thirty minutes together, a tie sends Infinity across the mesh to read the water fresh, and the kept five percent flows to the market. Automated checks only.
+
+## Direct MintMe deposits (Nov 2026)
+Tended the path from any MintMe wallet straight into native wallets: Infinity now notices coins arriving at each member's own receiving address and lets them leave again with their own key, never ours.
