@@ -7,11 +7,7 @@ type Listener = (enabled: boolean) => void;
 const listeners = new Set<Listener>();
 let storageFallback: boolean | null = null;
 
-/** Paused: Infinity's MintMe vault address has no key, so mined coins could not be released. */
-export const MINTME_MINER_PAUSED = true;
-
 export function getMintMeMinerEnabled(): boolean {
-  if (MINTME_MINER_PAUSED) return false;
   if (storageFallback !== null) return storageFallback;
   try {
     const raw = localStorage.getItem(KEY);

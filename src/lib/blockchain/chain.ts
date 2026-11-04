@@ -4,7 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
 import { verifyWalletTip } from "./wallets/tipSignature";
-import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits, nativeMintMeMinedUnits as nativeMintMeMinedUnitsSync } from "./wallets/nativeMintmeLedger";
+import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 
@@ -213,22 +213,6 @@ export class SwarmChain {
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
-  }
-
-  /** Mined MINTME withdrawal: debits the requester's mined share only, once per id. */
-  async acceptMintMeMinedWithdrawal(transaction: SwarmTransaction): Promise<boolean> {
-    await this.whenReady();
-    const { readMinedWithdrawal, nativeMintMeMinedUnits } = await import("./wallets/nativeMintmeLedger");
-    const w = readMinedWithdrawal(transaction);
-    if (!w || this.hasTransaction(transaction.id)) return false;
-    if (nativeMintMeMinedUnits([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], w.from) < w.units) return false;
-    this.pendingTransactions.push(transaction);
-    this._markDirtyAndScheduleFlush();
-    return true;
-  }
-
-  getNativeMintMeMinedUnits(address: string): bigint {
-    return nativeMintMeMinedUnitsSync([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], address);
   }
 
   /** Verify first, then synchronously check and append the complete batch.
