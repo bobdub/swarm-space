@@ -97,10 +97,21 @@ export function readCommunityPayout(tx: SwarmTransaction): MintMeCommunityPayout
   } catch { return null; }
 }
 
-/** Custody deposits, signed native transfers and Infinity payout actions fund this asset.
- * Legacy self-transfers, migrations and MetaMask balance snapshots are not custody.
- */
-export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction[], userId: string): bigint {
+export const MINTME_MINED_WITHDRAWAL_TYPE = "mintme_mined_withdrawal";
+
+export interface MintMeMinedWithdrawal { id: string; from: string; destination: string; units: bigint }
+
+/** Shape-only read of a mined-MINTME withdrawal handed to Infinity's MintMe vault. */
+export function readMinedWithdrawal(tx: SwarmTransaction): MintMeMinedWithdrawal | null {
+  if (tx.type !== MINTME_MINED_WITHDRAWAL_TYPE || resolveInfinityVault(tx.to) !== INFINITY_VAULTS.mintme) return null;
+  const m = tx.meta ?? {};
+  if (typeof m.units !== "string" || !/^[1-9]\d*$/.test(m.units)) return null;
+  if (typeof m.destination !== "string" || !/^0x[0-9a-fA-F]{40}$/.test(m.destination)) return null;
+  return { id: tx.id, from: tx.from, destination: m.destination, units: BigInt(m.units) };
+}
+
+/** MintMe (Mined): Infinity payout shares minus mined withdrawals. Withdraw-only, never transferable. */
+export function nativeMintMeMinedUnits(transactions: readonly SwarmTransaction[], userId: string): bigint {
   let balance = 0n;
   const seen = new Set<string>();
   for (const tx of transactions) {
@@ -112,6 +123,22 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
       if (payout.retainedTo === userId) balance += payout.communityUnits;
       continue;
     }
+    const w = readMinedWithdrawal(tx);
+    if (w && w.from === userId) balance -= w.units;
+  }
+  return balance;
+}
+
+/** Spendable MintMe: custody deposits and signed native transfers. Mined shares are tracked separately.
+ * Legacy self-transfers, migrations and MetaMask balance snapshots are not custody.
+ */
+export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction[], userId: string): bigint {
+  let balance = 0n;
+  const seen = new Set<string>();
+  for (const tx of transactions) {
+    if (seen.has(tx.id)) continue;
+    seen.add(tx.id);
+    if (readCommunityPayout(tx) || readMinedWithdrawal(tx)) continue;
     const units = nativeMintMeUnits(tx);
     if (units === null) continue;
     if (isNativeMintMeDeposit(tx) && tx.to === userId) balance += units;
