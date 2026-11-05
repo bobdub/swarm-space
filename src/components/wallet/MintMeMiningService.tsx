@@ -69,13 +69,14 @@ export function MintMeMiningService() {
       if (cancelled) return;
       const mesh = meshModule.getSwarmMeshStandalone();
       const payout = await payoutModule.createMeshCommunityPayout(mesh);
+      const claims = await (await import("@/lib/blockchain/mintmeMiner/autoClaim")).createMeshAutoClaim(mesh);
       if (cancelled) return;
-      payout.start();
-      const tick = () => { if (mesh.getPhase() === "online") void payout.tick().catch(() => {}); };
+      payout.start(); claims.start();
+      const tick = () => { if (mesh.getPhase() === "online") { void payout.tick().catch(() => {}); void claims.tick().catch(() => {}); } };
       const timer = window.setInterval(tick, 60_000);
       const unsub = mesh.onPeersChange(tick);
       tick();
-      cleanup = () => { window.clearInterval(timer); unsub(); payout.stop(); };
+      cleanup = () => { window.clearInterval(timer); unsub(); payout.stop(); claims.stop(); };
     }).catch(() => {});
     return () => { cancelled = true; cleanup(); };
   }, [isReady, user?.id]);
