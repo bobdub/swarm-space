@@ -41,6 +41,7 @@ export async function processWithdraw(e: WithdrawEntry, d: WithdrawDeps): Promis
     return { ...e, status: "sent", txHash, note: undefined };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Release failed";
+    if (msg.startsWith(COMING_SOON)) return { ...e, status: "queued", note: COMING_SOON };
     if (/locked/i.test(msg)) return { ...e, status: "queued", note: "Wallet locked; will send after unlock" };
     return { ...e, status: "reversed", note: `${msg} Your balance was not debited.` };
   }
@@ -74,7 +75,8 @@ export async function liveWithdrawDeps(userId: string): Promise<WithdrawDeps> {
     sendDirect: (to, amount) => direct.withdrawNativeMintMe({ userId, to, amount }),
     async sendContract(to, amount) {
       const contract = getMintMeRewardContract();
-      if (!contract) throw new Error(COMING_SOON);
+      // The matching ledger debit record ships with the deployed contract; until then nothing is released.
+      if (!contract || !import.meta.env?.VITE_MINTME_REWARD_RELEASE_LIVE) throw new Error(`${COMING_SOON}.`);
       const units = ledger.mintMeUnits(amount);
       if (getSwarmChain().getNativeMintMeBalanceUnits(userId) < units) throw new Error("Not enough native MINTME.");
       const { wallet } = await deriveColdKey(userId);

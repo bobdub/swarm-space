@@ -1,38 +1,70 @@
-import { useState } from "react";
-import { ArrowUpFromLine } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowUpFromLine, Info } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { MINTME_NETWORK } from "@/lib/blockchain/wallets/mintmeNetwork";
+import {
+  liveWithdrawDeps, processWithdraw, readWithdrawals, saveWithdrawals, type WithdrawEntry, type WithdrawStatus,
+} from "@/lib/blockchain/wallets/mintmeWithdrawQueue";
 
-/** Direct native → MintMe withdrawal signed by the user's own on-device key; no MetaMask. */
+const LABEL: Record<WithdrawStatus, string> = { queued: "Queued", "waiting-peer": "Waiting for peer", sent: "Sent", reversed: "Reversed" };
+
+/** Withdraw MINTME to any MintMe 0x address; peer-gated and queued, no MetaMask. */
 export function MintMeWithdrawDialog({ userId, amount }: { userId: string; amount: number }) {
   const [open, setOpen] = useState(false);
   const [to, setTo] = useState("");
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const [list, setList] = useState<WithdrawEntry[]>(() => readWithdrawals(userId));
+
+  const runQueue = useCallback(async () => {
+    const pending = readWithdrawals(userId).filter(e => e.status === "queued" || e.status === "waiting-peer");
+    if (!pending.length) return;
+    const deps = await liveWithdrawDeps(userId);
+    for (const e of pending) {
+      const next = await processWithdraw(e, deps);
+      saveWithdrawals(userId, readWithdrawals(userId).map(x => x.id === e.id ? next : x));
+      if (next.status === "sent") toast.success(`Sent on MintMe: ${next.txHash?.slice(0, 12)}…`);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    const sync = () => setList(readWithdrawals(userId));
+    window.addEventListener("mintme-withdrawals", sync);
+    const t = window.setInterval(() => void runQueue().catch(() => {}), 60_000);
+    return () => { window.removeEventListener("mintme-withdrawals", sync); window.clearInterval(t); };
+  }, [userId, runQueue]);
+
   const send = () => {
     const n = Number(value);
-    if (!Number.isFinite(n) || n <= 0) { toast.error("Enter an amount"); return; }
-    setBusy(true);
-    void import("@/lib/blockchain/wallets/nativeMintmeDirect")
-      .then(m => m.withdrawNativeMintMe({ userId, to: to.trim(), amount: n }))
-      .then(hash => { toast.success(`Sent on MintMe: ${hash.slice(0, 12)}…`); setOpen(false); setTo(""); setValue(""); })
-      .catch(e => toast.error(e instanceof Error ? e.message : "Withdrawal failed"))
-      .finally(() => setBusy(false));
+    if (!/^0x[a-fA-F0-9]{40}$/.test(to.trim())) { toast.error("Enter a valid MintMe address (0x…)."); return; }
+    if (!Number.isFinite(n) || n <= 0 || n > amount) { toast.error("Enter an amount up to your balance"); return; }
+    const entry: WithdrawEntry = { id: crypto.randomUUID(), to: to.trim(), amount: n, status: "queued", createdAt: Date.now() };
+    saveWithdrawals(userId, [...readWithdrawals(userId), entry]);
+    setTo(""); setValue(""); setBusy(true);
+    void runQueue().catch(() => {}).finally(() => setBusy(false));
   };
+
   return (
     <>
-      <Button type="button" variant="outline" size="sm" disabled={!userId || amount <= 0} onClick={() => setOpen(true)}>
-        <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
+      <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setOpen(true)}>
+        <ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw
       </Button>
       <Dialog open={open} onOpenChange={o => !busy && setOpen(o)}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Withdraw MINTME to MintMe</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Withdraw MINTME to MintMe
+              <Link to="/cold-wallet-guide" aria-label="External withdrawal guide" className="text-muted-foreground hover:text-primary"><Info className="h-4 w-4" /></Link>
+            </DialogTitle>
+          </DialogHeader>
           <div role="form" className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              Sends from your native wallet to any MintMe address. A tiny MintMe network fee is paid in MINTME. No MetaMask needed.
+              Send to any MintMe address. A connected peer checks the ledger first; without one your request waits. Mined rewards are released by the MintMe reward contract — on-chain release is coming soon, so those requests stay queued until then.
             </p>
             <div className="space-y-1">
               <Label htmlFor="mintme-withdraw-to">MintMe address</Label>
@@ -43,8 +75,23 @@ export function MintMeWithdrawDialog({ userId, amount }: { userId: string; amoun
               <Input id="mintme-withdraw-amount" inputMode="decimal" value={value} onChange={e => setValue(e.target.value)} disabled={busy} />
             </div>
             <Button type="button" className="w-full" disabled={busy || !to || !value} onClick={send}>
-              {busy ? "Sending on MintMe…" : "Withdraw"}
+              {busy ? "Checking…" : "Withdraw"}
             </Button>
+            {list.length > 0 && (
+              <ul className="space-y-1 border-t pt-2 text-xs">
+                {[...list].reverse().slice(0, 6).map(e => (
+                  <li key={e.id} className="flex justify-between gap-2">
+                    <span className="truncate">{e.amount} → {e.to.slice(0, 8)}…</span>
+                    <span className="text-muted-foreground">
+                      {e.status === "sent" && e.txHash
+                        ? <a className="text-primary underline" href={`${MINTME_NETWORK.blockExplorerUrls[0].replace(/\/$/, "")}/tx/${e.txHash}`} target="_blank" rel="noreferrer">Sent</a>
+                        : LABEL[e.status]}
+                      {e.note && e.status !== "sent" ? ` · ${e.note}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </DialogContent>
       </Dialog>
