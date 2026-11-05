@@ -124,6 +124,16 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
   return balance;
 }
 
+export type MintMeSource = "mined" | "deposit" | "tip" | "withdrawal";
+/** History label: where a native MINTME amount came from (one balance, labelled sources). */
+export function mintMeSource(tx: SwarmTransaction): MintMeSource | null {
+  if (readCommunityPayout(tx)) return "mined";
+  if (isNativeMintMeDeposit(tx)) return "deposit";
+  if (isNativeMintMeWithdraw(tx)) return "withdrawal";
+  if (isNativeMintMeTip(tx)) return "tip";
+  return null;
+}
+
 export function mintMeCustodyMessage(userId: string, address: string, txHash: string, units: bigint): string {
   return `SWARM native MINTME custody v1\n${userId}\n${address.toLowerCase()}\n${txHash.toLowerCase()}\n${units}`;
 }
