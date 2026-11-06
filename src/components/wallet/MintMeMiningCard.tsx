@@ -53,7 +53,7 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
           <Row label="Your mesh connections" value={String(connectedPeers)} />
           <p className="text-xs text-muted-foreground">Infinity holds the community pool. After members have been online together for 30 minutes and agree the pool holds {MINTME_PAYOUT_THRESHOLD}+ MINTME, 95% is shared to each member's SWARM wallet and 5% goes to the market. Infinity breaks ties by checking the pool across the mesh.</p>
           <p className="text-xs text-muted-foreground break-all">Infinity MintMe vault: {infinityVaultEvmAddress(INFINITY_VAULTS.mintme)}</p>
-          <p className="text-xs text-muted-foreground">Payouts are network credits in your SWARM wallet. Moving real MINTME out to an outside address still uses the separate export.</p>
+          <p className="text-xs text-muted-foreground">Rewards join your one MINTME balance and can be tipped or sent right away. Your wallet claims them from the MintMe reward contract automatically while unlocked; on-chain release to outside addresses is coming soon.</p>
         </div>
         <Link className="text-xs text-primary underline" to="/node-dashboard">Mining connection details</Link>
       </CardContent>
