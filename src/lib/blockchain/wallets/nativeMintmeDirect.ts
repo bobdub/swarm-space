@@ -51,8 +51,11 @@ export async function syncNativeMintMeDeposits(userId: string): Promise<number> 
   return mintMeAmount(credit);
 }
 
-/** Send MINTME from the native wallet to any MintMe address; gas is paid in MINTME and debited too. */
-export async function withdrawNativeMintMe(p: { userId: string; to: string; amount: number }): Promise<string> {
+/** Fixed MINTME held back on every MintMe withdrawal to pay gas; only real gas used is debited. */
+export const MINTME_GAS_HOLD_UNITS = 10n ** 18n;
+
+/** Send MINTME from the native wallet to any MintMe address; 1 MINTME is held for gas, real gas used is debited. */
+export async function withdrawNativeMintMe(p: { userId: string; to: string; amount: number; onBroadcast?: (hash: string) => void }): Promise<string> {
   if (!isAddress(p.to)) throw new Error("Enter a valid MintMe address (0x…).");
   const to = getAddress(p.to);
   const value = mintMeUnits(p.amount);
@@ -65,10 +68,11 @@ export async function withdrawNativeMintMe(p: { userId: string; to: string; amou
     const signer = wallet.connect(provider);
     const [held, fee] = await Promise.all([provider.getBalance(address), provider.getFeeData()]);
     const gasPrice = fee.gasPrice ?? 0n;
-    const maxCost = value + 21000n * gasPrice;
-    if (chain.getNativeMintMeBalanceUnits(p.userId) < maxCost) throw new Error("Not enough native MINTME to cover the amount plus the small MintMe network fee.");
+    const maxCost = value + (21000n * gasPrice > MINTME_GAS_HOLD_UNITS ? 21000n * gasPrice : MINTME_GAS_HOLD_UNITS);
+    if (chain.getNativeMintMeBalanceUnits(p.userId) < maxCost) throw new Error("Not enough native MINTME: the amount plus the 1 MINTME gas hold is needed.");
     if (held < maxCost) throw new Error("Your MintMe receiving address holds less than this on MintMe (network rewards and tips are credits that are not on MintMe yet). Try a smaller amount.");
     const sent = await signer.sendTransaction({ to, value, gasLimit: 21000n, gasPrice });
+    p.onBroadcast?.(sent.hash.toLowerCase());
     const receipt = await sent.wait(1);
     if (!receipt || receipt.status !== 1) throw new Error("MintMe rejected the transfer. Nothing was debited.");
     const units = value + receipt.gasUsed * (receipt.gasPrice ?? gasPrice);

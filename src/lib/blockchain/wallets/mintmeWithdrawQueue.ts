@@ -23,21 +23,30 @@ export interface WithdrawDeps {
   contract(): string | null;
   /** True when the user's MintMe receiving address already holds this amount plus fee. */
   directBacked(amount: number): Promise<boolean>;
-  sendDirect(to: string, amount: number): Promise<string>;
+  sendDirect(to: string, amount: number, onBroadcast?: (hash: string) => void): Promise<string>;
   sendContract(to: string, amount: number): Promise<string>;
 }
 
+/** MINTME held back to pay MintMe gas on every non-SWARM withdrawal. */
+export const GAS_HOLD_MINTME = 1;
+/** Largest amount that can be withdrawn while keeping the gas hold. */
+export const maxWithdrawable = (balance: number) => Math.max(0, Math.floor((balance - GAS_HOLD_MINTME) * 1e6) / 1e6);
+/** Balance must cover amount + gas hold. */
+export const canWithdraw = (balance: number, amount: number) => Number.isFinite(amount) && amount > 0 && amount + GAS_HOLD_MINTME <= balance + 1e-12;
+
 export const COMING_SOON = "On-chain release coming soon";
 
-export async function processWithdraw(e: WithdrawEntry, d: WithdrawDeps): Promise<WithdrawEntry> {
+export async function processWithdraw(e: WithdrawEntry, d: WithdrawDeps, onBroadcast?: (hash: string) => void): Promise<WithdrawEntry> {
   if (e.status === "sent" || e.status === "reversed") return e;
+  // Already broadcast before a tab close: never send twice; recording retries via the sync.
+  if (e.txHash) return { ...e, status: "sent", note: undefined };
   if (d.peers() < 1) return { ...e, status: "waiting-peer", note: "Waiting for a connected peer to check the ledger" };
   let route: "direct" | "contract" | null = null;
   try { route = await d.directBacked(e.amount) ? "direct" : d.contract() ? "contract" : null; }
   catch { return { ...e, status: "queued", note: "MintMe is unreachable; will retry" }; }
   if (!route) return { ...e, status: "queued", note: COMING_SOON };
   try {
-    const txHash = route === "direct" ? await d.sendDirect(e.to, e.amount) : await d.sendContract(e.to, e.amount);
+    const txHash = route === "direct" ? await d.sendDirect(e.to, e.amount, onBroadcast) : await d.sendContract(e.to, e.amount);
     return { ...e, status: "sent", txHash, note: undefined };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Release failed";
@@ -69,10 +78,11 @@ export async function liveWithdrawDeps(userId: string): Promise<WithdrawDeps> {
       const p = custody.mintMeReadProvider();
       try {
         const [held, fee] = await Promise.all([p.getBalance(await getColdKeyReceivingAddress(userId)), p.getFeeData()]);
-        return held >= ledger.mintMeUnits(amount) + 21000n * (fee.gasPrice ?? 0n);
+        const gas = 21000n * (fee.gasPrice ?? 0n);
+        return held >= ledger.mintMeUnits(amount) + (gas > direct.MINTME_GAS_HOLD_UNITS ? gas : direct.MINTME_GAS_HOLD_UNITS);
       } finally { p.destroy(); }
     },
-    sendDirect: (to, amount) => direct.withdrawNativeMintMe({ userId, to, amount }),
+    sendDirect: (to, amount, onBroadcast) => direct.withdrawNativeMintMe({ userId, to, amount, onBroadcast }),
     async sendContract(to, amount) {
       const contract = getMintMeRewardContract();
       // The matching ledger debit record ships with the deployed contract; until then nothing is released.
