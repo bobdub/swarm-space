@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { recordAppEvent } from "@/lib/uqrc/appHealth";
 import { seedHealthBaseline } from "@/lib/uqrc/withHealth";
 import { P2PProvider } from "@/contexts/P2PContext";
@@ -34,7 +34,6 @@ import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLaye
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
-import { MetaMaskGatewayService } from "@/components/wallet/MetaMaskGatewayService";
 import { MintMeMiningService } from "@/components/wallet/MintMeMiningService";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
@@ -70,7 +69,6 @@ const WhitepaperPage = lazy(() => import("./pages/Whitepaper"));
 const PrivacyPage = lazy(() => import("./pages/Privacy"));
 const AboutNetworkPage = lazy(() => import("./pages/AboutNetwork"));
 const PersonalServerGuidePage = lazy(() => import("./pages/PersonalServerGuide"));
-const SwarmMetaMaskGuide = lazy(() => import("./pages/SwarmMetaMaskGuide"));
 const ColdWalletGuide = lazy(() => import("./pages/ColdWalletGuide"));
 const StorageDiagnostics = lazy(() => import("./pages/StorageDiagnostics"));
 const Donate = lazy(() => import("./pages/Donate"));
@@ -158,7 +156,6 @@ function AppContent() {
       <StorageFullBanner />
       <TokenRecoveryBoot />
       <NodeDashboardEventBridge />
-      <MetaMaskGatewayService />
       <MintMeMiningService />
       <BrainChunkPreloader />
       <BrainInviteConnection />
@@ -174,7 +171,7 @@ function AppContent() {
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/about-network" element={<AboutNetworkPage />} />
             <Route path="/personal-server-guide" element={<PersonalServerGuidePage />} />
-            <Route path="/swarm-metamask-guide" element={<SwarmMetaMaskGuide />} />
+            <Route path="/swarm-metamask-guide" element={<Navigate to="/cold-wallet-guide" replace />} />
              <Route path="/cold-wallet-guide" element={<ColdWalletGuide />} />
             <Route path="/storage-diagnostics" element={<StorageDiagnostics />} />
             <Route path="/donate" element={<Donate />} />

@@ -29,7 +29,6 @@ import {
 import { getSwarmBalance, transferSwarm } from "@/lib/blockchain/token";
 import { linkExternalEvmAddress, startGatewayCell } from "@/lib/blockchain/gateway/swarmGatewayCell";
 import { swarmIdToEvmAddress } from "@/lib/blockchain/gateway/addressMap";
-import { MintMeVaultPanel } from "./MintMeVaultPanel";
 
 const EXTERNAL_ONLY_CURRENCIES: AppWalletCurrency[] = ["ETH", "BTC"];
 
@@ -263,8 +262,6 @@ export function BridgePanel() {
           </div>
         </div>
 
-        {/* MintMe — linked wallet, real deposits recorded on the Swarm chain */}
-        <MintMeVaultPanel />
 
         <div className="grid gap-2 sm:grid-cols-2">
           {EXTERNAL_ONLY_CURRENCIES.map((c) => (

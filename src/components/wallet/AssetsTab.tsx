@@ -11,16 +11,12 @@ import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { getChainEthBalance } from "@/lib/blockchain/deposits/ethDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
-import { useMetaMask } from "@/hooks/useMetaMask";
-import { MetaMaskConnectButton } from "./MetaMaskConnectButton";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
-import { SwarmMetaMaskDialog } from "./SwarmMetaMaskDialog";
-import { MintMeDepositDialog } from "./MintMeDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeNativeActions } from "./NetworkActionDialogs";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { CustomTokenWizard, CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
+import { CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
 import { NativeTokenImport } from "./NativeTokenImport";
 import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
@@ -31,7 +27,7 @@ import { isWeightedCoin } from "@/lib/blockchain/weightedCoin";
 import { WeightedCoinRow } from "./WeightedCoinRow";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-type Layer = "native" | "metamask";
+type Layer = "native";
 
 /** Tip-asset id used to preselect the Send & Tip modal for a wallet row. */
 const TRANSFER_ASSET_ID: Record<string, string> = {
@@ -48,12 +44,11 @@ export function AssetsTab() {
   const [swarm, setSwarm] = useState(0);
   const [mintme, setMintme] = useState(0);
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
-  const [layer, setLayer] = useState<Layer>("native");
+  const layer: Layer = "native";
   const [selection, setSelection] = useState("all");
   const [weightedCount, setWeightedCount] = useState(0);
   const [holdings, setHoldings] = useState<ProfileTokenHolding[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>(() => listHiddenAssets(userId));
-  const { address } = useMetaMask();
   const { stats, getActivePeerConnections } = useP2PContext();
   const customTokens = useCustomTokens(userId);
   const offline = Math.max(stats.connectedPeers, getActivePeerConnections().length) === 0;
@@ -104,31 +99,11 @@ export function AssetsTab() {
 
   return (
     <section aria-label="Assets" className="space-y-3">
-      <div role="tablist" aria-label="Asset network" className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
-        {(["native", "metamask"] as const).map((l) => (
-          <Button key={l} type="button" role="tab" aria-selected={layer === l} size="sm"
-            variant={layer === l ? "default" : "ghost"} onClick={() => setLayer(l)}>
-            {l === "native" ? "Native" : "MetaMask"}
-          </Button>
-        ))}
-      </div>
-
       {layer === "native" && offline && (
         <div role="status" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted-foreground" />
           Waiting for peers — native transfers travel through the mesh, so a peer must be online. Like mining, they unlock once you connect.
         </div>
-      )}
-
-      {layer === "metamask" && !address && (
-        <div className="rounded-md border p-3 text-sm space-y-2">
-          <p className="text-muted-foreground">Connect MetaMask to manage assets on your MetaMask wallet.</p>
-          <MetaMaskConnectButton compact />
-        </div>
-      )}
-
-      {layer === "metamask" && address && (
-        <div className="flex justify-end"><CustomTokenWizard userId={userId} /></div>
       )}
 
       {layer === "native" && <div className="space-y-1">
@@ -146,7 +121,7 @@ export function AssetsTab() {
       </div>}
 
       <div className="grid gap-2">
-        {rows.filter((r) => layer === "native" ? visible(r.code) : r.code !== "CREDIT").map((r) => (
+        {rows.filter((r) => visible(r.code)).map((r) => (
           <Fragment key={r.code}>
           <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -159,13 +134,13 @@ export function AssetsTab() {
               </div>
             </div>
             <AssetActions code={r.code} label={r.label} amount={r.amount} userId={userId}
-              layer={layer} metaMaskAddress={address} offline={offline}
+              layer={layer} offline={offline}
               onHide={layer === "native" && canHideAsset(r.code, r.amount) ? () => hide(r.code) : undefined} />
           </div>
           {layer === "native" && r.code === "SWARM" && weightedCount > 0 && <WeightedCoinRow count={weightedCount} />}
           </Fragment>
         ))}
-        {customTokens.filter((t) => layer === "metamask" ? !t.hidden : visible(`custom:${t.address}`)).map((t) => (
+        {customTokens.filter((t) => visible(`custom:${t.address}`)).map((t) => (
           <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer}
             onHide={layer === "native" && canHideAsset(`custom:${t.address}`, getRecordedTokenBalance(userId, t.address)) ? () => hide(`custom:${t.address}`) : undefined} />
         ))}
@@ -206,8 +181,8 @@ export function AssetsTab() {
   );
 }
 
-function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, offline, onHide }: {
-  code: string; label: string; amount: number; userId: string; layer: Layer; metaMaskAddress: string | null; offline: boolean;
+function AssetActions({ code, label, amount, userId, layer, onHide }: {
+  code: string; label: string; amount: number; userId: string; layer: Layer; offline: boolean;
   onHide?: () => void;
 }) {
   const cls = "grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0";
@@ -247,24 +222,6 @@ function AssetActions({ code, label, amount, userId, layer, metaMaskAddress, off
         <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
         <NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} />
         {hideButton}
-      </div>
-    );
-  }
-  if ((code === "MINTME" || code === "ETH") && layer === "metamask") {
-    return (
-      <div className={cls}>
-        <MintMeDepositDialog userId={userId} label="Deposit to Native" asset={code as "MINTME" | "ETH"} />
-        <Button type="button" variant="outline" size="sm" disabled title="Withdrawals come next.">
-          <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
-        </Button>
-      </div>
-    );
-  }
-  if (layer === "metamask" && code === "SWARM") {
-    return (
-      <div className={cls}>
-        <SwarmMetaMaskDialog mode="deposit" userId={userId} nativeBalance={amount} />
-        <SwarmMetaMaskDialog mode="withdraw" userId={userId} nativeBalance={amount} />
       </div>
     );
   }
