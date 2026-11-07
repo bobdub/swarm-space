@@ -8,7 +8,6 @@ import { AppHealthBadge } from "./AppHealthBadge";
 import { NotificationBadge } from "./NotificationBadge";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
-import { MetaMaskConnectButton } from "./wallet/MetaMaskConnectButton";
 
 
 export function TopNavigationBar() {
@@ -98,10 +97,6 @@ export function TopNavigationBar() {
           <P2PStatusIndicator />
         </div>
 
-        {/* Wallet connect (MetaMask) */}
-        <div className="flex-shrink-0">
-          <MetaMaskConnectButton iconOnly />
-        </div>
 
 
         {/* App Health (UQRC-derived) */}

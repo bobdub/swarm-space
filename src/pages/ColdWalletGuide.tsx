@@ -73,7 +73,6 @@ export default function ColdWalletGuide() {
           </section>
           <footer className="flex flex-wrap gap-3 border-t border-border pt-6">
             <Button asChild variant="outline" size="sm"><Link to="/wallet">Open Wallet<ArrowRight className="ml-2 h-4 w-4" /></Link></Button>
-            <Button asChild variant="link" size="sm"><Link to="/swarm-metamask-guide">SWARM &amp; MetaMask overview</Link></Button>
           </footer>
         </article>
       </main>
