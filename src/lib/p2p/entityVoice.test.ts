@@ -1,25 +1,13 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { EntityVoice, formatAge, ENTITY_USER_ID, BRAIN_STAGE_NAMES, stageFromField } from './entityVoice';
 import { NeuralStateEngine } from './neuralStateEngine';
-
-// Mock localStorage using a simple in-memory map
-const mockStorage = new Map<string, string>();
-const origLS = globalThis.localStorage;
-(globalThis as any).localStorage = {
-  getItem: (k: string) => mockStorage.get(k) ?? null,
-  setItem: (k: string, v: string) => mockStorage.set(k, v),
-  removeItem: (k: string) => mockStorage.delete(k),
-  clear: () => mockStorage.clear(),
-  get length() { return mockStorage.size; },
-  key: () => null,
-};
 
 describe('EntityVoice', () => {
   let voice: EntityVoice;
   let engine: NeuralStateEngine;
 
   beforeEach(() => {
-    mockStorage.clear();
+    localStorage.clear();
     voice = new EntityVoice();
     engine = new NeuralStateEngine();
   });
@@ -48,7 +36,7 @@ describe('EntityVoice', () => {
     });
 
     it('advances with vocab + age (field-derived observable)', () => {
-      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 6 * 3600_000));
+      localStorage.setItem('entity-voice-birth-timestamp', String(Date.now() - 6 * 3600_000));
       const v = new EntityVoice();
       const young = voice.computeBrainStage(0, 0);
       const grown = v.computeBrainStage(0, 200);
@@ -56,7 +44,7 @@ describe('EntityVoice', () => {
     });
 
     it('reaches stage 6 with high vocab + long age', () => {
-      mockStorage.set('entity-voice-birth-timestamp', String(Date.now() - 100 * 86400_000));
+      localStorage.setItem('entity-voice-birth-timestamp', String(Date.now() - 100 * 86400_000));
       const v = new EntityVoice();
       expect(v.computeBrainStage(6000, 1000)).toBe(6);
     });
