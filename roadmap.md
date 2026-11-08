@@ -19,3 +19,5 @@
 
 - [x] Infinity as network steward: keyless vaults (mintme/donations/market) with fixed addresses, unsigned payout actions, 30-min heartbeat, mesh tie-break, 95% members / 5% to market. 48 automated checks pass; live payout left to user testing.
 - [ ] Donate to Infinity from native wallets — blocked: native transfers currently resolve only user recipients; needs a vault recipient path (not built this round).
+- [ ] Finish obsolete MetaMask wallet cleanup while preserving historical ledger records and unrelated external donations.
+- [ ] Fix wallet/mining test runner and crypto fixture errors; run automated regression checks only.
