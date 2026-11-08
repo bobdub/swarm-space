@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { validateWalletTip, type TipAsset } from "./tipRules";
 import { genIdentityKeyPair, computeUserId } from "@/lib/crypto";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";

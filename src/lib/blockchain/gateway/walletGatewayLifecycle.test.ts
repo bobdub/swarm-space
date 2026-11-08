@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { syncWalletGateway } from "./walletGatewayLifecycle";
 
 test("a connected external MetaMask account automatically starts the cell", () => {

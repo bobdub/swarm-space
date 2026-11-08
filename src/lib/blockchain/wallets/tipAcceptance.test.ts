@@ -1,7 +1,7 @@
-import { expect, test, mock } from "bun:test";
+import { expect, test, vi } from "vitest";
 
-mock.module("../storage", () => ({ getChainState: async () => null, saveChainState: async () => {}, saveBlock: async () => {} }));
-mock.module("../chainHealthBridge", () => ({ recordBlockAccepted: () => {}, bootstrapChainBridge: () => {} }));
+vi.mock("../storage", () => ({ getChainState: async () => null, saveChainState: async () => {}, saveBlock: async () => {} }));
+vi.mock("../chainHealthBridge", () => ({ recordBlockAccepted: () => {}, bootstrapChainBridge: () => {} }));
 
 const { SwarmChain } = await import("../chain");
 const { genIdentityKeyPair, computeUserId } = await import("@/lib/crypto");

@@ -7,6 +7,8 @@ import { buildClaimCalldata, signRewardAttestation, validAttesters } from "../re
 import { MintMeAutoClaim, roundQuorum } from "../autoClaim";
 import { processWithdraw, COMING_SOON, type WithdrawEntry } from "../../wallets/mintmeWithdrawQueue";
 
+// Public deterministic fixtures only; never used by real accounts.
+const testWallet = (n: number) => new Wallet(`0x${n.toString(16).padStart(64, "0")}`);
 const CONTRACT = "0x1111111111111111111111111111111111111111";
 const per = parseUnits("11.875", 18);
 const payout = (round: number): SwarmTransaction => ({
@@ -26,7 +28,7 @@ describe("one MINTME balance", () => {
 });
 
 describe("reward contract attestations", () => {
-  const a = Wallet.createRandom(), b = Wallet.createRandom(), me = Wallet.createRandom();
+  const a = testWallet(1), b = testWallet(2), me = testWallet(3);
   it("needs two distinct valid peer signatures", async () => {
     const s1 = await signRewardAttestation(a, CONTRACT, 0, me.address, per);
     const s2 = await signRewardAttestation(b, CONTRACT, 0, me.address, per);
@@ -45,7 +47,7 @@ describe("reward contract attestations", () => {
 
 describe("automatic claim", () => {
   it("claims once at quorum and skips while locked", async () => {
-    const peers = [Wallet.createRandom(), Wallet.createRandom()], mine = Wallet.createRandom();
+    const peers = [testWallet(4), testWallet(5)], mine = testWallet(6);
     const ledger = [payout(0)];
     const claims = new Map<number, string>();
     const sent: string[] = [];
