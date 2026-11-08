@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { validatePublicRpc } from "./publicRpcValidation";
 
 const url = "https://rpc.swarm-space.lovable.app";

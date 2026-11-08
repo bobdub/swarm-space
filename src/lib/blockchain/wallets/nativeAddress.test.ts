@@ -1,7 +1,7 @@
-import { expect, mock, test } from "bun:test";
+import { expect, vi, test } from "vitest";
 
-const recipient = { id: "aabbccddeeff0011", username: "native-recipient" };
-mock.module("@/lib/store", () => ({
+const recipient = vi.hoisted(() => ({ id: "aabbccddeeff0011", username: "native-recipient" }));
+vi.mock("@/lib/store", () => ({
   get: async (_store: string, id: string) => id === recipient.id ? recipient : undefined,
   getAll: async () => [recipient],
 }));

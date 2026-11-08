@@ -900,3 +900,7 @@ Caretaker reflection (Infinity steward): the well now belongs to Infinity itself
 
 ## Direct MintMe deposits (Nov 2026)
 Tended the path from any MintMe wallet straight into native wallets: Infinity now notices coins arriving at each member's own receiving address and lets them leave again with their own key, never ours.
+
+## November 8, 2026 — Clear the old paths
+Before tending: remove the obsolete wallet gates, preserve each owner's key and recorded history,
+and let automated checks reveal faults without disturbing the people testing the mesh.

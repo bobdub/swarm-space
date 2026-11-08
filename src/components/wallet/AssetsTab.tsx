@@ -16,7 +16,7 @@ import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeNativeActions } from "./NetworkActionDialogs";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { CustomTokenRow, useCustomTokens } from "./CustomTokenWizard";
+import { CustomTokenRow, useCustomTokens } from "./NativeCustomTokens";
 import { NativeTokenImport } from "./NativeTokenImport";
 import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";

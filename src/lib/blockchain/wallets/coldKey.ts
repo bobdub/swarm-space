@@ -1,6 +1,6 @@
 /**
  * Cold-Wallet Key — the signing authority for moving bridged tokens back
- * out of the native SWARM wallet to MetaMask.
+ * out of the native SWARM wallet to MintMe.
  *
  * Key authority comes from real custody, never from thin air:
  *  - A user with a Creator Coin Vault already has an engraved container —
@@ -16,9 +16,7 @@
  * address can always be recovered by its owner and by no one else.
  *
  * Withdrawals are signed by this key and broadcast to the MintMe network
- * directly. MetaMask never holds this key, so it cannot confirm the token
- * move itself; its role is funding the key's small MINTME gas reserve and
- * displaying the arriving tokens.
+ * directly. Receiving wallets do not need to connect to the app.
  */
 
 import { Contract, FallbackProvider, Interface, JsonRpcProvider, Wallet, keccak256, toUtf8Bytes } from "ethers";
@@ -188,7 +186,7 @@ export async function sendColdKeyTokenTransfer(p: {
   if (gas <= 0n) {
     throw new Error(
       `Your cold-wallet key address (${wallet.address}) holds the tokens but has no MINTME for gas. ` +
-        `Send a small amount of MINTME to it from MetaMask — MetaMask will confirm and charge the fee there — then retry.`,
+        `Send MINTME to this receiving address from any MintMe wallet, then retry.`,
     );
   }
   const tx = (await token.transfer(p.to, p.units)) as { hash: string };

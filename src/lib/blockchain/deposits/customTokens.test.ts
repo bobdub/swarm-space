@@ -15,10 +15,10 @@ describe("custom tokens", () => {
     expect(listCustomTokens("u")[0].symbol).toBe("ABC");
   });
   it("only allows hiding a zero-balance token", () => {
-    expect(canHideToken(0, 0)).toBe(true);
-    expect(canHideToken(1, 0)).toBe(false);
-    expect(canHideToken(0, 2)).toBe(false);
-    expect(canHideToken(null, 0)).toBe(false);
+    expect(canHideToken(0)).toBe(true);
+    expect(canHideToken(1)).toBe(false);
+    expect(canHideToken(2)).toBe(false);
+    expect(canHideToken(NaN)).toBe(false);
   });
   it("converts units with decimals", () => {
     expect(numberToUnits(1.5, 18)).toBe(1500000000000000000n);

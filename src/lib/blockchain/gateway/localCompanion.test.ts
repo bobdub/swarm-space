@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, test } from "vitest";
 import { detectCompanion, verifyCompanionRpc, isCompanionReadMethod } from "./localCompanion";
 const http = (body: unknown) => (async () => Response.json(body)) as typeof fetch;
 test("recognizes the local companion without calling it a live mesh", async () => {

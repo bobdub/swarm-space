@@ -87,19 +87,16 @@ describe("cold-key withdrawal", () => {
     const { getRecordedTokenBalance } = await import("./customTokens");
     expect(getRecordedTokenBalance("u", token.address)).toBe(60);
   });
-  it("prompts MetaMask to connect when the session was lost", async () => {
+  it("withdraws without connecting an external wallet or consulting its linked account", async () => {
     seedDeposit(100);
     mocks.account = "";
-    mocks.connect.mockResolvedValue({ address: DEST, chainId: "0x609e" });
-    mocks.send.mockResolvedValue(TX_HASH);
-    await withdrawCustomToken({ swarmId: "u", token, amount: 10, to: DEST });
-    expect(mocks.connect).toHaveBeenCalledTimes(1);
-  });
-  it("rejects when the connected account differs from an existing verified link", async () => {
-    seedDeposit(100);
     mocks.link = { address: `0x${"ef".repeat(20)}` };
-    await expect(withdrawCustomToken({ swarmId: "u", token, amount: 10, to: DEST })).rejects.toThrow("different account");
-    expect(mocks.send).not.toHaveBeenCalled();
-    expect(mocks.add).not.toHaveBeenCalled();
+    mocks.send.mockResolvedValue(TX_HASH);
+    const tx = await withdrawCustomToken({ swarmId: "u", token, amount: 10, to: DEST });
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.send).toHaveBeenCalledTimes(1);
+    expect(tx.to).toBe(DEST);
+    const { getRecordedTokenBalance } = await import("./customTokens");
+    expect(getRecordedTokenBalance("u", token.address)).toBe(90);
   });
 });
