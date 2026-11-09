@@ -2,7 +2,7 @@
  * NetworkActionDialogs — network-aware Receive / Transfer actions for
  * MintMe-family assets (native MINTME and imported MintMe tokens).
  *
- * Each action button carries a network dropdown:
+ * Actions follow the shared wallet network selector:
  * - SWARM: native mesh receiving address and online-peer transfers.
  * - MintMe: deposit to the cold-key receiving address / cold-key withdrawal.
  * - Custom Chain: shown only when the user has deployed a sub-chain on
@@ -75,82 +75,42 @@ function SubChainNotice({ label, chain }: { label: string; chain: LiveChainInfo 
   );
 }
 
-/** Receive + Transfer for the native MINTME row, with a network dropdown. */
-export function MintMeNativeActions({ userId, amount }: { userId: string; amount: number }) {
-  const subChains = useUserSubChains(userId);
-  const [receiveNet, setReceiveNet] = useState<AssetNetwork>("swarm");
-  const [sendNet, setSendNet] = useState<AssetNetwork>("swarm");
+/** Compact actions follow the wallet's shared network selection. */
+export function MintMeNativeActions({ userId, amount, network = "swarm" }: { userId: string; amount: number; network?: AssetNetwork }) {
   const [receiveOpen, setReceiveOpen] = useState(false);
-  const receiveChain = receiveNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === receiveNet) : undefined;
-  const sendChain = sendNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === sendNet) : undefined;
-
-  return (
-    <>
-      <div className="col-span-2 flex flex-col gap-1 sm:col-span-1">
-        <NetworkPicker id="mintme-receive-network" value={receiveNet} onChange={setReceiveNet} subChains={subChains} />
-        {receiveNet === "swarm" && (
-          <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}>
-            <ArrowDownToLine className="mr-1 h-3 w-3" />Receive
-          </Button>
-        )}
-        {receiveNet === "mintme" && <NativeTokenDepositDialog userId={userId} symbol="MINTME" />}
-        {receiveNet.startsWith("chain:") && <SubChainNotice label="MINTME" chain={receiveChain} />}
-      </div>
-      <div className="col-span-2 flex flex-col gap-1 sm:col-span-1">
-        <NetworkPicker id="mintme-send-network" value={sendNet} onChange={setSendNet} subChains={subChains} />
-        {sendNet === "swarm" && (
-          <NativeTransferDialog userId={userId} assetId="external:MINTME" assetLabel="MINTME" amount={amount} />
-        )}
-        {sendNet === "mintme" && (
-          <MintMeWithdrawDialog userId={userId} amount={amount} />
-        )}
-        {sendNet.startsWith("chain:") && <SubChainNotice label="MINTME" chain={sendChain} />}
-      </div>
-      {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label="MINTME" open={receiveOpen} onOpenChange={setReceiveOpen} />}
-    </>
-  );
+  if (network.startsWith("chain:")) return <>
+    <Button type="button" variant="outline" size="sm" disabled title="MINTME cannot settle on a SWARM sub-chain"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
+    <Button type="button" variant="outline" size="sm" disabled title="MINTME cannot settle on a SWARM sub-chain"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button>
+  </>;
+  if (network === "mintme") return <>
+    <NativeTokenDepositDialog userId={userId} symbol="MINTME" />
+    <MintMeWithdrawDialog userId={userId} amount={amount} />
+  </>;
+  return <>
+    <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
+    <NativeTransferDialog userId={userId} assetId="external:MINTME" assetLabel="MINTME" amount={amount} />
+    {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label="MINTME" open={receiveOpen} onOpenChange={setReceiveOpen} />}
+  </>;
 }
 
-/** Receive + Transfer/Withdraw for an imported MintMe token row, with network dropdowns. */
-export function CustomTokenNetworkActions({ userId, symbol, address, recorded, renderWithdrawForm }: {
-  userId: string;
-  symbol: string;
-  address: string;
-  recorded: number;
-  /** Renders the cold-key withdrawal form when the MintMe send network is selected. */
+export function CustomTokenNetworkActions({ userId, symbol, address, recorded, network = "swarm", renderWithdrawForm }: {
+  userId: string; symbol: string; address: string; recorded: number; network?: AssetNetwork;
   renderWithdrawForm: (onDone: () => void) => React.ReactNode;
 }) {
-  const subChains = useUserSubChains(userId);
-  const [receiveNet, setReceiveNet] = useState<AssetNetwork>("swarm");
-  const [sendNet, setSendNet] = useState<AssetNetwork>("swarm");
   const [sendOpen, setSendOpen] = useState(false);
-  const receiveChain = receiveNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === receiveNet) : undefined;
-  const sendChain = sendNet.startsWith("chain:") ? subChains.find((c) => `chain:${c.chainId}` === sendNet) : undefined;
-
-  return (
-    <>
-      <div className="col-span-2 flex flex-col gap-1 sm:col-span-1">
-        <NetworkPicker id={`receive-net-${address}`} value={receiveNet} onChange={setReceiveNet} subChains={subChains} />
-        <NativeTokenDepositDialog userId={userId} symbol={symbol} />
-        {receiveNet.startsWith("chain:") && <SubChainNotice label={symbol} chain={receiveChain} />}
-      </div>
-      <div className="col-span-2 flex flex-col gap-1 sm:col-span-1">
-        <NetworkPicker id={`send-net-${address}`} value={sendNet} onChange={setSendNet} subChains={subChains} />
-        {sendNet === "swarm" && (
-          <NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} />
-        )}
-        {sendNet === "mintme" && (
-          <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0}
-            title={recorded <= 0 ? `You hold no ${symbol} to withdraw.` : `Send ${symbol} to a MintMe wallet`}
-            onClick={() => setSendOpen(true)}>
-            <ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer / Withdraw
-          </Button>
-        )}
-        {sendNet.startsWith("chain:") && <SubChainNotice label={symbol} chain={sendChain} />}
-        {sendOpen && sendNet === "mintme" && renderWithdrawForm(() => setSendOpen(false))}
-      </div>
-    </>
-  );
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  if (network.startsWith("chain:")) return <>
+    <Button type="button" variant="outline" size="sm" disabled title="MintMe tokens cannot settle on a SWARM sub-chain"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
+    <Button type="button" variant="outline" size="sm" disabled title="MintMe tokens cannot settle on a SWARM sub-chain"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button>
+  </>;
+  return <>
+    {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} /> :
+      <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
+    {network === "swarm" ? <NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} /> :
+      <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}
+    {sendOpen && network === "mintme" && renderWithdrawForm(() => setSendOpen(false))}
+    {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label={symbol} open={receiveOpen} onOpenChange={setReceiveOpen} />}
+  </>;
 }
 
 /** Minimal native-address receive dialog (QR + copy) reused for the MINTME row. */
