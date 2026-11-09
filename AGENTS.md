@@ -41,6 +41,7 @@
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
 - Native wallet screens use direct MintMe reads and cold-key sends; preserve historical MetaMask records and unrelated external donation/RPC integrations because receiving requires no external wallet session.
+- Run configured src tests with Vitest (bun run test; test:wallet for wallet regressions); use isolated mocks and deterministic public wallet fixtures because Bun test APIs and random ethers entropy conflict with the jsdom runner.
 - Synchronize the gateway from an app-wide verified external-wallet session, not a route panel or cached address, so navigation cannot misrepresent connection state.
 - Gate external SWARM install/switching on a fresh HTTPS JSON-RPC chain-ID preflight; share UI readiness via a cached query, never the local provider — MetaMask must reach its own RPC.
 - Host public mesh RPC outside this client-only repo; it requires ledger/mesh access.

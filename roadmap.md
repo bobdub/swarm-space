@@ -19,5 +19,5 @@
 
 - [x] Infinity as network steward: keyless vaults (mintme/donations/market) with fixed addresses, unsigned payout actions, 30-min heartbeat, mesh tie-break, 95% members / 5% to market. 48 automated checks pass; live payout left to user testing.
 - [ ] Donate to Infinity from native wallets — blocked: native transfers currently resolve only user recipients; needs a vault recipient path (not built this round).
-- [ ] Finish obsolete MetaMask wallet cleanup while preserving historical ledger records and unrelated external donations.
-- [ ] Fix wallet/mining test runner and crypto fixture errors; run automated regression checks only.
+- [x] Finish obsolete MetaMask wallet cleanup: native custom-token actions no longer connect external wallets; removed unused bridge/connect/companion screens and legacy deposit/import writers. Historical records and active external donation/RPC integrations retained.
+- [x] Fix test runner and crypto fixture errors: 131 configured test files / 712 checks pass, including 158 wallet checks. Preview build clean. UQRC scan reports 19 unrelated form/storage/audio findings; no changed-file contradictions. Live transfers left to user testing.

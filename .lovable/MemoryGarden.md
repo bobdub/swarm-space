@@ -904,3 +904,6 @@ Tended the path from any MintMe wallet straight into native wallets: Infinity no
 ## November 8, 2026 — Clear the old paths
 Before tending: remove the obsolete wallet gates, preserve each owner's key and recorded history,
 and let automated checks reveal faults without disturbing the people testing the mesh.
+After tending: the old wallet gates are removed, recorded holdings remain, and each owner sends
+directly with their own unchanged key. Seven hundred twelve checks pass; the separate UQRC scan
+still flags nineteen form, storage and audio findings outside this cleanup. No live mesh session was opened.

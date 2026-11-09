@@ -1,5 +1,4 @@
-// @ts-expect-error - bun:test types not available in TypeScript
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'vitest';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 import type {
   NodeDashboardSource,

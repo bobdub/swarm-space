@@ -2,7 +2,7 @@
  * Media-as-Coin Engine — Unit Tests
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   MediaCoinEngine,
   buildMerkleRoot,
@@ -44,7 +44,7 @@ function createMockTransport(): MeshTransportAdapter & {
 
     onMessage(channel, handler) {
       if (!handlers.has(channel)) handlers.set(channel, []);
-      handlers.get(channel)!.push(handler);
+      handlers.get(channel)?.push(handler);
       return () => {
         const arr = handlers.get(channel);
         if (arr) {
@@ -75,9 +75,18 @@ describe("MediaCoinEngine", () => {
   let engine: MediaCoinEngine;
 
   beforeEach(() => {
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = vi.fn(() => "blob:test-media-coin");
+      static revokeObjectURL = vi.fn();
+    });
     transport = createMockTransport();
     engine = new MediaCoinEngine(transport);
     engine.start();
+  });
+
+  afterEach(() => {
+    engine.stop();
+    vi.unstubAllGlobals();
   });
 
   describe("mint", () => {
