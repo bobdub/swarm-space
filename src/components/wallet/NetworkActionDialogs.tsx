@@ -9,71 +9,14 @@
  *   SWARM; MintMe assets cannot move onto a SWARM sub-chain, so the panel
  *   explains that instead of offering a transfer.
  */
-import { useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Link2 } from "lucide-react";
+import { useState } from "react";
+import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getAllLiveChains, type LiveChainInfo } from "@/lib/blockchain/multiChainManager";
 import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeWithdrawDialog } from "./MintMeWithdrawDialog";
 
 export type AssetNetwork = "swarm" | "mintme" | `chain:${string}`;
-
-/** Sub-chains this user has deployed on SWARM. */
-export function useUserSubChains(userId: string): LiveChainInfo[] {
-  const [chains, setChains] = useState<LiveChainInfo[]>([]);
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    const load = () =>
-      void getAllLiveChains()
-        .then((all) => {
-          if (active) setChains(all.filter((c) => !c.isMainChain && c.deployer === userId));
-        })
-        .catch(() => { if (active) setChains([]); });
-    load();
-    window.addEventListener("coin-deployed", load);
-    return () => { active = false; window.removeEventListener("coin-deployed", load); };
-  }, [userId]);
-  return chains;
-}
-
-export function NetworkPicker({ value, onChange, subChains, id }: {
-  value: AssetNetwork;
-  onChange: (network: AssetNetwork) => void;
-  subChains: LiveChainInfo[];
-  id: string;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => onChange(v as AssetNetwork)}>
-      <SelectTrigger id={id} className="h-8 w-full min-w-[120px] text-xs sm:w-auto" aria-label="Network">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="swarm">SWARM</SelectItem>
-        <SelectItem value="mintme">MintMe</SelectItem>
-        {subChains.map((c) => (
-          <SelectItem key={c.chainId} value={`chain:${c.chainId}`}>
-            {c.ticker} · {c.chainName}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-function SubChainNotice({ label, chain }: { label: string; chain: LiveChainInfo | undefined }) {
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-      <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
-      <p>
-        {label} lives on the MintMe blockchain and cannot move onto {chain ? `${chain.chainName} (${chain.ticker})` : "a SWARM sub-chain"}.
-        Sub-chains settle their own native coins — switch the network to SWARM or MintMe to move this asset.
-      </p>
-    </div>
-  );
-}
 
 /** Compact actions follow the wallet's shared network selection. */
 export function MintMeNativeActions({ userId, amount, network = "swarm" }: { userId: string; amount: number; network?: AssetNetwork }) {

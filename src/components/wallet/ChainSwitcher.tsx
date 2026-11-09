@@ -39,10 +39,11 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
     void loadChains();
     const handle = () => setActive(getActiveChain());
     window.addEventListener("active-chain-changed", handle);
-    window.addEventListener("coin-deployed", () => void loadChains());
+    const refresh = () => void loadChains();
+    window.addEventListener("coin-deployed", refresh);
     return () => {
       window.removeEventListener("active-chain-changed", handle);
-      window.removeEventListener("coin-deployed", () => void loadChains());
+      window.removeEventListener("coin-deployed", refresh);
     };
   }, []);
 
