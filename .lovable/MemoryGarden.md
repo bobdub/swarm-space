@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### November 9, 2026 — One quiet compass
+
+Before tending: lift the wallet's compass where every traveller can see it;
+remove repeated doors without changing what crosses the ledger.
+Keep funds, keys and the living mesh undisturbed.
+
 ### October 29, 2026 — One gift, one receipt
 
 Before tending: gather the witnesses around the same funded commons;
