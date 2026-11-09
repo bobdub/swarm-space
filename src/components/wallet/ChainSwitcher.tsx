@@ -26,9 +26,11 @@ import {
 
 interface Props {
   onChainChanged?: (ctx: ChainContext) => void;
+  network?: string;
+  onNetworkChanged?: (network: string) => void;
 }
 
-export function ChainSwitcher({ onChainChanged }: Props) {
+export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Props) {
   const [active, setActive] = useState<ChainContext>(getActiveChain());
   const [chains, setChains] = useState<LiveChainInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,10 +39,11 @@ export function ChainSwitcher({ onChainChanged }: Props) {
     void loadChains();
     const handle = () => setActive(getActiveChain());
     window.addEventListener("active-chain-changed", handle);
-    window.addEventListener("coin-deployed", () => void loadChains());
+    const refresh = () => void loadChains();
+    window.addEventListener("coin-deployed", refresh);
     return () => {
       window.removeEventListener("active-chain-changed", handle);
-      window.removeEventListener("coin-deployed", () => void loadChains());
+      window.removeEventListener("coin-deployed", refresh);
     };
   }, []);
 
@@ -51,6 +54,10 @@ export function ChainSwitcher({ onChainChanged }: Props) {
   };
 
   const handleSwitch = async (chainId: string) => {
+    if (chainId === "mintme") {
+      onNetworkChanged?.("mintme");
+      return;
+    }
     if (chainId === "SWARM") {
       switchToMainChain();
     } else {
@@ -58,23 +65,25 @@ export function ChainSwitcher({ onChainChanged }: Props) {
     }
     const updated = getActiveChain();
     setActive(updated);
+    onNetworkChanged?.(updated.isMainChain ? "swarm" : `chain:${updated.chainId}`);
     onChainChanged?.(updated);
   };
 
   if (loading) return null;
 
   return (
-    <div className="rounded-lg border border-border/60 bg-card/80 backdrop-blur-sm p-3 flex items-center gap-3 flex-wrap">
+    <div className="border-y border-border py-2 flex items-center gap-2 flex-wrap">
       <div className="flex items-center gap-2 text-sm font-medium shrink-0">
         <Zap className="h-4 w-4 text-primary" />
-        <span className="text-muted-foreground">Active Chain</span>
+        <span className="text-muted-foreground">Network</span>
       </div>
 
-      <Select value={active.chainId} onValueChange={handleSwitch}>
-        <SelectTrigger className="w-auto min-w-[140px] h-8 text-sm">
+      <Select value={network === "mintme" ? "mintme" : active.chainId} onValueChange={handleSwitch}>
+        <SelectTrigger aria-label="Wallet network" className="flex-1 min-w-0 h-8 text-sm sm:flex-none sm:w-52">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
+          {onNetworkChanged && <SelectItem value="mintme">MintMe</SelectItem>}
           {chains.map((c) => (
             <SelectItem key={c.chainId} value={c.chainId}>
               <span className="flex items-center gap-2">
@@ -97,10 +106,10 @@ export function ChainSwitcher({ onChainChanged }: Props) {
         variant={active.isMainChain ? "default" : "outline"}
         className="text-[10px] px-1.5 py-0 shrink-0"
       >
-        {active.isMainChain ? "Main Network" : "Sub-Chain"}
+        {network === "mintme" ? "EVM" : active.isMainChain ? "Main Network" : "Sub-Chain"}
       </Badge>
 
-      {!active.isMainChain && (
+      {network !== "mintme" && !active.isMainChain && (
         <Button
           variant="ghost"
           size="sm"

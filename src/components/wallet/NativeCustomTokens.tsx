@@ -13,7 +13,7 @@ import { removeCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance,
   type CustomToken } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
-import { CustomTokenNetworkActions } from "./NetworkActionDialogs";
+import { CustomTokenNetworkActions, type AssetNetwork } from "./NetworkActionDialogs";
 
 export function useCustomTokens(userId: string) {
   const [list, setList] = useState<CustomToken[]>(() => listCustomTokens(userId));
@@ -29,7 +29,7 @@ export function useCustomTokens(userId: string) {
 }
 
 /** Imported tokens remain visible until their owner hides or removes them. */
-export function CustomTokenRow({ userId, token, layer, onHide }: { userId: string; token: CustomToken; layer: "native"; onHide?: () => void }) {
+export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide }: { userId: string; token: CustomToken; layer: "native"; network?: AssetNetwork; onHide?: () => void }) {
   const recorded = getRecordedTokenBalance(userId, token.address);
   const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, token.address) : 0;
   const [, bump] = useState(0);
@@ -52,6 +52,7 @@ export function CustomTokenRow({ userId, token, layer, onHide }: { userId: strin
     </div>
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
       <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={token.address} recorded={recorded}
+        network={network}
         renderWithdrawForm={(onDone) => (
           <Dialog open onOpenChange={(v) => { if (!v) onDone(); }}>
             <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">

@@ -21,3 +21,4 @@
 - [ ] Donate to Infinity from native wallets — blocked: native transfers currently resolve only user recipients; needs a vault recipient path (not built this round).
 - [x] Finish obsolete MetaMask wallet cleanup: native custom-token actions no longer connect external wallets; removed unused bridge/connect/companion screens and legacy deposit/import writers. Historical records and active external donation/RPC integrations retained.
 - [x] Fix test runner and crypto fixture errors: 131 configured test files / 712 checks pass, including 158 wallet checks. Preview build clean. UQRC scan reports 19 unrelated form/storage/audio findings; no changed-file contradictions. Live transfers left to user testing.
+- [x] Simplify wallet: top shared slim network selector, compact asset actions, remove duplicate metrics and asset dropdown; 159 automated wallet checks pass, preview build clean; live testing left to users.
