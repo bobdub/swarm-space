@@ -25,7 +25,7 @@ import { canHideAsset, hydrateHiddenAssets, listHiddenAssets, setAssetHidden, HI
 import { getUserWalletCoins } from "@/lib/blockchain/coinWrap";
 import { isWeightedCoin } from "@/lib/blockchain/weightedCoin";
 import { WeightedCoinRow } from "./WeightedCoinRow";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { AssetNetwork } from "./NetworkActionDialogs";
 
 type Layer = "native";
 
@@ -38,14 +38,13 @@ const TRANSFER_ASSET_ID: Record<string, string> = {
   BTC: "external:BTC",
 };
 
-export function AssetsTab() {
+export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
   const userId = getCurrentUser()?.id ?? "";
   const { balance: credits } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
   const [mintme, setMintme] = useState(0);
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
   const layer: Layer = "native";
-  const [selection, setSelection] = useState("all");
   const [weightedCount, setWeightedCount] = useState(0);
   const [holdings, setHoldings] = useState<ProfileTokenHolding[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>(() => listHiddenAssets(userId));
@@ -90,9 +89,7 @@ export function AssetsTab() {
     custom: customTokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, token.address), available: getRecordedTokenBalance(userId, token.address) })),
   });
   const hidden = new Set(hiddenIds);
-  const selected = inventory.some((a) => a.id === selection) ? selection : "all";
-  const matchesFilter = (id: string) => selected === "all" || selected === id;
-  const visible = (id: string) => !hidden.has(id) && matchesFilter(id);
+  const visible = (id: string) => !hidden.has(id);
   const hide = (id: string) => setAssetHidden(userId, id, true);
   const unhide = (id: string) => setAssetHidden(userId, id, false);
   const hiddenAssets = inventory.filter((a) => hidden.has(a.id));
@@ -108,16 +105,9 @@ export function AssetsTab() {
 
       {layer === "native" && <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="owned-wallet-asset">Wallet assets</Label>
+          <span className="text-sm font-medium">Wallet assets</span>
           <NativeTokenImport userId={userId} />
         </div>
-        <Select value={selected} onValueChange={setSelection}>
-          <SelectTrigger id="owned-wallet-asset"><SelectValue placeholder="Select an asset" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All assets</SelectItem>
-            {inventory.map((a) => <SelectItem key={a.id} value={a.id}>{a.label} · {a.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
-          </SelectContent>
-        </Select>
       </div>}
 
       <div className="grid gap-2">
@@ -134,6 +124,7 @@ export function AssetsTab() {
               </div>
             </div>
             <AssetActions code={r.code} label={r.label} amount={r.amount} userId={userId}
+              network={network}
               layer={layer} offline={offline}
               onHide={layer === "native" && canHideAsset(r.code, r.amount) ? () => hide(r.code) : undefined} />
           </div>
@@ -142,6 +133,7 @@ export function AssetsTab() {
         ))}
         {customTokens.filter((t) => visible(`custom:${t.address}`)).map((t) => (
           <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer}
+            network={network}
             onHide={layer === "native" && canHideAsset(`custom:${t.address}`, getRecordedTokenBalance(userId, t.address)) ? () => hide(`custom:${t.address}`) : undefined} />
         ))}
         {layer === "native" && holdings.filter((h) => visible(`creator:${h.tokenId}`)).map((h) => (
@@ -181,8 +173,9 @@ export function AssetsTab() {
   );
 }
 
-function AssetActions({ code, label, amount, userId, layer, onHide }: {
+function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
   code: string; label: string; amount: number; userId: string; layer: Layer; offline: boolean;
+  network: AssetNetwork;
   onHide?: () => void;
 }) {
   const cls = "grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0";
@@ -211,7 +204,7 @@ function AssetActions({ code, label, amount, userId, layer, onHide }: {
   if (layer === "native" && code === "MINTME") {
     return (
       <div className={cls}>
-        <MintMeNativeActions userId={userId} amount={amount} />
+        <MintMeNativeActions userId={userId} amount={amount} network={network} />
         {hideButton}
       </div>
     );
