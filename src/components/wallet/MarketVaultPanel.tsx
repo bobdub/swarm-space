@@ -193,7 +193,7 @@ export function MarketVaultPanel() {
                   ))}
                 </SelectContent>
               </Select>
-              {tokens.length === 0 && <p className="mt-1 text-xs text-muted-foreground">Add a token in your wallet's MetaMask tab first.</p>}
+              {tokens.length === 0 && <p className="mt-1 text-xs text-muted-foreground">Add a custom token in your wallet's Assets tab first.</p>}
             </div>
             <div>
               <Label htmlFor="vault-sell">SWARM to sell</Label>

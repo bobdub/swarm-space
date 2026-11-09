@@ -104,7 +104,7 @@ export function CoinMarketTab() {
               </CardTitle>
               <CardDescription>
                 List wallet SWARM for ETH, Bitcoin, or MintMe — proceeds land in
-                your in-app wallet and only leave through the MetaMask bridge.
+                your in-app wallet. External withdrawals require verified backing.
               </CardDescription>
             </div>
             <div className="flex flex-col items-end gap-1">
@@ -177,9 +177,8 @@ export function CoinMarketTab() {
             <AlertTitle>Settles into your in-app wallet</AlertTitle>
             <AlertDescription>
               Sale proceeds credit your in-app ETH / BTC / MintMe balance —
-              no external address needed. Move funds in and out through
-              MetaMask in the bridge panel below. The app never touches your
-              seed phrase or private keys.
+              no external address needed. Use Assets for supported transfers.
+              ETH and BTC records do not provide external withdrawal settlement.
             </AlertDescription>
           </Alert>
           <div className="flex flex-wrap items-center gap-3">
@@ -394,7 +393,7 @@ function ListSwarmDialog({
           </div>
           <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
             Proceeds credit your in-app <span className="font-medium text-foreground">{currency}</span> balance.
-            Move funds in or out through MetaMask in the Bridge panel — no external address needed here.
+            Use Assets for supported transfers; external withdrawals require verified backing.
           </div>
           <div>
             <Label>Note to buyers (optional)</Label>
