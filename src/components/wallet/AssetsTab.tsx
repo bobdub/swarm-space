@@ -143,7 +143,7 @@ export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
               <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
-              {network === "mintme" ? <SwarmOnlyButtons /> : <span title={SWARM_TRANSFER_HINT} className="contents"><NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} /></span>}
+              {network === "mintme" ? <SwarmOnlyButtons /> : <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} /></span>}
               {canHideAsset(`creator:${h.tokenId}`, h.amount) && (
                 <Button type="button" size="sm" variant="ghost" onClick={() => hide(`creator:${h.tokenId}`)}>
                   <EyeOff className="mr-1 h-3 w-3" />Hide
@@ -192,7 +192,7 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
     return (
       <div className={cls}>
         <SwarmBridgeDialog mode="deposit" balance={amount} userId={userId} className="w-full sm:w-auto" />
-        <SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" />
+        <span title={SWARM_TRANSFER_HINT} className="inline-flex"><SwarmBridgeDialog mode="withdraw" balance={amount} userId={userId} className="w-full sm:w-auto" /></span>
       </div>
     );
   }
@@ -200,7 +200,7 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} />
-        <NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} />
+        <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} /></span>
         {hideButton}
       </div>
     );
@@ -217,7 +217,7 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} note="Native SWARM transfers only for now." />
-        <NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} />
+        <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID[code]} assetLabel={label} amount={amount} /></span>
         {hideButton}
       </div>
     );
