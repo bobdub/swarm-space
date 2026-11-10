@@ -29,7 +29,7 @@ export function NativeTokenDepositDialog({ userId, symbol }: { userId: string; s
 
   return (
     <>
-      <Button type="button" size="sm" variant="outline" disabled={!userId} onClick={() => setOpen(true)}>
+      <Button type="button" size="sm" variant="outline" disabled={!userId} title="Only receive imported assets already on SWARM" onClick={() => setOpen(true)}>
         <ArrowDownToLine className="mr-1 h-3 w-3" />Deposit
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
