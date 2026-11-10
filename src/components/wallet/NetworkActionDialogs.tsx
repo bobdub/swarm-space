@@ -27,11 +27,11 @@ export function MintMeNativeActions({ userId, amount, network = "swarm" }: { use
   </>;
   if (network === "mintme") return <>
     <NativeTokenDepositDialog userId={userId} symbol="MINTME" />
-    <MintMeWithdrawDialog userId={userId} amount={amount} />
+    <span title="Only transfer to wallets that support the MintMe chain" className="inline-flex"><MintMeWithdrawDialog userId={userId} amount={amount} /></span>
   </>;
   return <>
     <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
-    <NativeTransferDialog userId={userId} assetId="external:MINTME" assetLabel="MINTME" amount={amount} />
+    <span title="Only transfer to online peers on SWARM" className="inline-flex"><NativeTransferDialog userId={userId} assetId="external:MINTME" assetLabel="MINTME" amount={amount} /></span>
     {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label="MINTME" open={receiveOpen} onOpenChange={setReceiveOpen} />}
   </>;
 }
@@ -49,8 +49,8 @@ export function CustomTokenNetworkActions({ userId, symbol, address, recorded, n
   return <>
     {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} /> :
       <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
-    {network === "swarm" ? <NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} /> :
-      <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}
+    {network === "swarm" ? <span title="Only transfer to online peers on SWARM" className="inline-flex"><NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} /></span> :
+      <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} title="Only transfer to wallets that support the MintMe chain" onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}
     {sendOpen && network === "mintme" && renderWithdrawForm(() => setSendOpen(false))}
     {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label={symbol} open={receiveOpen} onOpenChange={setReceiveOpen} />}
   </>;
