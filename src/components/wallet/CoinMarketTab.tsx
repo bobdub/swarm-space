@@ -82,133 +82,21 @@ export function CoinMarketTab() {
   useEffect(() => { refresh(); }, [refresh, refreshTick]);
 
   const tier = useMemo(() => computeMarketTier(pool?.balance ?? 0), [pool?.balance]);
-  const myListings   = useMemo(() => listings.filter((l) => l.sellerId === user?.id), [listings, user?.id]);
+  const mySales      = useMemo(() => listings.filter((l) => l.sellerId === user?.id && !!l.buyerId), [listings, user?.id]);
   const myPurchases  = useMemo(() => listings.filter((l) => l.buyerId === user?.id), [listings, user?.id]);
-  const openListings = useMemo(
-    () =>
-      listings
-        .filter((l) => l.status === "open" || l.status === "reserved" || l.status === "paid")
-        .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1)),
-    [listings],
-  );
-
   return (
     <div className="space-y-6">
       <MarketVaultPanel />
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Store className="h-5 w-5 text-primary" /> Older listings
-              </CardTitle>
-              <CardDescription>
-                List wallet SWARM for ETH, Bitcoin, or MintMe — proceeds land in
-                your in-app wallet. External withdrawals require verified backing.
-              </CardDescription>
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <Badge variant={isLive ? "default" : "secondary"}>
-                {isLive ? "Live · Mesh synced" : isConnected ? "Syncing…" : "Offline"}
-              </Badge>
-              <span className="text-[10px] text-muted-foreground">
-                Last synced {lastSyncedAt ? formatSyncAge(Date.now() - Date.parse(lastSyncedAt)) : "never"}
-              </span>
-              <Badge variant="outline" className="text-[10px]">
-                Tier {tier.tier} · {tier.label}
-              </Badge>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!canTrade && (
-            <Alert variant="destructive">
-              <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Peer connection required</AlertTitle>
-              <AlertDescription>
-                {gateReason ?? "Markets only operate while connected to another peer."}{" "}
-                Cached listings stay visible; buying, listing, and settlement resume when a peer joins.
-              </AlertDescription>
-            </Alert>
-          )}
-          {!isLive && !isConnected && (
-            <Alert>
-              <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Read-only until mesh connects</AlertTitle>
-              <AlertDescription>
-                Cached listings are visible. New actions are saved locally and sync through the mesh when peers are available.
-              </AlertDescription>
-            </Alert>
-          )}
-          {isConnected && !isFresh && (
-            <Alert>
-              <ShieldAlert className="h-4 w-4" />
-              <AlertTitle>Mesh connected · refreshing pool</AlertTitle>
-              <AlertDescription>
-                Market actions stay available while the local ledger derives the newest community-pool balance.
-              </AlertDescription>
-            </Alert>
-          )}
-          {marketStats && (
-            <div className="grid gap-2 sm:grid-cols-4 text-xs">
-              <div className="rounded-md border p-2">
-                <div className="text-muted-foreground">Base listing guide</div>
-                <div className="font-semibold">{marketStats.basePriceSwarm.toFixed(4)} SWARM</div>
-              </div>
-              <div className="rounded-md border p-2">
-                <div className="text-muted-foreground">Pool liquid</div>
-                <div className="font-semibold">{(marketStats.poolLiquidRatio * 100).toFixed(2)}%</div>
-              </div>
-              <div className="rounded-md border p-2">
-                <div className="text-muted-foreground">Known mined</div>
-                <div className="font-semibold">{marketStats.minedCoinsKnown.toLocaleString()} coins</div>
-              </div>
-              <div className="rounded-md border p-2">
-                <div className="text-muted-foreground">48h trend</div>
-                <div className="font-semibold inline-flex items-center gap-1">
-                  {marketStats.trendDirection === "down" ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
-                  {marketStats.trend48hPct === 0 ? "Flat" : `${marketStats.trend48hPct > 0 ? "+" : ""}${marketStats.trend48hPct.toFixed(2)}%`}
-                </div>
-              </div>
-            </div>
-          )}
-          <Alert>
-            <ShieldAlert className="h-4 w-4" />
-            <AlertTitle>Settles into your in-app wallet</AlertTitle>
-            <AlertDescription>
-              Sale proceeds credit your in-app ETH / BTC / MintMe balance —
-              no external address needed. Use Assets for supported transfers.
-              ETH and BTC records do not provide external withdrawal settlement.
-            </AlertDescription>
-          </Alert>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted-foreground">
-              New listings are retired — use the Market Vault above. Existing listings can still be finished or cancelled.
-            </span>
-
-            {canTrade && (
-              <span className="text-[10px] text-muted-foreground">
-                Peer mesh live · {activePeers} peer{activePeers === 1 ? "" : "s"}
-              </span>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Tabs defaultValue="open" className="space-y-4">
-        <TabsList className="grid grid-cols-3 gap-1 h-auto">
-          <TabsTrigger value="open">Open market ({openListings.length})</TabsTrigger>
-          <TabsTrigger value="mine">My listings ({myListings.length})</TabsTrigger>
+      <Tabs defaultValue="buys" className="space-y-4">
+        <TabsList className="grid grid-cols-2 gap-1 h-auto">
           <TabsTrigger value="buys">My purchases ({myPurchases.length})</TabsTrigger>
+          <TabsTrigger value="sales">My sales ({mySales.length})</TabsTrigger>
         </TabsList>
-        <TabsContent value="open">
-          <ListingGrid listings={openListings} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="No open listings yet. Be the first to list SWARM." />
-        </TabsContent>
-        <TabsContent value="mine">
-          <ListingGrid listings={myListings} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t listed any SWARM yet." />
-        </TabsContent>
         <TabsContent value="buys">
-          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t reserved any listings yet." />
+          <ListingGrid listings={myPurchases} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t bought anything yet." />
+        </TabsContent>
+        <TabsContent value="sales">
+          <ListingGrid listings={mySales} currentUserId={user?.id ?? ""} onChange={refresh} canTrade={canTrade} empty="You haven’t sold anything yet." />
         </TabsContent>
       </Tabs>
     </div>
