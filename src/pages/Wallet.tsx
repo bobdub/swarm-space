@@ -333,7 +333,7 @@ export default function Wallet() {
           </div>
         </div>
 
-        <NativeWalletAddress userId={user?.id ?? ""} />
+        <NativeWalletAddress userId={user?.id ?? ""} network={assetNetwork} />
 
         <div className="mb-4">
           <ChainSwitcher network={assetNetwork} onNetworkChanged={(network) => setAssetNetwork(network as AssetNetwork)} />

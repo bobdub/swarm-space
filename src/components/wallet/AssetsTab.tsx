@@ -96,7 +96,7 @@ export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
 
   return (
     <section aria-label="Assets" className="space-y-3">
-      {layer === "native" && offline && (
+      {layer === "native" && offline && network !== "mintme" && (
         <div role="status" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted-foreground" />
           Waiting for peers — native transfers travel through the mesh, so a peer must be online. Like mining, they unlock once you connect.
@@ -137,13 +137,13 @@ export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
             onHide={layer === "native" && canHideAsset(`custom:${t.address}`, getRecordedTokenBalance(userId, t.address)) ? () => hide(`custom:${t.address}`) : undefined} />
         ))}
         {layer === "native" && holdings.filter((h) => visible(`creator:${h.tokenId}`)).map((h) => (
-          <div key={h.tokenId} className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div key={h.tokenId} className={`flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between ${network === "mintme" ? "opacity-50" : ""}`}>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" />{h.ticker}<span className="text-xs text-muted-foreground">Creator token</span></div>
               <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
-              <NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} />
+              {network === "mintme" ? <SwarmOnlyButtons /> : <span title={SWARM_TRANSFER_HINT} className="contents"><NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} /></span>}
               {canHideAsset(`creator:${h.tokenId}`, h.amount) && (
                 <Button type="button" size="sm" variant="ghost" onClick={() => hide(`creator:${h.tokenId}`)}>
                   <EyeOff className="mr-1 h-3 w-3" />Hide
@@ -184,6 +184,10 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
       <EyeOff className="mr-1 h-3 w-3" />Hide
     </Button>
   );
+  const swarmOnly = layer === "native" && network === "mintme" && ["SWARM", "CREDIT", "ETH", "BTC"].includes(code);
+  if (swarmOnly) {
+    return <div className={`${cls} opacity-50`}><SwarmOnlyButtons />{hideButton}</div>;
+  }
   if (layer === "native" && code === "SWARM") {
     return (
       <div className={cls}>
@@ -227,6 +231,16 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
       </Button>
     </div>
   );
+}
+
+const SWARM_TRANSFER_HINT = "Only transfer to online peers on SWARM";
+const SWARM_ONLY_HINT = "Only supported on SWARM";
+
+function SwarmOnlyButtons() {
+  return <>
+    <span title={SWARM_ONLY_HINT} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button></span>
+    <span title={SWARM_ONLY_HINT} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button></span>
+  </>;
 }
 
 function ReceiveDialog({ label, userId, note }: { label: string; userId: string; note?: string }) {
