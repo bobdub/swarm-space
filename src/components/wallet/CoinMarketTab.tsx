@@ -82,17 +82,8 @@ export function CoinMarketTab() {
   useEffect(() => { refresh(); }, [refresh, refreshTick]);
 
   const tier = useMemo(() => computeMarketTier(pool?.balance ?? 0), [pool?.balance]);
-  const myListings   = useMemo(() => listings.filter((l) => l.sellerId === user?.id), [listings, user?.id]);
   const mySales      = useMemo(() => listings.filter((l) => l.sellerId === user?.id && !!l.buyerId), [listings, user?.id]);
   const myPurchases  = useMemo(() => listings.filter((l) => l.buyerId === user?.id), [listings, user?.id]);
-  const openListings = useMemo(
-    () =>
-      listings
-        .filter((l) => l.status === "open" || l.status === "reserved" || l.status === "paid")
-        .sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1)),
-    [listings],
-  );
-
   return (
     <div className="space-y-6">
       <MarketVaultPanel />
