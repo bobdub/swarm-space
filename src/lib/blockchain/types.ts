@@ -273,6 +273,8 @@ export interface CreatorVault {
   stabilityFloor: number;      // 40% — protected, never spent
   creatorEarnings: number;     // 15% — withdrawable by creator
   communityContributed: number;// 5% — forwarded to community pool (display only)
+  /** Proven community SWARM released from custody; legacy earmarks remain backed. */
+  communityForwarded?: number;
   totalDeposited: number;      // lifetime SWARM in
   lifetimeBuybacks: number;    // lifetime SWARM paid out via sell-back
   circulatingSupply: number;   // tokens purchased − tokens sold back

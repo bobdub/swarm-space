@@ -173,6 +173,7 @@ export async function releaseMinedPoolSwarm(params: {
   creditsLocked: number;
   reason: string;
   transactionId?: string;
+  meta?: Record<string, unknown>;
 }): Promise<void> {
   if (!Number.isFinite(params.amount) || params.amount <= 0) throw new Error("Invalid pool release amount");
   const available = await getMinedPoolBalance();
@@ -196,6 +197,7 @@ export async function releaseMinedPoolSwarm(params: {
       swarmReleased: params.amount,
       ratio: CREDIT_TO_SWARM_RATIO,
       minted: false,
+      ...params.meta,
     },
   });
   await deductFromRewardPool(params.amount);
@@ -264,23 +266,16 @@ export async function getUserWrapRequests(userId: string): Promise<WrapRequest[]
  * Donate SWARM tokens to the reward pool
  */
 export async function donateToRewardPool(userId: string, amount: number): Promise<void> {
-  if (amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("Donation amount must be greater than 0");
   }
 
-  const { getSwarmBalance, burnSwarm: burnToken } = await import("./token");
+  const { getSwarmBalance } = await import("./token");
   const balance = await getSwarmBalance(userId);
   
   if (balance < amount) {
     throw new Error("Insufficient SWARM balance");
   }
-
-  // Burn tokens from user
-  await burnToken({
-    from: userId,
-    amount,
-    reason: `Donated ${amount} SWARM to community pool`
-  });
 
   // Add to reward pool
   const { getRewardPool, saveRewardPool } = await import("./storage");
@@ -303,8 +298,6 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
   pool.lastUpdated = new Date().toISOString();
   pool.contributors[userId] = (pool.contributors[userId] || 0) + amount;
   
-  await saveRewardPool(pool);
-
   // Record donation transaction on chain
   const { getSwarmChain } = await import("./chain");
   const { generateTransactionId } = await import("./crypto");
@@ -322,8 +315,11 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     fee: 0,
     meta: {
       poolBalanceAfter: pool.balance,
+      marketVaultFunding: "donation",
     },
   });
+  const { derivePoolFromChain } = await import("./storage");
+  await derivePoolFromChain();
 
   console.log(`[RewardPool] User ${userId} donated ${amount} SWARM (total: ${pool.balance})`);
   

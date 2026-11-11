@@ -1,9 +1,9 @@
 import type { CreatorVault } from "./types";
 
-/** Community contributions remain earmarked in custody, not creator earnings. */
+/** Only proven forwarded community contributions stop requiring vault custody. */
 export function creatorVaultBacking(vault: CreatorVault | null, held: number) {
   const required = vault
-    ? vault.buybackReserve + vault.stabilityFloor + vault.creatorEarnings + vault.communityContributed
+    ? vault.buybackReserve + vault.stabilityFloor + vault.creatorEarnings + vault.communityContributed - (vault.communityForwarded ?? 0)
     : 0;
   const valid = Number.isFinite(required) && required >= 0 && Number.isFinite(held) && held >= 0;
   const backed = valid && Math.round(held * 1e6) >= Math.round(required * 1e6);
