@@ -9,6 +9,7 @@ vi.mock("../chain", () => ({ getSwarmChain: () => ({
 }) }));
 vi.mock("../token", () => ({
   getSwarmBalance: async () => 100,
+  mintSwarm: async (p: { to: string; amount: number }) => state.txs.push({ ...p, from: "system", type: "token_mint" } as SwarmTransaction),
   burnSwarm: async (p: { from: string; amount: number }) => state.txs.push({ ...p, type: "token_burn" } as SwarmTransaction),
 }));
 vi.mock("../storage", async (original) => ({
@@ -17,7 +18,7 @@ vi.mock("../storage", async (original) => ({
   saveRewardPool: async (pool: Record<string, unknown>) => { state.pool = pool; },
   derivePoolFromChain: async () => { state.pool = { balance: state.txs.filter(tx => tx.type === "pool_donate").reduce((sum, tx) => sum + (tx.amount ?? 0), 0) }; },
 }));
-vi.mock("@/lib/store", () => ({ getAll: async () => [] }));
+vi.mock("@/lib/store", () => ({ getAll: async () => [], put: async () => {} }));
 vi.mock("../coinWrap", () => ({ createEmptyPoolCoin: () => ({ coinId: "test" }) }));
 import { donateToRewardPool } from "../creditWrapping";
 import { rewardTransactionProcessing } from "../miningRewards";
@@ -37,6 +38,7 @@ describe("community funding rules", () => {
   it("credits 5% of 10 SWARM confirmed mining work to the Market Vault", async () => {
     await rewardTransactionProcessing("member", 100);
     expect(state.txs.find(tx => tx.type === "pool_donate")).toMatchObject({ amount: 0.5, to: "community-pool", meta: { marketVaultFunding: "swarm-mining" } });
+    expect(state.txs.find(tx => tx.type === "token_mint")).toMatchObject({ to: "member", amount: 9.5 });
   });
   it("counts a sale's 10 SWARM pool inflow but not its token payout", () => {
     const base = { id: "sale", type: "token_transfer", from: "member", to: "community-pool", amount: 10, meta: { marketVault: true, direction: "vault-sell" } } as SwarmTransaction;
