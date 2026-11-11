@@ -254,8 +254,11 @@ export function poolDeltaFromTx(tx: SwarmTransaction): number {
       return numberFrom(meta.communityShare);
     case "creator_token_buy": {
       const split = (meta.split ?? {}) as Record<string, unknown>;
+      if (meta.liquidityTopUp === true && meta.communityForwarded !== undefined) return numberFrom(meta.communityForwarded);
       return numberFrom(split.community, numberFrom(meta.communityShare));
     }
+    case "token_transfer":
+      return meta.marketVault === true && meta.direction === "vault-sell" && tx.to === "community-pool" ? numberFrom(tx.amount) : 0;
     case "profile_token_deploy":
     case "creator_token_deploy":
       return numberFrom(meta.communityShare);

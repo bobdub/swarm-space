@@ -18,6 +18,8 @@ vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () =>
   onPhaseChange: () => () => {},
 }) }));
 vi.mock("@/lib/blockchain/mintmeMiner/miner", () => ({ getMintMeMiner: () => ({ start: state.start, stop: state.stop }) }));
+vi.mock("@/lib/blockchain/mintmeMiner/communityPayoutService", () => ({ createMeshCommunityPayout: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
+vi.mock("@/lib/blockchain/mintmeMiner/autoClaim", () => ({ createMeshAutoClaim: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
 vi.mock("@/lib/blockchain/mintmeMiner/miningCell", () => ({ getMintMeMiningCell: () => ({
   selectedEndpoint: "wss://mining.example.org/bridge", start: async () => {}, stop: state.cellStop,
   subscribe: () => () => {},

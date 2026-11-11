@@ -22,3 +22,5 @@
 - [x] Finish obsolete MetaMask wallet cleanup: native custom-token actions no longer connect external wallets; removed unused bridge/connect/companion screens and legacy deposit/import writers. Historical records and active external donation/RPC integrations retained.
 - [x] Fix test runner and crypto fixture errors: 131 configured test files / 712 checks pass, including 158 wallet checks. Preview build clean. UQRC scan reports 19 unrelated form/storage/audio findings; no changed-file contradictions. Live transfers left to user testing.
 - [x] Simplify wallet: top shared slim network selector, compact asset actions, remove duplicate metrics and asset dropdown; 159 automated wallet checks pass, preview build clean; live testing left to users.
+
+- [x] Wire Market Vault payout receipts and mining, creator top-up, and Swap donation funding; retain pool identity, transfer top-up community custody, remove donation double debit. Automated verification only; live peer settlement and historical receipt reconstruction unverified.

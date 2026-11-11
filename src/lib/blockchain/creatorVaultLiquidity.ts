@@ -69,7 +69,7 @@ async function addVaultLiquidityUnlocked(params: {
 
   // Real custody: transfer the SWARM into the vault address and engrave the
   // layer split onto the vault's locked container coin. Nothing is burned.
-  const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
+  const { lockIntoCreatorVault, releaseFromCreatorVault } = await import("./creatorVaultCustody");
   await lockIntoCreatorVault({
     fromId: creatorId,
     tokenId,
@@ -78,32 +78,20 @@ async function addVaultLiquidityUnlocked(params: {
     split,
     reason: `Vault liquidity top-up (${tokenId})`,
   });
+  if (split.community > 0) {
+    await releaseFromCreatorVault({
+      tokenId, creatorUserId: creatorId, toId: "community-pool",
+      amount: split.community, layer: "community", reason: `Creator top-up community share (${tokenId})`,
+    });
+  }
   vault.buybackReserve = round6(vault.buybackReserve + split.buyback);
   vault.stabilityFloor = round6(vault.stabilityFloor + split.stability);
   vault.creatorEarnings = round6(vault.creatorEarnings + split.creator);
   vault.communityContributed = round6(vault.communityContributed + split.community);
+  vault.communityForwarded = round6((vault.communityForwarded ?? 0) + split.community);
   vault.totalDeposited = round6(vault.totalDeposited + amount);
   vault.currentTier = computeTier(vault);
   await saveCreatorVault(vault);
-
-  // Forward the community share to the SWARM community pool (same as buys).
-  if (split.community > 0) {
-    try {
-      const { getRewardPool, saveRewardPool } = await import("./storage");
-      let pool = await getRewardPool();
-      if (!pool) {
-        pool = { id: "global", balance: 0, totalContributed: 0, lastUpdated: nowIso(), contributors: {} };
-      }
-      if (!pool.contributors) pool.contributors = {};
-      pool.balance = round6(pool.balance + split.community);
-      pool.totalContributed = round6(pool.totalContributed + split.community);
-      pool.contributors[creatorId] = round6((pool.contributors[creatorId] || 0) + split.community);
-      pool.lastUpdated = nowIso();
-      await saveRewardPool(pool);
-    } catch (err) {
-      console.warn("[CreatorVault] Community pool update failed:", err);
-    }
-  }
 
   const chain = getSwarmChain();
   const tx: SwarmTransaction = {
@@ -117,9 +105,11 @@ async function addVaultLiquidityUnlocked(params: {
     publicKey: creatorId,
     nonce: Date.now(),
     fee: 0,
-    meta: { tokenId, liquidityTopUp: true, split },
+    meta: { tokenId, liquidityTopUp: true, split, communityForwarded: split.community, marketVaultFunding: "creator-top-up" },
   };
   chain.addTransaction(tx);
+  const { derivePoolFromChain } = await import("./storage");
+  await derivePoolFromChain();
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { tokenId } }));

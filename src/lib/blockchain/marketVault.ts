@@ -37,7 +37,8 @@ export async function swapCreatorTokenForSwarm(userId: string, tokenId: string, 
     const chain = getSwarmChain();
     const payoutId = `${operationId}:payout`;
     try {
-      await releaseMinedPoolSwarm({ to: userId, amount: quote.out, creditsLocked: 0, transactionId: payoutId, reason: `Market Vault: ${amount} ${holding?.ticker ?? tokenId} at ${rate} SWARM` });
+      await releaseMinedPoolSwarm({ to: userId, amount: quote.out, creditsLocked: 0, transactionId: payoutId, reason: `Market Vault: ${amount} ${holding?.ticker ?? tokenId} at ${rate} SWARM`,
+        meta: { marketVault: true, operationId, direction: "vault-buy", tradeLeg: "payout", paidAmount: amount, paidAsset: holding?.ticker ?? `CREATOR:${tokenId}`, receivedAsset: "SWARM", rate } });
     } catch (error) {
       if (!chain.hasTransaction(payoutId)) {
         await transferProfileTokens("community-pool", userId, tokenId, amount);
@@ -75,6 +76,7 @@ export async function buySwarmFromVault(userId: string, swarm: number) {
       amount: quote.swarm,
       creditsLocked: quote.credits,
       reason: `Market Vault buy: ${quote.swarm} SWARM for ${quote.credits} credits`,
+      meta: { marketVault: true, operationId: crypto.randomUUID(), direction: "vault-buy", tradeLeg: "payout", paidAmount: quote.credits, paidAsset: "Credits", receivedAsset: "SWARM" },
     });
     return quote;
   });
@@ -87,14 +89,14 @@ export async function getVaultTokenHeld(contract: string): Promise<number> {
   return getRecordedTokenBalance(POOL, contract.toLowerCase());
 }
 
-async function addTokenTransfer(from: string, to: string, amount: number, contract: string, direction: string) {
+async function addTokenTransfer(from: string, to: string, amount: number, contract: string, direction: string, meta: Record<string, unknown> = {}) {
   const { getSwarmChain } = await import("./chain");
   const { generateTransactionId } = await import("./crypto");
   const { tokenCurrency } = await import("./deposits/customTokens");
   getSwarmChain().addTransaction({
     id: generateTransactionId(), type: "custom_token_transfer", from, to, amount,
     timestamp: new Date().toISOString(), signature: "", publicKey: from, nonce: Date.now(), fee: 0,
-    meta: { currency: tokenCurrency(contract), marketVault: true, direction },
+    meta: { currency: tokenCurrency(contract), marketVault: true, direction, ...meta },
   });
 }
 
@@ -107,8 +109,10 @@ export async function swapTokenForSwarm(userId: string, contract: string, amount
     const [state, held] = await Promise.all([getMarketVaultState(), getVaultTokenHeld(c)]);
     const q = quoteTokenForSwarm(state, held, amount, getAvailableTokenBalance(userId, c));
     if (q.error) throw new Error(q.error);
-    await addTokenTransfer(userId, POOL, amount, c, "vault-buy");
-    await releaseMinedPoolSwarm({ to: userId, amount: q.out, creditsLocked: 0, reason: `Market Vault swap: ${amount} token → ${q.out} SWARM` });
+    const operationId = crypto.randomUUID();
+    await addTokenTransfer(userId, POOL, amount, c, "vault-buy", { operationId, tradeLeg: "payment" });
+    await releaseMinedPoolSwarm({ to: userId, amount: q.out, creditsLocked: 0, reason: `Market Vault swap: ${amount} token → ${q.out} SWARM`,
+      meta: { marketVault: true, operationId, direction: "vault-buy", tradeLeg: "payout", paidAmount: amount, paidAsset: `MINTME:${c}`, receivedAsset: "SWARM" } });
     return q;
   });
 }
@@ -122,8 +126,9 @@ export async function swapSwarmForToken(userId: string, contract: string, swarm:
     const [state, held, mine] = await Promise.all([getMarketVaultState(), getVaultTokenHeld(c), getSwarmBalance(userId)]);
     const q = quoteSwarmForToken(state, held, swarm, mine);
     if (q.error) throw new Error(q.error);
-    await transferSwarm({ from: userId, to: POOL, amount: swarm, meta: { marketVault: true, direction: "vault-sell" } });
-    await addTokenTransfer(POOL, userId, q.out, c, "vault-sell");
+    const operationId = crypto.randomUUID();
+    await transferSwarm({ from: userId, to: POOL, amount: swarm, meta: { marketVault: true, direction: "vault-sell", operationId, tradeLeg: "payment" } });
+    await addTokenTransfer(POOL, userId, q.out, c, "vault-sell", { operationId, tradeLeg: "payout", paidAmount: swarm, paidAsset: "SWARM", receivedAsset: `MINTME:${c}` });
     const { derivePoolFromChain } = await import("./storage");
     await derivePoolFromChain().catch(() => {});
     return q;
