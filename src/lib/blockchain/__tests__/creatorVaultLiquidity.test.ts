@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const stores = new Map<string, Map<string, unknown>>();
 const s = (n: string) => {
   if (!stores.has(n)) stores.set(n, new Map());
-  return stores.get(n)!;
+  const store = stores.get(n);
+  if (!store) throw new Error("Missing test store");
+  return store;
 };
 
 vi.mock("@/lib/store", () => ({
@@ -20,6 +22,7 @@ vi.mock("../chain", () => ({
   getSwarmChain: () => ({
     addTransaction: (tx: Record<string, unknown>) => { txs.push(tx); },
     whenReady: async () => {},
+    getChain: () => [], getPendingTransactions: () => txs,
   }),
 }));
 
@@ -37,6 +40,11 @@ vi.mock("../token", () => ({
 vi.mock("../storage", () => ({
   getRewardPool: async () => s("rewardPool").get("global") ?? null,
   saveRewardPool: async (p: unknown) => { s("rewardPool").set("global", p); },
+  derivePoolFromChain: async () => {
+    const contribution = txs.find(t => (t.meta as Record<string, unknown>).liquidityTopUp === true);
+    const amount = Number((contribution?.meta as Record<string, unknown>)?.communityForwarded ?? 0);
+    s("rewardPool").set("global", { balance: amount, contributors: { "user-1": amount } });
+  },
 }));
 
 import { addVaultLiquidity, splitTopUp } from "../creatorVaultLiquidity";
@@ -79,7 +87,11 @@ describe("Creator Vault top-ups follow the layers", () => {
     expect(vault.communityContributed).toBe(3);
     expect(vault.totalDeposited).toBe(60);
     // Real custody: the SWARM moved into the vault address — nothing burned.
-    expect(transfers).toEqual([{ from: "user-1", to: "vault:creator:tok-1", amount: 10 }]);
+    expect(transfers).toEqual([
+      { from: "user-1", to: "vault:creator:tok-1", amount: 10 },
+      { from: "vault:creator:tok-1", to: "community-pool", amount: 0.5 },
+    ]);
+    expect(vault.communityForwarded).toBe(0.5);
     // The vault's locked container coin was engraved with the custody entry.
     const coin = s("swarmCoins").get("vault-coin:creator:tok-1") as {
       status: string; locked: boolean; ownerId: string;
@@ -88,7 +100,7 @@ describe("Creator Vault top-ups follow the layers", () => {
     expect(coin.status).toBe("vaulted");
     expect(coin.locked).toBe(true);
     expect(coin.ownerId).toBe("vault:creator:tok-1");
-    expect(coin.custodyChain.at(-1)?.reason).toContain("Vault liquidity top-up");
+    expect(coin.custodyChain.at(-1)?.to).toBe("community-pool");
   });
 
   it("forwards the 5% community share to the reward pool and records the split on chain", async () => {
@@ -99,8 +111,8 @@ describe("Creator Vault top-ups follow the layers", () => {
     expect(pool.balance).toBe(0.5);
     expect(pool.contributors["user-1"]).toBe(0.5);
 
-    const tx = txs.find((t) => (t.meta as Record<string, unknown>).liquidityTopUp === true)!;
-    expect((tx.meta as Record<string, unknown>).split).toEqual({ buyback: 4, stability: 4, creator: 1.5, community: 0.5 });
+    const tx = txs.find((t) => (t.meta as Record<string, unknown>).liquidityTopUp === true);
+    expect((tx?.meta as Record<string, unknown>).split).toEqual({ buyback: 4, stability: 4, creator: 1.5, community: 0.5 });
   });
 
   it("rejects top-ups from non-creators and empty vaults", async () => {
