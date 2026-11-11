@@ -13,6 +13,7 @@ describe("Coin Vault layer backing", () => {
   it("releases only proven forwarded community backing, retaining legacy earmarks", () => {
     expect(creatorVaultBacking({ ...vault, communityForwarded: 0.5 }, 99.5)).toMatchObject({ required: 99.5, backed: true });
     expect(creatorVaultBacking(vault, 99.5).backed).toBe(false);
+    expect(creatorVaultBacking({ ...vault, communityForwarded: 6 }, 99.5).backed).toBe(false);
   });
   it("allows 15 SWARM earnings only when all 40/40/15/5 layers are backed", () => {
     expect(creatorVaultBacking(vault, 100)).toMatchObject({ required: 100, backed: true, claimable: 15 });

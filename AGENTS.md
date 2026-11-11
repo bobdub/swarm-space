@@ -35,6 +35,7 @@
 - Infinity profile conversation is explicit opt-in, ephemeral and excluded from learning/digests; show device-local knowledge separately from live peer availability because digest exchange is not full memory replication.
 
 ## Wallet boundaries
+- Vault receipts use payout legs; pool funding stays ledger-derived to avoid double counting.
 - Keep the cold-wallet guide in a dedicated lazy-loaded public page linked from Settings and Wallet; documentation must distinguish external custody, local ledger records and peer sync rather than promise consensus.
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
