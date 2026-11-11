@@ -917,3 +917,6 @@ and let automated checks reveal faults without disturbing the people testing the
 After tending: the old wallet gates are removed, recorded holdings remain, and each owner sends
 directly with their own unchanged key. Seven hundred twelve checks pass; the separate UQRC scan
 still flags nineteen form, storage and audio findings outside this cleanup. No live mesh session was opened.
+
+## November 10, 2026 — Follow the water
+Before tending: connect receipts to actual vault trades and follow community shares into existing custody, without inventing balances or disturbing live peers.
