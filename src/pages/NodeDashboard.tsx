@@ -27,7 +27,6 @@ import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMo
 import { ConnectedPeersPanel } from '@/components/ConnectedPeersPanel';
 import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
 import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
-import { SwarmGatewayPanel } from '@/components/settings/SwarmGatewayPanel';
 
 const NodeDashboard = () => {
   const navigate = useNavigate();
@@ -232,7 +231,6 @@ const NodeDashboard = () => {
         />
 
         {/* User Cells — opt-in private meshes */}
-        <SwarmGatewayPanel />
         <UserCellsPanel />
 
         {/* Cell controls only mount when a cell is active */}
