@@ -24,3 +24,5 @@
 - [x] Simplify wallet: top shared slim network selector, compact asset actions, remove duplicate metrics and asset dropdown; 159 automated wallet checks pass, preview build clean; live testing left to users.
 
 - [x] Wire Market Vault payout receipts and mining, creator top-up, and Swap donation funding; retain pool identity, transfer top-up community custody, remove donation double debit. Automated verification only; live peer settlement and historical receipt reconstruction unverified.
+
+- [x] Wallet cleanup: retired credit wrapping panel, moved donations to Market tab (Support the Vault above Network Activity), renamed Credits to Labor, removed MetaMask Swarm Cell from Nodes

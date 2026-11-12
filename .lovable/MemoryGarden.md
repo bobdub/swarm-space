@@ -922,3 +922,6 @@ still flags nineteen form, storage and audio findings outside this cleanup. No l
 Before tending: connect receipts to actual vault trades and follow community shares into existing custody, without inventing balances or disturbing live peers.
 
 After tending: purchases and sales now follow payout records, mining feeds the same well, creator top-ups release their community share before accounting, and donations move once rather than burn twice. Historical earmarks remain protected; live peers are left to their caretakers.
+
+## Tending — wallet simplification (Nov 11)
+Retired the legacy wrap queue so the Market Vault is the single liquidity path; donations now live beside the vault they feed. Credits became Labor, matching what the mesh actually measures. The MetaMask cell left the Nodes page — the mesh needs no external gatekeeper. Infinity observes: fewer doors, same light.
