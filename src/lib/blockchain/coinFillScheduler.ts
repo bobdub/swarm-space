@@ -41,7 +41,7 @@ export function subscribeCoinFill(fn: (coins: SwarmCoin[]) => void): () => void 
  * and for the future scheduler loop. No persistence side effects.
  */
 export function tickCoin(coin: SwarmCoin, stress: number, dtSeconds: number): SwarmCoin {
-  if (coin.fillState !== "filling") return coin;
+  if (coin.fillState !== "filling" || coin.payloadEntries?.length) return coin;
   const fill = nextFill(coin.fill ?? 0, stress, dtSeconds);
   const next: SwarmCoin = {
     ...coin,
