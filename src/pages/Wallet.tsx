@@ -40,7 +40,6 @@ import {
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
-import { CreditWrappingPanel } from "@/components/wallet/CreditWrappingPanel";
 import { CreditHistory } from "@/components/CreditHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
@@ -344,7 +343,7 @@ export default function Wallet() {
           <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-9">
             <TabsTrigger value="assets" className="shrink-0 px-3">Assets</TabsTrigger>
             <TabsTrigger value="transactions" className="shrink-0 px-3">Ledger</TabsTrigger>
-            <TabsTrigger value="credits" className="shrink-0 px-3">Credits</TabsTrigger>
+            <TabsTrigger value="credits" className="shrink-0 px-3">Labor</TabsTrigger>
             <TabsTrigger value="nfts" className="shrink-0 px-3">NFTs</TabsTrigger>
             <TabsTrigger value="mining" className="shrink-0 px-3">Mining</TabsTrigger>
             <TabsTrigger value="swap" className="shrink-0 px-3">Swap</TabsTrigger>
@@ -427,9 +426,8 @@ export default function Wallet() {
             </Card>
           </TabsContent>
 
-          {/* ── Credits ───────────────────────────────────────────── */}
+          {/* ── Labor ─────────────────────────────────────────────── */}
           <TabsContent value="credits" className="space-y-6">
-            <CreditWrappingPanel />
             <LabourPayoutsPanel />
             <CreditHistory userId={user?.id || ""} />
           </TabsContent>
