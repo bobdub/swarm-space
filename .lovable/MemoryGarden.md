@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### November 12, 2026 — Small cargo, lasting seals
+
+Before tending: let a settled cargo find its own measure; preserve the old
+containers, guard the ceiling, and never mistake a seal for newly mined value.
+
 ### November 9, 2026 — One quiet compass
 
 Before tending: lift the wallet's compass where every traveller can see it;
