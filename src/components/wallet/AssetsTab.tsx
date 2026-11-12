@@ -78,7 +78,7 @@ export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
 
   const rows = [
     { code: "SWARM", label: "SWARM", amount: swarm, digits: 2 },
-    { code: "CREDIT", label: "Credits", amount: credits, digits: 2 },
+    { code: "CREDIT", label: "Labor", amount: credits, digits: 2 },
     { code: "MINTME", label: "MintMe", amount: mintme, digits: 4 },
     { code: "ETH", label: "ETH", amount: bridge.ETH + getChainEthBalance(userId), digits: 6 },
     { code: "BTC", label: "BTC", amount: bridge.BTC, digits: 6 },
@@ -200,7 +200,7 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
     return (
       <div className={cls}>
         <ReceiveDialog label={label} userId={userId} />
-        <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Credits" amount={amount} /></span>
+        <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={TRANSFER_ASSET_ID.CREDIT} assetLabel="Labor" amount={amount} /></span>
         {hideButton}
       </div>
     );
