@@ -5,16 +5,17 @@
  * A piece of content is "loaded" once it carries `_coinId`; anything without
  * it (including legacy content) is simply waiting for a container. When the
  * author holds a hollow or currently-payloading coin, unloaded content is
- * measured, appended to that coin, and flipped. At ≥ 89% of the 1 GiB
- * capacity the coin seals with a Creator Proof tag. No hollow coin → nothing
+ * measured, appended to that coin, and flipped. Settled cargo seals at its
+ * natural tier; 1 GiB remains the hard ceiling. No hollow coin → nothing
  * flips, posting is never blocked, and the next mined coin picks it up.
  */
 import { getAll, put } from "../store";
 import { applySeal } from "./coinFill";
 import type { SwarmCoin } from "./types";
+import { canSealEngraving, ENGRAVING_CAPACITY_BYTES } from "./engravingTiers";
 
-export const COIN_PAYLOAD_CAPACITY_BYTES = 1024 * 1024 * 1024;
-export const COIN_PAYLOAD_SEAL_RATIO = 0.89;
+export const COIN_PAYLOAD_CAPACITY_BYTES = ENGRAVING_CAPACITY_BYTES;
+export const COIN_PAYLOAD_SEAL_RATIO = 1;
 export const COIN_PAYLOAD_SEAL_BYTES = Math.ceil(COIN_PAYLOAD_CAPACITY_BYTES * COIN_PAYLOAD_SEAL_RATIO);
 
 type PayloadStore = "posts" | "comments";
@@ -35,19 +36,60 @@ async function sha256Hex(text: string): Promise<string> {
 function isOpenContainer(coin: SwarmCoin, userId: string): boolean {
   return coin.ownerId === userId && coin.status === "wallet" && coin.kind !== "media" && !coin.locked
     && (coin.fillState === undefined || coin.fillState === "filling")
+    && !coin.vaultAddress && !coin.firstArtifactNftId && (coin.wrappedChemicals?.length ?? 0) === 0
     && (coin.wrappedTokens?.length ?? 0) === 0 && !coin.wrappedChat;
 }
 
 const running = new Map<string, Promise<number>>();
 
-/** Load the author's unflipped content into open containers. Returns items flipped. */
-export function packLocalContent(userId: string): Promise<number> {
-  const active = running.get(userId);
-  if (active) return active;
-  const work = pack(userId).catch((err) => { console.warn("[contentPayload] pack failed", err); return 0; })
-    .finally(() => running.delete(userId));
+function serialize(userId: string, task: () => Promise<number>): Promise<number> {
+  const previous = running.get(userId) ?? Promise.resolve(0);
+  const work = previous.catch(() => 0).then(() => {
+    if (typeof navigator !== "undefined" && navigator.locks) {
+      return navigator.locks.request(`engraving:${userId}`, task);
+    }
+    return task();
+  }).finally(() => { if (running.get(userId) === work) running.delete(userId); });
   running.set(userId, work);
   return work;
+}
+
+function notify(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("coin-engraving-update"));
+}
+
+async function sealPayload(coin: SwarmCoin): Promise<SwarmCoin> {
+  const merkleRoot = await sha256Hex((coin.payloadEntries ?? []).map((e) => e.hash).join(""));
+  const next = applySeal(coin);
+  if (next.creatorProof) next.creatorProof = { ...next.creatorProof, merkleRoot };
+  return next;
+}
+
+export async function getCurrentEngraving(userId: string): Promise<SwarmCoin | null> {
+  const coins = (await getAll<SwarmCoin>("swarmCoins")).filter((c) => isOpenContainer(c, userId));
+  return coins.sort((a, b) => (b.sealBytes ?? 0) - (a.sealBytes ?? 0))[0] ?? null;
+}
+
+/** Same serialized writer for manual sealing, idle sealing and appends. */
+export function sealLocalContent(userId: string, mode: "manual" | "idle", coinId?: string, now = Date.now()): Promise<number> {
+  return serialize(userId, async () => {
+    if (!userId) return 0;
+    const coins = await getAll<SwarmCoin>("swarmCoins");
+    let sealed = 0;
+    for (const coin of coins) {
+      if (!isOpenContainer(coin, userId) || (coinId && coin.coinId !== coinId)) continue;
+      if (!canSealEngraving(coin, mode, now)) continue;
+      await put("swarmCoins", await sealPayload(coin));
+      sealed++;
+    }
+    if (sealed) notify();
+    return sealed;
+  });
+}
+
+/** Load the author's unflipped content into open containers. Returns items flipped. */
+export function packLocalContent(userId: string): Promise<number> {
+  return serialize(userId, () => pack(userId)).catch((err) => { console.warn("[contentPayload] pack failed", err); return 0; });
 }
 
 async function pack(userId: string): Promise<number> {
@@ -69,23 +111,31 @@ async function pack(userId: string): Promise<number> {
   for (const { store, item } of pending) {
     if (!coin) break;
     const bytes = measureContentBytes(item);
+    if (!Number.isFinite(bytes) || bytes > COIN_PAYLOAD_CAPACITY_BYTES) continue;
+    // Never truncate an entry or exceed capacity: find a container that fits.
+    if ((coin.sealBytes ?? 0) + bytes > COIN_PAYLOAD_CAPACITY_BYTES) {
+      const index = coins.findIndex((c) => (c.sealBytes ?? 0) + bytes <= COIN_PAYLOAD_CAPACITY_BYTES);
+      if (index < 0) continue;
+      const [fitting] = coins.splice(index, 1);
+      coins.push(coin);
+      coin = fitting;
+      if (!coin) continue;
+    }
     const hash = await sha256Hex(JSON.stringify({ ...item, _coinId: undefined }));
     const entryType: "post" | "comment" = store === "posts" ? "post" : "comment";
     const entries = [...(coin.payloadEntries ?? []), { id: item.id, type: entryType, sizeBytes: bytes, hash }];
     let next: SwarmCoin = {
       ...coin, fillState: "filling", payloadEntries: entries,
       sealBytes: (coin.sealBytes ?? 0) + bytes,
+      lastPayloadLoadAt: new Date().toISOString(),
     };
-    next.fill = Math.min(1, next.sealBytes! / COIN_PAYLOAD_SEAL_BYTES);
-    if (next.sealBytes! >= COIN_PAYLOAD_SEAL_BYTES) {
-      const merkleRoot = await sha256Hex(entries.map((e) => e.hash).join(""));
-      next = applySeal(next);
-      next.creatorProof = { ...next.creatorProof!, payloadBytes: next.sealBytes, merkleRoot };
-    }
+    next.fill = Math.min(1, (next.sealBytes ?? 0) / COIN_PAYLOAD_CAPACITY_BYTES);
+    if ((next.sealBytes ?? 0) >= COIN_PAYLOAD_CAPACITY_BYTES) next = await sealPayload(next);
     await put("swarmCoins", next);
     await put(store, { ...item, _coinId: next.coinId });
     flipped += 1;
     coin = next.fillState === "sealed" ? coins.shift() : next;
   }
+  if (flipped) notify();
   return flipped;
 }

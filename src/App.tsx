@@ -35,6 +35,7 @@ import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLaye
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
 import { MintMeMiningService } from "@/components/wallet/MintMeMiningService";
+import { CoinEngravingService } from "@/components/wallet/CoinEngravingService";
 import { PreviewBanner } from "@/components/PreviewBanner";
 import { useStreaming } from "@/hooks/useStreaming";
 import { useState } from "react";
@@ -157,6 +158,7 @@ function AppContent() {
       <TokenRecoveryBoot />
       <NodeDashboardEventBridge />
       <MintMeMiningService />
+      <CoinEngravingService />
       <BrainChunkPreloader />
       <BrainInviteConnection />
 

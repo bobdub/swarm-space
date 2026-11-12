@@ -5,6 +5,7 @@
  * the tag are treated as ordinary SWARM (no inference from old fields).
  */
 import type { SwarmCoin } from "./types";
+import { engravingTier, ENGRAVING_CAPACITY_BYTES, type EngravingTier } from "./engravingTiers";
 
 export const CREATOR_PROOF_VERSION = 1 as const;
 export const WEIGHTED_COIN_LABEL = "SWARM CREATOR proof weighted coin";
@@ -14,6 +15,8 @@ export interface CreatorProofTag {
   sealedAt: string;
   payloadBytes?: number;
   merkleRoot?: string;
+  tier?: EngravingTier;
+  capacityBytes?: number;
 }
 
 export type CoinAssetClass = "swarm-hollow" | "swarm-weighted";
@@ -23,6 +26,9 @@ export function stampCreatorProof<T extends Partial<SwarmCoin>>(coin: T, sealedA
     version: CREATOR_PROOF_VERSION,
     sealedAt,
     payloadBytes: coin.sealBytes,
+    ...(coin.sealBytes !== undefined ? {
+      tier: engravingTier(coin.sealBytes), capacityBytes: ENGRAVING_CAPACITY_BYTES,
+    } : {}),
   };
   return { ...coin, creatorProof: tag };
 }

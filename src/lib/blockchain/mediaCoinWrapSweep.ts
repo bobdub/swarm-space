@@ -55,6 +55,8 @@ async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
         (c.wrappedChemicals?.length ?? 0) === 0 &&
         !c.firstArtifactNftId &&
         !c.wrappedChat &&
+        (c.payloadEntries?.length ?? 0) === 0 &&
+        (c.sealBytes ?? 0) === 0 &&
         (c.weight ?? 0) <= 0,
     );
     usable.sort((a, b) => (a.wrappedTokens?.length ?? 0) - (b.wrappedTokens?.length ?? 0));
