@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { getCurrentUser } from "@/lib/auth";
 import { getMarketVaultHistory, type VaultTradeReceipt } from "@/lib/blockchain/marketVaultHistory";
 import { MarketVaultPanel } from "./MarketVaultPanel";
+import { VaultDonationCard } from "./VaultDonationCard";
 
 export function CoinMarketTab() {
   const userId = getCurrentUser()?.id ?? "";
@@ -31,6 +32,7 @@ export function CoinMarketTab() {
         <TabsContent value="buys"><Receipts trades={purchases} empty="You haven’t bought anything yet." /></TabsContent>
         <TabsContent value="sales"><Receipts trades={sales} empty="You haven’t sold anything yet." /></TabsContent>
       </Tabs>
+      <VaultDonationCard />
     </div>
   );
 }
