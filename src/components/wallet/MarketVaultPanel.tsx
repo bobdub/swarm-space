@@ -81,7 +81,7 @@ export function MarketVaultPanel() {
     setBusy(true);
     try {
       const done = await buySwarmFromVault(user.id, quote.swarm);
-      toast.success(`Bought ${fmt(done.swarm)} SWARM for ${done.credits} Credits`);
+      toast.success(`Bought ${fmt(done.swarm)} SWARM for ${done.credits} Labor`);
       setAmount("");
       refreshCredits();
       load();
@@ -107,7 +107,7 @@ export function MarketVaultPanel() {
           <Stat label="Vault (pool)" value={layers ? `${fmt(layers.pool, 2)} SWARM` : "—"} />
           <Stat label="Protected floor" value={layers ? `${fmt(layers.floor, 2)} SWARM` : "—"} icon />
           <Stat label="Liquid to trade" value={layers ? `${fmt(layers.liquid, 2)} SWARM` : "—"} />
-          <Stat label="Spot price" value={state ? `${fmt(spotCreditsPerSwarm(state), 1)} Credits` : "—"} />
+          <Stat label="Spot price" value={state ? `${fmt(spotCreditsPerSwarm(state), 1)} Labor` : "—"} />
         </div>
 
         <Tabs defaultValue="buy">
@@ -138,8 +138,8 @@ export function MarketVaultPanel() {
             </div>
             {payment?.kind === "credits" && quote && quote.swarm > 0 && (
               <div className="rounded-md border bg-muted/40 p-2 text-xs space-y-0.5">
-                <Row k="Cost" v={`${quote.credits.toLocaleString()} Credits`} />
-                <Row k="Average price" v={`${fmt(quote.avgCreditsPerSwarm, 2)} Credits / SWARM`} />
+                <Row k="Cost" v={`${quote.credits.toLocaleString()} Labor`} />
+                <Row k="Average price" v={`${fmt(quote.avgCreditsPerSwarm, 2)} Labor / SWARM`} />
                 {quote.error && <p className="pt-1 text-destructive">{quote.error}</p>}
               </div>
             )}
