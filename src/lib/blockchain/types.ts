@@ -443,7 +443,8 @@ export interface SwarmCoin {
   /** ISO timestamp at which the coin crystallized (fill ≥ 1, immutable). */
   sealedAt?: string;
   /** Explicit Creator Proof tag stamped at seal; only tagged coins are weighted. */
-  creatorProof?: { version: 1; sealedAt: string; payloadBytes?: number; merkleRoot?: string };
+  creatorProof?: { version: 1; sealedAt: string; payloadBytes?: number; merkleRoot?: string;
+    tier?: "basic" | "rare" | "legendary"; capacityBytes?: number };
   /** Crafted chemical payload — atoms condensed into the coin via the Forge. */
   wrappedChemicals?: { symbol: string; count: number }[];
   /** Sealed chat transcript — wrapped by "Save History" in Brain chat. */
@@ -457,6 +458,8 @@ export interface SwarmCoin {
   payloadEntries?: { id: string; type: "post" | "comment"; sizeBytes: number; hash: string }[];
   /** Media coin: bytes currently engraved into this container. */
   sealBytes?: number;
+  /** Last actual content append; idle sealing never resets this on reads. */
+  lastPayloadLoadAt?: string;
   /** Media coin: cap after which the coin auto-seals (~100 MiB). */
   mediaCapacityBytes?: number;
   /** Media coin: engraved delivery targets — filled on wrap. */
