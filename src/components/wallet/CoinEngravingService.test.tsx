@@ -1,4 +1,4 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CoinEngravingService } from "./CoinEngravingService";
 
@@ -10,23 +10,21 @@ vi.mock("@/lib/blockchain/contentPayload", () => ({ packLocalContent: state.pack
 beforeEach(() => { vi.clearAllMocks(); state.guest = false; state.pack.mockResolvedValue(0); state.seal.mockResolvedValue(0); });
 describe("app-wide engraving settling", () => {
   it("packs before checking idle seals and stops after unmount", async () => {
-    const view = render(<CoinEngravingService />);
-    await waitFor(() => expect(state.seal).toHaveBeenCalledWith("member", "idle"));
-    expect(state.pack.mock.invocationCallOrder[0]).toBeLessThan(state.seal.mock.invocationCallOrder[0]);
     vi.useFakeTimers();
+    const view = render(<CoinEngravingService />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(state.seal).toHaveBeenCalledWith("member", "idle");
+    expect(state.pack.mock.invocationCallOrder[0]).toBeLessThan(state.seal.mock.invocationCallOrder[0]);
     const before = state.seal.mock.calls.length;
-    await act(async () => { vi.advanceTimersByTime(15_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
     view.unmount();
     const after = state.seal.mock.calls.length;
-    await act(async () => { vi.advanceTimersByTime(30_000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(state.seal.mock.calls.length).toBe(after);
-    expect(after).toBeGreaterThanOrEqual(before);
+    expect(after).toBe(before + 1);
     vi.useRealTimers();
   });
   it("never loads or seals guest-owned data", async () => {
-    const view = render(<CoinEngravingService />);
-    view.unmount();
-    vi.clearAllMocks();
     state.guest = true;
     const guest = render(<CoinEngravingService />);
     await act(async () => { await Promise.resolve(); });
