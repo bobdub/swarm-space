@@ -5,7 +5,7 @@ import { CoinEngravingService } from "./CoinEngravingService";
 const state = vi.hoisted(() => ({ guest: false, pack: vi.fn(), seal: vi.fn() }));
 vi.mock("@/hooks/useAuth", () => ({ useAuth: () => ({ user: { id: "member", _guest: state.guest } }) }));
 vi.mock("@/lib/preview/guestAccess", () => ({ isGuestUser: (u: { _guest?: boolean }) => !!u._guest }));
-vi.mock("@/lib/blockchain/contentPayload", () => ({ packLocalContent: state.pack, sealLocalContent: state.seal }));
+vi.mock("@/lib/blockchain/contentPayload", () => ({ ensureEngravingCoin: async () => null, packLocalContent: state.pack, sealLocalContent: state.seal }));
 
 beforeEach(() => { vi.clearAllMocks(); state.guest = false; state.pack.mockResolvedValue(0); state.seal.mockResolvedValue(0); });
 describe("app-wide engraving settling", () => {
