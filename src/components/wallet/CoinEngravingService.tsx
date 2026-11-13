@@ -13,7 +13,9 @@ export function CoinEngravingService() {
       if (stopped || checking) return;
       checking = true;
       try {
-        const { packLocalContent, sealLocalContent } = await import("@/lib/blockchain/contentPayload");
+        const { ensureEngravingCoin, packLocalContent, sealLocalContent } = await import("@/lib/blockchain/contentPayload");
+        if (stopped) return;
+        await ensureEngravingCoin(user.id);
         if (stopped) return;
         await packLocalContent(user.id);
         if (!stopped) await sealLocalContent(user.id, "idle");

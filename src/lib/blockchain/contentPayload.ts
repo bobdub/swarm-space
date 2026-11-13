@@ -65,9 +65,25 @@ async function sealPayload(coin: SwarmCoin): Promise<SwarmCoin> {
   return next;
 }
 
-export async function getCurrentEngraving(userId: string): Promise<SwarmCoin | null> {
+async function findOpen(userId: string): Promise<SwarmCoin | null> {
   const coins = (await getAll<SwarmCoin>("swarmCoins")).filter((c) => isOpenContainer(c, userId));
   return coins.sort((a, b) => (b.sealBytes ?? 0) - (a.sealBytes ?? 0))[0] ?? null;
+}
+
+/** Ensure a hollow mined coin is ready for engraving; hydrates one from mined SWARM when none is open. */
+export async function ensureEngravingCoin(userId: string): Promise<SwarmCoin | null> {
+  if (!userId) return null;
+  const open = await findOpen(userId);
+  if (open) return open;
+  try {
+    const { hydrateMinedWalletCoins } = await import("./minedWalletCoins");
+    if (await hydrateMinedWalletCoins(userId, 1)) notify();
+  } catch (err) { console.warn("[contentPayload] hydrate failed", err); }
+  return findOpen(userId);
+}
+
+export async function getCurrentEngraving(userId: string): Promise<SwarmCoin | null> {
+  return ensureEngravingCoin(userId);
 }
 
 /** Same serialized writer for manual sealing, idle sealing and appends. */
@@ -88,6 +104,10 @@ export function sealLocalContent(userId: string, mode: "manual" | "idle", coinId
       sealed++;
     }
     if (sealed) notify();
+    return sealed;
+  }).then(async (sealed) => {
+    // Once sealed, the next hollow mined coin takes over engraving.
+    if (sealed) await ensureEngravingCoin(userId);
     return sealed;
   });
 }
