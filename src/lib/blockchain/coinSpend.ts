@@ -7,6 +7,7 @@
  * existing wallet send path lands in the follow-up patch.
  */
 import type { SwarmCoin } from "./types";
+import { isWeightedCoin } from "./weightedCoin";
 
 export type SpendBlockedReason =
   | "unbound"
@@ -19,6 +20,7 @@ export function isSpendable(coin: SwarmCoin): boolean {
   // Vault Transfer Protocol: a coin engraved into a vault is a permanent
   // archival record. It can never be spent, transferred, or withdrawn.
   if (isVaultLocked(coin)) return false;
+  if (isWeightedCoin(coin) && coin.payloadEntries?.length) return true;
   if (!coin.firstArtifactNftId) {
     // Legacy coins with no lifecycle metadata fall back to the old
     // `status === 'wallet'` rule so we don't break existing balances.

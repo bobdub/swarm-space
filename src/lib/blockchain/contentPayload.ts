@@ -78,6 +78,11 @@ export function sealLocalContent(userId: string, mode: "manual" | "idle", coinId
     let sealed = 0;
     for (const coin of coins) {
       if (!isOpenContainer(coin, userId) || (coinId && coin.coinId !== coinId)) continue;
+      // Historical partial loads get a fresh settling window, without replay.
+      if (mode === "idle" && coin.payloadEntries?.length && !coin.lastPayloadLoadAt) {
+        await put("swarmCoins", { ...coin, lastPayloadLoadAt: new Date(now).toISOString() });
+        continue;
+      }
       if (!canSealEngraving(coin, mode, now)) continue;
       await put("swarmCoins", await sealPayload(coin));
       sealed++;
