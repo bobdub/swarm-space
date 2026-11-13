@@ -17,6 +17,7 @@
  */
 import type { SwarmCoin } from "./types";
 import { stampCreatorProof } from "./weightedCoin";
+import { ENGRAVING_CAPACITY_BYTES } from "./engravingTiers";
 
 /** Stabilization knee — fill rate softens past this fraction. */
 export const COIN_FILL_KNEE = 0.8;
@@ -56,5 +57,8 @@ export function isSealable(coin: Pick<SwarmCoin, "fill" | "fillState">): boolean
 
 /** Apply seal — pure transform; persistence is the scheduler's job. */
 export function applySeal<T extends Partial<SwarmCoin>>(coin: T, now: string = new Date().toISOString()): T {
-  return stampCreatorProof({ ...coin, fillState: "sealed", fill: 1, sealedAt: now }, now);
+  if (coin.fillState === "sealed" || coin.fillState === "spent") return coin;
+  return stampCreatorProof({ ...coin, fillState: "sealed",
+    fill: coin.payloadEntries?.length ? (coin.sealBytes ?? 0) / ENGRAVING_CAPACITY_BYTES : 1,
+    sealedAt: now }, now);
 }

@@ -5,6 +5,10 @@
 Before tending: let a settled cargo find its own measure; preserve the old
 containers, guard the ceiling, and never mistake a seal for newly mined value.
 
+After tending: small cargo keeps its true weight; the idle clock follows actual
+loads and the manual stamp shares one writer. Old seals remain intact, and
+automated checks guard the crossing without disturbing live travellers.
+
 ### November 9, 2026 — One quiet compass
 
 Before tending: lift the wallet's compass where every traveller can see it;

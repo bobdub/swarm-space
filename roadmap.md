@@ -26,4 +26,4 @@
 - [x] Wire Market Vault payout receipts and mining, creator top-up, and Swap donation funding; retain pool identity, transfer top-up community custody, remove donation double debit. Automated verification only; live peer settlement and historical receipt reconstruction unverified.
 
 - [x] Wallet cleanup: retired credit wrapping panel, moved donations to Market tab (Support the Vault above Network Activity), renamed Credits to Labor, removed MetaMask Swarm Cell from Nodes
-- [ ] Add idle engraving tiers, backward-compatible seal metadata, and Labor manual sealing from 1 MB; verify with automated tests.
+- [x] Add idle engraving tiers, backward-compatible seal metadata, and Labor manual sealing from 1 MB; automated tests cover bounds, settling, capacity, ownership, duplicates and concurrent appends. Live testing left to users.

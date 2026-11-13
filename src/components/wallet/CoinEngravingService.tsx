@@ -1,11 +1,12 @@
 import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { isGuestUser } from "@/lib/preview/guestAccess";
 
 /** Quiet app-wide check: navigation never stops a coin's settling window. */
 export function CoinEngravingService() {
   const { user } = useAuth();
   useEffect(() => {
-    if (!user || user.id.startsWith("guest")) return;
+    if (!user || isGuestUser(user)) return;
     let stopped = false;
     let checking = false;
     const check = async () => {
