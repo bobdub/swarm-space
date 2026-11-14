@@ -609,7 +609,10 @@ export class StandaloneSwarmMesh {
 
   private subscribeGlobalCell(): void {
     if (!this.inviteKnockUnsub) {
-      try { this.inviteKnockUnsub = getGlobalCell().onInviteKnock(id => this.handleIncomingInviteKnock(id)); } catch { /* ignore */ }
+      this.inviteKnockUnsub = () => {};
+      void import('./globalCell').then(({ getGlobalCell }) => {
+        this.inviteKnockUnsub = getGlobalCell().onInviteKnock(id => this.handleIncomingInviteKnock(id));
+      }).catch(() => { this.inviteKnockUnsub = null; });
     }
     if (this.globalCellChannel) return;
     try {
@@ -2256,7 +2259,7 @@ export class StandaloneSwarmMesh {
     this.addToLibrary(remotePeerId, 'manual');
     this.pulseGlobalPresence('manual-dial');
     // Trip 1: knock so the target dials back at the same time (two-way punch).
-    try { getGlobalCell().sendInviteKnock(remotePeerId); } catch { /* ignore */ }
+    void import('./globalCell').then(({ getGlobalCell }) => getGlobalCell().sendInviteKnock(remotePeerId)).catch(() => {});
 
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
