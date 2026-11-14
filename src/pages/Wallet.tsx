@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
+import { SealedCoinsHistory } from "@/components/wallet/SealedCoinsHistory";
 import { CreditHistory } from "@/components/CreditHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
@@ -430,6 +431,7 @@ export default function Wallet() {
           {/* ── Labor ─────────────────────────────────────────────── */}
           <TabsContent value="credits" className="space-y-6">
             <CoinEngravingControl userId={user?.id || ""} />
+            <SealedCoinsHistory userId={user?.id || ""} />
             <LabourPayoutsPanel />
             <CreditHistory userId={user?.id || ""} />
           </TabsContent>

@@ -70,17 +70,16 @@ describe('chatCoinWrap', () => {
     expect((await getChatHistoryCoins(USER))[0]?.wrappedChat?.messages[0]?.text).toBe('saved');
   });
 
-  it('does not create a coin from non-mining balance', async () => {
+  it('creates a hollow coin from received (non-mined) wallet balance', async () => {
     ledger.balance = 100;
-    ledger.transactions = [{ id: 'gift', type: 'token_mint', to: USER, amount: 100, timestamp: '2026-10-19T00:00:00Z' }];
-    expect(await canWrapChatHistory(USER)).toBe(false);
-    expect(s('swarmCoins').size).toBe(0);
+    ledger.transactions = [{ id: 'gift', type: 'transfer', to: USER, amount: 100, timestamp: '2026-10-19T00:00:00Z' }];
+    expect(await canWrapChatHistory(USER)).toBe(true);
+    expect(s('swarmCoins').size).toBe(1);
   });
 
-  it('does not recreate a vaulted mining coin or spent mining balance', async () => {
+  it('does not create coins beyond the wallet balance', async () => {
     ledger.balance = 1;
-    ledger.transactions = [{ id: 'reward', type: 'mining_reward', to: USER, amount: 1, timestamp: '2026-10-19T00:00:00Z' }];
-    await put('swarmCoins', makeCoin({ coinId: `mined:${USER}:0`, ownerId: 'vault', status: 'vaulted', locked: true }));
+    await put('swarmCoins', makeCoin({ coinId: 'held', locked: true }));
     expect(await canWrapChatHistory(USER)).toBe(false);
     stores.clear();
     ledger.balance = 0;

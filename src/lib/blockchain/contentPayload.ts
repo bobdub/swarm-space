@@ -70,7 +70,7 @@ async function findOpen(userId: string): Promise<SwarmCoin | null> {
   return coins.sort((a, b) => (b.sealBytes ?? 0) - (a.sealBytes ?? 0))[0] ?? null;
 }
 
-/** Ensure a hollow mined coin is ready for engraving; hydrates one from mined SWARM when none is open. */
+/** Ensure a hollow wallet coin is ready for engraving; hydrates one from wallet SWARM when none is open. */
 export async function ensureEngravingCoin(userId: string): Promise<SwarmCoin | null> {
   if (!userId) return null;
   const open = await findOpen(userId);
