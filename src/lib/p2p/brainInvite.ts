@@ -14,7 +14,7 @@ let lastAttemptAt = 0;
 // Cold private-tab joins need warm-up: guest key provisioning, signaling and
 // ICE can outlast a single dial. Knock a few times before giving up.
 const MAX_ATTEMPTS = 4;
-const REDIAL_INTERVAL_MS = 10_000;
+const REDIAL_INTERVAL_MS = 12_000;
 const UNAVAILABLE_AFTER_MS = 60_000;
 const listeners = new Set<() => void>();
 const publish = (next: BrainInviteState) => {
