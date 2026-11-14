@@ -79,7 +79,7 @@ describe('chatCoinWrap', () => {
 
   it('does not create coins beyond the wallet balance', async () => {
     ledger.balance = 1;
-    await put('swarmCoins', makeCoin({ coinId: 'held', fillState: 'sealed' }));
+    await put('swarmCoins', makeCoin({ coinId: 'held', locked: true }));
     expect(await canWrapChatHistory(USER)).toBe(false);
     stores.clear();
     ledger.balance = 0;
