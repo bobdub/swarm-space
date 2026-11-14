@@ -66,16 +66,16 @@ describe('Brain invite rules', () => {
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(1);
       // After the re-dial interval, the invite knocks again on its own.
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(12_000);
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(2);
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(12_000);
       dialBrainInviteFirst(options);
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(12_000);
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(4);
       // Cap reached — no further automatic dials.
-      vi.advanceTimersByTime(10_000);
+      vi.advanceTimersByTime(12_000);
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(4);
     } finally {
