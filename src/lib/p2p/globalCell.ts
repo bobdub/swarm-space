@@ -191,6 +191,22 @@ type GatewayPeersListener = (peers: GatewayPeerInfo[]) => void;
 
 let instance: GlobalCell | null = null;
 
+export const INVITE_KNOCK_TTL_MS = 30_000;
+/** Knocks are addressed, fresh (≤30s) and deduplicated so relays cannot replay them. */
+export function acceptInviteKnock(
+  k: { id?: string; from?: string; to?: string; at?: number } | null | undefined,
+  selfId: string | null,
+  seen: Map<string, number>,
+  nowTs: number,
+): boolean {
+  if (!k || !selfId || k.to !== selfId || !k.id || typeof k.from !== 'string' || !k.from.startsWith('peer-') || k.from === selfId) return false;
+  if (typeof k.at !== 'number' || nowTs - k.at > INVITE_KNOCK_TTL_MS || k.at - nowTs > INVITE_KNOCK_TTL_MS) return false;
+  for (const [id, at] of seen) if (nowTs - at > INVITE_KNOCK_TTL_MS) seen.delete(id);
+  if (seen.has(k.id)) return false;
+  seen.set(k.id, nowTs);
+  return true;
+}
+
 export function getGlobalCell(): GlobalCell {
   if (!instance) instance = new GlobalCell();
   return instance;
@@ -208,6 +224,26 @@ class GlobalCell {
   private emitChannel: BroadcastChannel | null = null;
   private beaconChannel: BroadcastChannel | null = null;
   private gunAdapter: any = null;
+  private knockListeners = new Set<(callerPeerId: string) => void>();
+  private seenKnocks = new Map<string, number>();
+
+  /** Ask a target peer to dial us back so both sides punch simultaneously. */
+  sendInviteKnock(targetPeerId: string): boolean {
+    if (!this.localPeerId || !targetPeerId || targetPeerId === this.localPeerId || !this.gunAdapter) return false;
+    const knock = { id: `${this.localPeerId}:${targetPeerId}:${Date.now()}`, from: this.localPeerId, to: targetPeerId, at: Date.now() };
+    try { this.gunAdapter.broadcastToAll('invite-knock', knock); return true; } catch { return false; }
+  }
+
+  onInviteKnock(fn: (callerPeerId: string) => void): () => void {
+    this.knockListeners.add(fn);
+    return () => { this.knockListeners.delete(fn); };
+  }
+
+  private handleInviteKnock(payload: unknown): void {
+    const k = payload as { id?: string; from?: string; to?: string; at?: number };
+    if (!acceptInviteKnock(k, this.localPeerId, this.seenKnocks, Date.now())) return;
+    this.knockListeners.forEach(fn => { try { fn(k.from!); } catch { /* ignore */ } });
+  }
   private localPeerId: string | null = null;
   private lastBeaconAt = 0;
   private currentBeaconInterval = GLOBAL_CELL_BEACON_INTERVAL;
@@ -461,6 +497,8 @@ class GlobalCell {
           this.recordPresence(beacon);
         }
       });
+
+      this.gunAdapter.onMessage('invite-knock', (_from: string, payload: unknown) => this.handleInviteKnock(payload));
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
       this.announcePresence();

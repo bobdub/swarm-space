@@ -332,6 +332,17 @@ function clearRetryExhausted(manifestId: string): void {
 const DEFAULT_ICE: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  // Public community relays: fallback only, so carrier NAT (mobile) pairs
+  // that cannot hole-punch still connect. STUN stays first for direct paths.
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
 
 const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = [
@@ -585,7 +596,21 @@ export class StandaloneSwarmMesh {
 
   private globalCellDialCooldowns = new Map<string, number>();
 
+  private inviteKnockUnsub: (() => void) | null = null;
+
+  /** A peer knocked: remember them and dial back through the backoff-respecting Bus path. */
+  private handleIncomingInviteKnock(callerPeerId: string): void {
+    if (this.blockedPeers.has(callerPeerId) || this.connections.has(callerPeerId)) return;
+    this.addToLibrary(callerPeerId, 'manual');
+    this.clearHandshakeFailures(callerPeerId);
+    this.peerCooldowns.delete(callerPeerId);
+    this.dialViaBus(callerPeerId);
+  }
+
   private subscribeGlobalCell(): void {
+    if (!this.inviteKnockUnsub) {
+      try { this.inviteKnockUnsub = getGlobalCell().onInviteKnock(id => this.handleIncomingInviteKnock(id)); } catch { /* ignore */ }
+    }
     if (this.globalCellChannel) return;
     try {
       this.globalCellChannel = new BroadcastChannel('global-cell-peers');
@@ -2230,6 +2255,8 @@ export class StandaloneSwarmMesh {
     // arbitrate/accept instead of colliding with a simultaneous dial.
     this.addToLibrary(remotePeerId, 'manual');
     this.pulseGlobalPresence('manual-dial');
+    // Trip 1: knock so the target dials back at the same time (two-way punch).
+    try { getGlobalCell().sendInviteKnock(remotePeerId); } catch { /* ignore */ }
 
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
