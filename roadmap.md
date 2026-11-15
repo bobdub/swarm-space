@@ -27,4 +27,4 @@
 
 - [x] Wallet cleanup: retired credit wrapping panel, moved donations to Market tab (Support the Vault above Network Activity), renamed Credits to Labor, removed MetaMask Swarm Cell from Nodes
 - [x] Add idle engraving tiers, backward-compatible seal metadata, and Labor manual sealing from 1 MB; automated tests cover bounds, settling, capacity, ownership, duplicates and concurrent appends. Live testing left to users.
-- [ ] Wire exchanged peer identities into online wallet picks and native address resolution; preserve local accounts and signing checks, and verify with automated tests only.
+- [x] Wire exchanged peer identities into online wallet picks and native address resolution in SWARM and Builder; preserve existing accounts and signing checks. 169 wallet + 43 peer/dashboard automated checks pass; live transfers left to users.
