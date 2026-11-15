@@ -8,6 +8,7 @@ type ExchangeHarness = {
   handleLibraryExchange: (from: string, message: Record<string, unknown>) => void;
   handleProfileExchange: (from: string, message: Record<string, unknown>) => void;
   getLocalProfile: () => Record<string, unknown>;
+  sendProfileExchange: (connection: { send: (data: string) => void }) => void;
   expandOnlineMesh: ReturnType<typeof vi.fn>;
   scheduleMeshExpansion: ReturnType<typeof vi.fn>;
 };
@@ -121,8 +122,34 @@ describe('isolated A–B–C contact library synchronization', () => {
   it('uses identity-local Guest Name rather than guest account username', () => {
     const a = createMesh('a', []);
     localStorage.setItem('me', JSON.stringify({ _guest: true, username: 'guest-internal-id', guestName: '  Guest Mike  ', profile: { avatarRef: 'guest-avatar' } }));
-    expect(a.harness.getLocalProfile()).toEqual({ username: undefined, displayName: 'Guest Mike', avatarRef: 'guest-avatar' });
+    expect(a.harness.getLocalProfile()).toEqual({ userId: undefined, username: undefined, displayName: 'Guest Mike', avatarRef: 'guest-avatar' });
     localStorage.setItem('me', JSON.stringify({ username: 'member-mike', profile: {} }));
     expect(a.harness.getLocalProfile().displayName).toBe('member-mike');
+  });
+
+  it('sends canonical member identity and excludes guest wallet identities', () => {
+    const a = createMesh('a', []);
+    const send = vi.fn();
+    localStorage.setItem('me', JSON.stringify({ id: 'member-id', username: 'Mike' }));
+    a.harness.sendProfileExchange({ send });
+    expect(JSON.parse(send.mock.calls[0][0]).userId).toBe('member-id');
+    localStorage.setItem('me', JSON.stringify({ id: 'guest-id', _guest: true, guestName: 'Guest' }));
+    a.harness.sendProfileExchange({ send });
+    expect(JSON.parse(send.mock.calls[1][0]).userId).toBeUndefined();
+  });
+
+  it('retains direct canonical identity through save, reload and active library exchange', () => {
+    const a = createMesh('a', [contact('peer-c')]);
+    a.harness.connections.set('peer-c', { open: true, send: vi.fn() });
+    const changes = vi.fn();
+    a.mesh.onLibraryChange(changes);
+    changes.mockClear();
+    a.harness.handleProfileExchange('peer-c', { userId: 'member-c', displayName: 'C' });
+    expect(a.mesh.getLibrary()[0].userId).toBe('member-c');
+    expect(changes).toHaveBeenCalled();
+    expect(new StandaloneSwarmMesh().getLibrary()[0].userId).toBe('member-c');
+    expect(a.harness.getActiveExchangePeers()[0].userId).toBe('member-c');
+    a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c', userId: 'wrong-id' }] });
+    expect(a.mesh.getLibrary()[0].userId).toBe('member-c');
   });
 });

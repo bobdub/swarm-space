@@ -49,9 +49,11 @@ export async function resolveNativeWalletRecipient(address: string): Promise<Use
   if (localUserId) {
     const connections = await getAll<Connection>("connections");
     for (const connection of connections) {
-      if (connection.status !== "connected" || connection.userId !== localUserId) continue;
-      if (await matches(connection.connectedUserId)) return hydrateNativeWalletPeer({
-        userId: connection.connectedUserId, displayName: connection.connectedUserName,
+      if (connection.status !== "connected") continue;
+      const remoteId = connection.userId === localUserId ? connection.connectedUserId :
+        connection.connectedUserId === localUserId ? connection.userId : undefined;
+      if (remoteId && await matches(remoteId)) return hydrateNativeWalletPeer({
+        userId: remoteId, displayName: connection.userId === localUserId ? connection.connectedUserName : undefined,
       });
     }
   }
