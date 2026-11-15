@@ -1899,24 +1899,27 @@ export function useP2P() {
     }
 
     const connState = loadConnectionState();
-    const mapPeers = (peers: Array<{ peerId: string; lastActivity: number; connectedAt: number; avgRttMs: number | null }>) => {
+    const mapPeers = (peers: Array<{ peerId: string; lastActivity: number; connectedAt: number; avgRttMs: number | null }>, library: Array<{ peerId: string; userId?: string; displayName?: string; username?: string; avatarRef?: string }>) => {
       const now = Date.now();
-      return peers.map<PeerConnectionDetail>((peer) => ({
+      return peers.map<PeerConnectionDetail>((peer) => {
+        const entry = library.find(contact => contact.peerId === peer.peerId);
+        return {
         peerId: peer.peerId,
-        userId: null,
+        userId: entry?.userId ?? null,
+        profile: entry ? { displayName: entry.displayName, username: entry.username, avatarUrl: entry.avatarRef } : undefined,
         status: (now - peer.lastActivity < 20_000) ? 'healthy' : (now - peer.lastActivity < 30_000) ? 'degraded' : 'stale',
         connectedAt: peer.connectedAt,
         lastActivity: peer.lastActivity,
         avgRttMs: peer.avgRttMs,
         lastSeenAt: peer.lastActivity,
-      }));
+      }; });
     };
 
     if (connState.mode === 'builder') {
-      return mapPeers(getStandaloneBuilderMode().getPeerDetails());
+      return mapPeers(getStandaloneBuilderMode().getPeerDetails(), getStandaloneBuilderMode().getLibrary());
     }
     if (connState.mode === 'swarm') {
-      return mapPeers(getSwarmMeshStandalone().getPeerDetails());
+      return mapPeers(getSwarmMeshStandalone().getPeerDetails(), getSwarmMeshStandalone().getLibrary());
     }
 
     return [];

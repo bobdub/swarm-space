@@ -125,6 +125,7 @@ export interface SwarmPeer {
 
 export interface LibraryPeer {
   peerId: string;
+  userId?: string;
   nodeId: string;
   alias: string;
   addedAt: number;
@@ -533,6 +534,7 @@ export class StandaloneSwarmMesh {
     peerId: string;
     source: ConnectionSource;
     trustScore: number;
+    userId?: string;
     lastSeenAt: number;
     preferred: boolean;
   }> {
@@ -2324,6 +2326,7 @@ export class StandaloneSwarmMesh {
           alias: entry?.alias ?? `Node ${nodeId.slice(0, 6)}`,
           lastSeenAt: activeSeenAt,
           trustScore: entry?.trustScore ?? 0.3,
+          userId: entry?.userId,
           username: entry?.username,
           displayName: entry?.displayName,
           avatarRef: entry?.avatarRef,
@@ -2346,7 +2349,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
@@ -2424,7 +2427,7 @@ export class StandaloneSwarmMesh {
       // without profile fields must not erase previously learned identity.
       const entry = this.library.get(rp.peerId);
       if (entry) {
-        for (const key of ['username', 'displayName', 'avatarRef'] as const) {
+        for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             entry[key] = value;
@@ -3322,12 +3325,13 @@ export class StandaloneSwarmMesh {
   // PROFILE EXCHANGE — peers share identity info on connect
   // ═══════════════════════════════════════════════════════════════════
 
-  private getLocalProfile(): { username?: string; displayName?: string; avatarRef?: string } {
+  private getLocalProfile(): { userId?: string; username?: string; displayName?: string; avatarRef?: string } {
     try {
       const raw = localStorage.getItem('me');
       if (!raw) return {};
       const user = JSON.parse(raw);
       return {
+        userId: user._guest === true ? undefined : typeof user.id === 'string' ? user.id : undefined,
         username: user._guest === true ? undefined : user.username || undefined,
         displayName: user._guest === true ? user.guestName?.trim() || 'Guest' : user.displayName || user.username || undefined,
         avatarRef: user.profile?.avatarRef || undefined,
@@ -3337,11 +3341,12 @@ export class StandaloneSwarmMesh {
 
   private sendProfileExchange(conn: import('peerjs').DataConnection): void {
     const profile = this.getLocalProfile();
-    if (!profile.username && !profile.displayName) return;
+    if (!profile.userId && !profile.username && !profile.displayName) return;
     try {
       conn.send(JSON.stringify({
         type: 'profile-exchange',
         from: this.peerId,
+        userId: profile.userId,
         username: profile.username,
         displayName: profile.displayName,
         avatarRef: profile.avatarRef,
@@ -3350,19 +3355,25 @@ export class StandaloneSwarmMesh {
   }
 
   private handleProfileExchange(fromPeerId: string, msg: Record<string, unknown>): void {
+    const userId = typeof msg.userId === 'string' && msg.userId.trim() ? msg.userId.trim() : undefined;
     const username = typeof msg.username === 'string' ? msg.username : undefined;
     const displayName = typeof msg.displayName === 'string' ? msg.displayName : undefined;
     const avatarRef = typeof msg.avatarRef === 'string' ? msg.avatarRef : undefined;
 
-    if (!username && !displayName) return;
+    if (!userId && !username && !displayName) return;
 
     const entry = this.library.get(fromPeerId);
     if (entry) {
+      entry.userId = userId;
       entry.username = username;
       entry.displayName = displayName;
       entry.avatarRef = avatarRef;
       if (displayName) entry.alias = displayName;
       this.saveLibrary();
+      this.emitPeers();
+      if (userId) void import('@/lib/blockchain/wallets/nativeAddress')
+        .then(({ hydrateNativeWalletPeer }) => hydrateNativeWalletPeer({ userId, username, displayName, avatarRef }))
+        .catch(() => { /* address resolution retries durable hydration */ });
       // Initial library exchange can precede profile arrival. Share the
       // updated active contact with other peers once its own identity arrives.
       if (this.toggles.libraryExchange) this.rebroadcastLibrary(fromPeerId);
