@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 15, 2026 — A name at the wallet doorway
+
+Before tending: carry the traveller's canonical identity with the live connection;
+keep local keys and account records safe, and let automated checks guard the crossing.
+
+After tending: both connection libraries carry member identity into wallet picks;
+native aliases resolve missing contacts without replacing account keys or balances.
+212 focused automated checks pass; live travellers keep their own testing.
+
 ### November 12, 2026 — Small cargo, lasting seals
 
 Before tending: let a settled cargo find its own measure; preserve the old
