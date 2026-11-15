@@ -1,7 +1,7 @@
 import { beforeEach, expect, vi, test } from "vitest";
 
 const recipient = vi.hoisted(() => ({ id: "aabbccddeeff0011", username: "native-recipient" }));
-const state = vi.hoisted(() => ({ users: new Map<string, Record<string, unknown>>(), swarm: [] as Array<{ peerId: string; userId?: string; displayName?: string }>, builder: [] as Array<{ peerId: string; userId?: string }>, connections: [] as Array<Record<string, unknown>>(), put: vi.fn() }));
+const state = vi.hoisted(() => ({ users: new Map<string, Record<string, unknown>>(), swarm: [] as Array<{ peerId: string; userId?: string; displayName?: string }>, builder: [] as Array<{ peerId: string; userId?: string }>, connections: [] as Array<Record<string, unknown>>, put: vi.fn() }));
 vi.mock("@/lib/store", () => ({
   get: async (_store: string, id: string) => state.users.get(id),
   getAll: async (store: string) => store === 'connections' ? state.connections : [...state.users.values()],
