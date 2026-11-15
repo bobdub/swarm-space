@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### November 15, 2026 — A name at the wallet doorway
+
+Before tending: carry the traveller's canonical identity with the live connection;
+keep local keys and account records safe, and let automated checks guard the crossing.
+
 ### November 12, 2026 — Small cargo, lasting seals
 
 Before tending: let a settled cargo find its own measure; preserve the old
