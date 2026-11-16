@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### November 16, 2026 — Names with their own roots
+
+Before tending: let shared names remain welcoming, while each mention keeps
+its intended traveller. Count time together locally, never mistake a short
+hash for collision-free identity, and leave the URL doorway undisturbed.
+
 ### November 15, 2026 — A name at the wallet doorway
 
 Before tending: carry the traveller's canonical identity with the live connection;
