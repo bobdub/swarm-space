@@ -880,6 +880,14 @@ export class P2PManager {
         if (raw) {
           const me = JSON.parse(raw) as { username?: string };
           if (me?.username) this.accountSkin.setLocalUsername(me.username);
+          void import('@/lib/blockchain/wallets/coldKey').then(async ({ getColdKeyReceivingAddress }) => {
+            const walletAddress = await getColdKeyReceivingAddress(this.localUserId);
+            const { namespaceIdentity } = await import('@/lib/uqrc/namespaceIdentity');
+            const identity = await namespaceIdentity(this.localUserId, walletAddress);
+            if (!this.peerId) return;
+            this.accountSkin.bindAccount(this.localUserId, this.peerId, { walletAddress, ...identity });
+            this.accountSkin.announceBinding();
+          }).catch(() => { /* no public cold address available yet */ });
         }
       } catch { /* ignore */ }
       recordP2PDiagnostic({

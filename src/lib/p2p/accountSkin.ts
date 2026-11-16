@@ -1,3 +1,5 @@
+import { affinityScore } from './connectionAffinity';
+
 /**
  * Account Skin Protocol
  *
@@ -24,6 +26,9 @@ export interface AccountBinding {
   username?: string;
   displayName?: string;
   avatarRef?: string;
+  walletAddress?: string;
+  namespaceId?: string;
+  discriminator?: string;
   boundAt: number;
   /** How many hops this binding has traveled (prevents infinite propagation) */
   ttl: number;
@@ -46,7 +51,7 @@ export class AccountSkinProtocol {
   /** userId → latest binding */
   private directory = new Map<string, AccountBinding>();
   /** username (lowercased) → userId — secondary index, kept in sync with directory */
-  private usernameIndex = new Map<string, string>();
+  private usernameIndex = new Map<string, Set<string>>();
   private localUserId: string;
   private localPeerId: string | null = null;
   private localUsername: string | null = null;
@@ -84,7 +89,7 @@ export class AccountSkinProtocol {
   bindAccount(
     userId: string,
     peerId: string,
-    options?: { username?: string; displayName?: string; avatarRef?: string; ttl?: number }
+    options?: { username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string; ttl?: number }
   ): void {
     const existing = this.directory.get(userId);
     const now = Date.now();
@@ -92,7 +97,7 @@ export class AccountSkinProtocol {
 
     // Only update if newer or different peerId/username
     const sameUsername = (options?.username ?? existing?.username) === existing?.username;
-    if (existing && existing.peerId === peerId && sameUsername && now - existing.boundAt < 5000) {
+    if (existing && existing.peerId === peerId && sameUsername && !options?.walletAddress && !options?.displayName && !options?.avatarRef && now - existing.boundAt < 5000) {
       return; // Debounce duplicate bindings
     }
 
@@ -102,13 +107,17 @@ export class AccountSkinProtocol {
       username: options?.username ?? existing?.username,
       displayName: options?.displayName ?? existing?.displayName,
       avatarRef: options?.avatarRef ?? existing?.avatarRef,
+      walletAddress: options?.walletAddress ?? existing?.walletAddress,
+      namespaceId: options?.namespaceId ?? existing?.namespaceId,
+      discriminator: options?.discriminator ?? existing?.discriminator,
       boundAt: now,
       ttl,
     };
 
+    if (existing?.username) this.removeUsername(existing.username, userId);
     this.directory.set(userId, binding);
     if (binding.username) {
-      this.usernameIndex.set(binding.username.toLowerCase(), userId);
+      this.indexUsername(binding.username, userId);
     }
     this.evictStaleEntries();
 
@@ -129,15 +138,16 @@ export class AccountSkinProtocol {
       userId: this.localUserId,
       peerId: this.localPeerId,
       username: this.localUsername ?? undefined,
-      displayName,
-      avatarRef,
+      ...this.directory.get(this.localUserId),
+      displayName: displayName ?? this.directory.get(this.localUserId)?.displayName,
+      avatarRef: avatarRef ?? this.directory.get(this.localUserId)?.avatarRef,
       boundAt: Date.now(),
       ttl: MAX_TTL,
     };
 
     this.directory.set(this.localUserId, binding);
     if (binding.username) {
-      this.usernameIndex.set(binding.username.toLowerCase(), this.localUserId);
+      this.indexUsername(binding.username, this.localUserId);
     }
 
     const msg: AccountSkinMessage = {
@@ -191,13 +201,10 @@ export class AccountSkinProtocol {
   queryByUsername(username: string): void {
     const key = username.trim().toLowerCase();
     if (!key) return;
-    const userId = this.usernameIndex.get(key);
-    if (userId) {
-      const local = this.directory.get(userId);
-      if (local && Date.now() - local.boundAt < STALE_MS) {
-        if (this.onBindingResolved) this.onBindingResolved(local);
-        return;
-      }
+    const matches = this.resolveAllByUsername(key);
+    if (matches.length) {
+      for (const binding of matches) this.onBindingResolved?.(binding);
+      return;
     }
     const msg: AccountSkinMessage = {
       type: 'account-query',
@@ -211,9 +218,27 @@ export class AccountSkinProtocol {
   resolveByUsername(username: string): AccountBinding | null {
     const key = username.trim().toLowerCase();
     if (!key) return null;
-    const userId = this.usernameIndex.get(key);
-    if (!userId) return null;
-    return this.resolve(userId);
+    return this.resolveAllByUsername(key)[0] ?? null;
+  }
+
+  resolveAllByUsername(username: string): AccountBinding[] {
+    const ids = this.usernameIndex.get(username.trim().toLowerCase()) ?? new Set<string>();
+    return Array.from(ids).flatMap(id => { const binding = this.resolve(id); return binding ? [binding] : []; })
+      .sort((a, b) => affinityScore(this.localUserId, b.userId) - affinityScore(this.localUserId, a.userId) || a.userId.localeCompare(b.userId));
+  }
+
+  private indexUsername(username: string, userId: string): void {
+    const key = username.trim().toLowerCase();
+    const ids = this.usernameIndex.get(key) ?? new Set<string>();
+    ids.add(userId);
+    this.usernameIndex.set(key, ids);
+  }
+
+  private removeUsername(username: string, userId: string): void {
+    const key = username.trim().toLowerCase();
+    const ids = this.usernameIndex.get(key);
+    ids?.delete(userId);
+    if (!ids?.size) this.usernameIndex.delete(key);
   }
 
   /** Handle incoming Skin protocol message */
@@ -282,6 +307,9 @@ export class AccountSkinProtocol {
           username: binding.username,
           displayName: binding.displayName,
           avatarRef: binding.avatarRef,
+          walletAddress: binding.walletAddress,
+          namespaceId: binding.namespaceId,
+          discriminator: binding.discriminator,
           ttl: binding.ttl - 1,
         });
 
@@ -299,17 +327,18 @@ export class AccountSkinProtocol {
   }
 
   private handleQuery(fromPeerId: string, queryUserId?: string, queryUsername?: string): void {
-    let binding: AccountBinding | null = null;
+    let bindings: AccountBinding[] = [];
     if (queryUserId) {
-      binding = this.resolve(queryUserId);
+      const binding = this.resolve(queryUserId);
+      if (binding) bindings = [binding];
     } else if (queryUsername) {
-      binding = this.resolveByUsername(queryUsername);
+      bindings = this.resolveAllByUsername(queryUsername);
     }
-    if (!binding) return;
+    if (!bindings.length) return;
 
     const response: AccountSkinMessage = {
       type: 'account-resolve',
-      bindings: [binding],
+      bindings,
       timestamp: Date.now(),
     };
 
@@ -328,7 +357,7 @@ export class AccountSkinProtocol {
       const [userId, binding] = entries[i];
       if (userId !== this.localUserId) {
         this.directory.delete(userId);
-        if (binding.username) this.usernameIndex.delete(binding.username.toLowerCase());
+        if (binding.username) this.removeUsername(binding.username, userId);
       }
     }
 
@@ -336,7 +365,7 @@ export class AccountSkinProtocol {
     for (const [userId, binding] of this.directory) {
       if (userId !== this.localUserId && now - binding.boundAt > STALE_MS * 2) {
         this.directory.delete(userId);
-        if (binding.username) this.usernameIndex.delete(binding.username.toLowerCase());
+        if (binding.username) this.removeUsername(binding.username, userId);
       }
     }
   }

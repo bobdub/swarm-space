@@ -1,3 +1,5 @@
+import { observeConnections, getConnectionAffinity } from './connectionAffinity';
+
 /**
  * ═══════════════════════════════════════════════════════════════════════
  * SWARM MESH — Production P2P Connection & Content Serving Script
@@ -126,6 +128,11 @@ export interface SwarmPeer {
 export interface LibraryPeer {
   peerId: string;
   userId?: string;
+  walletAddress?: string;
+  namespaceId?: string;
+  discriminator?: string;
+  connectedDurationMs?: number;
+  lastInteractionAt?: number;
   nodeId: string;
   alias: string;
   addedAt: number;
@@ -1268,7 +1275,11 @@ export class StandaloneSwarmMesh {
   }
 
   getLibrary(): LibraryPeer[] {
-    return Array.from(this.library.values());
+    const owner = this.getLocalProfile().userId;
+    return Array.from(this.library.values()).map(peer => {
+      const h = owner && peer.userId ? getConnectionAffinity(owner, peer.userId) : undefined;
+      return { ...peer, connectedDurationMs: h?.connectedDurationMs, lastInteractionAt: h?.lastInteractionAt };
+    });
   }
 
   onLibraryChange(handler: LibraryHandler): () => void {
@@ -3180,6 +3191,7 @@ export class StandaloneSwarmMesh {
     this.clearIntervals();
 
     this.heartbeatTimer = setInterval(() => {
+      this.observeConnectionTime();
       const t = now();
       for (const [peerId, peer] of this.peerData) {
         // Mining as Motion: peers actively mining get a longer stale threshold
@@ -3352,6 +3364,11 @@ export class StandaloneSwarmMesh {
         avatarRef: profile.avatarRef,
       }));
     } catch { /* ignore */ }
+    if (profile.userId) void import('@/lib/blockchain/wallets/coldKey').then(async ({ getColdKeyReceivingAddress }) => {
+      const walletAddress = await getColdKeyReceivingAddress(profile.userId ?? '');
+      if (this.getLocalProfile().userId !== profile.userId || !conn.open) return;
+      conn.send(JSON.stringify({ type: 'profile-exchange', from: this.peerId, ...profile, walletAddress }));
+    }).catch(() => { /* older locked accounts announce identity without a fabricated address */ });
   }
 
   private handleProfileExchange(fromPeerId: string, msg: Record<string, unknown>): void {
@@ -3371,6 +3388,13 @@ export class StandaloneSwarmMesh {
       if (displayName) entry.alias = displayName;
       this.saveLibrary();
       this.emitPeers();
+      const walletAddress = typeof msg.walletAddress === 'string' && /^0x[\da-f]{40}$/i.test(msg.walletAddress) ? msg.walletAddress : undefined;
+      if (userId && walletAddress) void import('@/lib/uqrc/namespaceIdentity').then(async ({ namespaceIdentity }) => {
+        const identity = await namespaceIdentity(userId, walletAddress);
+        if (this.library.get(fromPeerId)?.userId !== userId) return;
+        Object.assign(entry, identity, { walletAddress });
+        this.saveLibrary();
+      }).catch(() => {});
       if (userId) void import('@/lib/blockchain/wallets/nativeAddress')
         .then(({ hydrateNativeWalletPeer }) => hydrateNativeWalletPeer({ userId, username, displayName, avatarRef }))
         .catch(() => { /* address resolution retries durable hydration */ });
@@ -3382,7 +3406,16 @@ export class StandaloneSwarmMesh {
   }
 
 
+  private observeConnectionTime(): void {
+    const owner = this.getLocalProfile().userId;
+    if (!owner) return;
+    observeConnections(owner, Array.from(this.peerData.values()).map(peer => ({
+      peerId: peer.peerId, connectedAt: peer.connectedAt, userId: this.library.get(peer.peerId)?.userId,
+    })));
+  }
+
   private emitPeers(): void {
+    this.observeConnectionTime();
     const peers = Array.from(this.peerData.values());
     for (const h of this.peerHandlers) { try { h(peers); } catch { /* ignore */ } }
   }
