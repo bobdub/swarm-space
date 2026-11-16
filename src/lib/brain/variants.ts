@@ -45,7 +45,7 @@ export function lobbyVariant(opts: {
     kind: 'lobby',
     roomId: opts.activeRoomId ?? BRAIN_ROOM_ID,
     universeKey: 'global',
-    leaveLabel: 'Leave',
+    leaveLabel: 'Explore',
     onLeave: opts.onLeave,
     capabilities: {
       portals: true,
