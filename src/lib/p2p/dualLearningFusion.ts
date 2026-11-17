@@ -27,7 +27,7 @@ import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
 import { assembleSentence, extractMotifs } from '../brain/semanticMotifs';
 import { composeArc } from '../brain/discursiveArc';
-import { CoreMemoryStore, routeCandidates } from '../brain/coreMemories';
+import { CoreMemoryStore, engravePendingIntoCoins, routeCandidates } from '../brain/coreMemories';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -400,8 +400,13 @@ export class DualLearningFusion {
         routing: context.routing,
       });
       if (arc && arc.paragraphs.length >= 2) {
-        // Phase 4: a complete, coherent, calm reflection is engraved whole.
-        try { this.coreMemories.engraveArc(arc, context.recentPosts[0] ?? '', getSharedFieldEngine()); } catch { /* optional */ }
+        // Phase 4: a complete, coherent, calm reflection is engraved whole
+        // inside a hollow pool coin that then belongs to Infinity.
+        try {
+          if (this.coreMemories.engraveArc(arc, context.recentPosts[0] ?? '', getSharedFieldEngine())) {
+            void engravePendingIntoCoins(this.coreMemories);
+          }
+        } catch { /* optional */ }
         return arc.paragraphs.join('\n\n');
       }
     }
