@@ -50,17 +50,23 @@ export function switchToMainChain(): void {
   setActiveChain(MAIN_CHAIN);
 }
 
-export async function switchToCoin(coinId: string): Promise<ChainContext> {
+/** Looks up an active sub-chain's context without switching to it; null if gone or inactive. */
+export async function resolveCoinChain(coinId: string): Promise<ChainContext | null> {
   const coin = await getCoin(coinId);
-  if (!coin || coin.status !== "active") {
-    throw new Error("Coin not found or inactive");
-  }
-  const ctx: ChainContext = {
+  if (!coin || coin.status !== "active") return null;
+  return {
     chainId: coin.coinId,
     ticker: coin.ticker,
     chainName: coin.chainName,
     isMainChain: false,
   };
+}
+
+export async function switchToCoin(coinId: string): Promise<ChainContext> {
+  const ctx = await resolveCoinChain(coinId);
+  if (!ctx) {
+    throw new Error("Coin not found or inactive");
+  }
   setActiveChain(ctx);
   return ctx;
 }

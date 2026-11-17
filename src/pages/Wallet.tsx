@@ -51,7 +51,8 @@ import {
   getActiveChain,
   getChainBalance,
   getEnrichedTransactions,
-  switchToCoin,
+  resolveCoinChain,
+  setActiveChain as setGlobalActiveChain,
   switchToMainChain,
   type ChainContext,
   type EnrichedTransaction,
@@ -179,20 +180,35 @@ export default function Wallet() {
     const pref = loadWalletNetworkPreference(user?.id);
     setRecentNetworks(pref.recent);
     setAssetNetwork(pref.selected);
+    const applyMainChain = () => {
+      if (!getActiveChain().isMainChain) switchToMainChain();
+      // Sync local state directly: the chain-change listener may not be registered yet.
+      setActiveChain(getActiveChain());
+    };
     if (pref.selected.startsWith("chain:")) {
       const coinId = pref.selected.slice("chain:".length);
-      if (getActiveChain().chainId !== coinId) {
-        switchToCoin(coinId).catch(() => {
-          if (cancelled) return;
-          // The sub-chain is gone or inactive: fall back to SWARM and forget it.
-          const next = forgetWalletNetwork(user?.id, pref.selected);
-          switchToMainChain();
-          setAssetNetwork("swarm");
-          setRecentNetworks(next.recent);
-        });
+      if (getActiveChain().chainId === coinId) {
+        setActiveChain(getActiveChain());
+      } else {
+        void resolveCoinChain(coinId)
+          .catch(() => null)
+          .then((ctx) => {
+            // A newer restore (e.g. the account changed) owns the chain now.
+            if (cancelled) return;
+            if (ctx) {
+              setGlobalActiveChain(ctx);
+              setActiveChain(ctx);
+              return;
+            }
+            // The sub-chain is gone or inactive: fall back to SWARM and forget it.
+            const next = forgetWalletNetwork(user?.id, pref.selected);
+            applyMainChain();
+            setAssetNetwork("swarm");
+            setRecentNetworks(next.recent);
+          });
       }
-    } else if (!getActiveChain().isMainChain) {
-      switchToMainChain();
+    } else {
+      applyMainChain();
     }
     return () => {
       cancelled = true;
