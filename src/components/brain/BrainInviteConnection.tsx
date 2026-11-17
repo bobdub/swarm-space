@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuthReady } from '@/hooks/useAuthReady';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { dialBrainInviteFirst, getBrainInviteState, markBrainInviteSynced, prepareBrainInvite, subscribeBrainInvite, updateBrainInviteConnection } from '@/lib/p2p/brainInvite';
+import { dialBrainInviteFirst, isInvitePath, getBrainInviteState, markBrainInviteSynced, prepareBrainInvite, subscribeBrainInvite, updateBrainInviteConnection } from '@/lib/p2p/brainInvite';
 
 /** Handles navigation into invites when signaling was already initialized. */
 export function BrainInviteConnection() {
@@ -12,7 +12,7 @@ export function BrainInviteConnection() {
   const invite = useSyncExternalStore(subscribeBrainInvite, getBrainInviteState);
   useEffect(() => { prepareBrainInvite(pathname, hash); }, [pathname, hash]);
   useEffect(() => {
-    if (pathname !== '/brain/join' || !isReady || !user) return;
+    if (!isInvitePath(pathname) || !isReady || !user) return;
     if (!isEnabled) { if (!isConnecting) void enable().catch(() => updateBrainInviteConnection(false)); return; }
     const check = () => {
       // Startup consumes this first; this path only dials an unconsumed invite.

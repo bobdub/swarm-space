@@ -93,4 +93,15 @@ describe('Brain invite rules', () => {
     dialBrainInviteFirst(options);
     expect(dial).toHaveBeenCalledTimes(2);
   });
+  it('makes a plain /connect#peerID link that dials without the Brain', async () => {
+    const { peerConnectUrl, parseBrainInvite, isInvitePath, dialBrainInviteFirst, retryBrainInvite } = await import('../brainInvite');
+    expect(peerConnectUrl('https://swarm-space.lovable.app', 'peer-host')).toBe('https://swarm-space.lovable.app/connect#peer-host');
+    expect(parseBrainInvite('/connect', '#peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/connect/', '#peer-host')).toBe('peer-host');
+    expect(isInvitePath('/explore')).toBe(false);
+    retryBrainInvite();
+    const dial = vi.fn(() => true);
+    expect(dialBrainInviteFirst({ pathname: '/connect', hash: '#peer-sharer', selfId: 'peer-self', isBlocked: () => false, dial })).toBe(true);
+    expect(dial).toHaveBeenCalledWith('peer-sharer');
+  });
 });

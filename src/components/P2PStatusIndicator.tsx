@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, User } from "lucide-react";
+import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, User, Link2, Share2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -25,6 +25,7 @@ import { getTestMode, type TestModePhase } from "@/lib/p2p/testMode.standalone";
 import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.standalone";
 import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone-archived";
 import { loadConnectionState } from "@/lib/p2p/connectionState";
+import { peerConnectUrl } from "@/lib/p2p/brainInvite";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -482,6 +483,23 @@ export function P2PStatusIndicator() {
     }
   };
 
+  // Opening this link only dials our node — it does not open the Brain or a profile.
+  const connectLink = peerId ? peerConnectUrl(window.location.origin, peerId) : "";
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  const handleCopyConnectLink = () => {
+    if (!connectLink) return;
+    navigator.clipboard.writeText(connectLink).then(
+      () => toast.success("Connect link copied", { description: "Anyone who opens it connects to your node." }),
+      () => toast.error("Could not copy. Select the link to copy it."),
+    );
+  };
+
+  const handleShareConnectLink = () => {
+    if (!connectLink || !canNativeShare) return;
+    navigator.share({ title: "Connect to my node", url: connectLink }).catch(() => { /* dismissed */ });
+  };
+
   const isSwarmMeshMode = flags.swarmMeshMode;
   const networkTitle = isSwarmMeshMode ? "SWARM Mesh" : "P2P Network";
   const transportLabel = flags.integratedTransport ? "Integrated" : "PeerJS";
@@ -558,6 +576,35 @@ export function P2PStatusIndicator() {
               <p className="text-xs text-muted-foreground">
                 Peer ID assigned once P2P is enabled.
               </p>
+            )}
+            {connectLink && (
+              <div className="space-y-1 pt-1">
+                <p className="flex items-center gap-1 text-xs font-medium">
+                  <Link2 className="h-3.5 w-3.5" />
+                  Share connect link
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    readOnly
+                    aria-label="Peer connect link"
+                    value={connectLink}
+                    onFocus={(event) => event.target.select()}
+                    className="h-8 min-w-0 flex-1 font-mono text-xs"
+                    data-testid="p2p-connect-link"
+                  />
+                  <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleCopyConnectLink} aria-label="Copy connect link" title="Copy connect link">
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                  {canNativeShare && (
+                    <Button variant="outline" size="icon" className="h-8 w-8 shrink-0" onClick={handleShareConnectLink} aria-label="Share connect link" title="Share connect link">
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Opening it connects them to your node directly, without opening the Brain or a profile.
+                </p>
+              </div>
             )}
             <p className="text-xs text-muted-foreground">
               {isSwarmMeshMode
