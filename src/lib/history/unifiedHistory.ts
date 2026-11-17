@@ -9,11 +9,12 @@
  */
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
+import { NATIVE_MINTME_CUSTODY } from "@/lib/blockchain/wallets/nativeMintmeLedger";
 
 export const CREDITS_ASSET = "CREDITS";
 
 /** Where a movement is settled; shown as a badge so assets never look interchangeable. */
-export type HistorySettlement = "off-chain" | "swarm-ledger" | "external";
+export type HistorySettlement = "off-chain" | "swarm-ledger" | "mintme" | "external";
 
 export type HistoryKind =
   | "tip"
@@ -216,21 +217,39 @@ function chainLabel(tx: SwarmTransaction, direction: HistoryDirection): string {
   return CHAIN_LABELS[tx.type] ?? tx.type.replace(/_/g, " ");
 }
 
+const metaString = (tx: SwarmTransaction, key: string) =>
+  typeof tx.meta?.[key] === "string" && tx.meta[key] ? (tx.meta[key] as string) : undefined;
+
+/** Creator-market records carry the SWARM paid in `amount` and the token quantity in `meta.tokens`. */
+const isCreatorTrade = (tx: SwarmTransaction) => tx.type === "creator_token_buy" || tx.type === "creator_token_sell";
+
 function chainAsset(tx: SwarmTransaction, chains: Map<string, HistoryChainInfo>): { asset: string; ticker: string } {
-  const metaTicker = typeof tx.meta?.ticker === "string" ? tx.meta.ticker : undefined;
-  const currency = typeof tx.meta?.currency === "string" ? tx.meta.currency : undefined;
+  // Only a wallet tip's ticker names the asset in `amount`; elsewhere it may describe another leg.
+  const metaTicker = tx.type === "wallet_tip" ? metaString(tx, "ticker") : undefined;
+  const currency = isCreatorTrade(tx) ? undefined : metaString(tx, "currency");
   if (metaTicker) return { asset: metaTicker.toUpperCase(), ticker: metaTicker };
   if (currency) {
     if (currency.startsWith("CREATOR:")) return { asset: currency.toUpperCase(), ticker: "Creator token" };
-    return { asset: currency.toUpperCase(), ticker: currency };
+    const symbol = metaString(tx, "symbol") ?? currency;
+    return { asset: currency.toUpperCase(), ticker: symbol };
   }
   const chainId = tx.chainId || "SWARM";
   const ticker = chains.get(chainId)?.ticker ?? chainId;
   return { asset: ticker.toUpperCase(), ticker };
 }
 
+/**
+ * Settlement follows the record's own currency and custody, not just its type:
+ * legacy SWARM↔MetaMask records move native SWARM, MintMe custody and MintMe
+ * token withdrawals settle on MintMe, and anything else external (e.g. ETH) is
+ * only an external record.
+ */
 function chainSettlement(tx: SwarmTransaction): HistorySettlement {
-  return tx.type === "external_deposit" || tx.type === "external_withdraw" ? "external" : "swarm-ledger";
+  if (tx.type !== "external_deposit" && tx.type !== "external_withdraw" && tx.type !== "external_reconcile") return "swarm-ledger";
+  const currency = metaString(tx, "currency")?.toUpperCase();
+  if (currency === "SWARM") return "swarm-ledger";
+  if (tx.meta?.custody === NATIVE_MINTME_CUSTODY || currency === "MINTME" || metaString(tx, "contract")) return "mintme";
+  return "external";
 }
 
 export function fromChainTransaction(
@@ -252,13 +271,27 @@ export function fromChainTransaction(
     kind: chainKind(tx),
     label: chainLabel(tx, direction),
     timestamp: tx.timestamp,
-    legs: [{ asset, ticker, amount: tx.amount ?? 0, direction, settlement: chainSettlement(tx) }],
+    legs: chainLegs(tx, { asset, ticker, amount: tx.amount ?? 0, direction, settlement: chainSettlement(tx) }),
     counterparty: otherParty && otherParty !== userId && !SYSTEM_PARTIES.has(otherParty) && !otherParty.startsWith("bridge:")
       ? otherParty : undefined,
     note: message,
     fee: tx.fee > 0 ? tx.fee : undefined,
     rawType: tx.type,
   };
+}
+
+function chainLegs(tx: SwarmTransaction, primary: HistoryLeg): HistoryLeg[] {
+  const tokens = Number(tx.meta?.tokens);
+  if (!isCreatorTrade(tx) || !(tokens > 0)) return [primary];
+  const ticker = metaString(tx, "ticker") ?? "Creator token";
+  const tokenId = metaString(tx, "tokenId");
+  return [primary, {
+    asset: tokenId ? `CREATOR:${tokenId}`.toUpperCase() : ticker.toUpperCase(),
+    ticker,
+    amount: tokens,
+    direction: primary.direction === "in" ? "out" : "in",
+    settlement: "swarm-ledger",
+  }];
 }
 
 const isWrapRelease = (tx: SwarmTransaction) =>
@@ -366,7 +399,8 @@ export const HISTORY_KIND_LABELS: Record<HistoryKind, string> = {
 export const SETTLEMENT_LABELS: Record<HistorySettlement, string> = {
   "off-chain": "Off-chain",
   "swarm-ledger": "SWARM ledger",
-  external: "MintMe network",
+  mintme: "MintMe network",
+  external: "External record",
 };
 
 export { short as shortParty };

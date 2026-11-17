@@ -47,7 +47,7 @@ describe("unified transaction history", () => {
       "chain:dep": "deposit", "chain:mine": "reward",
     });
     const deposit = history.find(e => e.id === "chain:dep")!;
-    expect(deposit.legs[0]).toMatchObject({ asset: "MINTME", direction: "in", settlement: "external" });
+    expect(deposit.legs[0]).toMatchObject({ asset: "MINTME", direction: "in", settlement: "mintme" });
     expect(deposit.counterparty).toBeUndefined();
   });
 
@@ -119,5 +119,46 @@ describe("unified transaction history", () => {
     expect(filterHistory(history, { asset: CREDITS_ASSET })).toHaveLength(2);
     expect(filterHistory(history, { kind: "tip" })).toHaveLength(3);
     expect(filterHistory(history, { asset: "SWARM", kind: "tip" })).toHaveLength(1);
+  });
+
+  it("shows creator-market trades as SWARM paid and creator tokens received", () => {
+    const history = buildUnifiedHistory({
+      userId: me, credits: [],
+      chain: [
+        chainTx({ id: "buy", type: "creator_token_buy", from: me, to: "creator", amount: 2,
+          meta: { tokenId: "art", ticker: "ART", tokens: 100 } }),
+        chainTx({ id: "sell", type: "creator_token_sell", from: "creator", to: me, amount: 1,
+          timestamp: "2026-11-17T12:00:00Z", meta: { tokenId: "art", ticker: "ART", tokens: 50 } }),
+      ],
+    });
+    const byId = Object.fromEntries(history.map(e => [e.id, e]));
+    expect(byId["chain:buy"].legs).toEqual([
+      expect.objectContaining({ asset: "SWARM", amount: 2, direction: "out" }),
+      expect.objectContaining({ asset: "CREATOR:ART", ticker: "ART", amount: 100, direction: "in" }),
+    ]);
+    expect(byId["chain:sell"].legs.map(l => [l.asset, l.amount, l.direction])).toEqual([
+      ["SWARM", 1, "in"], ["CREATOR:ART", 50, "out"],
+    ]);
+    expect(filterHistory(history, { asset: "SWARM" })).toHaveLength(2);
+  });
+
+  it("derives external settlement from currency and custody, not the record type alone", () => {
+    const history = buildUnifiedHistory({
+      userId: me, credits: [],
+      chain: [
+        chainTx({ id: "mm", type: "external_withdraw", from: me, to: "0xabc", meta: { kind: "swarm_withdraw", currency: "SWARM" } }),
+        chainTx({ id: "eth", type: "external_deposit", from: "0xabc", to: me, meta: { currency: "ETH" } }),
+        chainTx({ id: "native", type: "external_deposit", from: "0xdef", to: me,
+          meta: { currency: "MINTME", custody: "mintme-native-custody-v1" } }),
+        chainTx({ id: "token", type: "external_withdraw", from: me, to: "0x1", meta: { currency: "MINTME:0xT", symbol: "TOK", contract: "0xT" } }),
+      ],
+    });
+    const settle = Object.fromEntries(history.map(e => [e.id, [e.legs[0].settlement, e.legs[0].ticker]]));
+    expect(settle).toEqual({
+      "chain:mm": ["swarm-ledger", "SWARM"],
+      "chain:eth": ["external", "ETH"],
+      "chain:native": ["mintme", "MINTME"],
+      "chain:token": ["mintme", "TOK"],
+    });
   });
 });
