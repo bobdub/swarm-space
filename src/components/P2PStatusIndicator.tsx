@@ -81,7 +81,6 @@ export function P2PStatusIndicator() {
     isEnabled,
     isConnecting,
     stats,
-    activeSignalingEndpoint,
     enable,
     disable,
     getPeerId,
@@ -229,11 +228,6 @@ export function P2PStatusIndicator() {
     (stats.lastBeaconLatencyMs ?? 0) > 10_000 ||
     handshakeConfidencePercent < 40
   );
-
-  const endpointLabel = activeSignalingEndpoint?.label
-    ?? activeSignalingEndpoint?.host
-    ?? stats.signalingEndpointLabel
-    ?? null;
 
   const statusText = (() => {
     if (!user) {
@@ -606,11 +600,6 @@ export function P2PStatusIndicator() {
                 </p>
               </div>
             )}
-            <p className="text-xs text-muted-foreground">
-              {isSwarmMeshMode
-                ? 'Unified mesh with distributed routing, discovered-peer inventory, and blockchain integration'
-                : `Signaling: ${endpointLabel ?? "No active endpoint"}`}
-            </p>
           </div>
 
           <div className="rounded-lg border p-3">
