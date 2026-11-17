@@ -35,8 +35,9 @@ spawn. Tag string is the contract between the prefab and the proximity hook.
 
 Anchors register themselves at spawn through `src/lib/world/pubAnchors.ts`
 (bar prefab → BuilderBlock bodyId → live world position). `PubGameLayer`
-renders one contextual prompt (`Press [E] to Play darts`), opens the game
-panel, and frees the seat when the player walks away for 10 s or presses Q.
+renders one contextual press-and-hold prompt (`Press and hold to Play darts`,
+the same ring as raising a staged build; mouse and touch both work), opens
+the game panel once the ring fills, and frees the seat when the player walks away for 10 s or presses Q.
 Prompts are gated on `status !== 'planned'`.
 
 ## Darts table (v1)

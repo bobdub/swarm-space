@@ -3,7 +3,7 @@
  *
  * Polls (not per-frame) the local avatar's interpolated render position
  * against the registered pub anchors and returns the closest one inside
- * its radius. 5 Hz is plenty for a "Press E" prompt and costs nothing.
+ * its radius. 5 Hz is plenty for the press-and-hold prompt and costs nothing.
  */
 
 import { useEffect, useState } from 'react';
