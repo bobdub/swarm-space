@@ -1,3 +1,5 @@
+import type { TipWeight } from "./tipWeight";
+
 export type TipAssetKind = "credits" | "chain" | "creator" | "external";
 export interface TipAsset {
   id: string;
@@ -9,6 +11,8 @@ export interface TipAsset {
   tokenId?: string;
   creatorUserId?: string;
   unavailable?: string;
+  /** SWARM only: weights the sender may tip with. Just ["hollow"] when no engraved coins are held. */
+  weights?: TipWeight[];
 }
 
 export function validateWalletTip(asset: TipAsset, amount: number): void {

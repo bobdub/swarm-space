@@ -40,6 +40,7 @@
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
+- SWARM tips sign their engraving weight (meta tipFormat 2 + weight, src/lib/blockchain/wallets/tipWeight.ts); Hollow is the default and the only choice without held engraved coins, legacy unweighted tips read as Hollow, and the weight labels the payment without moving coin custody.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
 - Native wallet screens use direct MintMe reads and cold-key sends; preserve historical MetaMask records and unrelated external donation/RPC integrations because receiving requires no external wallet session.
 - Run configured src tests with Vitest (bun run test; test:wallet for wallet regressions); use isolated mocks and deterministic public wallet fixtures because Bun test APIs and random ethers entropy conflict with the jsdom runner.

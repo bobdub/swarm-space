@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockchain/wallets/walletTips";
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
+import { TIP_WEIGHT_LABELS, type TipWeight } from "@/lib/blockchain/wallets/tipWeight";
 
 interface SendCreditsModalProps {
   toUserId: string;
@@ -28,6 +29,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
   const [assets, setAssets] = useState<TipAsset[]>([]);
   const [assetId, setAssetId] = useState(initialAssetId ?? "credits");
   const [passphrase, setPassphrase] = useState("");
+  const [weight, setWeight] = useState<TipWeight>("hollow");
   const selectedAsset = assets.find(a => a.id === assetId);
   const isCredits = assetId === "credits";
   const ticker = selectedAsset?.ticker ?? "Credits";
@@ -47,6 +49,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
       setMode("transfer");
       setAssetId(initialAssetId ?? "credits");
       setPassphrase("");
+      setWeight("hollow");
     }
   }, [isOpen, toUserId, initialAssetId]);
 
@@ -110,7 +113,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
       setPassphrase("");
 
       await sendWalletTip({ recipient: await nativeWalletAddress(toUserId), assetId,
-        amount: numAmount, message: note, intent: mode });
+        amount: numAmount, message: note, intent: mode, ...(weightChoices.length > 1 ? { weight } : {}) });
 
       toast({
         title: isCredits ? (mode === "tip" ? "Tip sent!" : "Payment sent!") : "Payment recorded; peer sync queued",
@@ -135,6 +138,8 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
     }
   };
 
+  // Tiers appear only for members holding engraved coins; everyone else sends Hollow.
+  const weightChoices = selectedAsset?.weights ?? [];
   const balance = selectedAsset?.balance ?? 0;
   const maxAmount = isCredits ? Math.min(balance, mode === "tip" ? CREDIT_REWARDS.TIP_MAX : CREDIT_REWARDS.MAX_TRANSFER) : balance;
 
@@ -202,7 +207,7 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
 
           <div className="space-y-2">
             <Label htmlFor="tip-asset">Asset</Label>
-            <Select value={assetId} onValueChange={value => { setAssetId(value); setAmount(""); }} disabled={loading}>
+            <Select value={assetId} onValueChange={value => { setAssetId(value); setAmount(""); setWeight("hollow"); }} disabled={loading}>
               <SelectTrigger id="tip-asset"><SelectValue placeholder="Select asset" /></SelectTrigger>
               <SelectContent>
                 {assets.map(asset => <SelectItem key={asset.id} value={asset.id}>
@@ -212,6 +217,19 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
             </Select>
             {selectedAsset?.unavailable && <p role="alert" className="text-xs text-destructive">{selectedAsset.unavailable}</p>}
           </div>
+
+          {weightChoices.length > 1 && (
+            <div className="space-y-2">
+              <Label htmlFor="tip-weight">Weight</Label>
+              <Select value={weight} onValueChange={value => setWeight(value as TipWeight)} disabled={loading}>
+                <SelectTrigger id="tip-weight"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {weightChoices.map(w => <SelectItem key={w} value={w}>{TIP_WEIGHT_LABELS[w]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-foreground/55">Hollow by default. Tiers come from engraved coins you hold and are signed into the tip.</p>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="amount" className="text-sm font-display uppercase tracking-[0.2em] text-foreground/70">

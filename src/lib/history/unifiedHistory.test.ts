@@ -202,4 +202,18 @@ describe("unified transaction history", () => {
     ]);
     expect(ledgerRows(history, "SWARM")).toHaveLength(1);
   });
+
+  it("shows the weight signed into a SWARM tip, and Hollow for older tips", () => {
+    const history = buildUnifiedHistory({
+      userId: me, credits: [],
+      chain: [
+        chainTx({ id: "rare", amount: 5, meta: { assetId: "chain:SWARM", ticker: "SWARM", tipFormat: 2, weight: "rare" } }),
+        chainTx({ id: "old", timestamp: "2026-11-17T10:00:00Z", meta: { assetId: "chain:SWARM", ticker: "SWARM" } }),
+      ],
+    });
+    expect(ledgerRows(history).map(r => [r.ticker, r.action, r.direction, r.weight, r.amount])).toEqual([
+      ["SWARM", "Tip", "Outgoing", "Rare", 5],
+      ["SWARM", "Tip", "Outgoing", "Hollow", 2],
+    ]);
+  });
 });

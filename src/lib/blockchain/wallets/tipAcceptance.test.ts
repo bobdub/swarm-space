@@ -26,3 +26,15 @@ test("signed SWARM tips debit once and reject overspending at ledger acceptance"
   expect(chain.getBalance(tip.to)).toBe(3);
   expect(() => chain.addTransaction({ ...tip, id: "bypass" })).toThrow("verified acceptance");
 });
+test("the tip weight is signed: format-2 tiers verify, tampering and unknown tiers do not", async () => {
+  const { verifyWalletTip } = await import("./tipSignature");
+  const keys = await genIdentityKeyPair();
+  const from = await computeUserId(keys.publicKey);
+  const tip = await signWalletTip({ id: "weighted-tip", type: "wallet_tip", from, to: "aabbccddeeff0011",
+    amount: 5, fee: 0, nonce: 1, publicKey: keys.publicKey, signature: "", timestamp: new Date().toISOString(),
+    meta: { assetId: "chain:SWARM", tipFormat: 2, weight: "rare" } }, keys.privateKey);
+  expect(await verifyWalletTip(tip)).toBe(true);
+  expect(await verifyWalletTip({ ...tip, meta: { ...tip.meta, weight: "legendary" } })).toBe(false);
+  const unknown = await signWalletTip({ ...tip, id: "bad-tier", meta: { ...tip.meta, weight: "gold" } }, keys.privateKey);
+  expect(await verifyWalletTip(unknown)).toBe(false);
+});

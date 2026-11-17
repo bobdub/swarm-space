@@ -8,6 +8,9 @@ import { getRecordedTokenBalance, listCustomTokens } from "../deposits/customTok
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
+import { availableTipWeights, resolveTipWeight, TIP_FORMAT_VERSION, type TipWeight } from "./tipWeight";
+import { getAll } from "@/lib/store";
+import type { SwarmCoin } from "../types";
 import { assertStorageWritable } from "@/lib/storage/quotaGuard";
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
@@ -17,8 +20,8 @@ export type { TipAsset } from "./tipRules";
 export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
   const chain = getSwarmChain();
   await chain.whenReady();
-  const [credits, chains, holdings] = await Promise.all([
-    getCreditBalance(userId), getAllLiveChains(), getUserProfileTokenHoldings(userId),
+  const [credits, chains, holdings, weights] = await Promise.all([
+    getCreditBalance(userId), getAllLiveChains(), getUserProfileTokenHoldings(userId), getTipWeights(userId),
   ]);
   const assets: TipAsset[] = [{ id: "credits", ticker: "Credits", name: "Game credits", kind: "credits", balance: credits }];
   for (const entry of chains) {
@@ -26,6 +29,7 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
     if (balance > 0 || entry.isMainChain) assets.push({
       id: `chain:${entry.chainId}`, ticker: entry.ticker, name: entry.chainName,
       kind: "chain", chainId: entry.chainId, balance,
+      ...(entry.isMainChain ? { weights } : {}),
       unavailable: entry.isMainChain ? undefined : "Sub-chain tips await verified asset settlement. No funds will be deducted.",
     });
   }
@@ -51,6 +55,12 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
   return assets;
 }
 
+/** Hollow, plus each engraved-coin tier this member holds. */
+export async function getTipWeights(userId: string): Promise<TipWeight[]> {
+  const coins = await getAll<SwarmCoin>("swarmCoins").catch(() => [] as SwarmCoin[]);
+  return availableTipWeights(coins, userId);
+}
+
 export async function receiveWalletTip(tx: SwarmTransaction): Promise<boolean> {
   if (!await verifyWalletTip(tx)) return false;
   const chain = getSwarmChain();
@@ -74,6 +84,8 @@ async function broadcastTip(tx: SwarmTransaction): Promise<void> {
 let sending = false;
 export async function sendWalletTip(params: {
   recipient: string; assetId: string; amount: number; message?: string; intent?: "tip" | "transfer";
+  /** SWARM only; defaults to Hollow. */
+  weight?: TipWeight;
 }): Promise<void> {
   if (sending) throw new Error("A wallet payment is already being processed");
   sending = true;
@@ -92,6 +104,10 @@ export async function sendWalletTip(params: {
       await send(recipient.id, params.amount, { message });
       return;
     }
+    if (params.weight && params.weight !== "hollow" && asset.id !== "chain:SWARM") {
+      throw new Error("Only SWARM tips carry an engraving weight");
+    }
+    const weight = asset.id === "chain:SWARM" ? resolveTipWeight(params.weight, asset.weights ?? ["hollow"]) : undefined;
     await assertStorageWritable();
     const privateKey = await getCachedPrivateKey();
     if (!privateKey) throw new Error("Your wallet is locked. Sign in again before sending tokens.");
@@ -103,6 +119,7 @@ export async function sendWalletTip(params: {
       meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
         ...(asset.id === NATIVE_MINTME_ASSET_ID ? { currency: "MINTME", amountUnits: mintMeUnits(params.amount).toString() } : {}),
         intent: params.intent ?? "tip", message: message ?? null,
+        ...(weight ? { tipFormat: TIP_FORMAT_VERSION, weight } : {}),
         fromAddress: await nativeWalletAddress(user.id), toAddress: await nativeWalletAddress(recipient.id) },
     }, privateKey);
     if (!await receiveWalletTip(tx)) throw new Error("Wallet ownership or available balance could not be verified");

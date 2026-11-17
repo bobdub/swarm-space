@@ -320,7 +320,8 @@ export function fromChainTransaction(
     timestamp: tx.timestamp,
     legs: chainLegs(tx, {
       asset, ticker, amount: tx.amount ?? 0, direction, settlement: chainSettlement(tx),
-      origin, weight: legWeight(origin, metaString(tx, "tier")),
+      // A signed tip carries its weight in meta.weight; other records may name a tier.
+      origin, weight: legWeight(origin, metaString(tx, "weight") ?? metaString(tx, "tier")),
     }),
     counterparty: otherParty && otherParty !== userId && !SYSTEM_PARTIES.has(otherParty) && !otherParty.startsWith("bridge:")
       ? otherParty : undefined,
