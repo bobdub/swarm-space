@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { ChevronDown, Maximize2, Minimize2, MonitorUp, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { isPeerMuted, subscribeMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { TileVideo } from './BrainVideoGrid';
 import { cn } from '@/lib/utils';
 
@@ -33,6 +34,8 @@ export function useBrainScreenShares() {
       setOwn(hasLiveVideo(mine) ? mine : null);
       const next: RemoteScreen[] = [];
       for (const p of manager.getParticipants()) {
+        // Muted/blocked peers stay hidden here too, same as in the Brain.
+        if (isPeerMuted(p.peerId)) continue;
         if (hasLiveVideo(p.screenStream)) next.push({ peerId: p.peerId, stream: p.screenStream });
       }
       setRemote((prev) =>
@@ -49,8 +52,9 @@ export function useBrainScreenShares() {
       }
     });
     // The screen track can arrive after the announcement; poll to catch it.
+    const unsubMuted = subscribeMutedPeers(refresh);
     const poll = window.setInterval(refresh, 1500);
-    return () => { unsub(); window.clearInterval(poll); };
+    return () => { unsub(); unsubMuted(); window.clearInterval(poll); };
   }, [user]);
 
   const stopOwn = () => {
