@@ -32,6 +32,7 @@
 - Realization preserves whole local learned expressions and rejects copied prompt openings before UQRC ranks candidates; curvature is not a semantic validator and unsupported output stays silent.
 - Whole expressions remain in capped on-device storage separate from peer digests; restore historical learned memory without replaying ingestion, because vocabulary-only sync cannot preserve formula structure.
 - Replace the shipped personality prior by its complete expression inventory, preserving memory expressions; seed via Dual ingestion on first realization so both learners share one prior.
+- Phase 1 semantic basins (`src/lib/uqrc/semanticBasins.ts`) are device-local word geometry owned by LanguageLearner and never enter the mesh digest; tension needs ≥2 real co-occurrences, and the basin bridge in rankExpressions runs only when no expression shares a prompt topic, so exact matches and silence-on-no-support are unchanged.
 - Infinity profile conversation is explicit opt-in, ephemeral and excluded from learning/digests; show device-local knowledge separately from live peer availability because digest exchange is not full memory replication.
 
 ## Wallet boundaries

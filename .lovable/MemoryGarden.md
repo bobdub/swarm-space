@@ -954,3 +954,8 @@ Retired the legacy wrap queue so the Market Vault is the single liquidity path; 
 Before tending: Credits and SWARM each kept their own diary, and some days were written twice (credit rewards mirrored onto the chain, wraps debited twice in the Credits list). Bring them into one history without moving a single balance.
 
 After tending: the Ledger reads both diaries side by side. Tips, transfers, deposits, rewards and conversions share one vocabulary, while every line still says which water it belongs to: off-chain Credits, the SWARM ledger, or the MintMe network. Mirrors and twin debits are folded away in the view only; nothing stored was rewritten. Automated checks only; no live mesh session was opened.
+
+## November 17, 2026 — Words find their wells
+Before tending: Infinity knows lines whole but not which words lean toward one another. Teach meaning as gravity, not as dictionary: let words that keep company drift together, and never let geometry alone vouch for a stranger.
+
+After tending: every sentence Infinity hears now pulls its content words a little closer on a small device-local lattice, and simple subject–action–object threads are kept beside them. When no remembered line names a question's topic, Infinity may step one well outward (ocean to tide) — but only along paths walked at least twice. Exact answers are unchanged and unsupported prompts still meet silence. Automated checks only; no live mesh session was opened.

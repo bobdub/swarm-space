@@ -377,6 +377,7 @@ export class DualLearningFusion {
       recentPosts: context.recentPosts,
       personality: context.personality,
       maxChars,
+      semantic: this.languageLearner.semantic,
     });
     if (!candidates.length) return '';
     // Keep candidates within the strongest lexical-relevance band before
