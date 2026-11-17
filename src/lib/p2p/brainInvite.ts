@@ -27,8 +27,21 @@ export const subscribeBrainInvite = (listener: () => void) => {
   return () => { listeners.delete(listener); };
 };
 
+/**
+ * Paths that carry a `#peer-…` invite in their hash.
+ * - `/brain/join` dials the host and opens the Brain room.
+ * - `/connect` only dials the sharer as a peer node: no Brain, no profile.
+ */
+export const BRAIN_JOIN_PATH = '/brain/join';
+export const PEER_CONNECT_PATH = '/connect';
+const INVITE_PATHS = new Set([BRAIN_JOIN_PATH, PEER_CONNECT_PATH]);
+
+export function isInvitePath(pathname: string): boolean {
+  return INVITE_PATHS.has(pathname.replace(/\/$/, ''));
+}
+
 export function parseBrainInvite(pathname: string, hash: string): string | null {
-  if (pathname.replace(/\/$/, '') !== '/brain/join') return null;
+  if (!isInvitePath(pathname)) return null;
   try {
     const id = decodeURIComponent(hash.replace(/^#/, '')).trim();
     return /^peer-[a-zA-Z0-9_-]{1,120}$/.test(id) ? id : null;
@@ -36,11 +49,16 @@ export function parseBrainInvite(pathname: string, hash: string): string | null 
 }
 
 export function brainInviteUrl(origin: string, peerId: string): string {
-  return `${origin}/brain/join#${encodeURIComponent(peerId)}`;
+  return `${origin}${BRAIN_JOIN_PATH}#${encodeURIComponent(peerId)}`;
+}
+
+/** A plain peer-connect link: opening it only dials the sharer's node. */
+export function peerConnectUrl(origin: string, peerId: string): string {
+  return `${origin}${PEER_CONNECT_PATH}#${encodeURIComponent(peerId)}`;
 }
 
 export function prepareBrainInvite(pathname: string, hash: string) {
-  if (pathname.replace(/\/$/, '') !== '/brain/join') return;
+  if (!isInvitePath(pathname)) return;
   const peerId = parseBrainInvite(pathname, hash);
   if (state.peerId === peerId && state.phase !== 'idle') return;
   attemptedUrl = '';
@@ -57,7 +75,7 @@ export function dialBrainInviteFirst(options: {
   isBlocked: (peerId: string) => boolean;
   dial: (peerId: string) => boolean;
 }): boolean {
-  if (options.pathname.replace(/\/$/, '') !== '/brain/join') return false;
+  if (!isInvitePath(options.pathname)) return false;
   const key = options.pathname + options.hash;
   if (attemptedUrl === key) {
     // A dial request is not a handshake: while still connecting, knock again

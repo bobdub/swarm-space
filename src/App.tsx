@@ -45,6 +45,7 @@ import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWit
 
 // ── Lazy-loaded route pages ──
 const Index = lazy(() => import("./pages/Index"));
+const PeerConnect = lazy(() => import("./pages/PeerConnect"));
 const Auth = lazy(() => import("./pages/Auth"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Explore = lazy(() => import("./pages/Explore"));
@@ -206,6 +207,7 @@ function AppContent() {
               <Route path="/projects/:projectId/hub" element={<VirtualHub />} />
               <Route path="/brain" element={<BrainUniverse />} />
               <Route path="/brain/join" element={<BrainUniverse />} />
+              <Route path="/connect" element={<PeerConnect />} />
               <Route path="/node-dashboard" element={<NodeDashboard />} />
               <Route path="/wallet" element={<Wallet />} />
               <Route path="/search" element={<Search />} />
