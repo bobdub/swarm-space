@@ -54,6 +54,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
 import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
+import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 
 export interface BrainChatLine {
   id: string;
@@ -69,7 +70,7 @@ export interface BrainChatLine {
   replyTo?: { id: string; author: string; preview: string };
 }
 
-const MAX_LEN = 8000;
+const MAX_LEN = CHAT_MESSAGE_MAX_LENGTH;
 const LONG_MESSAGE_THRESHOLD = 2400;
 
 /**

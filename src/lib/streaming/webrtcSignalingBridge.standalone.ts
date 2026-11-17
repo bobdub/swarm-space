@@ -14,6 +14,8 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
+import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
+
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface SignalEnvelope {
@@ -385,7 +387,9 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
       const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string; infinityReplyTo?: string };
-      const text = typeof data.text === 'string' ? data.text.trim() : '';
+      // Cap untrusted inbound text so a malformed or hostile peer cannot
+      // push unbounded strings into every room member's chat log.
+      const text = typeof data.text === 'string' ? data.text.trim().slice(0, CHAT_WIRE_MAX_LENGTH) : '';
       if (!text) return;
       const message: RoomChatMessage = {
         id: data.id ?? `${envelope.roomId}:${envelope.from}:${envelope.ts}`,
@@ -741,7 +745,7 @@ export function sendRoomChatMessage(
   infinityReplyTo?: string,
 ): void {
   if (!meshRef) return;
-  const trimmed = text.trim();
+  const trimmed = text.trim().slice(0, CHAT_WIRE_MAX_LENGTH);
   if (!trimmed) return;
 
   const message: RoomChatMessage = {
