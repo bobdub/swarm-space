@@ -42,7 +42,6 @@ import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { SealedCoinsHistory } from "@/components/wallet/SealedCoinsHistory";
 import { UnifiedHistory } from "@/components/wallet/UnifiedHistory";
-import { CREDITS_ASSET } from "@/lib/history/unifiedHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
@@ -412,7 +411,8 @@ export default function Wallet() {
 
           {/* ── Transactions / Ledger ─────────────────────────────── */}
           <TabsContent value="transactions">
-            <UnifiedHistory userId={user?.id || ""} />
+            {/* The single ledger card: Credits, SWARM and every other asset in one list. */}
+            <UnifiedHistory userId={user?.id || ""} title="Credits & SWARM Ledger" />
           </TabsContent>
 
           {/* ── Labor ─────────────────────────────────────────────── */}
@@ -420,13 +420,6 @@ export default function Wallet() {
             <CoinEngravingControl userId={user?.id || ""} />
             <SealedCoinsHistory userId={user?.id || ""} />
             <LabourPayoutsPanel />
-            <UnifiedHistory
-              userId={user?.id || ""}
-              asset={CREDITS_ASSET}
-              lockAsset
-              title="Credits History"
-              description="Your Credits activity. The Ledger tab shows it alongside SWARM and other assets."
-            />
           </TabsContent>
 
           {/* ── Swap ──────────────────────────────────────────────── */}
