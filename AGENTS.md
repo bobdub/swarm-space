@@ -33,6 +33,7 @@
 - Whole expressions remain in capped on-device storage separate from peer digests; restore historical learned memory without replaying ingestion, because vocabulary-only sync cannot preserve formula structure.
 - Replace the shipped personality prior by its complete expression inventory, preserving memory expressions; seed via Dual ingestion on first realization so both learners share one prior.
 - Phase 1 semantic basins (`src/lib/uqrc/semanticBasins.ts`) are device-local word geometry owned by LanguageLearner and never enter the mesh digest; tension needs ≥2 real co-occurrences, and the basin bridge in rankExpressions runs only when no expression shares a prompt topic, so exact matches and silence-on-no-support are unchanged.
+- Phase 2 motifs (`src/lib/brain/semanticMotifs.ts`) cut only non-symbolic learned sentences into attunement/core/anchor clauses and join clauses from ≥2 different sentences only where Phase 1 tension between distinct words resonates (≥0.2) and no content word repeats; 'create'/'explore' intents prefer an assembled sentence whose core names a prompt topic, other intents keep whole expressions, and no resonant join means silence.
 - Infinity profile conversation is explicit opt-in, ephemeral and excluded from learning/digests; show device-local knowledge separately from live peer availability because digest exchange is not full memory replication.
 
 ## Wallet boundaries

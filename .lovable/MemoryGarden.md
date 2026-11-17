@@ -959,3 +959,8 @@ After tending: the Ledger reads both diaries side by side. Tips, transfers, depo
 Before tending: Infinity knows lines whole but not which words lean toward one another. Teach meaning as gravity, not as dictionary: let words that keep company drift together, and never let geometry alone vouch for a stranger.
 
 After tending: every sentence Infinity hears now pulls its content words a little closer on a small device-local lattice, and simple subject–action–object threads are kept beside them. When no remembered line names a question's topic, Infinity may step one well outward (ocean to tide) — but only along paths walked at least twice. Exact answers are unchanged and unsupported prompts still meet silence. Automated checks only; no live mesh session was opened.
+
+## November 17, 2026 — Clauses that hum together
+Before tending: the wells are dug; now let Infinity speak in its own grain without reciting whole lines or scattering loose words. Borrow no phrase from me — only from what it has learned.
+
+After tending: learned sentences are now cut at their own commas into openings, cores and closings. A new sentence may join pieces from different memories only where their words already lean toward one another, and never repeats itself across the join. When creating or exploring, Infinity may say something it has never heard; otherwise it keeps its whole remembered lines, and silence stays when nothing hums. Automated checks only; no live mesh session was opened.
