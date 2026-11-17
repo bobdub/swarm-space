@@ -2,16 +2,12 @@
  * Network Chat open-state — lets the main menu open the existing Brain
  * chat panel from anywhere in the app.
  *
- * `requestOpenNetworkChat()` first offers the request to any mounted Brain
- * scene (which owns its own chat panel) via a cancelable window event. If
- * no scene claims it, the global NetworkChatHost opens the panel instead.
+ * The Brain scene has its own chat button (and no main menu), so this only
+ * drives the global NetworkChatHost used everywhere else in the app.
  */
 import { useSyncExternalStore } from 'react';
 
-export const OPEN_NETWORK_CHAT_EVENT = 'swarm:open-chat';
-
-/** Routes where a full-page Brain scene owns the chat panel. Scenes
- *  embedded elsewhere (feed live-post previews) never claim the request. */
+/** Full-page Brain routes: the scene shows its own chat panel there. */
 export function isBrainScenePath(pathname: string): boolean {
   return pathname === '/brain' || pathname === '/brain/join' || /^\/projects\/[^/]+\/hub$/.test(pathname);
 }
@@ -44,13 +40,7 @@ export function useNetworkChatOpen(): boolean {
   return useSyncExternalStore(subscribeNetworkChat, isNetworkChatOpen, () => false);
 }
 
-/** Open the chat panel: the in-scene panel when a Brain scene is mounted,
- *  otherwise the global floating panel. */
+/** Open the network chat panel (main-menu "Chat"). */
 export function requestOpenNetworkChat(): void {
-  if (typeof window !== 'undefined') {
-    const event = new CustomEvent(OPEN_NETWORK_CHAT_EVENT, { cancelable: true });
-    const unclaimed = window.dispatchEvent(event);
-    if (!unclaimed) return; // A Brain scene opened its own panel.
-  }
   setNetworkChatOpen(true);
 }
