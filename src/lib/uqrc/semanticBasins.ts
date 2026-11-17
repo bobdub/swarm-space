@@ -17,8 +17,8 @@
  *
  * where n_ab counts real sentence co-occurrences. Tension is zero without
  * evidence, so geometry alone can never bridge words that were never seen
- * together. Basin-mates (high cosine, no direct evidence) are offered only
- * at a discount and only when both words are themselves well supported.
+ * together. Basin membership (high cosine) is observable via basinOf but
+ * never counts as tension.
  *
  * Relational triads (Subject ──Action──▶ Object) are extracted with a small
  * local heuristic (no part-of-speech model). They are signals for later
@@ -44,7 +44,6 @@ export const MIN_EVIDENCE = 2;
 /** Cosine required for basin-mates without direct evidence. */
 const BASIN_COSINE = 0.8;
 const BASIN_MIN_MASS = 3;
-const BASIN_DISCOUNT = 0.5;
 
 export const SEMANTIC_STOP_WORDS = new Set((
   'a an the is are was were be been being to of in on at and or for from with it its this that these those ' +
@@ -140,6 +139,15 @@ function cosine(a: Float32Array, b: Float32Array): number {
   }
   if (na === 0 || nb === 0) return 0;
   return dot / Math.sqrt(na * nb);
+}
+
+const MIN_NORM = 0.25;
+function renormalize(pos: Float32Array): void {
+  let n = 0;
+  for (let i = 0; i < pos.length; i++) n += pos[i] * pos[i];
+  n = Math.sqrt(n);
+  if (n === 0 || n >= MIN_NORM) return;
+  for (let i = 0; i < pos.length; i++) pos[i] /= n;
 }
 
 const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -266,6 +274,10 @@ export class SemanticLattice {
       na.pos[d] *= 1 - RICCI_DECAY;
       nb.pos[d] *= 1 - RICCI_DECAY;
     }
+    // Decay bounds the manifold but must not erase direction: once a
+    // coordinate shrinks below unit scale, lift it back to the unit sphere.
+    renormalize(na.pos);
+    renormalize(nb.pos);
   }
 
   private sampleOther(a: string, b: string): string | null {
@@ -318,12 +330,9 @@ export class SemanticLattice {
     if (!na || !nb) return 0;
     const n = this.evidence(a, b);
     const cos = cosine(na.pos, nb.pos);
-    if (n >= MIN_EVIDENCE) return Math.max(0, cos) * (n / (n + 1));
-    // Basin-mates: shared geometry without direct evidence, discounted.
-    if (cos >= BASIN_COSINE && na.mass >= BASIN_MIN_MASS && nb.mass >= BASIN_MIN_MASS) {
-      return cos * BASIN_DISCOUNT * 0.5;
-    }
-    return 0;
+    // Geometry alone never grants tension; basin membership is read separately (basinOf).
+    if (n < MIN_EVIDENCE) return 0;
+    return Math.max(0, cos) * (n / (n + 1));
   }
 
   /** Words that share positive tension with `word`, strongest first. */
@@ -388,7 +397,8 @@ export class SemanticLattice {
     const r = (x: number) => Math.round(x * 1000) / 1000;
     return {
       v: 1,
-      words: [...this.words.entries()].map(([k, n]) => [k, r(n.mass), Array.from(n.pos, r)]),
+      // Coordinates keep 6 significant digits so small vectors survive reload.
+      words: [...this.words.entries()].map(([k, n]) => [k, r(n.mass), Array.from(n.pos, x => Number(x.toPrecision(6)))]),
       pairs: [...this.pairs.entries()].map(([k, s]) => [k, s.count, r(s.weight)]),
       triads: [...this.triads.values()].map(t => [t.subject, t.action, t.object, r(t.weight)]),
     };

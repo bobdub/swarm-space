@@ -46,6 +46,27 @@ describe('SemanticLattice (Phase 1 basins)', () => {
     expect(lattice.triadsFor(['silt'])[0]).toMatchObject({ subject: 'memory', action: 'settles', object: 'silt' });
   });
 
+  it('never grants tension through a shared neighbour alone', () => {
+    const lattice = new SemanticLattice();
+    for (let i = 0; i < 20; i++) {
+      lattice.ingest('ocean tide.', 0.8);
+      lattice.ingest('tide shore.', 0.8);
+    }
+    expect(lattice.evidence('ocean', 'shore')).toBe(0);
+    expect(lattice.tension('ocean', 'shore')).toBe(0);
+    expect(lattice.isCoherentChain(['ocean', 'shore'])).toBe(false);
+  });
+
+  it('keeps well-supported geometry across reload after long decay', () => {
+    const lattice = new SemanticLattice();
+    for (let i = 0; i < 3000; i++) lattice.ingest('The ocean tide returns to the shore.', 0.8);
+    const before = lattice.tension('ocean', 'tide');
+    expect(before).toBeGreaterThan(0.9);
+    const restored = new SemanticLattice();
+    restored.restore(JSON.parse(JSON.stringify(lattice.serialize())));
+    expect(restored.tension('ocean', 'tide')).toBeCloseTo(before, 3);
+  });
+
   it('round-trips through serialization', () => {
     const lattice = new SemanticLattice();
     teach(lattice);
