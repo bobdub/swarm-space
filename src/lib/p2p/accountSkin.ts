@@ -1,4 +1,5 @@
 import { affinityScore } from './connectionAffinity';
+import { isPublicWalletAddress, verifyNamespaceIdentity } from '@/lib/uqrc/namespaceIdentity';
 
 /**
  * Account Skin Protocol
@@ -101,6 +102,7 @@ export class AccountSkinProtocol {
       return; // Debounce duplicate bindings
     }
 
+    const walletChanged = !!options?.walletAddress && options.walletAddress.toLowerCase() !== existing?.walletAddress?.toLowerCase();
     const binding: AccountBinding = {
       userId,
       peerId,
@@ -108,8 +110,9 @@ export class AccountSkinProtocol {
       displayName: options?.displayName ?? existing?.displayName,
       avatarRef: options?.avatarRef ?? existing?.avatarRef,
       walletAddress: options?.walletAddress ?? existing?.walletAddress,
-      namespaceId: options?.namespaceId ?? existing?.namespaceId,
-      discriminator: options?.discriminator ?? existing?.discriminator,
+      // A new wallet anchor invalidates coordinates derived from the old one.
+      namespaceId: options?.namespaceId ?? (walletChanged ? undefined : existing?.namespaceId),
+      discriminator: options?.discriminator ?? (walletChanged ? undefined : existing?.discriminator),
       boundAt: now,
       ttl,
     };
@@ -295,35 +298,53 @@ export class AccountSkinProtocol {
   // --- Private ---
 
   private handleBindings(bindings: AccountBinding[], fromPeerId: string): void {
+    if (!Array.isArray(bindings)) return;
     for (const binding of bindings) {
-      if (!binding.userId || !binding.peerId) continue;
-      if (binding.ttl <= 0) continue;
+      if (!binding || typeof binding !== 'object') continue;
+      if (typeof binding.userId !== 'string' || !binding.userId || typeof binding.peerId !== 'string' || !binding.peerId) continue;
+      if (typeof binding.ttl !== 'number' || !Number.isFinite(binding.ttl) || binding.ttl <= 0) continue;
+      if (typeof binding.boundAt !== 'number' || !Number.isFinite(binding.boundAt)) continue;
+      const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v : undefined);
 
       const existing = this.directory.get(binding.userId);
 
       // Accept if newer or unknown
       if (!existing || binding.boundAt > existing.boundAt) {
+        const walletAddress = isPublicWalletAddress(binding.walletAddress) ? binding.walletAddress : undefined;
+        // Relayed namespace coordinates are claims: apply them only after they
+        // re-derive from this userId + wallet (see applyVerifiedNamespace).
         this.bindAccount(binding.userId, binding.peerId, {
-          username: binding.username,
-          displayName: binding.displayName,
-          avatarRef: binding.avatarRef,
-          walletAddress: binding.walletAddress,
-          namespaceId: binding.namespaceId,
-          discriminator: binding.discriminator,
-          ttl: binding.ttl - 1,
+          username: text(binding.username),
+          displayName: text(binding.displayName),
+          avatarRef: text(binding.avatarRef),
+          walletAddress,
+          ttl: Math.min(MAX_TTL, binding.ttl - 1),
         });
+        if (walletAddress && (binding.namespaceId || binding.discriminator)) {
+          void this.applyVerifiedNamespace(binding.userId, walletAddress, binding.namespaceId, binding.discriminator);
+        }
 
         // Re-propagate with decremented TTL if still alive
-        if (binding.ttl - 1 > 0) {
+        const forwardTtl = Math.min(MAX_TTL, binding.ttl - 1);
+        if (forwardTtl > 0) {
           const forward: AccountSkinMessage = {
             type: 'account-bind',
-            bindings: [{ ...binding, ttl: binding.ttl - 1 }],
+            bindings: [{ ...binding, ttl: forwardTtl }],
             timestamp: Date.now(),
           };
           this.broadcast('skin', forward);
         }
       }
     }
+  }
+
+  private async applyVerifiedNamespace(userId: string, walletAddress: string, namespaceId: unknown, discriminator: unknown): Promise<void> {
+    if (!(await verifyNamespaceIdentity(userId, walletAddress, namespaceId, discriminator))) return;
+    const current = this.directory.get(userId);
+    // The binding may have moved to another wallet while we were hashing.
+    if (!current || current.walletAddress?.toLowerCase() !== walletAddress.toLowerCase()) return;
+    current.namespaceId = (namespaceId as string).toLowerCase();
+    current.discriminator = (discriminator as string).toLowerCase();
   }
 
   private handleQuery(fromPeerId: string, queryUserId?: string, queryUsername?: string): void {

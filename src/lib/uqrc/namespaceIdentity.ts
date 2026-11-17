@@ -5,7 +5,7 @@
  * Affinity is local observation, never a network-supplied trust assertion.
  */
 export async function namespaceIdentity(userId: string, walletAddress: string) {
-  if (!userId.trim() || !/^0x[\da-f]{40}$/i.test(walletAddress) || /^0x0{40}$/i.test(walletAddress)) {
+  if (!userId.trim() || !isPublicWalletAddress(walletAddress)) {
     throw new Error('A user identity and real public receiving address are required.');
   }
   const bytes = new TextEncoder().encode(JSON.stringify(['swarm-namespace-v1', userId, walletAddress.toLowerCase()]));
@@ -26,4 +26,26 @@ export function connectionCurvature(history: Partial<ConnectionAffinity>, now = 
   const last = finitePositive(history.lastInteractionAt ?? 0);
   const idleDays = finitePositive(now - last) / 86_400_000;
   return Math.log1p(hours) + .25 * Math.log1p(sessions) + (last > 0 ? .1 * Math.exp(-idleDays / 7) : 0);
+}
+/** A real, non-zero EVM public address (format only — not proof of ownership). */
+export function isPublicWalletAddress(value: unknown): value is string {
+  return typeof value === 'string' && /^0x[\da-f]{40}$/i.test(value) && !/^0x0{40}$/i.test(value);
+}
+
+/**
+ * Peers relay namespace coordinates they did not compute. Accept them only when
+ * they re-derive locally from the claimed userId + wallet anchor, so a relay
+ * cannot pin someone else's #discriminator onto a duplicate handle.
+ */
+export async function verifyNamespaceIdentity(
+  userId: unknown, walletAddress: unknown, namespaceId: unknown, discriminator: unknown,
+): Promise<boolean> {
+  if (typeof userId !== 'string' || !isPublicWalletAddress(walletAddress)) return false;
+  if (typeof namespaceId !== 'string' || typeof discriminator !== 'string') return false;
+  try {
+    const derived = await namespaceIdentity(userId, walletAddress);
+    return derived.namespaceId === namespaceId.toLowerCase() && derived.discriminator === discriminator.toLowerCase();
+  } catch {
+    return false;
+  }
 }
