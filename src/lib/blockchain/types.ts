@@ -455,7 +455,7 @@ export interface SwarmCoin {
    *  the wallet UI. Absent ⇒ regular fungible SWARM coin. */
   kind?: "fungible" | "media";
   /** Content payload entries loaded into this coin (posts/comments). */
-  payloadEntries?: { id: string; type: "post" | "comment"; sizeBytes: number; hash: string }[];
+  payloadEntries?: CoinPayloadEntry[];
   /** Media coin: bytes currently engraved into this container. */
   sealBytes?: number;
   /** Last actual content append; idle sealing never resets this on reads. */
@@ -531,3 +531,29 @@ export const SWARM_CONFIG: BlockchainConfig = {
   genesisTimestamp: '2025-01-01T00:00:00.000Z',
 };
 
+
+/** NFT-style media pointer engraved into a coin: content hash + chunk refs, never the file key or raw bytes. */
+export interface CoinPayloadMedia {
+  fileId: string;
+  mime: string;
+  name?: string;
+  sizeBytes: number;
+  /** SHA-256 over the file's chunk refs (each ref is itself a content hash). */
+  contentHash: string;
+  chunks: string[];
+}
+
+/** One engraved item: token metadata plus its media, sized by the real content it carries. */
+export interface CoinPayloadEntry {
+  id: string;
+  type: "post" | "comment";
+  /** Text/metadata bytes plus every attached file's full size. */
+  sizeBytes: number;
+  hash: string;
+  /** Engraving format; 2 = NFT-style (metadata + media). Absent on legacy text-only entries. */
+  v?: 2;
+  metadata?: { name: string; description: string; createdAt?: string; postType?: string; tags?: string[] };
+  media?: CoinPayloadMedia[];
+  /** Attached files not on this device yet; the writer retries them until they count. */
+  pendingMediaIds?: string[];
+}

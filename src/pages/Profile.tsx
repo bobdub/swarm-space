@@ -36,7 +36,7 @@ import {
 import { useP2PContext } from "@/contexts/P2PContext";
 import { PostComposer } from "@/components/PostComposer";
 import { FilePreview } from "@/components/FilePreview";
-import { deleteManifest, type Manifest as FileManifest } from "@/lib/fileEncryption";
+import { deleteManifest, EngravedFileError, type Manifest as FileManifest } from "@/lib/fileEncryption";
 import { CreatorMarketTab } from "@/components/profile/CreatorMarketTab";
 import { toast } from "sonner";
 import { getBlockedUserIds } from "@/lib/connections";
@@ -645,7 +645,7 @@ const Profile = () => {
       toast.success("File deleted");
     } catch (error) {
       console.error("[Profile] Failed to delete file", error);
-      toast.error("Failed to delete file");
+      toast.error(error instanceof EngravedFileError ? error.message : "Failed to delete file");
     }
   }, [isOwnProfile]);
 

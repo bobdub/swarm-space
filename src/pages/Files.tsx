@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FilePreview } from "@/components/FilePreview";
-import { getAllManifests, deleteManifest, Manifest } from "@/lib/fileEncryption";
+import { getAllManifests, deleteManifest, EngravedFileError, Manifest } from "@/lib/fileEncryption";
 import { Search, Image, Video, File, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -87,7 +87,7 @@ const Files = () => {
       await loadManifests();
     } catch (error) {
       console.error("Delete error:", error);
-      toast.error("Failed to delete file");
+      toast.error(error instanceof EngravedFileError ? error.message : "Failed to delete file");
     }
   };
 
