@@ -71,6 +71,7 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
   const [loading, setLoading] = useState(true);
+  const [walletTab, setWalletTab] = useState("assets");
   const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(() => {
     const chain = getActiveChain();
     return chain.isMainChain ? "swarm" : `chain:${chain.chainId}`;
@@ -341,7 +342,7 @@ export default function Wallet() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="assets" className="space-y-6">
+        <Tabs value={walletTab} onValueChange={setWalletTab} className="space-y-6">
           <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-9">
             <TabsTrigger value="assets" className="shrink-0 px-3">Assets</TabsTrigger>
             <TabsTrigger value="transactions" className="shrink-0 px-3">Ledger</TabsTrigger>
@@ -356,7 +357,7 @@ export default function Wallet() {
 
           {/* ── Assets ────────────────────────────────────────────── */}
           <TabsContent value="assets">
-            <AssetsTab network={assetNetwork} />
+            <AssetsTab network={assetNetwork} onDeployToken={() => setWalletTab("creator-token")} />
           </TabsContent>
 
           {/* ── Transactions / Ledger ─────────────────────────────── */}
