@@ -339,9 +339,18 @@ export async function getAllManifests(): Promise<Manifest[]> {
 }
 
 // Delete manifest and its chunks
+export class EngravedFileError extends Error {
+  constructor(public readonly coinId: string) {
+    super("This file is engraved in a coin and can't be deleted");
+    this.name = "EngravedFileError";
+  }
+}
+
 export async function deleteManifest(fileId: string): Promise<void> {
-  const manifest = await get("manifests", fileId) as Manifest;
+  const manifest = await get("manifests", fileId) as Manifest & { _coinId?: string };
   if (!manifest) return;
+  // Engraved files belong to their coin; deleting them would break the coin's content.
+  if (manifest._coinId) throw new EngravedFileError(manifest._coinId);
   
   // Delete all chunks
   const db = await openDB();

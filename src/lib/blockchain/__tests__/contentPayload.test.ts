@@ -3,7 +3,7 @@ const db: Record<string, Map<string, any>> = { posts: new Map(), comments: new M
 vi.mock("../../store", () => ({
   get: async (s: string, k: string) => db[s].get(k),
   getAll: async (s: string) => [...db[s].values()],
-  put: async (s: string, v: any) => { db[s].set(v.id ?? v.coinId, v); },
+  put: async (s: string, v: any) => { db[s].set(v.id ?? v.coinId ?? v.fileId, v); },
 }));
 import { packLocalContent, COIN_PAYLOAD_SEAL_BYTES, measureContentBytes, sealLocalContent } from "../contentPayload";
 import { isWeightedCoin } from "../weightedCoin";
@@ -131,5 +131,38 @@ describe("content payload flip", () => {
     db.swarmCoins.set("c1", { ...loaded(900), fillState: "sealed" });
     await packLocalContent("u");
     expect(db.swarmCoins.get("c1").sealBytes).toBe(900);
+  });
+  it("relocates engraved files to the coin by reference, without copying bytes", async () => {
+    db.manifests.set("file-1", { fileId: "file-1", chunks: ["chunk-a"], mime: "image/png", size: 2_500_000 });
+    db.posts.set("p1", { id: "p1", author: "u", content: "pic", manifestIds: ["file-1"] });
+    db.swarmCoins.set("c1", coin("c1"));
+    await packLocalContent("u");
+    expect(db.manifests.get("file-1")).toMatchObject({ _coinId: "c1", chunks: ["chunk-a"], size: 2_500_000 });
+    expect(JSON.stringify(db.swarmCoins.get("c1")).length).toBeLessThan(2_000);
+  });
+  it("retries files that were not on this device when first engraved", async () => {
+    db.posts.set("p1", { id: "p1", author: "u", content: "pic", manifestIds: ["file-1"] });
+    db.swarmCoins.set("c1", coin("c1"));
+    await packLocalContent("u");
+    expect(db.swarmCoins.get("c1").payloadEntries[0].pendingMediaIds).toEqual(["file-1"]);
+    db.manifests.set("file-1", { fileId: "file-1", chunks: ["chunk-a"], mime: "image/png", size: 2_500_000 });
+    await packLocalContent("u");
+    const c = db.swarmCoins.get("c1");
+    expect(c.payloadEntries[0].pendingMediaIds).toBeUndefined();
+    expect(c.sealBytes).toBeGreaterThan(2_500_000);
+    expect(db.manifests.get("file-1")._coinId).toBe("c1");
+  });
+  it("releases a legacy entry that no longer fits so another coin takes it", async () => {
+    db.manifests.set("file-1", { fileId: "file-1", chunks: ["chunk-a"], mime: "image/png", size: 2_000 });
+    db.posts.set("p0", { id: "p0", author: "u", content: "old", manifestIds: ["file-1"], _coinId: "c1" });
+    db.swarmCoins.set("c1", { ...loaded(1024 ** 3 - 100), payloadEntries: [
+      { id: "x", type: "post", hash: "h", sizeBytes: 1024 ** 3 - 200, v: 2 },
+      { id: "p0", type: "post", hash: "a", sizeBytes: 100 }] });
+    db.swarmCoins.set("c2", coin("c2"));
+    await packLocalContent("u");
+    expect(db.swarmCoins.get("c1").payloadEntries.map((e: { id: string }) => e.id)).toEqual(["x"]);
+    expect(db.swarmCoins.get("c1").sealBytes).toBe(1024 ** 3 - 200);
+    expect(db.posts.get("p0")._coinId).toBe("c2");
+    expect(db.manifests.get("file-1")._coinId).toBe("c2");
   });
 });

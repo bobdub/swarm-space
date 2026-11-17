@@ -11,8 +11,10 @@
  *
  * Entries are engraved NFT-style: token metadata (name, description, type,
  * tags) plus a pointer to each attached file (file id, MIME, size, chunk refs
- * and a content hash). The meter counts each file's full size; the bytes
- * themselves stay in encrypted chunk storage, and file keys never enter a coin.
+ * and a content hash). The meter counts each file's full size. Files are
+ * relocated by reference: the file record is anchored to the coin while its
+ * encrypted bytes stay in chunk storage, so nothing is copied and posts keep
+ * loading. File keys never enter a coin.
  */
 import { get, getAll, put } from "../store";
 import { applySeal } from "./coinFill";
@@ -38,17 +40,18 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-interface StoredManifest { fileId: string; chunks?: string[]; mime?: string; size?: number; originalName?: string }
+interface StoredManifest { fileId: string; chunks?: string[]; mime?: string; size?: number; originalName?: string; _coinId?: string }
 
 /** Read the item's attached files as NFT media pointers. Keys and raw bytes stay in chunk storage. */
-async function readMedia(item: LoadableContent): Promise<CoinPayloadMedia[]> {
+async function readMedia(item: LoadableContent): Promise<{ media: CoinPayloadMedia[]; missing: string[] }> {
   const ids = Array.isArray(item.manifestIds) ? [...new Set(item.manifestIds.filter((id): id is string => typeof id === "string"))] : [];
   const media: CoinPayloadMedia[] = [];
+  const missing: string[] = [];
   for (const fileId of ids) {
     let manifest: StoredManifest | undefined;
     try { manifest = await get<StoredManifest>("manifests", fileId); } catch { manifest = undefined; }
     const size = Number(manifest?.size);
-    if (!manifest || !Number.isFinite(size) || size <= 0) continue;
+    if (!manifest || !Number.isFinite(size) || size <= 0) { missing.push(fileId); continue; }
     const chunks = Array.isArray(manifest.chunks) ? manifest.chunks.filter((c) => typeof c === "string") : [];
     media.push({
       fileId, mime: manifest.mime || "application/octet-stream",
@@ -56,17 +59,16 @@ async function readMedia(item: LoadableContent): Promise<CoinPayloadMedia[]> {
       sizeBytes: size, chunks, contentHash: await sha256Hex(`${fileId}:${size}:${chunks.join(",")}`),
     });
   }
-  return media;
+  return { media, missing };
 }
 
 function itemText(item: LoadableContent): string {
-  const text = typeof item.content === "string" ? item.content : typeof item.text === "string" ? item.text : "";
-  return text;
+  return typeof item.content === "string" ? item.content : typeof item.text === "string" ? item.text : "";
 }
 
 /** Build the NFT-style entry: metadata + media pointers, sized by text plus full media bytes. */
 export async function buildPayloadEntry(store: PayloadStore, item: LoadableContent): Promise<CoinPayloadEntry> {
-  const media = await readMedia(item);
+  const { media, missing } = await readMedia(item);
   const description = itemText(item);
   const type: "post" | "comment" = store === "posts" ? "post" : "comment";
   const metadata: NonNullable<CoinPayloadEntry["metadata"]> = {
@@ -78,30 +80,67 @@ export async function buildPayloadEntry(store: PayloadStore, item: LoadableConte
   };
   const sizeBytes = measureContentBytes(item) + media.reduce((sum, m) => sum + m.sizeBytes, 0);
   const hash = await sha256Hex(JSON.stringify({ item: { ...item, _coinId: undefined }, media: media.map((m) => m.contentHash) }));
-  return { id: item.id, type, sizeBytes, hash, v: 2, metadata, ...(media.length ? { media } : {}) };
+  return {
+    id: item.id, type, sizeBytes, hash, v: 2, metadata,
+    ...(media.length ? { media } : {}),
+    ...(missing.length ? { pendingMediaIds: missing } : {}),
+  };
 }
 
 /**
- * Open coins loaded before media counted hold text-only entries. Re-engrave
- * them in place (never sealed coins) so earlier uploads count toward the meter.
+ * Relocate engraved files into the coin without copying: the file record
+ * gains `_coinId`, so it now belongs to that coin. Bytes stay in chunk
+ * storage where posts and the mesh already read them, and anchored files
+ * are protected from space cleanup and deletion.
+ */
+async function anchorMedia(entry: CoinPayloadEntry, coinId: string): Promise<void> {
+  for (const m of entry.media ?? []) {
+    try {
+      const manifest = await get<StoredManifest>("manifests", m.fileId);
+      if (manifest && manifest._coinId !== coinId) await put("manifests", { ...manifest, _coinId: coinId });
+    } catch (err) { console.warn("[contentPayload] anchor failed", m.fileId, err); }
+  }
+}
+
+function needsUpgrade(entry: CoinPayloadEntry): boolean {
+  return entry.v !== 2 || (entry.pendingMediaIds?.length ?? 0) > 0;
+}
+
+/**
+ * Open coins may hold text-only legacy entries, or entries whose files were
+ * not on this device yet. Re-engrave them in place (never sealed coins). An
+ * entry that no longer fits is released back to the queue so the normal
+ * writer places it in another coin, never recorded as half-migrated.
  */
 async function upgradeLegacyEntries(coin: SwarmCoin): Promise<SwarmCoin> {
   const entries = coin.payloadEntries ?? [];
-  if (!entries.some((e) => e.v !== 2)) return coin;
+  if (!entries.some(needsUpgrade)) return coin;
   let total = coin.sealBytes ?? 0;
   const next: CoinPayloadEntry[] = [];
+  let changed = false;
   for (const entry of entries) {
-    if (entry.v === 2) { next.push(entry); continue; }
+    if (!needsUpgrade(entry)) { next.push(entry); continue; }
     const store: PayloadStore = entry.type === "post" ? "posts" : "comments";
     let item: LoadableContent | undefined;
     try { item = await get<LoadableContent>(store, entry.id); } catch { item = undefined; }
-    if (!item) { next.push({ ...entry, v: 2 }); continue; }
+    if (!item) { next.push(entry); continue; }
     const upgraded = await buildPayloadEntry(store, item);
+    if (upgraded.sizeBytes === entry.sizeBytes && upgraded.v === entry.v
+      && (upgraded.pendingMediaIds?.length ?? 0) === (entry.pendingMediaIds?.length ?? 0)) { next.push(entry); continue; }
+    changed = true;
     const grown = total - entry.sizeBytes + upgraded.sizeBytes;
-    if (grown > COIN_PAYLOAD_CAPACITY_BYTES) { next.push({ ...entry, v: 2 }); continue; }
+    if (grown > COIN_PAYLOAD_CAPACITY_BYTES) {
+      total -= entry.sizeBytes;
+      const { _coinId: _released, ...rest } = item;
+      void _released;
+      await put(store, rest);
+      continue;
+    }
     total = grown;
     next.push(upgraded);
+    await anchorMedia(upgraded, coin.coinId);
   }
+  if (!changed) return coin;
   const upgraded: SwarmCoin = { ...coin, payloadEntries: next, sealBytes: total };
   upgraded.fill = Math.min(1, total / COIN_PAYLOAD_CAPACITY_BYTES);
   await put("swarmCoins", upgraded);
@@ -237,6 +276,7 @@ async function pack(userId: string): Promise<number> {
     if ((next.sealBytes ?? 0) >= COIN_PAYLOAD_CAPACITY_BYTES) next = await sealPayload(next);
     await put("swarmCoins", next);
     await put(store, { ...item, _coinId: next.coinId });
+    await anchorMedia(entry, next.coinId);
     flipped += 1;
     coin = next.fillState === "sealed" ? coins.shift() : next;
   }

@@ -554,4 +554,6 @@ export interface CoinPayloadEntry {
   v?: 2;
   metadata?: { name: string; description: string; createdAt?: string; postType?: string; tags?: string[] };
   media?: CoinPayloadMedia[];
+  /** Attached files not on this device yet; the writer retries them until they count. */
+  pendingMediaIds?: string[];
 }

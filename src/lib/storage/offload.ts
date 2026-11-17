@@ -6,6 +6,7 @@
  *  - Only stores classified as `bulk`/`replica` in STORE_TIER_MAP are ever
  *    cleared. Identity, keys, wallet, chain and posts are never touched.
  *  - Clearing is gated on a successful export in the same visit.
+ *  - Files engraved into a wallet coin (manifest `_coinId`) are never cleared.
  */
 
 import { getAll, openDB } from '@/lib/store';
@@ -163,6 +164,17 @@ export function clearKeyForRow(row: Record<string, unknown>): string | undefined
   );
 }
 
+/** File ids and chunk refs of files engraved into a coin; space cleanup keeps these. */
+export function engravedFileKeys(manifests: Array<{ fileId?: string; chunks?: string[]; _coinId?: string }>): Set<string> {
+  const keys = new Set<string>();
+  for (const m of manifests) {
+    if (!m?._coinId) continue;
+    if (m.fileId) keys.add(m.fileId);
+    for (const ref of m.chunks ?? []) keys.add(ref);
+  }
+  return keys;
+}
+
 /** Delete many keys in a single IndexedDB transaction per store. */
 async function removeBatch(store: string, keys: string[]): Promise<number> {
   if (keys.length === 0) return 0;
@@ -192,6 +204,9 @@ export async function clearBulkLocal(
   const db = await openDB();
   const available = new Set<string>(Array.from(db.objectStoreNames));
 
+  // Files engraved into a coin now belong to it: keep their record and pieces.
+  const engraved = engravedFileKeys(await safeGetAll<Manifest & { _coinId?: string }>('manifests', available));
+
   const byStore = new Map<string, { keys: string[]; bytes: number }>();
   let total = 0;
   let freedBytes = 0;
@@ -201,6 +216,7 @@ export async function clearBulkLocal(
     for (const row of rows) {
       const key = clearKeyForRow(row);
       if (!key) continue;
+      if ((store === 'manifests' || store === 'chunks') && engraved.has(key)) continue;
       entry.keys.push(key);
       total += 1;
       try { entry.bytes += JSON.stringify(row).length; } catch { /* ignore */ }
