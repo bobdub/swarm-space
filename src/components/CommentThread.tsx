@@ -11,7 +11,8 @@ import { Avatar } from "@/components/Avatar";
 import { UserBadgeStrip } from "@/components/UserBadgeStrip";
 import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 import { MentionPopover } from "@/components/MentionPopover";
-import { containsEntityMention, buildMentionCache } from "@/lib/mentions";
+import { containsEntityMention, buildMentionCache, insertMention, mentionRecipient, rebaseMentions, trimMentionBindings } from "@/lib/mentions";
+import type { MentionBinding } from "@/types";
 
 interface CommentThreadProps {
   postId: string;
@@ -19,7 +20,7 @@ interface CommentThreadProps {
 }
 
 /** Render text with @mentions as clickable Links */
-function renderTextWithMentions(text: string): React.ReactNode[] {
+function renderTextWithMentions(text: string, mentions?: MentionBinding[], visibleLength = text.length): React.ReactNode[] {
   const MENTION_RE = /@(\w+)/g;
   const nodes: React.ReactNode[] = [];
   let lastIdx = 0;
@@ -30,7 +31,7 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
     if (m.index > lastIdx) nodes.push(text.slice(lastIdx, m.index));
     const username = m[1];
     const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-    const resolvedId = mentionCache.get(username.toLowerCase());
+    const resolvedId = m.index + m[0].length <= visibleLength ? mentionRecipient(text, m.index, username, mentions, mentionCache) : undefined;
 
     if (resolvedId) {
       nodes.push(
@@ -61,14 +62,14 @@ function renderTextWithMentions(text: string): React.ReactNode[] {
 
 const COLLAPSE_THRESHOLD = 300;
 
-function CommentBody({ text }: { text: string }) {
+function CommentBody({ text, mentions }: { text: string; mentions?: MentionBinding[] }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = text.length > COLLAPSE_THRESHOLD;
   const displayText = isLong && !expanded ? text.slice(0, COLLAPSE_THRESHOLD) + '…' : text;
 
   return (
     <div className="mt-1 text-[0.8rem] leading-snug text-foreground/70 whitespace-pre-wrap break-words">
-      {renderTextWithMentions(displayText)}
+      {renderTextWithMentions(displayText, mentions, isLong && !expanded ? COLLAPSE_THRESHOLD : displayText.length)}
       {isLong && (
         <button
           type="button"
@@ -85,6 +86,7 @@ function CommentBody({ text }: { text: string }) {
 export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
+  const [newMentions, setNewMentions] = useState<MentionBinding[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -146,7 +148,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
 
     setIsSubmitting(true);
     try {
-      const comment = await addComment(postId, newComment.trim());
+      const comment = await addComment(postId, newComment.trim(), undefined, trimMentionBindings(newComment, newMentions));
       setComments((prev) => {
         const next = [...prev, comment];
         lastKnownCount.current = next.length;
@@ -163,6 +165,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
       }
 
       setNewComment("");
+      setNewMentions([]);
       toast({
         title: "Comment posted",
         description: "Your comment has been added.",
@@ -274,7 +277,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
                         })}
                       </span>
                     </div>
-                    <CommentBody text={comment.text} />
+                    <CommentBody text={comment.text} mentions={comment.mentions} />
                   </div>
                 </div>
                 );
@@ -287,7 +290,7 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
             <Textarea
               ref={commentTextareaRef}
               value={newComment}
-              onChange={(e) => setNewComment(e.target.value)}
+              onChange={(e) => { setNewMentions((m) => rebaseMentions(newComment, e.target.value, m)); setNewComment(e.target.value); }}
               placeholder="Write a comment... Use @username to mention"
               className="min-h-[60px] resize-none rounded-md border-border/20 bg-background/30 text-xs text-foreground placeholder:text-foreground/30 focus-visible:ring-primary"
               onKeyDown={(e) => {
@@ -299,13 +302,12 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
             <MentionPopover
               textareaRef={commentTextareaRef}
               value={newComment}
-              onSelect={(username, start, end) => {
-                const before = newComment.slice(0, start);
-                const after = newComment.slice(end);
-                setNewComment(`${before}@${username} ${after}`);
+              onSelect={(_username, start, end, candidate, suffix) => {
+                const next = insertMention(newComment, newMentions, candidate, start, end, suffix);
+                setNewComment(next.text);
+                setNewMentions(next.mentions);
                 setTimeout(() => {
-                  const pos = start + username.length + 2;
-                  commentTextareaRef.current?.setSelectionRange(pos, pos);
+                  commentTextareaRef.current?.setSelectionRange(next.cursor, next.cursor);
                   commentTextareaRef.current?.focus();
                 }, 0);
               }}

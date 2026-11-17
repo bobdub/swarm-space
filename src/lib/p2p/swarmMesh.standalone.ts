@@ -2324,6 +2324,10 @@ export class StandaloneSwarmMesh {
     username?: string;
     displayName?: string;
     avatarRef?: string;
+    userId?: string;
+    walletAddress?: string;
+    namespaceId?: string;
+    discriminator?: string;
   }> {
     const activeSeenAt = now();
     return Array.from(this.connections.keys())
@@ -2341,6 +2345,9 @@ export class StandaloneSwarmMesh {
           username: entry?.username,
           displayName: entry?.displayName,
           avatarRef: entry?.avatarRef,
+          walletAddress: entry?.walletAddress,
+          namespaceId: entry?.namespaceId,
+          discriminator: entry?.discriminator,
         };
       });
   }
@@ -2360,7 +2367,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
@@ -2438,7 +2445,7 @@ export class StandaloneSwarmMesh {
       // without profile fields must not erase previously learned identity.
       const entry = this.library.get(rp.peerId);
       if (entry) {
-        for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
+        for (const key of ['userId', 'username', 'displayName', 'avatarRef', 'walletAddress', 'namespaceId', 'discriminator'] as const) {
           const value = rp[key];
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             entry[key] = value;
@@ -2679,7 +2686,8 @@ export class StandaloneSwarmMesh {
     // Check if this mention is for us
     const localNodeId = this.nodeId;
     const localPeerId = this.peerId;
-    if (targetUserId !== localNodeId && targetUserId !== localPeerId) {
+    const localUserId = this.getLocalProfile().userId;
+    if (targetUserId !== localNodeId && targetUserId !== localPeerId && targetUserId !== localUserId) {
       // Not for us — relay to other peers (gossip)
       return;
     }

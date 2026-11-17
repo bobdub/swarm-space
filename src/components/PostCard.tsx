@@ -3,12 +3,12 @@ import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { buildMentionCache } from "@/lib/mentions";
+import { buildMentionCache, mentionRecipient } from "@/lib/mentions";
 
 import { Card } from "@/components/ui/card";
 import { ENTITY_USER_ID } from "@/lib/p2p/entityVoice";
 import { Button } from "@/components/ui/button";
-import { Post, User, PostMetrics } from "@/types";
+import { Post, User, PostMetrics, type MentionBinding } from "@/types";
 import { get } from "@/lib/store";
 import { decryptAndReassembleFile, importFileKey, Manifest } from "@/lib/fileEncryption";
 import { progressiveDecryptToBlob } from "@/lib/torrent/streamingDecryptor";
@@ -51,7 +51,7 @@ const normalizeUrl = (rawUrl: string): string => (rawUrl.startsWith("http") ? ra
 
 const MENTION_REGEX = /@(\w+)/g;
 
-const renderContentWithLinks = (content: string, mentionCache?: Map<string, string>): ReactNode[] => {
+const renderContentWithLinks = (content: string, mentionCache?: Map<string, string>, mentions?: MentionBinding[], hideYoutube = false): ReactNode[] => {
   // Combined regex: URLs and @mentions
   const COMBINED = new RegExp(`(${URL_REGEX.source})|(@\\w+)`, 'gi');
   const nodes: ReactNode[] = [];
@@ -68,6 +68,7 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
     if (match[1]) {
       // URL match
       const rawUrl = match[1];
+      if (hideYoutube && extractYoutubeVideoIds(rawUrl).length > 0) { lastIndex = matchIndex + match[0].length; continue; }
       const href = normalizeUrl(rawUrl);
       nodes.push(
         <a
@@ -84,7 +85,7 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
       // @mention match
       const username = match[0].slice(1);
       const isEntity = ['infinity', 'imagination'].includes(username.toLowerCase());
-      const resolvedId = cache.get(username.toLowerCase());
+      const resolvedId = mentionRecipient(content, matchIndex, username, mentions, cache);
 
       if (resolvedId) {
         nodes.push(
@@ -180,7 +181,7 @@ export function PostCard({ post }: PostCardProps) {
     [hidesYoutubeLinks, post.content],
   );
   const mentionCacheRef = useMemo(() => buildMentionCache(), []);
-  const renderedContent = useMemo(() => renderContentWithLinks(displayContent, mentionCacheRef), [displayContent, mentionCacheRef]);
+  const renderedContent = useMemo(() => renderContentWithLinks(post.content, mentionCacheRef, post.mentions, hidesYoutubeLinks), [post.content, mentionCacheRef, post.mentions, hidesYoutubeLinks]);
 
   const reactionCounts = getReactionCounts(post.reactions || []);
   const totalReactions = Array.from(reactionCounts.values()).reduce((a, b) => a + b, 0);

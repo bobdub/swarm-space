@@ -3,6 +3,8 @@
  * the swarm library + local IndexedDB users.
  */
 
+import { affinityScore, getConnectionAffinity } from '@/lib/p2p/connectionAffinity';
+import type { MentionBinding } from '@/types';
 import { ENTITY_USER_ID, ENTITY_DISPLAY_NAME } from '@/lib/p2p/entityVoice';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -21,6 +23,9 @@ export interface MentionCandidate {
   avatarRef?: string;
   trustScore: number;
   isEntity: boolean;
+  discriminator?: string;
+  connectedDurationMs?: number;
+  affinity?: number;
 }
 
 // ── Entity trigger names ────────────────────────────────────────────
@@ -87,6 +92,18 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
 
   // Swarm mesh library
   let connectedPeerIds = new Set<string>();
+  let owner = '';
+  const excluded = new Set<string>();
+  try {
+    const me = JSON.parse(localStorage.getItem('me') || 'null');
+    owner = me?._guest ? '' : me?.id || '';
+    const { getAll } = await import('@/lib/store');
+    const connections = await getAll<import('@/lib/connections').Connection>('connections');
+    for (const c of connections) {
+      const other = c.userId === owner ? c.connectedUserId : c.connectedUserId === owner ? c.userId : '';
+      if (other && ['blocked', 'ignored', 'removed'].includes(c.status)) excluded.add(other);
+    }
+  } catch { /* no local relationship records */ }
   try {
     const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
     const sm = getSwarmMeshStandalone();
@@ -97,10 +114,11 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
       for (const p of peers) connectedPeerIds.add(p);
     } catch { /* ignore */ }
     for (const peer of library) {
+      if (!peer.userId || excluded.has(peer.userId) || peer.userId === owner) continue;
       const dn = (peer.displayName || peer.username || peer.nodeId || '').toLowerCase();
       const un = (peer.username || peer.nodeId || '').toLowerCase();
       if (dn.startsWith(q) || un.startsWith(q)) {
-        const key = peer.peerId || peer.nodeId;
+        const key = peer.userId;
         if (!seen.has(key)) {
           seen.add(key);
           const baseTrust = computePeerTrust(peer as unknown as Record<string, unknown>);
@@ -108,7 +126,10 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
           const isConnected = connectedPeerIds.has(peer.peerId);
           const boostedTrust = isConnected ? Math.min(100, Math.round(baseTrust * 1.8)) : baseTrust;
           candidates.push({
-            userId: peer.nodeId || peer.peerId,
+            userId: peer.userId,
+            discriminator: peer.discriminator,
+            connectedDurationMs: getConnectionAffinity(owner, peer.userId).connectedDurationMs,
+            affinity: affinityScore(owner, peer.userId),
             peerId: peer.peerId,
             displayName: peer.displayName || peer.username || peer.nodeId,
             username: peer.username || peer.nodeId || peer.peerId,
@@ -131,6 +152,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
       profile?: { avatarRef?: string };
     }>('users');
     for (const u of users) {
+      if (excluded.has(u.id) || u.id === owner) continue;
       const dn = (u.displayName || u.username || '').toLowerCase();
       const un = (u.username || '').toLowerCase();
       if (dn.startsWith(q) || un.startsWith(q)) {
@@ -138,6 +160,8 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
           seen.add(u.id);
           candidates.push({
             userId: u.id,
+            connectedDurationMs: getConnectionAffinity(owner, u.id).connectedDurationMs,
+            affinity: affinityScore(owner, u.id),
             displayName: u.displayName || u.username || u.id,
             username: u.username || u.id,
             avatarRef: u.profile?.avatarRef,
@@ -153,7 +177,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
   candidates.sort((a, b) => {
     if (a.isEntity && !b.isEntity) return -1;
     if (!a.isEntity && b.isEntity) return 1;
-    return b.trustScore - a.trustScore;
+    return (b.affinity ?? 0) - (a.affinity ?? 0) || b.trustScore - a.trustScore || a.userId.localeCompare(b.userId);
   });
 
   return candidates.slice(0, 6);
@@ -202,32 +226,9 @@ export async function resolveUsernameToId(username: string): Promise<ResolvedUse
     return { userId: ENTITY_USER_ID, displayName: ENTITY_DISPLAY_NAME };
   }
 
-  // Swarm library
-  try {
-    const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
-    const sm = getSwarmMeshStandalone();
-    for (const peer of sm.getLibrary()) {
-      const peerUsername = (peer.username || '').toLowerCase();
-      const peerDisplay = (peer.displayName || '').toLowerCase();
-      const peerNode = (peer.nodeId || '').toLowerCase();
-      if (peerUsername === lower || peerDisplay === lower || peerNode === lower) {
-        return { userId: peer.nodeId || peer.peerId, displayName: peer.displayName || peer.username || peer.nodeId };
-      }
-    }
-  } catch { /* swarm not available */ }
-
-  // Local IndexedDB
-  try {
-    const { getAll } = await import('@/lib/store');
-    const users = await getAll<{ id: string; username?: string; displayName?: string }>('users');
-    for (const u of users) {
-      if ((u.username || '').toLowerCase() === lower || (u.displayName || '').toLowerCase() === lower) {
-        return { userId: u.id, displayName: u.displayName || u.username || u.id };
-      }
-    }
-  } catch { /* db not available */ }
-
-  return null;
+  const candidates = await resolveMentionCandidates(username);
+  const exact = candidates.find(c => c.username.toLowerCase() === lower);
+  return exact ? { userId: exact.userId, displayName: exact.displayName } : null;
 }
 
 // ── Cached mention map (refreshes every 30s) ───────────────────────
@@ -250,12 +251,14 @@ export function buildMentionCache(): Map<string, string> {
   try {
     const raw = localStorage.getItem('swarm-mesh-connection-library');
     if (raw) {
-      const peers = JSON.parse(raw) as Array<{ peerId?: string; nodeId?: string; username?: string; displayName?: string }>;
+      const peers = JSON.parse(raw) as Array<{ userId?: string; username?: string; displayName?: string }>;
+      const owner = JSON.parse(localStorage.getItem('me') || 'null')?.id || '';
+      peers.sort((a, b) => affinityScore(owner, b.userId || '') - affinityScore(owner, a.userId || ''));
       for (const peer of peers) {
-        const id = peer.nodeId || peer.peerId || '';
-        if (peer.username) cache.set(peer.username.toLowerCase(), id);
-        if (peer.displayName) cache.set(peer.displayName.toLowerCase(), id);
-        if (peer.nodeId) cache.set(peer.nodeId.toLowerCase(), id);
+        const id = peer.userId;
+        if (!id) continue;
+        if (peer.username && !cache.has(peer.username.toLowerCase())) cache.set(peer.username.toLowerCase(), id);
+        if (peer.displayName && !cache.has(peer.displayName.toLowerCase())) cache.set(peer.displayName.toLowerCase(), id);
       }
     }
   } catch { /* ignore */ }
@@ -263,4 +266,53 @@ export function buildMentionCache(): Map<string, string> {
   _mentionCache = cache;
   _mentionCacheTs = now;
   return cache;
+}
+
+/** Keep ranges through a single edit; a touched token loses its old identity. */
+export function rebaseMentions(before: string, after: string, bindings: MentionBinding[]): MentionBinding[] {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let oldEnd = before.length, newEnd = after.length;
+  while (oldEnd > start && newEnd > start && before[oldEnd - 1] === after[newEnd - 1]) { oldEnd--; newEnd--; }
+  const delta = newEnd - oldEnd;
+  return bindings.flatMap(m => {
+    if (m.endIndex <= start) return [m];
+    if (m.startIndex >= oldEnd) return [{ ...m, startIndex: m.startIndex + delta, endIndex: m.endIndex + delta }];
+    return [];
+  }).filter(m => after.slice(m.startIndex, m.endIndex) === `@${m.username}`);
+}
+export function insertMention(text: string, bindings: MentionBinding[], candidate: MentionCandidate, start: number, end: number, suffix = ' ') {
+  const token = `@${candidate.username}`;
+  const next = text.slice(0, start) + token + suffix + text.slice(end);
+  const remaining = bindings.filter(m => m.endIndex <= start || m.startIndex >= end);
+  return { text: next, mentions: [...rebaseMentions(text, next, remaining), {
+    userId: candidate.userId, username: candidate.username, discriminator: candidate.discriminator,
+    startIndex: start, endIndex: start + token.length,
+  }].sort((a, b) => a.startIndex - b.startIndex), cursor: start + token.length + suffix.length };
+}
+export function validMentionBindings(text: string, bindings: MentionBinding[]): MentionBinding[] {
+  return bindings.filter(m => m.userId && m.startIndex >= 0 && m.endIndex <= text.length && text.slice(m.startIndex, m.endIndex) === `@${m.username}`);
+}
+export async function bindMentions(text: string, selected: MentionBinding[] = []): Promise<MentionBinding[]> {
+  const valid = validMentionBindings(text, selected);
+  const result: MentionBinding[] = [];
+  for (const m of parseMentions(text)) {
+    const explicit = valid.find(b => b.startIndex === m.startIndex && b.endIndex === m.endIndex);
+    if (explicit) { result.push(explicit); continue; }
+    const resolved = await resolveUsernameToId(m.username);
+    if (resolved) result.push({ ...m, userId: resolved.userId });
+  }
+  return result;
+}
+export function trimMentionBindings(text: string, bindings: MentionBinding[]) {
+  const leading = text.length - text.trimStart().length;
+  return validMentionBindings(text.trim(), bindings.map(m => ({ ...m, startIndex: m.startIndex - leading, endIndex: m.endIndex - leading })));
+}
+export function mentionRecipient(text: string, start: number, username: string, bindings?: MentionBinding[], legacy?: Map<string, string>) {
+  const binding = validMentionBindings(text, bindings ?? []).find(m => m.startIndex === start && m.username === username);
+  // New payloads are authoritative: unknown tokens must not be reinterpreted by a reader's address book.
+  return binding?.userId ?? (bindings === undefined ? legacy?.get(username.toLowerCase()) : undefined);
+}
+export function mentionNotificationRecipients(bindings: MentionBinding[], author: string) {
+  return [...new Set(bindings.filter(m => m.userId !== author && m.userId !== ENTITY_USER_ID).map(m => m.userId))];
 }

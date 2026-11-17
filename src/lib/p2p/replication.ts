@@ -104,6 +104,7 @@ function postSigningPayload(post: Post): Record<string, unknown> {
     projectId: post.projectId ?? null,
     type: post.type,
     content: post.content,
+    ...(post.mentions !== undefined ? { mentions: post.mentions } : {}),
     manifestIds,
     createdAt: post.createdAt,
     editedAt: post.editedAt ?? null,
