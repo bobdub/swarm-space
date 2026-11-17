@@ -1488,6 +1488,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     if (!ready || !user) return;
     let cancelled = false;
     let toastShown = false;
+    let pendingClick: (() => void) | null = null;
     const manager = getWebRTCManager(user.id, user.username);
     const check = () => {
       if (cancelled || toastShown) return;
@@ -1507,8 +1508,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
         const onceClick = () => {
           window.removeEventListener('click', onceClick);
+          pendingClick = null;
           void manager.refreshLocalStream(true, false).catch(() => {});
         };
+        pendingClick = onceClick;
         window.addEventListener('click', onceClick, { once: true });
       }
     };
@@ -1519,6 +1522,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       cancelled = true;
       window.clearTimeout(t1);
       window.clearTimeout(t2);
+      // Leaving the Brain must not leave a stray "first click re-acquires the
+      // mic" handler behind: it would rebuild media mid-call on another page.
+      if (pendingClick) window.removeEventListener('click', pendingClick);
     };
   }, [ready, user]);
 

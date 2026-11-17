@@ -751,7 +751,10 @@ export class WebRTCManager {
   /** Add the screen track to one connection, keyed to its own MediaStream. */
   private attachScreenTrack(peerId: string, pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream): void {
     const existing = this.screenSenders.get(peerId);
-    if (existing) {
+    // A rebuilt connection (resync, recovery, reconnect) starts with no
+    // senders: a sender kept from the old one must not stop the screen
+    // from being added, or that viewer silently loses the share.
+    if (existing && pc.getSenders().includes(existing)) {
       void existing.replaceTrack(track).catch(() => { /* renegotiation will follow */ });
       return;
     }
@@ -779,7 +782,8 @@ export class WebRTCManager {
     this.screenSenders.clear();
 
     this.screenStream = null;
-    console.log('[WebRTC] Screen share stopped');
+    // Trace who ended it, so a share that stops unexpectedly can be diagnosed.
+    console.trace('[WebRTC] Screen share stopped');
 
     if (this.currentRoomId) sendScreenShareState(this.currentRoomId, false);
 
@@ -1065,6 +1069,8 @@ export class WebRTCManager {
       this.connections.delete(peerId);
     }
     this.pendingCandidates.delete(peerId);
+    // The screen sender belonged to the closed connection.
+    this.screenSenders.delete(peerId);
   }
 
   /** Full cleanup: connection + participant + timers */
