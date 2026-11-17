@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
 import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
+import { setActiveTable } from '@/lib/pub/activeTableStore';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
 import { isSeated, leaveSeat } from '@/lib/pub/seating';
@@ -64,6 +65,12 @@ export function PubGameLayer({
       return null;
     });
   }, [selfId]);
+
+  // Let the 3D bar draw the in-world "hold to leave" button.
+  useEffect(() => {
+    setActiveTable(openTableId, close);
+  }, [openTableId, close]);
+  useEffect(() => () => setActiveTable(null, null), []);
 
   // Deliberately walking away closes the panel and frees the seat. Idle
   // physics drift can no longer switch this check to a neighbouring game.
