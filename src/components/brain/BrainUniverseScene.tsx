@@ -2699,6 +2699,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           builder={builder}
           selfId={selfId || undefined}
           onClose={() => setInventoryOpen(false)}
+          onExit={() => {
+            // X fully leaves Builder Mode — same as tapping the hammer —
+            // so the build grid doesn't linger after the panel closes.
+            builder.exitBuild();
+            setInventoryOpen(false);
+          }}
           onEquipTool={(prefabId) => equipCatalogTool(prefabId, selfId || 'local')}
         />
       )}
