@@ -164,7 +164,7 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
                   </span>
                   <TrustBar score={c.trustScore} />
                 </div>
-              ) : null}
+              )}
             </div>
           </Button>
         );

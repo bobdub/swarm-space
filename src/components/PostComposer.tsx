@@ -25,7 +25,8 @@ import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton"
 import { signPost } from "@/lib/p2p/replication";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
 import { MentionPopover } from "@/components/MentionPopover";
-import { parseMentions, containsEntityMention } from "@/lib/mentions";
+import { containsEntityMention, bindMentions, insertMention, mentionNotificationRecipients, rebaseMentions, trimMentionBindings } from "@/lib/mentions";
+import type { MentionBinding } from "@/types";
 import { createNotification } from "@/lib/notifications";
 import { canUseMemberFeatures, isGuestUser } from '@/lib/preview/guestAccess';
 
@@ -56,6 +57,7 @@ export const PostComposer = ({
   const { user } = useAuth();
   const { broadcastPost, announceContent } = useP2PContext();
   const [content, setContent] = useState("");
+  const [mentions, setMentions] = useState<MentionBinding[]>([]);
   const [loading, setLoading] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [attachedManifests, setAttachedManifests] = useState<Manifest[]>([]);
@@ -227,6 +229,7 @@ export const PostComposer = ({
         ...(wallPlacementId ? { wallPlacementId } : {}),
         type: postType,
         content: content.trim(),
+        mentions: await bindMentions(content.trim(), trimMentionBindings(content, mentions)),
         manifestIds,
         createdAt: new Date().toISOString(),
         nsfw: isNSFW,
@@ -344,13 +347,8 @@ export const PostComposer = ({
 
       // Generate mention notifications
       try {
-        const { resolveUsernameToId } = await import('@/lib/mentions');
-        const mentions = parseMentions(content);
-        for (const mention of mentions) {
-          // Skip entity mentions — they trigger voice, not notifications
-          if (['infinity', 'imagination'].includes(mention.username.toLowerCase())) continue;
-          const resolved = await resolveUsernameToId(mention.username);
-          if (!resolved) continue;
+        for (const recipient of mentionNotificationRecipients(signedPost.mentions ?? [], user.id)) {
+          const resolved = { userId: recipient };
           await createNotification({
             userId: resolved.userId,
             type: 'mention',
@@ -395,6 +393,7 @@ export const PostComposer = ({
       toast.success("Post created! +1 credit earned");
 
       setContent("");
+      setMentions([]);
       setAttachedManifests([]);
       setSelectedProjectId("");
       setIsNSFW(false);
@@ -456,22 +455,19 @@ export const PostComposer = ({
               ref={textareaRef}
               id="content"
               value={content}
-              onChange={(event) => setContent(event.target.value)}
+              onChange={(event) => { setMentions((m) => rebaseMentions(content, event.target.value, m)); setContent(event.target.value); }}
               placeholder="Share your thoughts... Use @username to mention peers"
               className="min-h-[200px] border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,10%,0.6)]"
             />
             <MentionPopover
               textareaRef={textareaRef}
               value={content}
-              onSelect={(username, start, end) => {
-                const before = content.slice(0, start);
-                const after = content.slice(end);
-                const newContent = `${before}@${username} ${after}`;
-                setContent(newContent);
-                // Restore cursor position after React re-render
+              onSelect={(_username, start, end, candidate, suffix) => {
+                const next = insertMention(content, mentions, candidate, start, end, suffix);
+                setContent(next.text);
+                setMentions(next.mentions);
                 setTimeout(() => {
-                  const pos = start + username.length + 2; // @username + space
-                  textareaRef.current?.setSelectionRange(pos, pos);
+                  textareaRef.current?.setSelectionRange(next.cursor, next.cursor);
                   textareaRef.current?.focus();
                 }, 0);
               }}

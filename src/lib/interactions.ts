@@ -1,6 +1,6 @@
 // Social interaction utilities
 import { get, put, getAllByIndex } from "./store";
-import { Post, Comment, Reaction, User } from "@/types";
+import { Post, Comment, Reaction, User, type MentionBinding } from "@/types";
 import { getCurrentUser, type UserMeta } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
@@ -236,7 +236,8 @@ export async function getUserReactions(postId: string): Promise<string[]> {
 export async function addComment(
   postId: string,
   text: string,
-  parentId?: string
+  parentId?: string,
+  selectedMentions: MentionBinding[] = []
 ): Promise<Comment> {
   const user = await getCurrentUser();
   if (!user) throw new Error("User not authenticated");
@@ -250,6 +251,8 @@ export async function addComment(
     } catch { /* use cached */ }
   }
 
+  const { bindMentions } = await import("./mentions");
+  const mentions = await bindMentions(text, selectedMentions);
   const comment: Comment = {
     id: crypto.randomUUID(),
     postId,
@@ -257,6 +260,7 @@ export async function addComment(
     authorName: user.displayName || user.username,
     authorAvatarRef: avatarRef,
     text,
+    mentions,
     createdAt: new Date().toISOString(),
     parentId,
   };
@@ -300,6 +304,15 @@ export async function addComment(
       bm.broadcastComment(comment as unknown as Record<string, unknown>);
     }
   } catch { /* non-critical */ }
+
+  const { mentionNotificationRecipients } = await import("./mentions");
+  for (const recipient of mentionNotificationRecipients(mentions, user.id)) {
+    await createNotification({ userId: recipient, type: "mention", triggeredBy: user.id, triggeredByName: user.displayName || user.username, postId, commentId: comment.id, content: "mentioned you in a comment" });
+    try {
+      const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+      getSwarmMeshStandalone().broadcastMentionAlert({ targetUserId: recipient, postId, triggeredBy: user.id, triggeredByName: user.displayName || user.username, content: "mentioned you in a comment" });
+    } catch { /* offline delivery remains local */ }
+  }
 
   void notifyAchievements({
     type: "social:comment",
