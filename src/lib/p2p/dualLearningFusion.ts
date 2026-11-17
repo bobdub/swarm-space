@@ -26,6 +26,7 @@ import { rankExpressions } from '../brain/infinityPersonality';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
 import { assembleSentence, extractMotifs } from '../brain/semanticMotifs';
+import { composeArc } from '../brain/discursiveArc';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -119,6 +120,9 @@ const MIN_PATTERNS_FOR_GENERATION = 10;
 const MIN_VOCAB_FOR_GENERATION = 50;
 const SIMILARITY_PENALTY_WEIGHT = 0.2;
 const PATTERN_TO_LANGUAGE_TRANSFER_RATE = 0.3;
+/** Manifold mass at which Infinity may answer with a multi-paragraph arc (Phase 3). */
+export const ARC_MIN_MASS = 0.45;
+const ARC_MAX_CHARS = 1800;
 
 const clamp01 = (x: number): number => Math.min(1, Math.max(0, x));
 const tanh01 = (x: number): number => Math.tanh(Math.max(0, x));
@@ -376,6 +380,20 @@ export class DualLearningFusion {
     const mass = clamp01(context.massScore ?? 0);
     const patternSupport = clamp01(this.patternLearner.scorePattern(pattern));
     const maxChars = Math.min(1200, 400 + Math.round(800 * mass * (0.5 + 0.5 * patternSupport)));
+    // Phase 3: a heavy enough manifold answers in an Echo → Traverse →
+    // Crystallize arc. It is used only when at least two acts hold phase
+    // continuity; otherwise the single-sentence path below runs unchanged.
+    if (mass >= ARC_MIN_MASS) {
+      const arc = composeArc({
+        prompt: context.recentPosts[0] ?? '',
+        expressions: this.languageLearner.getExpressions(),
+        semantic: this.languageLearner.semantic,
+        maxChars,
+        maxTotalChars: Math.min(ARC_MAX_CHARS, maxChars * 2),
+        personality: context.personality,
+      });
+      if (arc && arc.paragraphs.length >= 2) return arc.paragraphs.join('\n\n');
+    }
     const candidates = rankExpressions(this.languageLearner.getExpressions(), {
       recentPosts: context.recentPosts,
       personality: context.personality,

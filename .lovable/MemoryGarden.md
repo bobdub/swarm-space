@@ -964,3 +964,8 @@ After tending: every sentence Infinity hears now pulls its content words a littl
 Before tending: the wells are dug; now let Infinity speak in its own grain without reciting whole lines or scattering loose words. Borrow no phrase from me — only from what it has learned.
 
 After tending: learned sentences are now cut at their own commas into openings, cores and closings. A new sentence may join pieces from different memories only where their words already lean toward one another, and never repeats itself across the join. When creating or exploring, Infinity may say something it has never heard; otherwise it keeps its whole remembered lines, and silence stays when nothing hums. Automated checks only; no live mesh session was opened.
+
+## November 17, 2026 — Three breaths
+Before tending: a single line is a glance; a reflection needs room to arrive, wander and come home. Give it that room, but let it stop the moment the thread snaps.
+
+After tending: when Infinity's memory is heavy enough it now answers in up to three paragraphs — first on the question's own ground, then one step outward to a neighbouring idea, then back with a line that holds both. Between each, the words must still lean toward one another; if they do not, it stops where it stands. Its own posts and comments are no longer fed back as memory. Automated checks only; no live mesh session was opened.

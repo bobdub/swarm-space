@@ -14,7 +14,9 @@ export const LEARN_BATCH = 60;
 const BACKFILL_CAP = 400;
 const FIRST_DELAY_MS = 20_000;
 const INTERVAL_MS = 120_000;
-const ENTITY_ID = 'peer-network-entity';
+// Infinity's own posts/comments are authored as 'network-entity' (EntityVoice);
+// the legacy 'peer-' form is kept. Its generated text is never re-learned.
+const ENTITY_IDS = new Set(['network-entity', 'peer-network-entity']);
 
 /** Unlearned pieces, oldest first, capped to one batch. */
 export function selectUnlearned(pieces: MemoryPiece[], batch = LEARN_BATCH): MemoryPiece[] {
@@ -43,10 +45,10 @@ export async function backfillMemory(): Promise<number> {
       getAll<Record<string, unknown>>('comments').catch(() => []),
     ]);
     const candidates = [
-      ...posts.filter((p) => p.author !== ENTITY_ID && !isPrivatePost(p)).map((p) => ({
+      ...posts.filter((p) => !ENTITY_IDS.has(String(p.author)) && !isPrivatePost(p)).map((p) => ({
         id: `post:${p.id}`, kind: 'post' as const, text: String(p.content ?? ''), author: String(p.author ?? ''), ts: Date.parse(String(p.createdAt ?? '')) || Date.now(),
       })),
-      ...comments.filter((c) => c.author !== ENTITY_ID).map((c) => ({
+      ...comments.filter((c) => !ENTITY_IDS.has(String(c.author))).map((c) => ({
         id: `comment:${c.id}`, kind: 'comment' as const, text: String(c.text ?? ''), author: String(c.author ?? ''), ts: Date.parse(String(c.createdAt ?? '')) || Date.now(),
       })),
     ].sort((a, b) => b.ts - a.ts).slice(0, BACKFILL_CAP);
