@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins, EyeOff, Eye } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins, EyeOff, Eye, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppWalletBalances, onAppWalletUpdate } from "@/lib/blockchain/wallets/appWallet";
@@ -38,7 +38,7 @@ const TRANSFER_ASSET_ID: Record<string, string> = {
   BTC: "external:BTC",
 };
 
-export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
+export function AssetsTab({ network = "swarm", onDeployToken }: { network?: AssetNetwork; onDeployToken?: () => void }) {
   const userId = getCurrentUser()?.id ?? "";
   const { balance: credits } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
@@ -106,7 +106,13 @@ export function AssetsTab({ network = "swarm" }: { network?: AssetNetwork }) {
       {layer === "native" && <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm font-medium">Wallet assets</span>
-          <NativeTokenImport userId={userId} />
+          {network === "swarm" && onDeployToken ? (
+            <Button type="button" size="sm" variant="outline" disabled={!userId} onClick={onDeployToken}>
+              <Plus className="mr-1 h-3 w-3" />Deploy custom token
+            </Button>
+          ) : (
+            <NativeTokenImport userId={userId} />
+          )}
         </div>
       </div>}
 
