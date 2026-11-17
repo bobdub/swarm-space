@@ -218,7 +218,11 @@ export function P2PStatusIndicator() {
   const connectionFailureRate = stats.connectionAttempts > 0
     ? stats.failedConnectionAttempts / stats.connectionAttempts
     : 0;
-  const isMeshDegraded = isEnabled && (
+  // Only flag "Degraded" when there is an actual connection to degrade.
+  // With zero peers the node is simply not connected yet, which the status
+  // text already explains; a red badge there reads as an error.
+  const hasPeerConnections = stats.connectedPeers > 0 || connectionSummary.total > 0;
+  const isMeshDegraded = isEnabled && hasPeerConnections && (
     connectionFailureRate > 0.4 ||
     stats.rendezvousFailureStreak > 0 ||
     (stats.lastBeaconLatencyMs ?? 0) > 10_000 ||
