@@ -7,6 +7,8 @@ import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
+import { useActiveTableId } from '@/lib/pub/activeTableStore';
+import { PubLeaveHold } from '@/components/pub/PubLeaveHold';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -321,6 +323,11 @@ export function SurfaceBar({
   // graph is what makes it 100% reliable — the click is a normal HTML
   // button click, never a WebGL raycast.
   const lightsOn = useBarLightsOn();
+  // Which of this bar's games the local player is at, for the in-world
+  // "hold to leave" buttons.
+  const activeTableId = useActiveTableId();
+  const atDarts = activeTableId === `pub:darts:${id}`;
+  const atCards = activeTableId === `pub:cards:${id}`;
   const signOn = true;
 
   // Ceiling fixture grid (positions are local to the roof block centre).
@@ -561,6 +568,19 @@ export function SurfaceBar({
               // wall), so the playing face and its rings sit proud of the
               // backing board instead of buried inside the wall.
               return (
+                <group>
+                {atDarts && (
+                  // Hold-to-leave sits on the wall just beside the board.
+                  <Html
+                    position={[0.12, 0, r + 0.45]}
+                    center
+                    distanceFactor={6}
+                    zIndexRange={[60, 0]}
+                    style={{ pointerEvents: 'auto' }}
+                  >
+                    <PubLeaveHold />
+                  </Html>
+                )}
                 <group rotation={[0, 0, -Math.PI / 2]}>
                   {/* Backing board */}
                   <mesh castShadow>
@@ -609,6 +629,7 @@ export function SurfaceBar({
                     />
                   </mesh>
                 </group>
+                </group>
               );
             }
             if (f.kind === 'card-table') {
@@ -645,6 +666,18 @@ export function SurfaceBar({
                       </mesh>
                     );
                   })}
+                  {atCards && (
+                    // Hold-to-leave in the middle of the felt.
+                    <Html
+                      position={[0, CARD_TABLE_H / 2 + 0.12, 0]}
+                      center
+                      distanceFactor={6}
+                      zIndexRange={[60, 0]}
+                      style={{ pointerEvents: 'auto' }}
+                    >
+                      <PubLeaveHold />
+                    </Html>
+                  )}
                 </group>
               );
             }

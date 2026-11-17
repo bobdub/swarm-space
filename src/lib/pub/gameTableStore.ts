@@ -28,6 +28,12 @@ export interface PubSeat {
   peerId: string;
   username: string;
   joinedAt: number;
+  /**
+   * The seated player's mesh peer id. Seats are keyed by account id, but
+   * other players see you through your mesh peer id, so this alias is
+   * what lets them find your seat and draw you on the stool.
+   */
+  meshPeerId?: string;
 }
 
 export interface PubTable {
@@ -63,6 +69,22 @@ export function setLocalPeerId(id: string): void {
 }
 export function getLocalPeerId(): string {
   return localPeerId;
+}
+
+let localAliasResolver: (() => string | null | undefined) | null = null;
+
+/** Lets the scene supply this player's mesh peer id for seat records. */
+export function setLocalPeerAliasResolver(fn: (() => string | null | undefined) | null): void {
+  localAliasResolver = fn;
+}
+
+function localAlias(): string | undefined {
+  try {
+    const id = localAliasResolver?.();
+    return id || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 let tableGossip: ((table: PubTable) => void) | null = null;
@@ -151,7 +173,10 @@ export function joinTable(params: {
   if (!tableId || !peerId) return;
   mutateLocal(tableId, params.game ?? 'darts', (t) => {
     if (t.seats.some((s) => s.peerId === peerId)) return null;
-    const seats = [...t.seats, { peerId, username, joinedAt: Date.now() }];
+    const meshPeerId = peerId === localPeerId || !localPeerId ? localAlias() : undefined;
+    const seat: PubSeat = { peerId, username, joinedAt: Date.now() };
+    if (meshPeerId && meshPeerId !== peerId) seat.meshPeerId = meshPeerId;
+    const seats = [...t.seats, seat];
     return { ...t, seats, state: syncDartsSeats(t.state, seats.map((s) => s.peerId)) };
   });
 }

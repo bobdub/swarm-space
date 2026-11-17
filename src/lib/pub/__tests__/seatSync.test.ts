@@ -9,7 +9,9 @@
 
 import { describe, expect, it, beforeAll, beforeEach } from 'vitest';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
-import { HUMAN_HEIGHT } from '@/lib/brain/earth';
+import { EYE_LIFT, HUMAN_HEIGHT } from '@/lib/brain/earth';
+import { THIRD_PERSON_UP_M } from '@/lib/brain/cameraViewStore';
+import { SEATED_EYE_LIFT } from '../seating';
 import {
   registerPubAnchor,
   registerPubSeatAnchor,
@@ -20,6 +22,8 @@ import {
   getTable,
   joinTable,
   leaveTable,
+  setLocalPeerAliasResolver,
+  setLocalPeerId,
 } from '../gameTableStore';
 import { seatIndexOf, seatedTransform, seatLockFor } from '../seatLock';
 import {
@@ -32,7 +36,7 @@ import {
 const TABLE_ID = 'pub:cards:test-bar';
 const TABLE_H = 0.9;
 const STOOL_H = 0.62;
-const SEAT_LIFT = 0.45; // camera lift applied by seatStore.sitDown
+const SEAT_LIFT = SEATED_EYE_LIFT; // camera lift applied by seatStore.sitDown
 
 beforeAll(() => {
   const engine = getBuilderBlockEngine();
@@ -127,5 +131,33 @@ describe('two-peer seat sync', () => {
     // The remaining player is now seat 0 and its stool is registered.
     expect(seatLockFor('joiner')?.index).toBe(0);
     expect(pubSeatWorldPos(TABLE_ID, 0)).not.toBeNull();
+  });
+
+  it('lets other players find a seat by the sitter\'s mesh peer id', () => {
+    // Seats are keyed by account id, but remote players only know the
+    // sitter by mesh peer id. Without the alias they never see you seated.
+    setLocalPeerId('acct-local');
+    setLocalPeerAliasResolver(() => 'mesh-local');
+    try {
+      joinTable({ tableId: TABLE_ID, game: 'holdem', peerId: 'acct-local', username: 'Me' });
+    } finally {
+      setLocalPeerAliasResolver(null);
+      setLocalPeerId('');
+    }
+    expect(seatLockFor('mesh-local')).toEqual({ tableId: TABLE_ID, peerId: 'mesh-local', index: 0 });
+    expect(seatedTransform('mesh-local')).toEqual(seatedTransform('acct-local'));
+    expect(seatedTransform('mesh-local')).not.toBeNull();
+  });
+});
+
+describe('seated camera inside the bar', () => {
+  it('keeps the third-person eye under the 4 m bar roof', () => {
+    // Real bar sizes (SurfaceBar): 0.85 m stools, 4 m walls.
+    const BAR_STOOL_H = 0.85;
+    const BAR_WALL_H = 4.0;
+    // Body centre on the stool, as pubSeatWorldPos places it.
+    const bodyCentre = BAR_STOOL_H / 2 + BAR_STOOL_H / 2 + 0.9;
+    const thirdPersonEye = bodyCentre + EYE_LIFT + SEATED_EYE_LIFT + THIRD_PERSON_UP_M;
+    expect(thirdPersonEye).toBeLessThan(BAR_WALL_H - 0.3);
   });
 });
