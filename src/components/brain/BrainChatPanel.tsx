@@ -42,7 +42,12 @@ import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
 import type { BrainVariantCapabilities } from '@/lib/brain/variants';
-import { getRoomChatMessages } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import {
+  getRoomChatMessages,
+  onRoomChatHistory,
+  onRoomChatMessage,
+  requestRoomChatHistory,
+} from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import {
   getChatHistoryCoins,
   wrapChatHistoryIntoCoin,
@@ -247,30 +252,59 @@ export function BrainChatPanel({
     setIsPromoted(Boolean(activeRoom?.broadcast?.postId));
   }, [activeRoom?.id, activeRoom?.broadcast?.postId]);
 
-  // ── History seed: hydrate from the room chat log on mount ────────
+  // ── History seed: hydrate from the room chat log ─────────────────
+  // On open we also ask connected peers for the conversation they already
+  // hold, so a newcomer inherits the room's history. The log is re-read
+  // whenever history or a live line lands in it.
   useEffect(() => {
     if (!roomId) {
       setSeededLines([]);
       return;
     }
-    try {
-      const history = getRoomChatMessages(roomId);
-      // Infinity replies pass through the scene's consent gate, not hydration.
-      const seeded: BrainChatLine[] = history.filter((m) => !m.infinityReplyTo).map((m) => ({
-        id: m.id,
-        author: m.senderUsername || m.senderPeerId.slice(0, 8),
-        text: m.text.includes('\u0001') ? m.text.split('\u0001').slice(1).join('\u0001') : m.text,
-        ts: m.ts,
-        authorId: m.senderUserId ?? m.senderPeerId,
-        avatarRef: m.senderAvatarRef,
-        replyTo: m.replyToId
-          ? { id: m.replyToId, author: m.replyToUsername ?? '', preview: m.replyToPreview ?? '' }
-          : undefined,
-      }));
-      setSeededLines(seeded);
-    } catch {
-      setSeededLines([]);
-    }
+    const reseed = () => {
+      try {
+        const history = getRoomChatMessages(roomId);
+        // Infinity replies pass through the scene's consent gate, not hydration.
+        const seeded: BrainChatLine[] = history.filter((m) => !m.infinityReplyTo).map((m) => {
+          // Lines sent from the Brain carry their UI id before a \u0001
+          // sentinel; use it so a seeded line and its live copy dedupe.
+          const sep = m.text.indexOf('\u0001');
+          return {
+            id: sep > 0 ? m.text.slice(0, sep) : m.id,
+            author: m.senderUsername || m.senderPeerId.slice(0, 8),
+            text: sep > 0 ? m.text.slice(sep + 1) : m.text,
+            ts: m.ts,
+            authorId: m.senderUserId ?? m.senderPeerId,
+            peerId: m.senderPeerId,
+            avatarRef: m.senderAvatarRef,
+            replyTo: m.replyToId
+              ? { id: m.replyToId, author: m.replyToUsername ?? '', preview: m.replyToPreview ?? '' }
+              : undefined,
+          };
+        });
+        setSeededLines(seeded);
+      } catch {
+        setSeededLines([]);
+      }
+    };
+    reseed();
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const schedule = (rid: string) => {
+      if (rid !== roomId || pending) return;
+      pending = setTimeout(() => {
+        pending = null;
+        reseed();
+      }, 150);
+    };
+    const offHistory = onRoomChatHistory(schedule);
+    const offLive = onRoomChatMessage((m) => schedule(m.roomId));
+    const release = requestRoomChatHistory(roomId);
+    return () => {
+      if (pending) clearTimeout(pending);
+      offHistory();
+      offLive();
+      release();
+    };
   }, [roomId]);
 
   // Merge seeded + live lines, dedup by id.

@@ -31,7 +31,9 @@ interface SignalEnvelope {
     | 'screen-share-state'
     | 'media-state'
     | 'presence'
-    | 'room-hello';
+    | 'room-hello'
+    | 'chat-history-request'
+    | 'chat-history';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -98,6 +100,8 @@ interface MeshLike {
   getPeerId(): string;
 }
 
+import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 const SIGNAL_CHANNEL = 'webrtc-signal';
@@ -119,6 +123,27 @@ const myLastPresence = new Map<string, RoomPresence>();
 /** roomId -> last hello timestamp. Prevents preview + dock duplicate hellos from offer-storming the room. */
 const lastHelloAt = new Map<string, number>();
 const MAX_CHAT_MESSAGES_PER_ROOM = 200;
+
+// ── Chat history sync ──────────────────────────────────────────────────
+// A peer opening a room's chat asks a few connected peers for the log
+// they already hold; they answer directly with the newest messages,
+// split into size-bounded packets so long (30k-char) messages still fit.
+/** Peers asked per request — enough to cover gaps without a flood. */
+const HISTORY_FANOUT = 3;
+/** Most message text characters one reply carries in total. */
+const HISTORY_MAX_TOTAL_CHARS = 1_000_000;
+/** Soft size of one history packet (one oversized message still goes alone). */
+const HISTORY_PACKET_CHARS = 60_000;
+/** Longest text accepted from a history packet. */
+const HISTORY_MAX_TEXT_CHARS = 64_000;
+/** One answer per requester and room in this window. */
+const HISTORY_REPLY_COOLDOWN_MS = 5_000;
+/** roomId -> number of open chat views interested in its history. */
+const historyInterest = new Map<string, number>();
+/** `${roomId}|${peerId}` -> last time we answered that peer's request. */
+const historyRepliedAt = new Map<string, number>();
+const roomChatHistoryHandlers = new Set<(roomId: string) => void>();
+let historySeq = 0;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
 const joinedRooms = new Map<string, Set<string>>();
@@ -277,7 +302,13 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
   if (envelope.msgType === 'join-room' || envelope.msgType === 'room-hello') {
     // A fresh join is the only thing that brings a departed peer back.
     departedAt.delete(fromKey);
-  } else if (envelope.msgType !== 'leave-room') {
+  } else if (
+    envelope.msgType !== 'leave-room'
+    // History is about the chat log, not room membership: a peer that left
+    // the call may still be reading the room's chat.
+    && envelope.msgType !== 'chat-history-request'
+    && envelope.msgType !== 'chat-history'
+  ) {
     const left = departedAt.get(fromKey);
     if (left !== undefined && (envelope.ts ?? 0) <= left + 1_000) return;
     if (left !== undefined && envelope.msgType !== 'presence') return;
@@ -405,6 +436,16 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       break;
     }
 
+    case 'chat-history-request': {
+      answerChatHistoryRequest(envelope);
+      break;
+    }
+
+    case 'chat-history': {
+      receiveChatHistory(envelope);
+      break;
+    }
+
     case 'presence': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
       const data = envelope.data as {
@@ -516,6 +557,171 @@ function appendRoomChatMessage(message: RoomChatMessage): void {
   }
 }
 
+/** Peer ids the local user has blocked (any direction). */
+function blockedPeerIds(): Set<string> {
+  try {
+    return new Set(loadBlocklistFromStorage().map((e) => e.peerId));
+  } catch {
+    return new Set();
+  }
+}
+
+function isBlockedSender(message: RoomChatMessage, blocked: Set<string>): boolean {
+  return blocked.has(message.senderPeerId)
+    || (message.senderUserId !== undefined && blocked.has(message.senderUserId));
+}
+
+/** Test/internal: newest-first selection of messages to send, oldest-first packets. */
+export function buildChatHistoryPackets(
+  messages: RoomChatMessage[],
+  have: Set<string> = new Set(),
+  blocked: Set<string> = new Set(),
+): RoomChatMessage[][] {
+  const picked: RoomChatMessage[] = [];
+  let total = 0;
+  const sorted = [...messages].sort((a, b) => a.ts - b.ts);
+  for (let i = sorted.length - 1; i >= 0; i -= 1) {
+    const m = sorted[i]!;
+    if (have.has(m.id) || isBlockedSender(m, blocked)) continue;
+    if (total + m.text.length > HISTORY_MAX_TOTAL_CHARS) break;
+    total += m.text.length;
+    picked.push(m);
+  }
+  picked.reverse();
+  const packets: RoomChatMessage[][] = [];
+  let current: RoomChatMessage[] = [];
+  let size = 0;
+  for (const m of picked) {
+    const len = m.text.length + (m.replyToPreview?.length ?? 0) + 200;
+    if (current.length > 0 && size + len > HISTORY_PACKET_CHARS) {
+      packets.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(m);
+    size += len;
+  }
+  if (current.length > 0) packets.push(current);
+  return packets;
+}
+
+function answerChatHistoryRequest(envelope: SignalEnvelope): void {
+  if (!meshRef) return;
+  const log = roomChatLog.get(envelope.roomId);
+  if (!log || log.length === 0) return;
+  const key = roomKey(envelope.roomId, envelope.from);
+  const now = Date.now();
+  const last = historyRepliedAt.get(key) ?? 0;
+  if (now - last < HISTORY_REPLY_COOLDOWN_MS) return;
+  historyRepliedAt.set(key, now);
+  const blocked = blockedPeerIds();
+  // Never serve history to a peer we blocked.
+  if (blocked.has(envelope.from) || (envelope.userId && blocked.has(envelope.userId))) return;
+  const haveRaw = (envelope.data as { have?: unknown } | undefined)?.have;
+  const have = new Set(
+    Array.isArray(haveRaw) ? haveRaw.filter((v): v is string => typeof v === 'string').slice(0, 500) : [],
+  );
+  const packets = buildChatHistoryPackets(log, have, blocked);
+  const myPeerId = meshRef.getPeerId();
+  packets.forEach((messages, index) => {
+    historySeq += 1;
+    void meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+      msgType: 'chat-history',
+      from: myPeerId,
+      to: envelope.from,
+      roomId: envelope.roomId,
+      data: { id: `hist:${now}:${historySeq}`, part: index, parts: packets.length, messages },
+      ts: now + index,
+    } satisfies SignalEnvelope).catch(() => undefined);
+  });
+}
+
+function str(v: unknown, max = 500): string | undefined {
+  return typeof v === 'string' && v ? v.slice(0, max) : undefined;
+}
+
+function receiveChatHistory(envelope: SignalEnvelope): void {
+  const raw = (envelope.data as { messages?: unknown } | undefined)?.messages;
+  if (!Array.isArray(raw)) return;
+  const blocked = blockedPeerIds();
+  const incoming: RoomChatMessage[] = [];
+  for (const item of raw.slice(0, MAX_CHAT_MESSAGES_PER_ROOM)) {
+    if (!item || typeof item !== 'object') continue;
+    const m = item as Record<string, unknown>;
+    const id = str(m.id);
+    const senderPeerId = str(m.senderPeerId);
+    const text = typeof m.text === 'string' ? m.text.trim().slice(0, HISTORY_MAX_TEXT_CHARS) : '';
+    const ts = typeof m.ts === 'number' && Number.isFinite(m.ts) ? m.ts : NaN;
+    if (!id || !senderPeerId || !text || Number.isNaN(ts)) continue;
+    // A history packet can't move a message into another room.
+    if (m.roomId !== undefined && m.roomId !== envelope.roomId) continue;
+    const message: RoomChatMessage = {
+      id,
+      roomId: envelope.roomId,
+      senderPeerId,
+      senderUserId: str(m.senderUserId),
+      senderUsername: str(m.senderUsername, 120),
+      senderAvatarRef: str(m.senderAvatarRef),
+      text,
+      ts,
+      replyToId: str(m.replyToId),
+      replyToUsername: str(m.replyToUsername, 120),
+      replyToPreview: str(m.replyToPreview),
+      infinityReplyTo: str(m.infinityReplyTo, 200),
+    };
+    if (isBlockedSender(message, blocked)) continue;
+    incoming.push(message);
+  }
+  mergeRoomChatHistory(envelope.roomId, incoming);
+}
+
+/**
+ * Test/internal: fold older messages into a room log. Unlike live
+ * messages, history does not fire `onRoomChatMessage` handlers, so it never
+ * re-triggers speech, learning or notifications; views re-read the log
+ * when `onRoomChatHistory` fires.
+ */
+export function mergeRoomChatHistory(roomId: string, messages: RoomChatMessage[]): number {
+  if (messages.length === 0) return 0;
+  const existing = roomChatLog.get(roomId) ?? [];
+  const ids = new Set(existing.map((m) => m.id));
+  let added = 0;
+  for (const m of messages) {
+    if (ids.has(m.id)) continue;
+    ids.add(m.id);
+    existing.push(m);
+    added += 1;
+  }
+  if (added === 0) return 0;
+  existing.sort((a, b) => a.ts - b.ts);
+  if (existing.length > MAX_CHAT_MESSAGES_PER_ROOM) {
+    existing.splice(0, existing.length - MAX_CHAT_MESSAGES_PER_ROOM);
+  }
+  roomChatLog.set(roomId, existing);
+  for (const handler of roomChatHistoryHandlers) {
+    try { handler(roomId); } catch { /* ignore */ }
+  }
+  return added;
+}
+
+function sendChatHistoryRequest(roomId: string, peerIds: string[]): void {
+  if (!meshRef || peerIds.length === 0) return;
+  const myPeerId = meshRef.getPeerId();
+  const have = (roomChatLog.get(roomId) ?? []).map((m) => m.id).slice(-MAX_CHAT_MESSAGES_PER_ROOM);
+  const now = Date.now();
+  for (const peerId of peerIds) {
+    historySeq += 1;
+    void meshRef.send(SIGNAL_CHANNEL, peerId, {
+      msgType: 'chat-history-request',
+      from: myPeerId,
+      to: peerId,
+      roomId,
+      data: { id: `histreq:${now}:${historySeq}`, have },
+      ts: now,
+    } satisfies SignalEnvelope).catch(() => undefined);
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function startSignalingBridge(mesh: MeshLike): () => void {
@@ -539,6 +745,9 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
     }
     knownPeerSnapshot = currentSet;
     if (newPeers.length === 0) return;
+    for (const roomId of historyInterest.keys()) {
+      sendChatHistoryRequest(roomId, newPeers.slice(0, HISTORY_FANOUT));
+    }
     const myPeerId = meshRef.getPeerId();
     for (const newPeerId of newPeers) {
       for (const [roomId, members] of joinedRooms) {
@@ -573,6 +782,10 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
       }
     }
   }, 2000);
+  // Chat views opened before the mesh was up: ask now.
+  for (const roomId of historyInterest.keys()) {
+    sendChatHistoryRequest(roomId, knownPeerSnapshot.size ? Array.from(knownPeerSnapshot).slice(0, HISTORY_FANOUT) : []);
+  }
   console.log('[WebRTC-Bridge] ✅ Signaling bridge started');
   return () => stopSignalingBridge();
 }
@@ -593,6 +806,7 @@ export function stopSignalingBridge(): void {
   roomChatLog.clear();
   roomPresenceLog.clear();
   lastHelloAt.clear();
+  historyRepliedAt.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
 }
 
@@ -789,6 +1003,34 @@ export function onRoomChatMessage(handler: RoomChatHandler): () => void {
 
 export function getRoomChatMessages(roomId: string): RoomChatMessage[] {
   return [...(roomChatLog.get(roomId) ?? [])].sort((a, b) => a.ts - b.ts);
+}
+
+/**
+ * Inherit a room's existing conversation: ask a few connected peers for
+ * the chat log they hold, and keep asking each newly connected peer while
+ * the returned cleanup has not run. Arrivals land in the log (see
+ * `getRoomChatMessages`) and fire `onRoomChatHistory`.
+ */
+export function requestRoomChatHistory(roomId: string): () => void {
+  if (!roomId) return () => {};
+  historyInterest.set(roomId, (historyInterest.get(roomId) ?? 0) + 1);
+  if (meshRef) {
+    sendChatHistoryRequest(roomId, meshRef.getConnectedPeerIds().slice(0, HISTORY_FANOUT));
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const n = (historyInterest.get(roomId) ?? 1) - 1;
+    if (n <= 0) historyInterest.delete(roomId);
+    else historyInterest.set(roomId, n);
+  };
+}
+
+/** Fires with the roomId whenever synced history adds messages to a room's log. */
+export function onRoomChatHistory(handler: (roomId: string) => void): () => void {
+  roomChatHistoryHandlers.add(handler);
+  return () => { roomChatHistoryHandlers.delete(handler); };
 }
 
 /**
