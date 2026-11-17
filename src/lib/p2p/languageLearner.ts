@@ -14,7 +14,7 @@
 import { isBlockedToken } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { isDefinitionText } from '../uqrc/fieldProjection';
-import { extractExpressions, MAX_EXPRESSIONS, type LearnedExpression } from '../brain/infinityPersonality';
+import { extractExpressions, MAX_EXPRESSIONS, MAX_EXPRESSION_VOICES, type LearnedExpression } from '../brain/infinityPersonality';
 import { SemanticLattice } from '../uqrc/semanticBasins';
 
 // ── Types ───────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ export class LanguageLearner {
     if (tokens.length === 0) return;
 
 
-    this.rememberExpressions(cleaned, weight, peerId === 'network-entity' ? 'personality' : 'memory');
+    this.rememberExpressions(cleaned, weight, peerId === 'network-entity' ? 'personality' : 'memory', peerId);
     this.semantic.ingest(cleaned, weight);
 
     // Update vocabulary
@@ -500,17 +500,20 @@ export class LanguageLearner {
   }
 
   /** Whole expressions are local-only; never added to the peer vocabulary digest. */
-  rememberExpressions(text: string, weight = 0.5, source: LearnedExpression['source'] = 'memory'): void {
+  rememberExpressions(text: string, weight = 0.5, source: LearnedExpression['source'] = 'memory', voice?: string | string[]): void {
+    const incoming = (Array.isArray(voice) ? voice : voice ? [voice] : []).filter(v => typeof v === 'string' && v.length > 0);
     for (const expression of extractExpressions(text)) {
       // Token-level noise filtering rejects ordinary "a", "in", and formula
       // variables. For intact expressions reject protocol artifacts instead.
       if (/\b(?:post_created|post_replied|gossip_sent|chunk_transferred|peer-[a-z0-9-]+)\b|\b0x[0-9a-f]{16,}\b/i.test(expression)) continue;
       const previous = this.expressions.get(expression);
       this.expressions.delete(expression);
+      const voices = [...new Set([...(previous?.voices ?? []), ...incoming])].slice(-MAX_EXPRESSION_VOICES);
       this.expressions.set(expression, {
         text: expression,
         weight: Math.min(10, (previous?.weight ?? 0) + Math.max(0, weight)),
         source: previous?.source ?? source,
+        ...(voices.length ? { voices } : {}),
       });
     }
     while (this.expressions.size > MAX_EXPRESSIONS) {
@@ -521,7 +524,10 @@ export class LanguageLearner {
   }
 
   getExpressions(): LearnedExpression[] {
-    return [...this.expressions.values()].map(expression => ({ ...expression }));
+    return [...this.expressions.values()].map(expression => ({
+      ...expression,
+      ...(expression.voices ? { voices: [...expression.voices] } : {}),
+    }));
   }
 
   /** Replace only the shipped prior; preserve locally learned user expressions. */
@@ -535,7 +541,8 @@ export class LanguageLearner {
     if (!Array.isArray(saved)) return;
     for (const expression of saved.slice(-MAX_EXPRESSIONS)) {
       if (!expression || typeof expression.text !== 'string' || !Number.isFinite(expression.weight)) continue;
-      this.rememberExpressions(expression.text, expression.weight, expression.source === 'personality' ? 'personality' : 'memory');
+      const voices = Array.isArray(expression.voices) ? expression.voices.filter((v): v is string => typeof v === 'string') : undefined;
+      this.rememberExpressions(expression.text, expression.weight, expression.source === 'personality' ? 'personality' : 'memory', voices);
     }
   }
 

@@ -449,6 +449,8 @@ export interface SwarmCoin {
   wrappedChemicals?: { symbol: string; count: number }[];
   /** Sealed chat transcript — wrapped by "Save History" in Brain chat. */
   wrappedChat?: WrappedChatPayload;
+  /** Infinity's crystallized 2–3 paragraph reflection, engraved into a pool coin. */
+  wrappedReflection?: WrappedReflectionPayload;
   // ── Media Coin flavor (Sync Vault container) ─────────────────────────
   /** When set to "media", this coin is a Sync Vault container and is
    *  excluded from the fungible pool, the market, the lab smelter, and
@@ -517,6 +519,18 @@ export interface WrappedChatPayload {
   messageCount: number;
   participants: string[];
   messages: { author: string; text: string; ts: number }[];
+}
+
+export interface WrappedReflectionPayload {
+  paragraphs: string[];
+  topics: string[];
+  /** Weakest phase continuity ΔΦ across the reflection's paragraph boundaries. */
+  continuity: number;
+  /** Infinity's local seal id for this reflection (FNV-1a), not a signature. */
+  seal: string;
+  /** SHA-256 over the paragraphs, so the engraving can be checked for tampering. */
+  contentHash: string;
+  engravedAt: string;
 }
 
 export const SWARM_CONFIG: BlockchainConfig = {

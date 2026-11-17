@@ -25,6 +25,7 @@ import type { LearnedExpression, RealizationContext } from './infinityPersonalit
 import { rankExpressions, echoesPrompt } from './infinityPersonality';
 import { assembleSentence, extractMotifs, type Motif, type MotifSemantics } from './semanticMotifs';
 import { contentWords, type RelationalTriad } from '../uqrc/semanticBasins';
+import { routeCandidates } from './coreMemories';
 
 export const MIN_CONTINUITY = 0.2;
 const MAX_SENTENCES_PER_PARAGRAPH = 2;
@@ -43,6 +44,10 @@ export interface ArcContext {
   /** Whole-arc character cap. */
   maxTotalChars: number;
   personality?: RealizationContext['personality'];
+  /** Phase 4: engraved core memories, preferred whenever an act can use them. */
+  coreMemories?: Set<string>;
+  /** Phase 4: attentional routing weight of the peers that carried a line. */
+  routing?: (voices: string[] | undefined) => number;
 }
 
 export type ArcStop = 'complete' | 'shear' | 'unsupported';
@@ -80,12 +85,15 @@ function wholeCandidates(p: Picker, prompt: string, eligible: (text: string) => 
   // best-coverage band, which would otherwise be filled by what ¶1 said.
   // The act's own eligibility is applied before ranking for the same reason.
   const unspoken = p.ctx.expressions.filter(e => !p.spoken.has(norm(e.text)) && eligible(e.text));
-  return rankExpressions(unspoken, {
+  const ranked = rankExpressions(unspoken, {
     recentPosts: [prompt],
     maxChars: p.ctx.maxChars,
     personality: p.ctx.personality,
     semantic: p.ctx.semantic,
-  }).map(e => e.text)
+    coreMemories: p.ctx.coreMemories,
+    routing: p.ctx.routing,
+  });
+  return routeCandidates(ranked, p.ctx.coreMemories, p.ctx.routing).map(e => e.text)
     .filter(t => !p.spoken.has(norm(t)) && !echoesPrompt(t, p.ctx.prompt));
 }
 
