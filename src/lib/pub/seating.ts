@@ -12,6 +12,9 @@ import { pubSeatWorldPos } from '@/lib/world/pubAnchors';
 import { sitDown, standUp } from './seatStore';
 import { seatLockFor } from './seatLock';
 
+/** Extra eye height while seated (negative = lower than standing). */
+export const SEATED_EYE_LIFT = -0.35;
+
 /** Hard-place a body, keeping the interpolation tracks in register. */
 export function teleportBody(id: string, world: [number, number, number]): boolean {
   const body = getBrainPhysics().getBody(id);
@@ -71,7 +74,10 @@ export function takeSeatAt(tableId: string, index: number, selfId: string): bool
   const target = pubSeatWorldPos(tableId, index);
   let placed = false;
   if (target && selfId) placed = teleportBody(selfId, target);
-  sitDown(0.45, -0.35);
+  // The pinned body already sits a stool-height above the floor, so the
+  // eye drops a little rather than rising: the old +0.45 m lift put the
+  // third-person camera (another +1.2 m) up through the 4 m bar roof.
+  sitDown(SEATED_EYE_LIFT, -0.35);
   if (placed) {
     pin = { tableId, index, selfId };
     // Run in the physics clock, after each integration step. An independent

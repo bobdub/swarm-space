@@ -19,7 +19,8 @@ import { setActiveTable } from '@/lib/pub/activeTableStore';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
 import { isSeated, leaveSeat } from '@/lib/pub/seating';
-import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
+import { leaveTable, setLocalPeerAliasResolver, setLocalPeerId } from '@/lib/pub/gameTableStore';
+import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { SeatDebugOverlay } from '@/components/pub/SeatDebugOverlay';
 import {
   isSeatDebugOn,
@@ -53,6 +54,13 @@ export function PubGameLayer({
   // Let the mesh bridge know who we are so peer intents can be routed
   // to whichever table we happen to be hosting.
   useEffect(() => { setLocalPeerId(selfId); }, [selfId]);
+
+  // Other players know us by our mesh peer id, not our account id. Stamp
+  // it on the seat we take so they can find it and draw us on the stool.
+  useEffect(() => {
+    setLocalPeerAliasResolver(getLocalMeshPeerId);
+    return () => setLocalPeerAliasResolver(null);
+  }, []);
 
   const open = useCallback(() => {
     if (nearTableId) setOpenTableId(nearTableId);
