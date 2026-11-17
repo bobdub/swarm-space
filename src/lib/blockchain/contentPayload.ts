@@ -8,10 +8,15 @@
  * measured, appended to that coin, and flipped. Settled cargo seals at its
  * natural tier; 1 GiB remains the hard ceiling. No hollow coin → nothing
  * flips, posting is never blocked, and the next mined coin picks it up.
+ *
+ * Entries are engraved NFT-style: token metadata (name, description, type,
+ * tags) plus a pointer to each attached file (file id, MIME, size, chunk refs
+ * and a content hash). The meter counts each file's full size; the bytes
+ * themselves stay in encrypted chunk storage, and file keys never enter a coin.
  */
-import { getAll, put } from "../store";
+import { get, getAll, put } from "../store";
 import { applySeal } from "./coinFill";
-import type { SwarmCoin } from "./types";
+import type { CoinPayloadEntry, CoinPayloadMedia, SwarmCoin } from "./types";
 import { canSealEngraving, ENGRAVING_CAPACITY_BYTES } from "./engravingTiers";
 
 export const COIN_PAYLOAD_CAPACITY_BYTES = ENGRAVING_CAPACITY_BYTES;
@@ -31,6 +36,76 @@ export function measureContentBytes(item: LoadableContent): number {
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", encoder.encode(text));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+interface StoredManifest { fileId: string; chunks?: string[]; mime?: string; size?: number; originalName?: string }
+
+/** Read the item's attached files as NFT media pointers. Keys and raw bytes stay in chunk storage. */
+async function readMedia(item: LoadableContent): Promise<CoinPayloadMedia[]> {
+  const ids = Array.isArray(item.manifestIds) ? [...new Set(item.manifestIds.filter((id): id is string => typeof id === "string"))] : [];
+  const media: CoinPayloadMedia[] = [];
+  for (const fileId of ids) {
+    let manifest: StoredManifest | undefined;
+    try { manifest = await get<StoredManifest>("manifests", fileId); } catch { manifest = undefined; }
+    const size = Number(manifest?.size);
+    if (!manifest || !Number.isFinite(size) || size <= 0) continue;
+    const chunks = Array.isArray(manifest.chunks) ? manifest.chunks.filter((c) => typeof c === "string") : [];
+    media.push({
+      fileId, mime: manifest.mime || "application/octet-stream",
+      ...(manifest.originalName ? { name: manifest.originalName } : {}),
+      sizeBytes: size, chunks, contentHash: await sha256Hex(`${fileId}:${size}:${chunks.join(",")}`),
+    });
+  }
+  return media;
+}
+
+function itemText(item: LoadableContent): string {
+  const text = typeof item.content === "string" ? item.content : typeof item.text === "string" ? item.text : "";
+  return text;
+}
+
+/** Build the NFT-style entry: metadata + media pointers, sized by text plus full media bytes. */
+export async function buildPayloadEntry(store: PayloadStore, item: LoadableContent): Promise<CoinPayloadEntry> {
+  const media = await readMedia(item);
+  const description = itemText(item);
+  const type: "post" | "comment" = store === "posts" ? "post" : "comment";
+  const metadata: NonNullable<CoinPayloadEntry["metadata"]> = {
+    name: description.trim().split("\n")[0].slice(0, 80) || media[0]?.name || `${type} ${item.id}`,
+    description,
+    ...(typeof item.createdAt === "string" ? { createdAt: item.createdAt } : {}),
+    ...(typeof item.type === "string" ? { postType: item.type } : {}),
+    ...(Array.isArray(item.tags) ? { tags: item.tags.filter((t): t is string => typeof t === "string") } : {}),
+  };
+  const sizeBytes = measureContentBytes(item) + media.reduce((sum, m) => sum + m.sizeBytes, 0);
+  const hash = await sha256Hex(JSON.stringify({ item: { ...item, _coinId: undefined }, media: media.map((m) => m.contentHash) }));
+  return { id: item.id, type, sizeBytes, hash, v: 2, metadata, ...(media.length ? { media } : {}) };
+}
+
+/**
+ * Open coins loaded before media counted hold text-only entries. Re-engrave
+ * them in place (never sealed coins) so earlier uploads count toward the meter.
+ */
+async function upgradeLegacyEntries(coin: SwarmCoin): Promise<SwarmCoin> {
+  const entries = coin.payloadEntries ?? [];
+  if (!entries.some((e) => e.v !== 2)) return coin;
+  let total = coin.sealBytes ?? 0;
+  const next: CoinPayloadEntry[] = [];
+  for (const entry of entries) {
+    if (entry.v === 2) { next.push(entry); continue; }
+    const store: PayloadStore = entry.type === "post" ? "posts" : "comments";
+    let item: LoadableContent | undefined;
+    try { item = await get<LoadableContent>(store, entry.id); } catch { item = undefined; }
+    if (!item) { next.push({ ...entry, v: 2 }); continue; }
+    const upgraded = await buildPayloadEntry(store, item);
+    const grown = total - entry.sizeBytes + upgraded.sizeBytes;
+    if (grown > COIN_PAYLOAD_CAPACITY_BYTES) { next.push({ ...entry, v: 2 }); continue; }
+    total = grown;
+    next.push(upgraded);
+  }
+  const upgraded: SwarmCoin = { ...coin, payloadEntries: next, sealBytes: total };
+  upgraded.fill = Math.min(1, total / COIN_PAYLOAD_CAPACITY_BYTES);
+  await put("swarmCoins", upgraded);
+  return upgraded;
 }
 
 function isOpenContainer(coin: SwarmCoin, userId: string): boolean {
@@ -122,6 +197,11 @@ async function pack(userId: string): Promise<number> {
   const coins = (await getAll<SwarmCoin>("swarmCoins")).filter((c) => isOpenContainer(c, userId));
   // Prefer the coin already payloading so only one coin is write-locked at a time.
   coins.sort((a, b) => (b.fillState === "filling" ? 1 : 0) - (a.fillState === "filling" ? 1 : 0));
+  let upgradedAny = false;
+  for (let i = 0; i < coins.length; i++) {
+    const upgraded = await upgradeLegacyEntries(coins[i]);
+    if (upgraded !== coins[i]) { coins[i] = upgraded; upgradedAny = true; }
+  }
   let coin = coins.shift();
   if (!coin) return 0;
 
@@ -135,7 +215,8 @@ async function pack(userId: string): Promise<number> {
   let flipped = 0;
   for (const { store, item } of pending) {
     if (!coin) break;
-    const bytes = measureContentBytes(item);
+    const entry = await buildPayloadEntry(store, item);
+    const bytes = entry.sizeBytes;
     if (!Number.isFinite(bytes) || bytes > COIN_PAYLOAD_CAPACITY_BYTES) continue;
     // Never truncate an entry or exceed capacity: find a container that fits.
     if ((coin.sealBytes ?? 0) + bytes > COIN_PAYLOAD_CAPACITY_BYTES) {
@@ -146,9 +227,7 @@ async function pack(userId: string): Promise<number> {
       coin = fitting;
       if (!coin) continue;
     }
-    const hash = await sha256Hex(JSON.stringify({ ...item, _coinId: undefined }));
-    const entryType: "post" | "comment" = store === "posts" ? "post" : "comment";
-    const entries = [...(coin.payloadEntries ?? []), { id: item.id, type: entryType, sizeBytes: bytes, hash }];
+    const entries = [...(coin.payloadEntries ?? []), entry];
     let next: SwarmCoin = {
       ...coin, fillState: "filling", payloadEntries: entries,
       sealBytes: (coin.sealBytes ?? 0) + bytes,
@@ -161,6 +240,6 @@ async function pack(userId: string): Promise<number> {
     flipped += 1;
     coin = next.fillState === "sealed" ? coins.shift() : next;
   }
-  if (flipped) notify();
+  if (flipped || upgradedAny) notify();
   return flipped;
 }

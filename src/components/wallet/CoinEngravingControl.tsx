@@ -28,6 +28,8 @@ export function CoinEngravingControl({ userId }: { userId: string }) {
     };
   }, [userId]);
   const bytes = coin?.sealBytes ?? 0;
+  const items = coin?.payloadEntries?.length ?? 0;
+  const files = coin?.payloadEntries?.reduce((n, e) => n + (e.media?.length ?? 0), 0) ?? 0;
   const load = Math.min(100, bytes / ENGRAVING_CAPACITY_BYTES * 100);
   const seal = async () => {
     if (!coin || busy) return;
@@ -58,7 +60,7 @@ export function CoinEngravingControl({ userId }: { userId: string }) {
       </div>
       <Progress value={load} aria-label="Current coin load" />
       <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-        <span>{(bytes / ENGRAVING_MB).toFixed(2)} MB / 1 GiB</span>
+        <span>{(bytes / ENGRAVING_MB).toFixed(2)} MB / 1 GiB · {items} {items === 1 ? "item" : "items"}, {files} {files === 1 ? "file" : "files"}</span>
         <span>{coin ? "Minimum seal: 1 MB" : "No open coin"}</span>
       </div>
     </section>
