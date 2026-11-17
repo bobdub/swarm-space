@@ -59,7 +59,7 @@ import {
 } from "@/lib/blockchain/multiChainManager";
 import {
   forgetWalletNetwork,
-  loadWalletNetworkPreference,
+  loadWalletNetwork,
   rememberWalletNetwork,
 } from "@/lib/blockchain/walletNetworkPreference";
 import { getFeatureFlags } from "@/config/featureFlags";
@@ -81,10 +81,7 @@ export default function Wallet() {
   const [loading, setLoading] = useState(true);
   const [walletTab, setWalletTab] = useState("assets");
   const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(
-    () => loadWalletNetworkPreference(user?.id).selected,
-  );
-  const [recentNetworks, setRecentNetworks] = useState<AssetNetwork[]>(
-    () => loadWalletNetworkPreference(user?.id).recent,
+    () => loadWalletNetwork(user?.id),
   );
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
   const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
@@ -177,16 +174,15 @@ export default function Wallet() {
   // so the wallet reopens where they left it after navigating or reloading.
   useEffect(() => {
     let cancelled = false;
-    const pref = loadWalletNetworkPreference(user?.id);
-    setRecentNetworks(pref.recent);
-    setAssetNetwork(pref.selected);
+    const saved = loadWalletNetwork(user?.id);
+    setAssetNetwork(saved);
     const applyMainChain = () => {
       if (!getActiveChain().isMainChain) switchToMainChain();
       // Sync local state directly: the chain-change listener may not be registered yet.
       setActiveChain(getActiveChain());
     };
-    if (pref.selected.startsWith("chain:")) {
-      const coinId = pref.selected.slice("chain:".length);
+    if (saved.startsWith("chain:")) {
+      const coinId = saved.slice("chain:".length);
       if (getActiveChain().chainId === coinId) {
         setActiveChain(getActiveChain());
       } else {
@@ -201,10 +197,9 @@ export default function Wallet() {
               return;
             }
             // The sub-chain is gone or inactive: fall back to SWARM and forget it.
-            const next = forgetWalletNetwork(user?.id, pref.selected);
+            forgetWalletNetwork(user?.id);
             applyMainChain();
             setAssetNetwork("swarm");
-            setRecentNetworks(next.recent);
           });
       }
     } else {
@@ -218,7 +213,7 @@ export default function Wallet() {
   const handleNetworkChanged = (network: string) => {
     const next = network as AssetNetwork;
     setAssetNetwork(next);
-    setRecentNetworks(rememberWalletNetwork(user?.id, next).recent);
+    rememberWalletNetwork(user?.id, next);
   };
 
   useEffect(() => {
@@ -399,7 +394,6 @@ export default function Wallet() {
           <ChainSwitcher
             network={assetNetwork}
             onNetworkChanged={handleNetworkChanged}
-            recentNetworks={recentNetworks}
           />
         </div>
 

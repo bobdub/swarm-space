@@ -10,10 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
-  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -26,25 +23,14 @@ import {
   type ChainContext,
   type LiveChainInfo,
 } from "@/lib/blockchain/multiChainManager";
-import { networkToChainOption } from "@/lib/blockchain/walletNetworkPreference";
-import type { AssetNetwork } from "@/components/wallet/NetworkActionDialogs";
 
 interface Props {
   onChainChanged?: (ctx: ChainContext) => void;
   network?: string;
   onNetworkChanged?: (network: string) => void;
-  /** Recently used wallet networks, most recent first; shown at the top of the picker. */
-  recentNetworks?: AssetNetwork[];
 }
 
-interface NetworkOption {
-  value: string;
-  ticker: string;
-  chainName?: string;
-  isMainChain: boolean;
-}
-
-export function ChainSwitcher({ onChainChanged, network, onNetworkChanged, recentNetworks = [] }: Props) {
+export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Props) {
   const [active, setActive] = useState<ChainContext>(getActiveChain());
   const [chains, setChains] = useState<LiveChainInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,37 +71,6 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged, recen
 
   if (loading) return null;
 
-  const options: NetworkOption[] = [
-    ...(onNetworkChanged ? [{ value: "mintme", ticker: "MintMe", isMainChain: false }] : []),
-    ...chains.map((c) => ({ value: c.chainId, ticker: c.ticker, chainName: c.chainName, isMainChain: c.isMainChain })),
-  ];
-  const byValue = new Map(options.map((o) => [o.value, o]));
-  const recentOptions = recentNetworks
-    .map((n) => byValue.get(networkToChainOption(n)))
-    .filter((o): o is NetworkOption => Boolean(o));
-  const recentValues = new Set(recentOptions.map((o) => o.value));
-  const otherOptions = options.filter((o) => !recentValues.has(o.value));
-
-  const renderOption = (o: NetworkOption) => (
-    <SelectItem key={o.value} value={o.value}>
-      {o.value === "mintme" ? (
-        "MintMe"
-      ) : (
-        <span className="flex items-center gap-2">
-          {o.isMainChain ? (
-            <Globe className="h-3.5 w-3.5 text-primary" />
-          ) : (
-            <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
-          )}
-          <span className="font-semibold">{o.ticker}</span>
-          {o.chainName && (
-            <span className="text-muted-foreground text-xs hidden sm:inline">{o.chainName}</span>
-          )}
-        </span>
-      )}
-    </SelectItem>
-  );
-
   return (
     <div className="border-y border-border py-2 flex items-center gap-2 flex-wrap">
       <div className="flex items-center gap-2 text-sm font-medium shrink-0">
@@ -128,25 +83,22 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged, recen
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {recentOptions.length > 0 ? (
-            <>
-              <SelectGroup>
-                <SelectLabel className="text-xs text-muted-foreground">Recent</SelectLabel>
-                {recentOptions.map(renderOption)}
-              </SelectGroup>
-              {otherOptions.length > 0 && (
-                <>
-                  <SelectSeparator />
-                  <SelectGroup>
-                    <SelectLabel className="text-xs text-muted-foreground">All networks</SelectLabel>
-                    {otherOptions.map(renderOption)}
-                  </SelectGroup>
-                </>
-              )}
-            </>
-          ) : (
-            otherOptions.map(renderOption)
-          )}
+          {onNetworkChanged && <SelectItem value="mintme">MintMe</SelectItem>}
+          {chains.map((c) => (
+            <SelectItem key={c.chainId} value={c.chainId}>
+              <span className="flex items-center gap-2">
+                {c.isMainChain ? (
+                  <Globe className="h-3.5 w-3.5 text-primary" />
+                ) : (
+                  <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+                <span className="font-semibold">{c.ticker}</span>
+                <span className="text-muted-foreground text-xs hidden sm:inline">
+                  {c.chainName}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
