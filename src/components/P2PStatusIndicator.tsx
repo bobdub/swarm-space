@@ -601,9 +601,6 @@ export function P2PStatusIndicator() {
                     </Button>
                   )}
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Opening it connects them to your node directly, without opening the Brain or a profile.
-                </p>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
