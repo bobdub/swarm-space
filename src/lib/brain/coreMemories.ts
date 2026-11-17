@@ -3,45 +3,53 @@
  * ENGRAVED CORE MEMORIES — Phase 4 of the concentric brain (middle ring)
  * ═══════════════════════════════════════════════════════════════════════
  *
- * Instead of treating every learned line alike, Infinity engraves a small
- * set of lines that reached deep significance:
+ * An engraving is a crystallized reflection: a complete Echo → Traverse →
+ * Crystallize arc (2–3 paragraphs) that Infinity itself composed and that
+ * held together without wandering:
  *
- *   • reinforcement — weight ≥ CORE_MIN_WEIGHT (heard and rewarded often)
- *   • multi-voice resonance — carried by ≥ CORE_MIN_VOICES distinct voices
- *   • stable curvature — when the UQRC field is warmed up, the line's
- *     lattice region is calm (curvature ≤ CORE_MAX_CURVATURE); this is a
- *     stability gate only, never a truth test
- *   • insight, not chatter — a whole learned (non-personality) line with
- *     at least CORE_MIN_TOPICS content words
+ *   • complete — at least CORE_MIN_PARAGRAPHS acts, ending in Crystallize
+ *   • coherent — every paragraph boundary kept phase continuity
+ *     ΔΦ ≥ CORE_MIN_CONTINUITY (stricter than the arc's halt threshold)
+ *   • calm — when the UQRC field is warmed up, the reflection's lattice
+ *     region is calm (curvature ≤ CORE_MAX_CURVATURE); a stability gate,
+ *     never a truth test
  *
- * Engravings are immutable once sealed (text, seal hash, sealedAt) and
- * device-local: they are never wallet coins, never move SWARM balances and
- * never enter the mesh digest. Realization treats them as touchstones: when
- * an engraving is eligible for an act, it is preferred over ordinary lines.
+ * Engravings are immutable once sealed (paragraphs, topics, seal, sealedAt)
+ * and device-local: they are never wallet coins, never move SWARM balances
+ * and never enter the mesh digest. When Infinity later reflects on a
+ * related topic, the sentences of its engraved reflections are touchstones:
+ * preferred whenever an act can use them, ahead of ordinary lines.
  */
 
-import type { LearnedExpression } from './infinityPersonality';
 import { contentWords } from '../uqrc/semanticBasins';
 
-export const CORE_MIN_WEIGHT = 3;
-export const CORE_MIN_VOICES = 2;
-export const CORE_MIN_TOPICS = 3;
+export const CORE_MIN_PARAGRAPHS = 3;
+export const CORE_MIN_CONTINUITY = 0.3;
 export const CORE_MAX_CURVATURE = 0.5;
 export const MAX_CORE_MEMORIES = 64;
 export const CORE_MEMORY_STORAGE_KEY = 'infinity-core-memories';
 
 export interface CoreMemory {
-  text: string;
-  /** FNV-1a seal over text + sealedAt; identifies the engraving, proves nothing. */
+  /** The crystallized reflection, one entry per paragraph. */
+  paragraphs: string[];
+  /** Prompt topics the reflection answered. */
+  topics: string[];
+  /** Weakest phase continuity across its boundaries. */
+  continuity: number;
+  /** FNV-1a seal over the reflection + sealedAt; identifies it, proves nothing. */
   seal: string;
   sealedAt: number;
-  weight: number;
-  voices: number;
 }
 
 export interface CurvatureProbe {
   isWarmedUp(): boolean;
   getCurvatureForText(text: string): number;
+}
+
+export interface ArcForEngraving {
+  paragraphs: string[];
+  continuity: number[];
+  stop: string;
 }
 
 function fnvHex(text: string): string {
@@ -54,17 +62,18 @@ function fnvHex(text: string): string {
 }
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+const keyOf = (paragraphs: string[]) => norm(paragraphs.join('\n\n'));
+const sentencesOf = (paragraph: string) => paragraph.split(/(?<=[.!?…])\s+/u).map(t => t.trim()).filter(Boolean);
 
-/** Does a learned line qualify for engraving right now? */
-export function qualifiesForCore(expression: LearnedExpression, field?: CurvatureProbe | null): boolean {
-  if (expression.source !== 'memory') return false;
-  if (expression.weight < CORE_MIN_WEIGHT) return false;
-  if ((expression.voices?.length ?? 0) < CORE_MIN_VOICES) return false;
-  if (new Set(contentWords(expression.text)).size < CORE_MIN_TOPICS) return false;
+/** Does a composed arc qualify to be engraved? */
+export function qualifiesForCore(arc: ArcForEngraving, field?: CurvatureProbe | null): boolean {
+  if (arc.stop !== 'complete' || arc.paragraphs.length < CORE_MIN_PARAGRAPHS) return false;
+  if (arc.continuity.length < arc.paragraphs.length - 1) return false;
+  if (Math.min(...arc.continuity) < CORE_MIN_CONTINUITY) return false;
   if (field) {
     try {
-      if (field.isWarmedUp() && field.getCurvatureForText(expression.text) > CORE_MAX_CURVATURE) return false;
-    } catch { /* field optional: other gates still hold */ }
+      if (field.isWarmedUp() && field.getCurvatureForText(arc.paragraphs.join(' ')) > CORE_MAX_CURVATURE) return false;
+    } catch { /* field optional: the other gates still hold */ }
   }
   return true;
 }
@@ -75,54 +84,54 @@ export class CoreMemoryStore {
   get size(): number { return this.engraved.size; }
 
   list(): CoreMemory[] {
-    return [...this.engraved.values()].map(m => ({ ...m }));
+    return [...this.engraved.values()].map(m => ({ ...m, paragraphs: [...m.paragraphs], topics: [...m.topics] }));
   }
 
-  has(text: string): boolean {
-    return this.engraved.has(norm(text));
+  has(paragraphs: string[]): boolean {
+    return this.engraved.has(keyOf(paragraphs));
   }
 
-  /** Texts of all engravings, for realization lookups. */
+  /** Every sentence of every engraved reflection: the touchstones realization prefers. */
   texts(): Set<string> {
-    return new Set([...this.engraved.values()].map(m => m.text));
+    const out = new Set<string>();
+    for (const m of this.engraved.values()) for (const p of m.paragraphs) for (const s of sentencesOf(p)) out.add(s);
+    return out;
+  }
+
+  /** Engraved reflections that answered any of these topics, newest first. */
+  recall(topics: string[]): CoreMemory[] {
+    const want = new Set(topics.map(t => t.toLowerCase()));
+    return this.list().filter(m => m.topics.some(t => want.has(t))).sort((a, b) => b.sealedAt - a.sealedAt);
   }
 
   /**
-   * Seal every qualifying learned line not yet engraved. Existing
-   * engravings are never rewritten. Over the cap, the lightest engraving
-   * gives way so the ring keeps its deepest memories.
+   * Seal a crystallized arc if it qualifies and is not already engraved.
+   * Existing engravings are never rewritten. Over the cap the oldest gives way.
    */
-  sealFrom(expressions: LearnedExpression[], field?: CurvatureProbe | null, now = Date.now()): CoreMemory[] {
-    const sealed: CoreMemory[] = [];
-    const candidates = expressions
-      .filter(e => !this.has(e.text) && qualifiesForCore(e, field))
-      .sort((a, b) => b.weight - a.weight || (b.voices?.length ?? 0) - (a.voices?.length ?? 0));
-    for (const e of candidates) {
-      const memory: CoreMemory = {
-        text: e.text,
-        seal: fnvHex(`${e.text}␟${now}`),
-        sealedAt: now,
-        weight: e.weight,
-        voices: e.voices?.length ?? 0,
-      };
-      this.engraved.set(norm(e.text), memory);
-      sealed.push({ ...memory });
-    }
+  engraveArc(arc: ArcForEngraving, prompt: string, field?: CurvatureProbe | null, now = Date.now()): CoreMemory | null {
+    if (!qualifiesForCore(arc, field)) return null;
+    const key = keyOf(arc.paragraphs);
+    if (this.engraved.has(key)) return null;
+    const memory: CoreMemory = {
+      paragraphs: [...arc.paragraphs],
+      topics: [...new Set(contentWords(prompt))],
+      continuity: Math.min(...arc.continuity),
+      seal: fnvHex(`${arc.paragraphs.join('\n\n')}\u241f${now}`),
+      sealedAt: now,
+    };
+    this.engraved.set(key, memory);
     this.enforceCap();
-    return sealed.filter(m => this.has(m.text));
+    return this.engraved.has(key) ? { ...memory, paragraphs: [...memory.paragraphs], topics: [...memory.topics] } : null;
   }
 
   private enforceCap(): void {
     while (this.engraved.size > MAX_CORE_MEMORIES) {
-      let lightest: [string, CoreMemory] | null = null;
+      let oldest: [string, CoreMemory] | null = null;
       for (const entry of this.engraved) {
-        const m = entry[1];
-        if (!lightest || m.weight < lightest[1].weight || (m.weight === lightest[1].weight && m.sealedAt < lightest[1].sealedAt)) {
-          lightest = entry;
-        }
+        if (!oldest || entry[1].sealedAt < oldest[1].sealedAt) oldest = entry;
       }
-      if (!lightest) break;
-      this.engraved.delete(lightest[0]);
+      if (!oldest) break;
+      this.engraved.delete(oldest[0]);
     }
   }
 
@@ -134,9 +143,12 @@ export class CoreMemoryStore {
     if (!Array.isArray(saved)) return;
     for (const raw of saved) {
       const m = raw as Partial<CoreMemory> | null;
-      if (!m || typeof m.text !== 'string' || typeof m.seal !== 'string') continue;
-      if (!Number.isFinite(m.sealedAt) || !Number.isFinite(m.weight) || !Number.isFinite(m.voices)) continue;
-      this.engraved.set(norm(m.text), { text: m.text, seal: m.seal, sealedAt: m.sealedAt!, weight: m.weight!, voices: m.voices! });
+      if (!m || !Array.isArray(m.paragraphs) || !m.paragraphs.length || !m.paragraphs.every(p => typeof p === 'string')) continue;
+      if (typeof m.seal !== 'string' || !Number.isFinite(m.sealedAt) || !Number.isFinite(m.continuity)) continue;
+      const topics = Array.isArray(m.topics) ? m.topics.filter((t): t is string => typeof t === 'string') : [];
+      this.engraved.set(keyOf(m.paragraphs), {
+        paragraphs: [...m.paragraphs], topics, continuity: m.continuity!, seal: m.seal, sealedAt: m.sealedAt!,
+      });
     }
     this.enforceCap();
   }

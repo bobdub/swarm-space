@@ -1161,8 +1161,7 @@ export class NeuralStateEngine {
       // Expressions stay on-device, separate from the mesh digest.
       localStorage.setItem('infinity-local-expressions', JSON.stringify(this.dualLearning.languageLearner.getExpressions()));
       localStorage.setItem('infinity-semantic-basins', JSON.stringify(this.dualLearning.languageLearner.semantic.serialize()));
-      // Phase 4: engrave newly qualifying lines, then keep the ring on-device.
-      try { this.dualLearning.coreMemories.sealFrom(this.dualLearning.languageLearner.getExpressions(), getSharedFieldEngine()); } catch { /* optional */ }
+      // Phase 4: engraved reflections stay on-device, outside the digest.
       localStorage.setItem(CORE_MEMORY_STORAGE_KEY, JSON.stringify(this.dualLearning.coreMemories.serialize()));
     } catch (err) {
       console.warn('[NeuralEngine] Failed to persist brain state:', err);

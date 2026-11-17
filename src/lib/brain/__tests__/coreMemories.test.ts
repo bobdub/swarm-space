@@ -22,39 +22,45 @@ describe('Engraved core memories (Phase 4)', () => {
     expect(restored.getExpressions()[0].voices).toEqual(['peer-a', 'peer-b']);
   });
 
-  it('engraves only deep, multi-voice, calm memory lines', () => {
-    expect(qualifiesForCore(deep('Patience carries the mesh through winter.'))).toBe(true);
-    expect(qualifiesForCore(deep('Patience carries the mesh through winter.', ['a']))).toBe(false);
-    expect(qualifiesForCore(deep('Patience carries the mesh through winter.', ['a', 'b'], 1))).toBe(false);
-    expect(qualifiesForCore({ ...deep('Patience carries the mesh through winter.'), source: 'personality' })).toBe(false);
-    expect(qualifiesForCore(deep('So it goes.'))).toBe(false);
+  const arc = (paragraphs: string[], continuity = [0.6, 0.5], stop = 'complete') => ({ paragraphs, continuity, stop });
+  const P = ['Patience is a quiet kind of courage.', 'Waiting for a block teaches the miner patience.', 'Every peer that returns brings patience back to the mesh.'];
+
+  it('engraves only complete, coherent, calm reflections', () => {
+    expect(qualifiesForCore(arc(P))).toBe(true);
+    expect(qualifiesForCore(arc(P.slice(0, 2), [0.6]))).toBe(false);
+    expect(qualifiesForCore(arc(P, [0.6, 0.5], 'shear'))).toBe(false);
+    expect(qualifiesForCore(arc(P, [0.6, 0.25]))).toBe(false);
     const stormy = { isWarmedUp: () => true, getCurvatureForText: () => 2 };
     const calm = { isWarmedUp: () => true, getCurvatureForText: () => 0.1 };
-    expect(qualifiesForCore(deep('Patience carries the mesh through winter.'), stormy)).toBe(false);
-    expect(qualifiesForCore(deep('Patience carries the mesh through winter.'), calm)).toBe(true);
+    expect(qualifiesForCore(arc(P), stormy)).toBe(false);
+    expect(qualifiesForCore(arc(P), calm)).toBe(true);
   });
 
-  it('seals once, never rewrites, and survives reload', () => {
+  it('seals a reflection whole, once, never rewrites it, and survives reload', () => {
     const store = new CoreMemoryStore();
-    const first = store.sealFrom([deep('Patience carries the mesh through winter.')], null, 1000);
-    expect(first).toHaveLength(1);
-    const seal = first[0].seal;
-    expect(store.sealFrom([deep('Patience carries the mesh through winter.', ['a', 'b', 'c'], 9)], null, 2000)).toEqual([]);
-    expect(store.list()[0]).toMatchObject({ seal, sealedAt: 1000, weight: 4 });
+    const sealed = store.engraveArc(arc(P), 'How do I find patience?', null, 1000)!;
+    expect(sealed.paragraphs).toEqual(P);
+    expect(sealed.topics).toEqual(['find', 'patience']);
+    expect(sealed.continuity).toBe(0.5);
+    expect(store.engraveArc(arc(P, [0.9, 0.9]), 'patience', null, 2000)).toBeNull();
+    expect(store.list()[0]).toMatchObject({ seal: sealed.seal, sealedAt: 1000, continuity: 0.5 });
+    expect(store.texts()).toEqual(new Set(P));
+    expect(store.recall(['patience'])).toHaveLength(1);
+    expect(store.recall(['ocean'])).toHaveLength(0);
     const restored = new CoreMemoryStore();
     restored.restore(JSON.parse(JSON.stringify(store.serialize())));
     expect(restored.list()).toEqual(store.list());
-    restored.restore([{ text: 1 }, null, 'x']);
+    restored.restore([{ paragraphs: 'x' }, null, 'x']);
     expect(restored.size).toBe(1);
   });
 
-  it('keeps the deepest engravings when over capacity', () => {
+  it('keeps the newest reflections when over capacity', () => {
     const store = new CoreMemoryStore();
-    const lines = Array.from({ length: MAX_CORE_MEMORIES + 5 }, (_, i) => deep(`Memory number ${i} settles into quiet ledgers.`, ['a', 'b'], 3 + (i % 7)));
-    store.sealFrom(lines, null, 1);
+    for (let i = 0; i < MAX_CORE_MEMORIES + 5; i++) {
+      store.engraveArc(arc([`Reflection ${i} opens.`, `It travels ${i}.`, `It settles ${i}.`]), 'reflection', null, i);
+    }
     expect(store.size).toBe(MAX_CORE_MEMORIES);
-    // Ten lines weigh 3; the five lightest of them gave way.
-    expect(store.list().filter(m => m.weight === 3)).toHaveLength(5);
+    expect(Math.min(...store.list().map(m => m.sealedAt))).toBe(5);
   });
 });
 
@@ -87,8 +93,8 @@ describe('Attentional routing (Phase 4)', () => {
     const fusion = new DualLearningFusion();
     fusion.languageLearner.rememberExpressions('The tide keeps every promise.', 1, 'memory', 'x');
     fusion.languageLearner.rememberExpressions('The tide remembers its shore.', 4, 'memory', ['x', 'y']);
-    fusion.coreMemories.sealFrom(fusion.languageLearner.getExpressions(), null);
-    expect(fusion.coreMemories.size).toBe(1);
+    fusion.coreMemories.engraveArc({ paragraphs: ['The tide remembers its shore.', 'Salt keeps time.', 'The shore waits.'], continuity: [0.5, 0.5], stop: 'complete' }, 'tide', null);
+    expect(fusion.coreMemories.texts().has('The tide remembers its shore.')).toBe(true);
     const text = fusion.generateText(['post_created'], { recentPosts: ['Tell me about the tide'], currentEnergy: 0.5, creativityActive: 1, massScore: 0 });
     expect(text).toBe('The tide remembers its shore.');
   });
@@ -99,10 +105,24 @@ describe('Attentional routing (Phase 4)', () => {
       fusion.languageLearner.rememberExpressions(t, 10, 'memory', 'x');
     }
     fusion.languageLearner.rememberExpressions('The tide returns what the shore remembers.', 3, 'memory', ['x', 'y']);
-    fusion.coreMemories.sealFrom(fusion.languageLearner.getExpressions(), null);
-    expect(fusion.coreMemories.has('The tide returns what the shore remembers.')).toBe(true);
+    fusion.coreMemories.engraveArc({ paragraphs: ['The tide returns what the shore remembers.', 'Salt keeps time.', 'The shore waits.'], continuity: [0.5, 0.5], stop: 'complete' }, 'tide', null);
     const text = fusion.generateText(['post_created'], { recentPosts: ['Tell me about the tide'], currentEnergy: 0.5, creativityActive: 1, massScore: 0 });
     expect(text).toBe('The tide returns what the shore remembers.');
+  });
+
+  it('engraves a crystallized arc when fusion composes one', () => {
+    const fusion = new DualLearningFusion();
+    const training = [
+      'Patience is a quiet kind of courage.', 'Waiting for a block teaches the miner patience.',
+      'The miner listens for peers across the mesh.', 'Every peer that returns brings patience back to the mesh.',
+      'Patience and waiting walk together.', 'The miner keeps waiting for the next block.', 'Peers find the miner when the mesh is calm.',
+    ];
+    for (let i = 0; i < 4; i++) for (const t of training) fusion.languageLearner.ingestText(t, 0.8, 90);
+    const text = fusion.generateText(['post_created'], { recentPosts: ['How do I find patience?'], currentEnergy: 0.5, creativityActive: 1, massScore: 0.8 });
+    const paragraphs = text.split('\n\n');
+    expect(paragraphs).toHaveLength(3);
+    expect(fusion.coreMemories.size).toBe(1);
+    expect(fusion.coreMemories.list()[0].paragraphs).toEqual(paragraphs);
   });
 
   it('lets the arc unearth an engraved memory first', () => {

@@ -77,7 +77,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <span className="flex items-center gap-2 text-accent">{stats.connectedPeers > 0 ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}{stats.connectedPeers > 0 ? `${stats.connectedPeers} peers connected` : 'Waiting for peers'}</span>
-          <span className="text-muted-foreground">{expressions} learned expressions on this device{engraved > 0 ? ` · ${engraved} engraved core memories` : ''}</span>
+          <span className="text-muted-foreground">{expressions} learned expressions on this device{engraved > 0 ? ` · ${engraved} engraved reflections` : ''}</span>
         </div>
       </header>
       <nav aria-label="Infinity views" className="flex gap-2 border-b border-border py-3">
@@ -99,7 +99,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
         </div>
         <p className="mt-3 text-xs text-muted-foreground">Private session · Not saved or shared with peers</p>
       </section> : <section className="space-y-5 py-6" aria-label="Infinity posts">{posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <p className="text-sm text-muted-foreground">No Infinity posts stored on this device.</p>}</section>}
-      <details className="border-t border-border py-4 text-sm text-muted-foreground"><summary className="cursor-pointer text-foreground">Learning & availability</summary><div className="mt-3 space-y-2"><p>Text memory, complete expressions and engraved core memories stay on this device; engravings are not wallet coins. Connected peers exchange vocabulary and pattern summaries, not complete memories.</p><p>Received learning remains here offline. Material held only by another peer is unavailable until it reaches this device.</p><p>UQRC ranks relevant whole expressions in a local field model. Its score is not a measure of consciousness or factual accuracy.</p></div></details>
+      <details className="border-t border-border py-4 text-sm text-muted-foreground"><summary className="cursor-pointer text-foreground">Learning & availability</summary><div className="mt-3 space-y-2"><p>Text memory, complete expressions and engraved reflections stay on this device; engravings are not wallet coins. Connected peers exchange vocabulary and pattern summaries, not complete memories.</p><p>Received learning remains here offline. Material held only by another peer is unavailable until it reaches this device.</p><p>UQRC ranks relevant whole expressions in a local field model. Its score is not a measure of consciousness or factual accuracy.</p></div></details>
     </main>
   </div>;
 }

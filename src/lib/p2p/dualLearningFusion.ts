@@ -399,7 +399,11 @@ export class DualLearningFusion {
         coreMemories: this.coreMemories.texts(),
         routing: context.routing,
       });
-      if (arc && arc.paragraphs.length >= 2) return arc.paragraphs.join('\n\n');
+      if (arc && arc.paragraphs.length >= 2) {
+        // Phase 4: a complete, coherent, calm reflection is engraved whole.
+        try { this.coreMemories.engraveArc(arc, context.recentPosts[0] ?? '', getSharedFieldEngine()); } catch { /* optional */ }
+        return arc.paragraphs.join('\n\n');
+      }
     }
     const candidates = rankExpressions(this.languageLearner.getExpressions(), {
       recentPosts: context.recentPosts,
