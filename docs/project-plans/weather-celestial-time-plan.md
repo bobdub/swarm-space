@@ -1,7 +1,7 @@
-# Weather pacing & shared celestial time — plan (doc only, not scheduled)
+# Weather pacing & shared celestial time — plan
 
-Status: **planned, not started.** Captured 2026-10-20. Game-paced polish, not a
-correctness emergency — implement when a world-systems pass is scheduled.
+Status: **implemented 2026-11-17.** Captured 2026-10-20. See "Implementation
+notes" at the end for the one decision taken during implementation.
 
 ## Problem statement
 
@@ -54,3 +54,31 @@ Investigation found two root causes:
   preference).
 - Out of scope: space exploration itself, weather rendering/visual changes,
   any change to the field-readout physics model.
+
+## Implementation notes (2026-11-17)
+
+- **Whole solar system orbits (decided by the project owner).** With the Sun
+  fixed in the world and Earth circling the galactic core every 6 h, the
+  Sun's direction swung ±40°, so game days varied 2.8–3.9 h and "one sunrise
+  per day from rotation alone" could not hold. Nothing is static now: the
+  Sun travels with Earth along the unchanged 6 h galactic orbit
+  (`EARTH_ORBIT_PERIOD`), Earth revolves around the Sun once per in-game year
+  (`GAME_YEAR_DAYS = 365`, constant Sun distance, same Sun as before at the
+  epoch), and the Moon revolves around Earth.
+- **Game time** lives in `src/lib/brain/earth.ts`: `GAME_DAY_SECONDS`
+  (86 400 / 7), `GAME_HOUR_SECONDS`, `GAME_YEAR_DAYS`, `LUNAR_CYCLE_DAYS = 28`.
+- **Sidereal periods.** Spin and Moon orbit are prograde, so their sidereal
+  periods are `1/(1/day + 1/year)` and `1/(1/lunar cycle + 1/year)`. That keeps
+  the solar day at exactly one game day and the phase cycle at 28 game days;
+  the Moon rises ~27 times per 28 days, like the real one.
+- **Live positions.** `EarthPose` now carries `sun` and `moon`; the scene
+  light (`SunLight.tsx`), Earth/Moon/atmosphere shaders, minimap, spawn,
+  lightspeed probes and weather read them. `SUN_POSITION` is the epoch value.
+- **Weather pacing** (`src/lib/world/weather.ts`): rates are per in-game hour
+  times `WEATHER_TICK_GAME_HOURS`; `NUCLEATION_SCORE` 0.06 → 0.6; clouds start
+  dry and charge at `0.5 × min(1, score)` per game hour (≥ 2 game hours to
+  rain), rain drains 1 charge per game hour, drift is 900 arc-metres per
+  lattice gradient per game hour. Field injections are unchanged.
+- **Tests:** `src/lib/brain/__tests__/celestial.test.ts` and the live-field
+  pacing test in `src/lib/world/__tests__/weather.test.ts` (steps the real
+  UQRC solver at 60 Hz between 1 Hz weather reads).

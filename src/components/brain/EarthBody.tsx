@@ -7,7 +7,7 @@ import {
   EARTH_SPHERE_SEGMENTS,
   EARTH_SPHERE_RINGS,
   getEarthPose,
-  SUN_POSITION,
+  MOON_RADIUS,
   WORLD_SCALE,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
@@ -221,18 +221,13 @@ export function EarthBody() {
   // Without this, EarthBody renders at world origin until useFrame's
   // first tick — which is the "spawn in space" flash.
   const initialPose = useMemo(() => getEarthPose(), []);
-  const MOON_RADIUS = EARTH_RADIUS * 0.27;
-  const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
-  const MOON_ORBIT_PERIOD = 40; // seconds per revolution (sim time)
-  const initialMoonPos = useMemo<[number, number, number]>(() => {
-    // Mirror the moon orbit math used in useFrame so frame 0 matches.
-    const t = 0; // mount-time t — pose clock starts at 0 too
-    const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
-    const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
-    const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
-    const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
-    return [mx, my, mz];
-  }, [MOON_ORBIT_RADIUS]);
+  // The Moon is placed from the shared-epoch pose (earth.ts), never from
+  // local elapsed time, so every peer sees the same Moon in the same phase.
+  const initialMoonPos = useMemo<[number, number, number]>(() => [
+    initialPose.moon[0] - initialPose.center[0],
+    initialPose.moon[1] - initialPose.center[1],
+    initialPose.moon[2] - initialPose.center[2],
+  ], [initialPose]);
   const uniforms = useMemo(
     () => {
       const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
@@ -245,9 +240,9 @@ export function EarthBody() {
       const waterRgb = hexToRgb01(COSMO_COMPOUNDS.water.color);
       return {
         uTime: { value: 0 },
-        // Sourced from the shared SUN_POSITION so shader, scene light, and
-        // daylight-biased spawn can never disagree.
-        uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
+        // Sourced from the shared-epoch pose Sun (updated each frame) so shader,
+        // scene light, and daylight-biased spawn can never disagree.
+        uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
         // Volcano organ — same descriptor as collision + mantle vent.
         uVolcCenter: {
           value: new THREE.Vector3(
@@ -282,19 +277,19 @@ export function EarthBody() {
         uColIce:   { value: v3(palette.ice) },
       };
     },
-    [],
+    [initialPose],
   );
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
   const moonUniforms = useMemo(
     () => ({
-      uSunPos: { value: new THREE.Vector3(...SUN_POSITION) },
+      uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
       // Lunar regolith compound colour — Si/O/Fe/Mg/Al/Ca blend.
       uRegolith: {
         value: new THREE.Vector3(...hexToRgb01(COSMO_COMPOUNDS.moon.color)),
       },
     }),
-    [],
+    [initialPose],
   );
 
   useFrame((_, dt) => {
@@ -310,14 +305,22 @@ export function EarthBody() {
     }
     if (ref.current) ref.current.rotation.y = pose.spinAngle;
 
-    // Moon orbit — slight inclination so it doesn't always eclipse the Sun.
+    // The Sun travels with the solar system — keep both shaders lit by
+    // its live position.
+    if (matRef.current) {
+      (matRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);
+    }
+    if (moonMatRef.current) {
+      (moonMatRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);
+    }
+
+    // Moon orbit from the shared-epoch pose — relative to Earth's group.
     if (moonGroupRef.current) {
-      const t = (matRef.current?.uniforms.uTime.value as number) ?? 0;
-      const theta = (t / MOON_ORBIT_PERIOD) * Math.PI * 2;
-      const mx = Math.cos(theta) * MOON_ORBIT_RADIUS;
-      const mz = Math.sin(theta) * MOON_ORBIT_RADIUS;
-      const my = Math.sin(theta * 0.5) * MOON_ORBIT_RADIUS * 0.18;
-      moonGroupRef.current.position.set(mx, my, mz);
+      moonGroupRef.current.position.set(
+        pose.moon[0] - pose.center[0],
+        pose.moon[1] - pose.center[1],
+        pose.moon[2] - pose.center[2],
+      );
     }
   });
 

@@ -8,7 +8,7 @@ import {
   FIELD3D_RELAX_PIN_SCALE,
 } from '../../uqrc/field3D';
 import { sunEarthRoundTrip, classifyCausalState, LATTICE_CELL, C_LIGHT, TICK_DT } from '../lightspeed';
-import { SUN_POSITION, EARTH_RADIUS, getEarthPose } from '../earth';
+import { EARTH_RADIUS, getEarthPose } from '../earth';
 
 describe('𝒞_light closure operator — surface relax', () => {
   it('I₆ spacing invariance: scheduled relax does not change ℓ_min or c', () => {
@@ -28,7 +28,7 @@ describe('𝒞_light closure operator — surface relax', () => {
   it('leaves the light-speed probe observer-only', () => {
     const field = createField3D();
     const pose = getEarthPose();
-    const sx = SUN_POSITION[0]-pose.center[0], sy = SUN_POSITION[1]-pose.center[1], sz = SUN_POSITION[2]-pose.center[2];
+    const sx = pose.sun[0]-pose.center[0], sy = pose.sun[1]-pose.center[1], sz = pose.sun[2]-pose.center[2];
     const r = Math.hypot(sx,sy,sz);
     const surf:[number,number,number] = [
       pose.center[0]+(sx/r)*EARTH_RADIUS,

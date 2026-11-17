@@ -74,7 +74,7 @@ export function AtmosphereSky() {
     }
     if (materialRef.current) {
       materialRef.current.uniforms.uPlanetCenter.value.set(pose.center[0], pose.center[1], pose.center[2]);
-      materialRef.current.uniforms.uSunPos.value.set(SUN_POSITION[0], SUN_POSITION[1], SUN_POSITION[2]);
+      materialRef.current.uniforms.uSunPos.value.set(pose.sun[0], pose.sun[1], pose.sun[2]);
       const altitude = Math.max(0, camera.position.distanceTo(materialRef.current.uniforms.uPlanetCenter.value) - EARTH_RADIUS);
       const atmosphereThickness = Math.max(1, ATMOSPHERE_RADIUS - EARTH_RADIUS);
       materialRef.current.uniforms.uSpaceMix.value = Math.min(1, altitude / atmosphereThickness);
