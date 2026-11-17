@@ -90,6 +90,8 @@ function wholeCandidates(p: Picker, prompt: string, eligible: (text: string) => 
     maxChars: p.ctx.maxChars,
     personality: p.ctx.personality,
     semantic: p.ctx.semantic,
+    coreMemories: p.ctx.coreMemories,
+    routing: p.ctx.routing,
   });
   return routeCandidates(ranked, p.ctx.coreMemories, p.ctx.routing).map(e => e.text)
     .filter(t => !p.spoken.has(norm(t)) && !echoesPrompt(t, p.ctx.prompt));

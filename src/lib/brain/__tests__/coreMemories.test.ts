@@ -93,6 +93,18 @@ describe('Attentional routing (Phase 4)', () => {
     expect(text).toBe('The tide remembers its shore.');
   });
 
+  it('keeps an engraved line even when heavier lines fill the four-candidate band', () => {
+    const fusion = new DualLearningFusion();
+    for (const t of ['The tide is near.', 'The tide is far.', 'The tide is calm.', 'The tide is high.']) {
+      fusion.languageLearner.rememberExpressions(t, 10, 'memory', 'x');
+    }
+    fusion.languageLearner.rememberExpressions('The tide returns what the shore remembers.', 3, 'memory', ['x', 'y']);
+    fusion.coreMemories.sealFrom(fusion.languageLearner.getExpressions(), null);
+    expect(fusion.coreMemories.has('The tide returns what the shore remembers.')).toBe(true);
+    const text = fusion.generateText(['post_created'], { recentPosts: ['Tell me about the tide'], currentEnergy: 0.5, creativityActive: 1, massScore: 0 });
+    expect(text).toBe('The tide returns what the shore remembers.');
+  });
+
   it('lets the arc unearth an engraved memory first', () => {
     const l = new SemanticLattice();
     for (let i = 0; i < 4; i++) {

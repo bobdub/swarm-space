@@ -406,6 +406,8 @@ export class DualLearningFusion {
       personality: context.personality,
       maxChars,
       semantic: this.languageLearner.semantic,
+      coreMemories: this.coreMemories.texts(),
+      routing: context.routing,
     });
     // Phase 2: a new sentence assembled from resonant clauses of learned
     // lines. 'create' / 'explore' intents prefer it when its core names an
