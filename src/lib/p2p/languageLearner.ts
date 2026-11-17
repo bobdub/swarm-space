@@ -15,6 +15,7 @@ import { isBlockedToken } from './tokenBlocklist';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { isDefinitionText } from '../uqrc/fieldProjection';
 import { extractExpressions, MAX_EXPRESSIONS, type LearnedExpression } from '../brain/infinityPersonality';
+import { SemanticLattice } from '../uqrc/semanticBasins';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -103,6 +104,8 @@ export class LanguageLearner {
   private readonly basinStreak = new Map<string, number>();
   /** Tokens we have pinned into the field (FIFO eviction past cap). */
   private readonly pinnedTokens: string[] = [];
+  /** Phase 1 word geometry: co-occurrence basins and relational triads (device-local). */
+  readonly semantic = new SemanticLattice();
 
   /**
    * Ingest text from a post/comment, weighted by engagement reward and trust.
@@ -134,6 +137,7 @@ export class LanguageLearner {
 
 
     this.rememberExpressions(cleaned, weight, peerId === 'network-entity' ? 'personality' : 'memory');
+    this.semantic.ingest(cleaned, weight);
 
     // Update vocabulary
     for (const token of tokens) {
