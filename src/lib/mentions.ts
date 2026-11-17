@@ -69,7 +69,7 @@ export function parseMentions(text: string): MentionMatch[] {
 // ── Resolve candidates ──────────────────────────────────────────────
 
 /** Resolve mention candidates from swarm library + local DB */
-export async function resolveMentionCandidates(query: string): Promise<MentionCandidate[]> {
+export async function resolveMentionCandidates(query: string, limit = 6): Promise<MentionCandidate[]> {
   const q = query.toLowerCase().trim();
   if (!q) return getEntityCandidates();
 
@@ -91,7 +91,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
   }
 
   // Swarm mesh library
-  let connectedPeerIds = new Set<string>();
+  const connectedPeerIds = new Set<string>();
   let owner = '';
   const excluded = new Set<string>();
   try {
@@ -180,7 +180,7 @@ export async function resolveMentionCandidates(query: string): Promise<MentionCa
     return (b.affinity ?? 0) - (a.affinity ?? 0) || b.trustScore - a.trustScore || a.userId.localeCompare(b.userId);
   });
 
-  return candidates.slice(0, 6);
+  return candidates.slice(0, limit);
 }
 
 function getEntityCandidates(): MentionCandidate[] {
@@ -226,7 +226,8 @@ export async function resolveUsernameToId(username: string): Promise<ResolvedUse
     return { userId: ENTITY_USER_ID, displayName: ENTITY_DISPLAY_NAME };
   }
 
-  const candidates = await resolveMentionCandidates(username);
+  // Search every match: the popover's 6-row cap must not hide the exact handle.
+  const candidates = await resolveMentionCandidates(username, Infinity);
   const exact = candidates.find(c => c.username.toLowerCase() === lower);
   return exact ? { userId: exact.userId, displayName: exact.displayName } : null;
 }
@@ -290,8 +291,34 @@ export function insertMention(text: string, bindings: MentionBinding[], candidat
     startIndex: start, endIndex: start + token.length,
   }].sort((a, b) => a.startIndex - b.startIndex), cursor: start + token.length + suffix.length };
 }
-export function validMentionBindings(text: string, bindings: MentionBinding[]): MentionBinding[] {
-  return bindings.filter(m => m.userId && m.startIndex >= 0 && m.endIndex <= text.length && text.slice(m.startIndex, m.endIndex) === `@${m.username}`);
+/**
+ * Bindings arrive inside posts/comments from other peers, so treat them as
+ * untrusted: wrong shapes, non-integer ranges, ranges that don't cover the
+ * exact `@handle` token, and second claims on the same token are dropped.
+ */
+export function validMentionBindings(text: string, bindings: unknown): MentionBinding[] {
+  if (!Array.isArray(bindings)) return [];
+  const claimed = new Set<number>();
+  const valid: MentionBinding[] = [];
+  for (const raw of bindings) {
+    if (!raw || typeof raw !== 'object') continue;
+    const m = raw as Partial<MentionBinding>;
+    if (typeof m.userId !== 'string' || !m.userId.trim()) continue;
+    if (typeof m.username !== 'string' || !/^\w+$/.test(m.username)) continue;
+    if (!Number.isSafeInteger(m.startIndex) || !Number.isSafeInteger(m.endIndex)) continue;
+    const start = m.startIndex as number, end = m.endIndex as number;
+    if (start < 0 || end !== start + m.username.length + 1 || end > text.length) continue;
+    if (text.slice(start, end) !== `@${m.username}`) continue;
+    // A token continuing past the handle (e.g. "@Mike" inside "@Mikey") is a different tag.
+    if (/\w/.test(text[end] ?? '')) continue;
+    if (claimed.has(start)) continue;
+    claimed.add(start);
+    valid.push({
+      userId: m.userId, username: m.username, startIndex: start, endIndex: end,
+      ...(typeof m.discriminator === 'string' && /^[\da-f]{8}$/i.test(m.discriminator) ? { discriminator: m.discriminator } : {}),
+    });
+  }
+  return valid;
 }
 export async function bindMentions(text: string, selected: MentionBinding[] = []): Promise<MentionBinding[]> {
   const valid = validMentionBindings(text, selected);
@@ -306,13 +333,14 @@ export async function bindMentions(text: string, selected: MentionBinding[] = []
 }
 export function trimMentionBindings(text: string, bindings: MentionBinding[]) {
   const leading = text.length - text.trimStart().length;
-  return validMentionBindings(text.trim(), bindings.map(m => ({ ...m, startIndex: m.startIndex - leading, endIndex: m.endIndex - leading })));
+  return validMentionBindings(text.trim(), validMentionBindings(text, bindings).map(m => ({ ...m, startIndex: m.startIndex - leading, endIndex: m.endIndex - leading })));
 }
-export function mentionRecipient(text: string, start: number, username: string, bindings?: MentionBinding[], legacy?: Map<string, string>) {
-  const binding = validMentionBindings(text, bindings ?? []).find(m => m.startIndex === start && m.username === username);
+export function mentionRecipient(text: string, start: number, username: string, bindings?: unknown, legacy?: Map<string, string>) {
+  const binding = validMentionBindings(text, bindings).find(m => m.startIndex === start && m.username === username);
   // New payloads are authoritative: unknown tokens must not be reinterpreted by a reader's address book.
   return binding?.userId ?? (bindings === undefined ? legacy?.get(username.toLowerCase()) : undefined);
 }
-export function mentionNotificationRecipients(bindings: MentionBinding[], author: string) {
-  return [...new Set(bindings.filter(m => m.userId !== author && m.userId !== ENTITY_USER_ID).map(m => m.userId))];
+export function mentionNotificationRecipients(bindings: unknown, author: string) {
+  const list = Array.isArray(bindings) ? bindings.filter((m): m is MentionBinding => !!m && typeof m === 'object' && typeof m.userId === 'string' && !!m.userId) : [];
+  return [...new Set(list.filter(m => m.userId !== author && m.userId !== ENTITY_USER_ID).map(m => m.userId))];
 }

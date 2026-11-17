@@ -11,9 +11,26 @@ function history(owner: string) {
   if (!value) {
     try { value = JSON.parse(localStorage.getItem(key(owner)) || '{}'); } catch { value = {}; }
     if (!value || typeof value !== 'object' || Array.isArray(value)) value = {};
+    value = sanitizeHistory(value);
     histories.set(owner, value);
   }
   return value;
+}
+const finiteCount = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
+/** Stored history is local but may be hand-edited or from an older build: keep only finite, non-negative counters. */
+function sanitizeHistory(raw: Record<string, unknown>): Record<string, ConnectionAffinity> {
+  // Null prototype: peer-supplied userIds such as "__proto__" stay plain keys.
+  const clean: Record<string, ConnectionAffinity> = Object.create(null);
+  for (const [id, h] of Object.entries(raw)) {
+    if (!id || !h || typeof h !== 'object') continue;
+    const r = h as Record<string, unknown>;
+    clean[id] = {
+      connectedDurationMs: finiteCount(r.connectedDurationMs),
+      sessions: Math.floor(finiteCount(r.sessions)),
+      lastInteractionAt: finiteCount(r.lastInteractionAt),
+    };
+  }
+  return clean;
 }
 function persist(owner: string, now: number, force = false) {
   if (!force && now - (lastSaved.get(owner) ?? 0) < 150_000) return;
@@ -47,7 +64,7 @@ export function observeConnections(owner: string, contacts: LiveContact[], now =
     if (active.has(id)) continue;
     const prior = records[id] ?? { connectedDurationMs: 0, sessions: 0, lastInteractionAt: 0 };
     records[id] = { ...prior, sessions: prior.sessions + 1, lastInteractionAt: now };
-    active.set(id, { since: Math.min(now, ...channels.map(c => c.connectedAt)), peers: new Set(channels.map(c => c.peerId)) });
+    active.set(id, { since: Math.min(now, ...channels.map(c => (Number.isFinite(c.connectedAt) ? c.connectedAt : now))), peers: new Set(channels.map(c => c.peerId)) });
     changed = true;
   }
   persist(owner, now, changed);

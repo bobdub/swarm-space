@@ -19,3 +19,15 @@ describe('namespace coordinates', () => {
     expect(Number.isFinite(connectionCurvature({ connectedDurationMs: NaN, sessions: Infinity }))).toBe(true);
   });
 });
+describe('verifying relayed namespace coordinates', () => {
+  it('accepts only coordinates that re-derive from the same userId and wallet', async () => {
+    const { verifyNamespaceIdentity } = await import('./namespaceIdentity');
+    const w = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+    const id = await namespaceIdentity('user-a', w);
+    expect(await verifyNamespaceIdentity('user-a', w.toUpperCase().replace('0X', '0x'), id.namespaceId, id.discriminator)).toBe(true);
+    expect(await verifyNamespaceIdentity('user-b', w, id.namespaceId, id.discriminator)).toBe(false);
+    expect(await verifyNamespaceIdentity('user-a', w, id.namespaceId, 'ffffffff')).toBe(false);
+    expect(await verifyNamespaceIdentity('user-a', 'not-a-wallet', id.namespaceId, id.discriminator)).toBe(false);
+    expect(await verifyNamespaceIdentity('user-a', w, undefined, undefined)).toBe(false);
+  });
+});

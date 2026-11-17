@@ -22,3 +22,18 @@ describe('local connection affinity', () => {
     expect(m.getConnectionAffinity('owner', 'peer-guest', 9_000).sessions).toBe(0);
   });
 });
+describe('stored connection history validation', () => {
+  beforeEach(() => { localStorage.clear(); vi.resetModules(); });
+  it('sanitizes corrupt stored counters and keeps "__proto__" a plain key', async () => {
+    localStorage.setItem('swarm-connection-affinity:owner', JSON.stringify({
+      bad: { connectedDurationMs: 'lots', sessions: -3, lastInteractionAt: null },
+      __proto__: { connectedDurationMs: 5 },
+    }));
+    const m = await import('../connectionAffinity');
+    expect(m.getConnectionAffinity('owner', 'bad', 1)).toEqual({ connectedDurationMs: 0, sessions: 0, lastInteractionAt: 0 });
+    m.observeConnections('owner', [{ userId: '__proto__', peerId: 'p', connectedAt: NaN }], 1_000);
+    const h = m.getConnectionAffinity('owner', '__proto__', 4_000);
+    expect(h.connectedDurationMs).toBe(3_000);
+    expect(({} as Record<string, unknown>).connectedDurationMs).toBeUndefined();
+  });
+});

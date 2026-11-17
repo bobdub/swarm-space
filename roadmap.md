@@ -28,7 +28,7 @@
 - [x] Wallet cleanup: retired credit wrapping panel, moved donations to Market tab (Support the Vault above Network Activity), renamed Credits to Labor, removed MetaMask Swarm Cell from Nodes
 - [x] Add idle engraving tiers, backward-compatible seal metadata, and Labor manual sealing from 1 MB; automated tests cover bounds, settling, capacity, ownership, duplicates and concurrent appends. Live testing left to users.
 - [x] Wire exchanged peer identities into online wallet picks and native address resolution in SWARM and Builder; preserve existing accounts and signing checks. 169 wallet + 43 peer/dashboard automated checks pass; live transfers left to users.
-- [ ] Define stable namespace anchors and local connection affinity without claiming hash uniqueness or measured UQRC consciousness.
-- [ ] Preserve duplicate handles in account skins and retain owner-scoped known connection time.
-- [ ] Bind @tag selections/defaults to canonical identities through posts, comments, notifications and rendering; defer URL changes.
-- [ ] Run focused automated identity, connection and mention checks; leave live peer testing to users.
+- [x] Define stable namespace anchors and local connection affinity without claiming hash uniqueness or measured UQRC consciousness.
+- [x] Preserve duplicate handles in account skins and retain owner-scoped known connection time.
+- [x] Bind @tag selections/defaults to canonical identities through posts, comments, notifications and rendering; defer URL changes.
+- [x] Run focused automated identity, connection and mention checks; leave live peer testing to users. Relayed #discriminators now re-derive locally, malformed @tag bindings and stored connection history are rejected; 31 identity/connection/mention checks and the full 831-test suite pass.

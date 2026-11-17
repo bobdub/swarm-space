@@ -1,4 +1,5 @@
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
+import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -2445,12 +2446,22 @@ export class StandaloneSwarmMesh {
       // without profile fields must not erase previously learned identity.
       const entry = this.library.get(rp.peerId);
       if (entry) {
-        for (const key of ['userId', 'username', 'displayName', 'avatarRef', 'walletAddress', 'namespaceId', 'discriminator'] as const) {
+        for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
+            if (key === 'userId') this.clearNamespaceAnchor(entry);
             entry[key] = value;
             metadataChanged = true;
           }
+        }
+        // Relayed namespace coordinates are never copied: only a well-formed
+        // wallet anchor is taken, and the #discriminator is derived locally.
+        if (entry.userId && isPublicWalletAddress(rp.walletAddress)
+          && entry.walletAddress?.toLowerCase() !== rp.walletAddress.toLowerCase()) {
+          this.clearNamespaceAnchor(entry);
+          entry.walletAddress = rp.walletAddress;
+          metadataChanged = true;
+          this.deriveNamespaceAnchor(rp.peerId, entry.userId, rp.walletAddress);
         }
         const label = entry.displayName || entry.username;
         if (label && entry.source !== 'manual' && entry.alias !== label) {
@@ -3389,6 +3400,7 @@ export class StandaloneSwarmMesh {
 
     const entry = this.library.get(fromPeerId);
     if (entry) {
+      if (entry.userId !== userId) this.clearNamespaceAnchor(entry);
       entry.userId = userId;
       entry.username = username;
       entry.displayName = displayName;
@@ -3396,13 +3408,12 @@ export class StandaloneSwarmMesh {
       if (displayName) entry.alias = displayName;
       this.saveLibrary();
       this.emitPeers();
-      const walletAddress = typeof msg.walletAddress === 'string' && /^0x[\da-f]{40}$/i.test(msg.walletAddress) ? msg.walletAddress : undefined;
-      if (userId && walletAddress) void import('@/lib/uqrc/namespaceIdentity').then(async ({ namespaceIdentity }) => {
-        const identity = await namespaceIdentity(userId, walletAddress);
-        if (this.library.get(fromPeerId)?.userId !== userId) return;
-        Object.assign(entry, identity, { walletAddress });
-        this.saveLibrary();
-      }).catch(() => {});
+      if (userId && isPublicWalletAddress(msg.walletAddress)) {
+        // Claim the wallet now so any pending derivation for an older wallet is discarded.
+        if (entry.walletAddress?.toLowerCase() !== msg.walletAddress.toLowerCase()) this.clearNamespaceAnchor(entry);
+        entry.walletAddress = msg.walletAddress;
+        this.deriveNamespaceAnchor(fromPeerId, userId, msg.walletAddress);
+      }
       if (userId) void import('@/lib/blockchain/wallets/nativeAddress')
         .then(({ hydrateNativeWalletPeer }) => hydrateNativeWalletPeer({ userId, username, displayName, avatarRef }))
         .catch(() => { /* address resolution retries durable hydration */ });
@@ -3413,6 +3424,25 @@ export class StandaloneSwarmMesh {
     }
   }
 
+
+  private clearNamespaceAnchor(entry: LibraryPeer): void {
+    delete entry.walletAddress;
+    delete entry.namespaceId;
+    delete entry.discriminator;
+  }
+
+  /** Derive namespace coordinates locally from a peer's claimed userId + wallet anchor. */
+  private deriveNamespaceAnchor(peerId: string, userId: string, walletAddress: string): void {
+    void import('@/lib/uqrc/namespaceIdentity').then(async ({ namespaceIdentity }) => {
+      const identity = await namespaceIdentity(userId, walletAddress);
+      const entry = this.library.get(peerId);
+      // Identity or wallet may have rotated while hashing; a superseded
+      // derivation must never overwrite the newer anchor.
+      if (!entry || entry.userId !== userId || entry.walletAddress?.toLowerCase() !== walletAddress.toLowerCase()) return;
+      Object.assign(entry, identity, { walletAddress });
+      this.saveLibrary();
+    }).catch(() => { /* no namespace anchor without a real public address */ });
+  }
 
   private observeConnectionTime(): void {
     const owner = this.getLocalProfile().userId;
