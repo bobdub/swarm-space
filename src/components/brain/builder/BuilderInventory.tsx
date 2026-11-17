@@ -57,13 +57,20 @@ interface BuilderInventoryProps {
   open: boolean;
   builder: UseBrainBuilder;
   onClose: () => void;
+  /**
+   * The panel's X button. Leaves Builder Mode entirely (grid, ghost and
+   * plot state go with it), matching the hammer toggle. Falls back to
+   * `onClose` when not provided. Picking an item still uses `onClose`,
+   * so the player stays in build mode to place it.
+   */
+  onExit?: () => void;
   /** Local peer id — used by the Options tab (dev roles, land). */
   selfId?: string;
   /** Equip a catalog tool straight into the hand slot. */
   onEquipTool?: (prefabId: string) => void;
 }
 
-export function BuilderInventory({ open, builder, onClose, selfId, onEquipTool }: BuilderInventoryProps) {
+export function BuilderInventory({ open, builder, onClose, onExit, selfId, onEquipTool }: BuilderInventoryProps) {
   const [sectionId, setSectionId] = useState<string>('structures');
   const [totals, setTotals] = useState<Record<MaterialId, number>>(() => materialTotals());
 
@@ -134,8 +141,9 @@ export function BuilderInventory({ open, builder, onClose, selfId, onEquipTool }
           </div>
           <button
             type="button"
-            aria-label="Close inventory"
-            onClick={onClose}
+            aria-label="Exit Builder Mode"
+            title="Exit Builder Mode"
+            onClick={onExit ?? onClose}
             className="shrink-0 rounded-full p-1.5 text-muted-foreground hover:bg-muted/60 hover:text-foreground"
           >
             <X className="h-4 w-4" />
