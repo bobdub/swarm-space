@@ -69,6 +69,14 @@ export interface StreamPostMetadata {
   endedAt?: string | null;
 }
 
+export interface MentionBinding {
+  userId: string;
+  username: string;
+  discriminator?: string;
+  startIndex: number;
+  endIndex: number;
+}
+
 export interface Post {
   id: string;
   author: string;
@@ -80,6 +88,7 @@ export interface Post {
   projectId?: string | null;
   type: "text" | "image" | "video" | "file" | "stream";
   content: string;
+  mentions?: MentionBinding[];
   manifestIds?: string[];
   createdAt: string;
   editedAt?: string;
@@ -141,6 +150,7 @@ export interface Comment {
   authorName?: string;
   authorAvatarRef?: string;
   text: string;
+  mentions?: MentionBinding[];
   createdAt: string;
   parentId?: string;
 }
