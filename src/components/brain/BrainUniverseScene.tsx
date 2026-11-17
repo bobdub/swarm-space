@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
 import { Zap, Eye, User } from 'lucide-react';
+import { CameraSwitchMenu } from '@/components/streaming/CameraSwitchMenu';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -2326,6 +2327,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           >
             {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
           </Button>
+          <CameraSwitchMenu
+            cameraOn={cameraOn}
+            onSwitched={(stream) => setLocalStream(new MediaStream(stream.getTracks()))}
+            className="bg-[hsla(265,70%,8%,0.7)]"
+          />
           <Button
             type="button"
             variant="outline"

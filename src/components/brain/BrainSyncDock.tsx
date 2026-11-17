@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 import { clearBrainSync } from '@/lib/brain/brainSyncStore';
+import { CameraSwitchMenu } from '@/components/streaming/CameraSwitchMenu';
 
 interface Props {
   roomId: string;
@@ -73,6 +74,7 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute, isSharingScreen 
       <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={toggleCamera} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}>
         {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
       </Button>
+      <CameraSwitchMenu cameraOn={cameraOn} size="icon" variant="ghost" className="h-8 w-8" />
       {isSharingScreen && stopScreenShare && (
         <Button
           type="button"

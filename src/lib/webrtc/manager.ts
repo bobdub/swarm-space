@@ -570,10 +570,7 @@ export class WebRTCManager {
             needAudio && deviceIds?.audioInputId
               ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
               : needAudio;
-          const videoConstraint =
-            needVideo && deviceIds?.videoInputId
-              ? ({ deviceId: { exact: deviceIds.videoInputId } } as MediaTrackConstraints)
-              : needVideo;
+          const videoConstraint = needVideo ? this.videoConstraintFor(deviceIds?.videoInputId) : false;
           const constraints: MediaStreamConstraints = {
             audio: audioConstraint,
             video: videoConstraint,
@@ -616,10 +613,7 @@ export class WebRTCManager {
         audio && deviceIds?.audioInputId
           ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
           : audio;
-      const videoConstraint =
-        video && deviceIds?.videoInputId
-          ? ({ deviceId: { exact: deviceIds.videoInputId } } as MediaTrackConstraints)
-          : video;
+      const videoConstraint = video ? this.videoConstraintFor(deviceIds?.videoInputId) : false;
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraint,
         video: videoConstraint,
@@ -654,6 +648,21 @@ export class WebRTCManager {
     }
   }
 
+  /**
+   * Video constraint for a camera request: an explicit device is required
+   * exactly; otherwise the camera the user last picked is preferred (not
+   * required, so a missing device falls back to the default camera).
+   */
+  private videoConstraintFor(videoInputId?: string): boolean | MediaTrackConstraints {
+    if (videoInputId) return { deviceId: { exact: videoInputId } };
+    try {
+      const raw = localStorage.getItem('swarm-preferred-devices');
+      const preferred = raw ? (JSON.parse(raw) as { videoInputId?: string }).videoInputId : undefined;
+      if (preferred) return { deviceId: { ideal: preferred } };
+    } catch { /* storage unavailable */ }
+    return true;
+  }
+
   stopLocalStream(): void {
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => track.stop());
@@ -675,6 +684,77 @@ export class WebRTCManager {
   ): Promise<MediaStream> {
     this.stopLocalStream();
     return this.startLocalStream(audio, video, deviceIds);
+  }
+
+  /** Device id of the camera currently feeding the local video track, if any. */
+  getActiveCameraId(): string | null {
+    const track = this.localStream?.getVideoTracks().find(t => t.readyState === 'live');
+    return track?.getSettings().deviceId ?? null;
+  }
+
+  /**
+   * Switch the local camera to another video input without leaving the call.
+   * The new track is swapped onto every peer connection's video sender with
+   * `replaceTrack`, which needs no renegotiation, so peers keep the same
+   * connection and simply start receiving the new picture. The previous
+   * camera is released only after the swap succeeds.
+   */
+  async switchCamera(deviceId: string): Promise<MediaStream> {
+    if (!this.localStream) {
+      throw new Error('No local stream to switch camera on');
+    }
+    const oldTrack = this.localStream.getVideoTracks()[0] ?? null;
+    if (oldTrack && oldTrack.readyState === 'live' && oldTrack.getSettings().deviceId === deviceId) {
+      return this.localStream;
+    }
+
+    // Some devices (mostly phones) can only open one camera at a time, so
+    // if acquiring alongside the old one fails, release it and try again.
+    let newStream: MediaStream;
+    try {
+      newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+    } catch (error) {
+      if (!oldTrack) throw error;
+      oldTrack.stop();
+      newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+    }
+    const newTrack = newStream.getVideoTracks()[0];
+    if (!newTrack) throw new Error('Selected camera produced no video track');
+    newTrack.enabled = oldTrack ? oldTrack.enabled : this.cameraEnabled;
+
+    for (const [peerId, pc] of this.connections) {
+      const videoSender =
+        pc.getTransceivers()[1]?.sender ??
+        pc.getSenders().find(s => s.track?.kind === 'video' && !Array.from(this.screenSenders.values()).includes(s));
+      if (!videoSender) continue;
+      try {
+        await videoSender.replaceTrack(newTrack);
+      } catch (error) {
+        // Fall back to the normal slot-and-renegotiate path for this peer.
+        console.warn(`[WebRTC] replaceTrack failed for ${peerId}, renegotiating`, error);
+        const renegotiate = await this.slotTrackIntoPeer(pc, newTrack).catch(() => false);
+        if (renegotiate && this.currentRoomId) {
+          this.negotiationRetryCount.delete(peerId);
+          void this.createOfferForPeer(peerId).catch(() => {});
+        }
+      }
+    }
+
+    if (oldTrack) {
+      this.localStream.removeTrack(oldTrack);
+      oldTrack.stop();
+    }
+    this.localStream.addTrack(newTrack);
+
+    try {
+      const raw = localStorage.getItem('swarm-preferred-devices');
+      const prefs = raw ? JSON.parse(raw) : {};
+      localStorage.setItem('swarm-preferred-devices', JSON.stringify({ ...prefs, videoInputId: deviceId }));
+    } catch { /* storage unavailable */ }
+
+    console.log('[WebRTC] Camera switched to', deviceId);
+    this.announceMediaState();
+    return this.localStream;
   }
 
   /** True if there is at least one live (not ended) audio track on the local stream. */

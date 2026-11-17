@@ -25,6 +25,7 @@ import { applyLiveAvPriority } from '@/lib/streaming/avPriority';
 import { registerLivePostBox } from '@/lib/streaming/livePostBoxRegistry';
 import { setFloatingLiveDock } from '@/lib/streaming/floatingLiveDockStore';
 import { cn } from '@/lib/utils';
+import { CameraSwitchMenu } from './CameraSwitchMenu';
 
 interface LivePostBoxBodyProps {
   room: StreamRoom;
@@ -454,6 +455,12 @@ export function LivePostBoxBody({
             {cameraOn ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
             {cameraOn ? 'Cam on' : 'Cam off'}
           </Button>
+          <CameraSwitchMenu
+            cameraOn={cameraOn}
+            variant="secondary"
+            iconClassName="h-3.5 w-3.5"
+            onSwitched={(stream) => setLocalStream(new MediaStream(stream.getTracks()))}
+          />
           <div className="ml-auto flex items-center gap-2">
             <Button
               type="button"
