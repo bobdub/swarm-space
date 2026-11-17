@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { Avatar } from "./Avatar";
 import { useAuth } from "@/hooks/useAuth";
+import { guestSignupHref, isGuestUser } from "@/lib/preview/guestAccess";
 
 /**
  * AppMenu — the single expandable menu used on every screen size.
@@ -18,6 +19,7 @@ export function MobileNav() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+  const guest = isGuestUser(user);
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -31,7 +33,7 @@ export function MobileNav() {
         <div className="flex flex-col h-full">
           {/* Profile card */}
           <Link
-            to="/profile"
+            to={guest ? guestSignupHref(location.pathname) : "/profile"}
             onClick={() => setOpen(false)}
             className={cn(
               "mb-6 mt-2 flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 transition-all duration-200",
@@ -48,11 +50,16 @@ export function MobileNav() {
             />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-foreground">
-                {user?.displayName || user?.username || "Guest"}
+                {(guest ? user.guestName : undefined) || user?.displayName || user?.username || "Guest"}
               </p>
               <p className="truncate text-xs text-foreground/60">
                 {user ? `@${user.username}` : "Not signed in"}
               </p>
+              {guest && (
+                <p className="truncate text-xs font-medium text-primary">
+                  Click to create an account
+                </p>
+              )}
             </div>
           </Link>
 
