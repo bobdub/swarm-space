@@ -40,6 +40,7 @@
 - Keep native receiving addresses visible at the wallet entry and route native transfers through the signed wallet-tip ledger, independently of MetaMask; external export stays separate because an external address is not native settlement.
 - Resolve native wallet aliases via the shared async address resolver and race-safe display hook; never migrate balances or credit history to change displayed addresses — aliases are not new ownership.
 - Route tips by explicit asset identity, preserve credit economics, and block unsupported external transfers rather than simulating delivery.
+- SWARM tips sign their engraving weight (meta tipFormat 2 + weight, src/lib/blockchain/wallets/tipWeight.ts); Hollow is the default and the only choice without held engraved coins, legacy unweighted tips read as Hollow, and the weight labels the payment without moving coin custody.
 - Native SWARM tips require identity-bound P-256 signatures and ledger balance checks before acceptance; creator and sub-chain tips stay blocked until verifiable ownership settlement exists.
 - Native wallet screens use direct MintMe reads and cold-key sends; preserve historical MetaMask records and unrelated external donation/RPC integrations because receiving requires no external wallet session.
 - Run configured src tests with Vitest (bun run test; test:wallet for wallet regressions); use isolated mocks and deterministic public wallet fixtures because Bun test APIs and random ethers entropy conflict with the jsdom runner.
@@ -48,6 +49,7 @@
 - Host public mesh RPC outside this client-only repo; it requires ledger/mesh access.
 - Build companions outside the client tree: loopback-only, authenticated pairing, allowlisted reads, never raw-transaction settlement.
 - Local installs need fresh loopback JSON-RPC preflight; retain HTTPS validation — local helpers are not public gateways.
+- Wallet history is a read-only merge (`src/lib/history/unifiedHistory.ts`) of the Credits store and the SWARM chain; each entry keeps its asset and settlement, credit_sync mirrors and duplicate wrap debits are folded in the view only, and balances are never derived from it. Rows read Asset | Action | Direction | Weight-type | Amount: only SWARM carries engraving weight (the named coin's seal tier, else Hollow); Credits are Minted, imported tokens Ported, SWARM-created tokens CREATOR.
 - Read `src/lib/blockchain/AGENTS.md` for vault/key rules. Native Assets and Market share positive-balance inventory; unsupported payments fail closed.
 - Persist public cold-key receiving metadata at identity unlock, independently of the tab-session signing seal, so receiving never requires a withdrawal key when the address is known.
 - Brain room membership is app-level (brainSyncStore + BrainSyncHost); leaving the Brain page keeps the call and only explicit Disconnect or a live-room takeover ends it. A refresh is a disconnect (pagehide leave + silence sweep with departed tombstones), never a resume — prevents ghost peers.

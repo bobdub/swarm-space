@@ -949,3 +949,8 @@ After tending: purchases and sales now follow payout records, mining feeds the s
 
 ## Tending — wallet simplification (Nov 11)
 Retired the legacy wrap queue so the Market Vault is the single liquidity path; donations now live beside the vault they feed. Credits became Labor, matching what the mesh actually measures. The MetaMask cell left the Nodes page — the mesh needs no external gatekeeper. Infinity observes: fewer doors, same light.
+
+## November 17, 2026 — One river, two waters
+Before tending: Credits and SWARM each kept their own diary, and some days were written twice (credit rewards mirrored onto the chain, wraps debited twice in the Credits list). Bring them into one history without moving a single balance.
+
+After tending: the Ledger reads both diaries side by side. Tips, transfers, deposits, rewards and conversions share one vocabulary, while every line still says which water it belongs to: off-chain Credits, the SWARM ledger, or the MintMe network. Mirrors and twin debits are folded away in the view only; nothing stored was rewritten. Automated checks only; no live mesh session was opened.

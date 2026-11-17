@@ -12,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   Coins, TrendingUp, History, Rocket, ArrowLeft, Wallet as WalletIcon,
-  Trophy, Pickaxe, ArrowUpRight, ArrowDownLeft, Globe, ArrowDownUp,
+  Trophy, Pickaxe, Globe, ArrowDownUp,
   Link2, Repeat, ImagePlus, Trash2, Store, BookOpen, ArrowRight,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -41,7 +41,8 @@ import { toast } from "sonner";
 import { QuantumMetricsPanel } from "@/components/wallet/QuantumMetricsPanel";
 import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { SealedCoinsHistory } from "@/components/wallet/SealedCoinsHistory";
-import { CreditHistory } from "@/components/CreditHistory";
+import { UnifiedHistory } from "@/components/wallet/UnifiedHistory";
+import { CREDITS_ASSET } from "@/lib/history/unifiedHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
@@ -50,12 +51,10 @@ import { CrossChainSwapPanel } from "@/components/wallet/CrossChainSwapPanel";
 import {
   getActiveChain,
   getChainBalance,
-  getEnrichedTransactions,
   resolveCoinChain,
   setActiveChain as setGlobalActiveChain,
   switchToMainChain,
   type ChainContext,
-  type EnrichedTransaction,
 } from "@/lib/blockchain/multiChainManager";
 import {
   forgetWalletNetwork,
@@ -74,7 +73,6 @@ export default function Wallet() {
   const { isEnabled, stats, getActivePeerConnections } = useP2PContext();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
-  const [transactions, setTransactions] = useState<EnrichedTransaction[]>([]);
   const [miningSession, setMiningSession] = useState<MiningSession | null>(null);
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
@@ -265,10 +263,6 @@ export default function Wallet() {
         : await getChainBalance(currentUser.id, chain.chainId);
       setBalance(bal);
 
-      // Load enriched transactions
-      const enriched = await getEnrichedTransactions(currentUser.id, 50);
-      setTransactions(enriched);
-
       // Load NFTs — filter by active chain via their mint transaction's chainId
       const allNfts = await getUserNFTs(currentUser.id);
       // Check the chain ledger for each NFT's chain origin
@@ -418,71 +412,7 @@ export default function Wallet() {
 
           {/* ── Transactions / Ledger ─────────────────────────────── */}
           <TabsContent value="transactions">
-            <Card>
-              <CardHeader>
-                <CardTitle>Transaction History</CardTitle>
-                <CardDescription>
-                  All blockchain activity — labelled by type, chain, and direction
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <ScrollArea className="h-[500px] pr-4">
-                  {transactions.length === 0 ? (
-                    <div className="text-center py-12 text-muted-foreground">
-                      No transactions yet
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {transactions.map((tx) => (
-                        <div
-                          key={tx.id}
-                          className="flex items-start justify-between p-3 border rounded-lg hover:bg-accent/30 transition-colors gap-3"
-                        >
-                          <div className="flex items-start gap-3 min-w-0">
-                            {tx.direction === "in" ? (
-                              <ArrowDownLeft className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
-                            ) : (
-                              <ArrowUpRight className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
-                            )}
-                            <div className="min-w-0">
-                              <p className="font-medium text-sm leading-tight">{tx.label}</p>
-                              <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                <Badge
-                                  variant={tx.chainTicker === "SWARM" ? "default" : "outline"}
-                                  className="text-[9px] px-1 py-0"
-                                >
-                                  {tx.chainTicker}
-                                </Badge>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {tx.type}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                {new Date(tx.timestamp).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-bold text-sm tabular-nums">
-                              {tx.direction === "in" ? "+" : "-"}
-                              {tx.amount || 0}
-                            </p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {tx.chainTicker}
-                            </p>
-                            {tx.fee > 0 && (
-                              <p className="text-[10px] text-muted-foreground">
-                                Fee: {tx.fee}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea>
-              </CardContent>
-            </Card>
+            <UnifiedHistory userId={user?.id || ""} />
           </TabsContent>
 
           {/* ── Labor ─────────────────────────────────────────────── */}
@@ -490,7 +420,13 @@ export default function Wallet() {
             <CoinEngravingControl userId={user?.id || ""} />
             <SealedCoinsHistory userId={user?.id || ""} />
             <LabourPayoutsPanel />
-            <CreditHistory userId={user?.id || ""} />
+            <UnifiedHistory
+              userId={user?.id || ""}
+              asset={CREDITS_ASSET}
+              lockAsset
+              title="Credits History"
+              description="Your Credits activity. The Ledger tab shows it alongside SWARM and other assets."
+            />
           </TabsContent>
 
           {/* ── Swap ──────────────────────────────────────────────── */}
