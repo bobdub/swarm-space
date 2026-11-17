@@ -1,9 +1,10 @@
 import { Menu } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "./ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
-import { primaryNavigationItems } from "./navigationItems";
+import { chatMenuItem, primaryNavigationItems } from "./navigationItems";
+import { requestOpenNetworkChat } from "@/lib/chat/networkChatStore";
 import { cn } from "@/lib/utils";
 import { P2PStatusIndicator } from "./P2PStatusIndicator";
 import { Avatar } from "./Avatar";
@@ -11,7 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 /**
  * AppMenu — the single expandable menu used on every screen size.
- * Profile card on top, then Explore → Brain → Node → Wallet → Settings.
+ * Profile card on top, then Explore → Brain → Node → Wallet → Chat → Settings.
  */
 export function MobileNav() {
   const [open, setOpen] = useState(false);
@@ -58,20 +59,34 @@ export function MobileNav() {
           {/* Navigation Items */}
           <nav className="flex-1 space-y-2">
             {primaryNavigationItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-sm font-medium transition-all duration-200",
-                  location.pathname === item.path
-                    ? "border-primary/40 bg-gradient-to-r from-primary/20 to-secondary/20 text-foreground"
-                    : "text-foreground/70 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground"
+              <Fragment key={item.path}>
+                {item.path === "/settings" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      requestOpenNetworkChat();
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-left text-sm font-medium text-foreground/70 transition-all duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground"
+                  >
+                    <chatMenuItem.icon className="h-5 w-5 text-secondary" />
+                    <span>{chatMenuItem.label}</span>
+                  </button>
                 )}
-              >
-                <item.icon className="h-5 w-5 text-secondary" />
-                <span>{item.label}</span>
-              </Link>
+                <Link
+                  to={item.path}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-lg border border-transparent px-4 py-3 text-sm font-medium transition-all duration-200",
+                    location.pathname === item.path
+                      ? "border-primary/40 bg-gradient-to-r from-primary/20 to-secondary/20 text-foreground"
+                      : "text-foreground/70 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground"
+                  )}
+                >
+                  <item.icon className="h-5 w-5 text-secondary" />
+                  <span>{item.label}</span>
+                </Link>
+              </Fragment>
             ))}
           </nav>
 
