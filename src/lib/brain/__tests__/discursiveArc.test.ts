@@ -64,6 +64,17 @@ describe('Discursive arc (Phase 3)', () => {
     expect(phaseContinuity(lines[0], lines[1], l)).toBe(0);
   });
 
+  it('considers lower-coverage traversal lines when the best ones bring nothing new', () => {
+    const l = new SemanticLattice();
+    for (let i = 0; i < 4; i++) {
+      l.ingest('Patience courage calm.', 0.8);
+      l.ingest('Patience waiting.', 0.8);
+    }
+    const lines = ['Patience gives courage and calm.', 'Courage and calm guide quiet minds.', 'Waiting teaches quiet resolve.'];
+    const arc = composeArc(ctx('Tell me about patience', l, lines))!;
+    expect(arc.paragraphs.slice(0, 2)).toEqual(['Patience gives courage and calm.', 'Waiting teaches quiet resolve.']);
+  });
+
   it('returns null when nothing supports the opening echo', () => {
     expect(composeArc(ctx('Explain quasars'))).toBeNull();
   });

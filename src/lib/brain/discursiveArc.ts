@@ -75,10 +75,11 @@ interface Picker {
   ctx: ArcContext;
 }
 
-function wholeCandidates(p: Picker, prompt: string): string[] {
+function wholeCandidates(p: Picker, prompt: string, eligible: (text: string) => boolean = () => true): string[] {
   // Drop already-spoken lines before ranking: rankExpressions keeps only the
   // best-coverage band, which would otherwise be filled by what ¶1 said.
-  const unspoken = p.ctx.expressions.filter(e => !p.spoken.has(norm(e.text)));
+  // The act's own eligibility is applied before ranking for the same reason.
+  const unspoken = p.ctx.expressions.filter(e => !p.spoken.has(norm(e.text)) && eligible(e.text));
   return rankExpressions(unspoken, {
     recentPosts: [prompt],
     maxChars: p.ctx.maxChars,
@@ -159,7 +160,7 @@ export function composeArc(ctx: ArcContext): DiscursiveArc | null {
   const echoWords = new Set(contentWords(echo));
   // Traversal must bring at least one concept ¶1 did not already hold.
   const bringsNew = (s: string) => contentWords(s).some(w => reach.has(w) && !echoWords.has(w));
-  const whole2 = wholeCandidates(p, outwardPrompt);
+  const whole2 = wholeCandidates(p, outwardPrompt, bringsNew);
   const traverse = paragraph(p, [whole2[0], assembled(p, outwardPrompt), whole2[1]], bringsNew);
   if (!traverse) return { paragraphs, continuity, stop: 'unsupported' };
   if (!accept(traverse)) return { paragraphs, continuity, stop: 'shear' };
@@ -174,7 +175,7 @@ export function composeArc(ctx: ArcContext): DiscursiveArc | null {
     return topics.some(t => ws.includes(t)) && ws.some(w => !topicSet.has(w) && touchesReached(w));
   };
   const closePrompt = [...topics, ...reached].join(' ');
-  const whole3 = wholeCandidates(p, closePrompt).filter(holdsBoth);
+  const whole3 = wholeCandidates(p, closePrompt, holdsBoth);
   const assembled3 = assembled(p, ctx.prompt, reached);
   // One closing sentence: a whole learned line if one holds both, else an assembled one.
   const crystal = paragraph(p, [whole3[0] ?? (assembled3 && holdsBoth(assembled3) ? assembled3 : null)]);
