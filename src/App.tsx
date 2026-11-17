@@ -24,6 +24,7 @@ import { initActivityMetricsListeners } from "@/lib/activityMetrics";
 initActivityMetricsListeners();
 import { StreamingBackgroundService } from "@/components/streaming/StreamingBackgroundService";
 import { BrainChatLauncher } from "@/components/brain/BrainChatLauncher";
+import { NetworkChatHost } from "@/components/chat/NetworkChatHost";
 import { StreamNotificationBanner } from "@/components/streaming/StreamNotificationBanner";
 import { PreJoinModal } from "@/components/streaming/PreJoinModal";
 import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
@@ -225,6 +226,7 @@ function AppContent() {
 
       <StreamingBackgroundService />
       <BrainChatLauncher />
+      <NetworkChatHost />
       <FloatingLiveDock />
       <LiveRoomVoiceHost />
       <BrainSyncHost />

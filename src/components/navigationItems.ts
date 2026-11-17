@@ -1,4 +1,4 @@
-import { Compass, Brain, Settings, Wallet, User, Server, Bell } from "lucide-react";
+import { Compass, Brain, Settings, Wallet, User, Server, Bell, MessageSquare } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface NavigationItem {
@@ -7,7 +7,7 @@ export interface NavigationItem {
   path: string;
 }
 
-/** Expand-menu order: Explore → Brain → Node → Wallet → Settings */
+/** Expand-menu order: Explore → Brain → Node → Wallet → (Chat) → Settings */
 export const primaryNavigationItems: NavigationItem[] = [
   { icon: Compass, label: "Explore", path: "/explore" },
   { icon: Brain, label: "Brain", path: "/brain" },
@@ -30,3 +30,7 @@ export const alertsNavigationItem: NavigationItem = {
   label: "Alerts",
   path: "/notifications",
 };
+
+/** Main-menu "Chat" entry — opens the network chat panel rather than a route.
+ *  Rendered directly above Settings in the app menu. */
+export const chatMenuItem = { icon: MessageSquare, label: "Chat" } as const;

@@ -93,6 +93,7 @@ import {
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
+import { OPEN_NETWORK_CHAT_EVENT } from '@/lib/chat/networkChatStore';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { WallDecorateComposer } from '@/components/world/WallDecorateComposer';
 import { getCurrentUser } from '@/lib/auth';
@@ -1862,6 +1863,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     });
     return () => unsub();
   }, [ready, onChatLine, roomConsent]);
+
+  // ── Main-menu "Chat" opens this scene's own panel ─────────────────
+  useEffect(() => {
+    const onOpenChat = (e: Event) => {
+      e.preventDefault(); // Claim it so the global host stays closed.
+      setChatOpen(true);
+    };
+    window.addEventListener(OPEN_NETWORK_CHAT_EVENT, onOpenChat);
+    return () => window.removeEventListener(OPEN_NETWORK_CHAT_EVENT, onOpenChat);
+  }, []);
 
   // ── Pub events (drinks) drop a line into Brain chat ───────────────
   useEffect(() => {
