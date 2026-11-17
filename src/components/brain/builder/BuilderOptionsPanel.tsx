@@ -39,6 +39,7 @@ import {
   toggleBuilderTopView,
 } from '@/lib/brain/builderCameraStore';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
+import { BuilderDeviceOptions } from '@/components/brain/builder/BuilderDeviceOptions';
 import {
   AVATAR_REGISTRY,
   loadHubPrefs,
@@ -120,6 +121,9 @@ export function BuilderOptionsPanel({
           })}
         </div>
       </div>
+
+      {/* Camera + microphone — switch inputs mid-call */}
+      <BuilderDeviceOptions />
 
       <div className="flex flex-wrap items-center gap-1.5">
 

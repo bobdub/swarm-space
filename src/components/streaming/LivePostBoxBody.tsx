@@ -18,7 +18,7 @@ import {
   type RoomChatMessage,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { registerLiveRoomBinding, latchLeave, clearLeaveLatch } from '@/lib/streaming/spectatedLiveRoomStore';
-import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { getWebRTCManager, LOCAL_INPUT_SWITCHED_EVENT } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
 import { applyLiveAvPriority } from '@/lib/streaming/avPriority';
@@ -276,6 +276,20 @@ export function LivePostBoxBody({
       }
     }
   }, [tiles]);
+
+  // A camera switch (builder Options) swaps the track in place; re-attach.
+  useEffect(() => {
+    if (!localStream) return;
+    const rebind = () => {
+      const el = videoRefs.current.get('self');
+      if (!el) return;
+      el.srcObject = null;
+      el.srcObject = localStream;
+      void el.play().catch(() => {});
+    };
+    localStream.addEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+    return () => localStream.removeEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+  }, [localStream]);
 
   const handleResyncTile = useCallback((peerId: string) => {
     if (!user) return;
