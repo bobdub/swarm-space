@@ -51,9 +51,17 @@ import {
   getActiveChain,
   getChainBalance,
   getEnrichedTransactions,
+  resolveCoinChain,
+  setActiveChain as setGlobalActiveChain,
+  switchToMainChain,
   type ChainContext,
   type EnrichedTransaction,
 } from "@/lib/blockchain/multiChainManager";
+import {
+  forgetWalletNetwork,
+  loadWalletNetwork,
+  rememberWalletNetwork,
+} from "@/lib/blockchain/walletNetworkPreference";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
@@ -72,10 +80,9 @@ export default function Wallet() {
   const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
   const [loading, setLoading] = useState(true);
   const [walletTab, setWalletTab] = useState("assets");
-  const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(() => {
-    const chain = getActiveChain();
-    return chain.isMainChain ? "swarm" : `chain:${chain.chainId}`;
-  });
+  const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(
+    () => loadWalletNetwork(user?.id),
+  );
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
   const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
     try { return getSwarmMeshStandalone().getMiningStats(); } catch { return {} as SwarmMiningStats; }
@@ -161,6 +168,52 @@ export default function Wallet() {
     } finally {
       setBannerBusy(false);
     }
+  };
+
+  // Restore the network this user last picked (SWARM, MintMe or a sub-chain),
+  // so the wallet reopens where they left it after navigating or reloading.
+  useEffect(() => {
+    let cancelled = false;
+    const saved = loadWalletNetwork(user?.id);
+    setAssetNetwork(saved);
+    const applyMainChain = () => {
+      if (!getActiveChain().isMainChain) switchToMainChain();
+      // Sync local state directly: the chain-change listener may not be registered yet.
+      setActiveChain(getActiveChain());
+    };
+    if (saved.startsWith("chain:")) {
+      const coinId = saved.slice("chain:".length);
+      if (getActiveChain().chainId === coinId) {
+        setActiveChain(getActiveChain());
+      } else {
+        void resolveCoinChain(coinId)
+          .catch(() => null)
+          .then((ctx) => {
+            // A newer restore (e.g. the account changed) owns the chain now.
+            if (cancelled) return;
+            if (ctx) {
+              setGlobalActiveChain(ctx);
+              setActiveChain(ctx);
+              return;
+            }
+            // The sub-chain is gone or inactive: fall back to SWARM and forget it.
+            forgetWalletNetwork(user?.id);
+            applyMainChain();
+            setAssetNetwork("swarm");
+          });
+      }
+    } else {
+      applyMainChain();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const handleNetworkChanged = (network: string) => {
+    const next = network as AssetNetwork;
+    setAssetNetwork(next);
+    rememberWalletNetwork(user?.id, next);
   };
 
   useEffect(() => {
@@ -338,7 +391,10 @@ export default function Wallet() {
         <NativeWalletAddress userId={user?.id ?? ""} network={assetNetwork} />
 
         <div className="mb-4">
-          <ChainSwitcher network={assetNetwork} onNetworkChanged={(network) => setAssetNetwork(network as AssetNetwork)} />
+          <ChainSwitcher
+            network={assetNetwork}
+            onNetworkChanged={handleNetworkChanged}
+          />
         </div>
 
         {/* Tabs */}
