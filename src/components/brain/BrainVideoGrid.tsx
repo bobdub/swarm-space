@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Mic, MicOff, MonitorUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VideoParticipant } from "@/lib/webrtc/types";
+import { LOCAL_INPUT_SWITCHED_EVENT } from "@/lib/webrtc/manager";
 
 interface BrainVideoGridProps {
   participants: VideoParticipant[];
@@ -42,9 +43,15 @@ export function TileVideo({
     }
     // Tracks join the bound stream later; restart playback when they do.
     const kick = () => { void el.play().catch(() => {}); };
+    // A camera switch swaps the track in place; re-attach so it renders.
+    const rebind = () => { el.srcObject = null; el.srcObject = stream; kick(); };
     stream.addEventListener("addtrack", kick);
+    stream.addEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
     kick();
-    return () => stream.removeEventListener("addtrack", kick);
+    return () => {
+      stream.removeEventListener("addtrack", kick);
+      stream.removeEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+    };
   }, [stream]);
   return <video ref={ref} autoPlay playsInline muted={muted} className={className} />;
 }
