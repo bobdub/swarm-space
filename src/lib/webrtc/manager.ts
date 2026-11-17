@@ -52,6 +52,8 @@ export class WebRTCManager {
   private selfMuted = false;
   /** Desired camera state. Announced to the room so peers only draw a tile when it is on. */
   private cameraEnabled = false;
+  /** Bumped per camera switch so a stale in-flight switch can tell it lost. */
+  private cameraSwitchSeq = 0;
 
   // ── Reconnection state ──────────────────────────────────────────
   private reconnectAttempts = new Map<string, number>();
@@ -700,13 +702,19 @@ export class WebRTCManager {
    * camera is released only after the swap succeeds.
    */
   async switchCamera(deviceId: string): Promise<MediaStream> {
-    if (!this.localStream) {
+    const stream = this.localStream;
+    if (!stream) {
       throw new Error('No local stream to switch camera on');
     }
-    const oldTrack = this.localStream.getVideoTracks()[0] ?? null;
+    const oldTrack = stream.getVideoTracks()[0] ?? null;
     if (oldTrack && oldTrack.readyState === 'live' && oldTrack.getSettings().deviceId === deviceId) {
-      return this.localStream;
+      return stream;
     }
+    const seq = ++this.cameraSwitchSeq;
+    // A switch is abandoned when the stream was stopped (call ended), the
+    // camera was turned off, or a newer switch started while we awaited.
+    const stillWanted = () =>
+      this.localStream === stream && this.cameraEnabled && this.cameraSwitchSeq === seq;
 
     // Some devices (mostly phones) can only open one camera at a time, so
     // if acquiring alongside the old one fails, release it and try again.
@@ -714,13 +722,32 @@ export class WebRTCManager {
     try {
       newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
     } catch (error) {
-      if (!oldTrack) throw error;
+      if (!oldTrack || !stillWanted()) throw error;
       oldTrack.stop();
       newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
     }
     const newTrack = newStream.getVideoTracks()[0];
+    newStream.getTracks().filter(t => t !== newTrack).forEach(t => t.stop());
     if (!newTrack) throw new Error('Selected camera produced no video track');
-    newTrack.enabled = oldTrack ? oldTrack.enabled : this.cameraEnabled;
+    // Send no picture until the switch is committed, so a camera-off that
+    // lands mid-switch can never leak live video to peers.
+    newTrack.enabled = false;
+
+    const swapped: RTCRtpSender[] = [];
+    const abort = async (reason: string): Promise<never> => {
+      newTrack.stop();
+      // Put peers back on whatever the stream now holds (the old camera if
+      // it is still live and present, otherwise nothing).
+      const current = this.localStream === stream
+        ? stream.getVideoTracks().find(t => t.readyState === 'live') ?? null
+        : null;
+      for (const sender of swapped) {
+        await sender.replaceTrack(current).catch(() => {});
+      }
+      throw new Error(`Camera switch abandoned: ${reason}`);
+    };
+
+    if (!stillWanted()) return abort('call or camera state changed');
 
     for (const [peerId, pc] of this.connections) {
       const videoSender =
@@ -729,22 +756,33 @@ export class WebRTCManager {
       if (!videoSender) continue;
       try {
         await videoSender.replaceTrack(newTrack);
+        swapped.push(videoSender);
       } catch (error) {
-        // Fall back to the normal slot-and-renegotiate path for this peer.
-        console.warn(`[WebRTC] replaceTrack failed for ${peerId}, renegotiating`, error);
-        const renegotiate = await this.slotTrackIntoPeer(pc, newTrack).catch(() => false);
-        if (renegotiate && this.currentRoomId) {
+        // replaceTrack only rejects when the new track would need a fresh
+        // negotiation (or the connection is closing). Keep the old camera
+        // for everyone instead of leaving this peer with dead video.
+        if (pc.connectionState === 'closed') continue;
+        console.warn(`[WebRTC] replaceTrack failed for ${peerId}`, error);
+        if (oldTrack && oldTrack.readyState === 'live') {
+          return abort(`peer ${peerId} cannot take the new camera without renegotiation`);
+        }
+        // Old camera already released (single-camera device): slot the new
+        // track the normal way and renegotiate with this peer.
+        await this.slotTrackIntoPeer(pc, newTrack).catch(() => false);
+        if (this.currentRoomId) {
           this.negotiationRetryCount.delete(peerId);
           void this.createOfferForPeer(peerId).catch(() => {});
         }
       }
+      if (!stillWanted()) return abort('call or camera state changed');
     }
 
-    if (oldTrack) {
-      this.localStream.removeTrack(oldTrack);
-      oldTrack.stop();
+    for (const t of stream.getVideoTracks()) {
+      stream.removeTrack(t);
+      t.stop();
     }
-    this.localStream.addTrack(newTrack);
+    stream.addTrack(newTrack);
+    newTrack.enabled = this.cameraEnabled;
 
     try {
       const raw = localStorage.getItem('swarm-preferred-devices');
@@ -754,7 +792,7 @@ export class WebRTCManager {
 
     console.log('[WebRTC] Camera switched to', deviceId);
     this.announceMediaState();
-    return this.localStream;
+    return stream;
   }
 
   /** True if there is at least one live (not ended) audio track on the local stream. */

@@ -34,11 +34,15 @@ class FakeStream {
 }
 
 function fakePeer(track: FakeTrack) {
-  const sender = { track: track as unknown, replaceTrack: vi.fn(async (t: unknown) => { sender.track = t; }) };
+  const sender = {
+    track: track as unknown,
+    replaceTrack: vi.fn(async (t: unknown): Promise<void> => { sender.track = t; }),
+  };
   const audio = { sender: { track: null, replaceTrack: vi.fn() } };
   const pc = {
     getTransceivers: () => [audio, { sender }],
     getSenders: () => [audio.sender, sender],
+    connectionState: 'connected',
   };
   return { pc, sender };
 }
@@ -61,6 +65,8 @@ describe('WebRTCManager.switchCamera', () => {
     const local = new FakeStream([front]);
     // @ts-expect-error – private
     m.localStream = local;
+    // @ts-expect-error – private
+    m.cameraEnabled = true;
     const a = fakePeer(front);
     const b = fakePeer(front);
     // @ts-expect-error – private
@@ -84,11 +90,40 @@ describe('WebRTCManager.switchCamera', () => {
     expect(m.getActiveCameraId()).toBe('back');
   });
 
-  it('keeps a camera that was turned off turned off', async () => {
-    const { m, front, local } = setup();
-    front.enabled = false;
-    await m.switchCamera('back');
-    expect(local.getVideoTracks()[0].enabled).toBe(false);
+  it('abandons the switch and keeps peers dark when the camera is turned off mid-switch', async () => {
+    const { m, front, a, b } = setup();
+    a.sender.replaceTrack.mockImplementationOnce(async (t: unknown) => {
+      a.sender.track = t;
+      m.toggleVideo(false);
+    });
+    await expect(m.switchCamera('back')).rejects.toThrow(/abandoned/);
+    // No peer may end up on the new camera, and nothing sent while switching was live.
+    expect(a.sender.track).toBe(front);
+    expect(b.sender.replaceTrack).not.toHaveBeenCalled();
+    const acquired = (await getUserMedia.mock.results[0].value) as FakeStream;
+    expect(acquired.tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it('releases the new camera if the call ends while it is being opened', async () => {
+    const { m } = setup();
+    let resolve!: (s: FakeStream) => void;
+    getUserMedia.mockImplementationOnce(() => new Promise<FakeStream>((r) => { resolve = r; }));
+    const pending = m.switchCamera('back');
+    m.stopLocalStream();
+    const late = new FakeStream([new FakeTrack('back')]);
+    resolve(late);
+    await expect(pending).rejects.toThrow(/abandoned/);
+    expect(late.tracks[0].stop).toHaveBeenCalled();
+  });
+
+  it('keeps the old camera for everyone when a peer rejects the new track', async () => {
+    const { m, front, local, a, b } = setup();
+    b.sender.replaceTrack.mockRejectedValueOnce(new Error('InvalidModificationError'));
+    await expect(m.switchCamera('back')).rejects.toThrow(/abandoned/);
+    expect(a.sender.track).toBe(front);
+    expect(b.sender.track).toBe(front);
+    expect(front.stop).not.toHaveBeenCalled();
+    expect(local.getVideoTracks()).toEqual([front]);
   });
 
   it('does nothing when the chosen camera is already active', async () => {
