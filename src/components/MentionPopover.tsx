@@ -6,12 +6,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Brain } from 'lucide-react';
 import { Avatar } from '@/components/Avatar';
+import { Button } from '@/components/ui/button';
 import { resolveMentionCandidates, type MentionCandidate } from '@/lib/mentions';
 
 interface MentionPopoverProps {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
-  onSelect: (username: string, startPos: number, endPos: number) => void;
+  onSelect: (username: string, startPos: number, endPos: number, candidate: MentionCandidate, suffix?: string) => void;
 }
 
 export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverProps) {
@@ -38,12 +39,13 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
 
     const query = textBeforeCursor.slice(atIdx + 1);
     // No spaces in mention query
-    if (/\s/.test(query)) return null;
+    if (!/^\w*$/.test(query)) return null;
 
     return { query, start: atIdx, end: cursorPos };
   }, [textareaRef, value]);
 
   useEffect(() => {
+    let cancelled = false;
     const mq = extractMentionQuery();
     setMentionQuery(mq);
 
@@ -55,11 +57,12 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       const results = await resolveMentionCandidates(mq.query);
+      if (cancelled) return;
       setCandidates(results);
       setActiveIndex(0);
     }, 150);
 
-    return () => clearTimeout(debounceRef.current);
+    return () => { cancelled = true; clearTimeout(debounceRef.current); };
   }, [value, extractMentionQuery]);
 
   // Keyboard navigation
@@ -76,12 +79,14 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setActiveIndex(i => (i - 1 + candidates.length) % candidates.length);
-      } else if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && mentionQuery) {
+      } else if ((e.key === 'Enter' || e.key === 'Tab' || /^[\s,.!?;:]$/.test(e.key)) && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.isComposing && mentionQuery) {
         e.preventDefault();
         e.stopPropagation();
         const c = candidates[activeIndex];
         if (c) {
-          onSelect(c.username, mentionQuery.start, mentionQuery.end);
+          const liveQuery = extractMentionQuery();
+          if (!liveQuery || liveQuery.query !== mentionQuery.query) return;
+          onSelect(c.username, mentionQuery.start, mentionQuery.end, c, /^[,.!?;:]$/.test(e.key) ? e.key : ' ');
           setCandidates([]);
         }
       } else if (e.key === 'Escape') {
@@ -91,33 +96,38 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
 
     textarea.addEventListener('keydown', handleKeyDown);
     return () => textarea.removeEventListener('keydown', handleKeyDown);
-  }, [candidates, activeIndex, mentionQuery, onSelect, textareaRef]);
+  }, [candidates, activeIndex, mentionQuery, onSelect, textareaRef, extractMentionQuery]);
 
   if (candidates.length === 0 || !mentionQuery) return null;
 
   return (
     <div
       ref={popoverRef}
-      className="absolute bottom-full left-0 z-50 mb-1 w-72 max-h-64 overflow-y-auto rounded-lg border border-border/30 bg-popover shadow-xl backdrop-blur-xl"
+      role="listbox"
+      aria-label="Mention candidates"
+      className="absolute bottom-full left-0 z-50 mb-1 w-72 max-w-full max-h-64 overflow-y-auto rounded-lg border border-border/30 bg-popover shadow-xl"
     >
       {candidates.map((c, idx) => {
         // Check for duplicate display names
         const hasDuplicate = candidates.filter(
-          other => other.displayName === c.displayName && other.userId !== c.userId
+          other => other.username.toLowerCase() === c.username.toLowerCase() && other.userId !== c.userId
         ).length > 0;
 
         return (
-          <button
+          <Button
             key={`${c.userId}-${c.username}`}
             type="button"
-            className={`flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors ${
+            variant="ghost"
+            role="option"
+            aria-selected={idx === activeIndex}
+            className={`flex h-auto w-full justify-start items-center gap-2.5 rounded-none px-3 py-2 text-left text-sm transition-colors ${
               idx === activeIndex
                 ? 'bg-primary/15 text-foreground'
                 : 'text-foreground/70 hover:bg-background/40'
             }`}
             onMouseDown={(e) => {
               e.preventDefault(); // prevent textarea blur
-              onSelect(c.username, mentionQuery.start, mentionQuery.end);
+              onSelect(c.username, mentionQuery.start, mentionQuery.end, c);
               setCandidates([]);
             }}
             onMouseEnter={() => setActiveIndex(idx)}
@@ -146,16 +156,17 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
               </div>
               {c.isEntity ? (
                 <span className="text-[0.55rem] text-primary/60">Network Entity</span>
-              ) : hasDuplicate ? (
+              ) : (
                 <div className="flex items-center gap-1">
                   <span className="text-[0.55rem] text-foreground/30">
-                    {c.peerId?.slice(0, 8) || c.userId.slice(0, 8)}…
+                    {hasDuplicate ? `#${c.discriminator || c.userId.slice(-8)} · ` : ''}
+                    {Math.round((c.connectedDurationMs ?? 0) / 60_000)}m together
                   </span>
                   <TrustBar score={c.trustScore} />
                 </div>
               ) : null}
             </div>
-          </button>
+          </Button>
         );
       })}
     </div>
@@ -164,11 +175,10 @@ export function MentionPopover({ textareaRef, value, onSelect }: MentionPopoverP
 
 function TrustBar({ score }: { score: number }) {
   const pct = Math.min(100, Math.max(0, score));
-  const color = pct >= 70 ? 'bg-green-500/60' : pct >= 40 ? 'bg-yellow-500/60' : 'bg-foreground/20';
   return (
     <div className="flex items-center gap-1">
       <div className="h-1 w-8 rounded-full bg-foreground/10">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-[0.5rem] text-foreground/30">{pct}</span>
     </div>
