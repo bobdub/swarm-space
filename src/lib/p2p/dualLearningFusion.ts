@@ -25,6 +25,7 @@ import { LanguageLearner, LanguageSnapshot } from './languageLearner';
 import { rankExpressions } from '../brain/infinityPersonality';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
+import { assembleSentence, extractMotifs } from '../brain/semanticMotifs';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -72,6 +73,8 @@ export interface GenerationContext {
    * generator computes one internally from vocab/pattern/fusion signals.
    */
   massScore?: number;
+  /** Selected intent; 'create' / 'explore' may prefer a Phase 2 assembled sentence. */
+  intent?: GenerationIntent;
 }
 
 export interface GeneratedOutput {
@@ -379,7 +382,19 @@ export class DualLearningFusion {
       maxChars,
       semantic: this.languageLearner.semantic,
     });
-    if (!candidates.length) return '';
+    // Phase 2: a new sentence assembled from resonant clauses of learned
+    // lines. 'create' / 'explore' intents prefer it when its core names an
+    // actual prompt topic; otherwise it only fills what would be silence.
+    const assemble = () => assembleSentence(extractMotifs(this.languageLearner.getExpressions()), {
+      prompt: context.recentPosts[0] ?? '',
+      semantic: this.languageLearner.semantic,
+      maxChars,
+    });
+    if (context.intent === 'create' || context.intent === 'explore') {
+      const assembled = assemble();
+      if (assembled && assembled.relevance >= 1) return assembled.text;
+    }
+    if (!candidates.length) return assemble()?.text ?? '';
     // Keep candidates within the strongest lexical-relevance band before
     // comparing field curvature. Low Q does not prove linguistic coherence.
     const first = candidates[0];
@@ -414,7 +429,7 @@ export class DualLearningFusion {
       qScore: context.heartbeat?.qScore,
     });
 
-    const text = this.generateText(pattern, { ...context, explorationForced: isExploration, massScore });
+    const text = this.generateText(pattern, { ...context, explorationForced: isExploration, massScore, intent });
     if (!text) return null;
 
     const patternScore = this.patternLearner.scorePattern(pattern);
