@@ -4,7 +4,7 @@ import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChat
 import { BRAIN_ROOM_ID, useBrainVoice } from '@/hooks/useBrainVoice';
 import { useAuth } from '@/hooks/useAuth';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
-import { setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
+import { isBrainScenePath, setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
 
 /**
  * Global host for the network chat panel opened from the main menu.
@@ -19,8 +19,7 @@ export function NetworkChatHost(): JSX.Element | null {
   const { user } = useAuth();
   const { pathname } = useLocation();
   // Brain scenes host their own chat panel; never stack two.
-  const isBrainScene =
-    pathname === '/brain' || pathname === '/brain/join' || /^\/projects\/[^/]+\/hub$/.test(pathname);
+  const isBrainScene = isBrainScenePath(pathname);
   useEffect(() => {
     if (isBrainScene) setNetworkChatOpen(false);
   }, [isBrainScene]);

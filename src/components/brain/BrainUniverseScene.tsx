@@ -93,7 +93,7 @@ import {
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
-import { OPEN_NETWORK_CHAT_EVENT } from '@/lib/chat/networkChatStore';
+import { OPEN_NETWORK_CHAT_EVENT, isBrainScenePath } from '@/lib/chat/networkChatStore';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { WallDecorateComposer } from '@/components/world/WallDecorateComposer';
 import { getCurrentUser } from '@/lib/auth';
@@ -1867,6 +1867,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // ── Main-menu "Chat" opens this scene's own panel ─────────────────
   useEffect(() => {
     const onOpenChat = (e: Event) => {
+      // Only a full-page scene claims it; embedded/hidden feed previews
+      // leave it to the global host.
+      if (e.defaultPrevented || !isBrainScenePath(window.location.pathname)) return;
       e.preventDefault(); // Claim it so the global host stays closed.
       setChatOpen(true);
     };

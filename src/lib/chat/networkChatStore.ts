@@ -10,6 +10,12 @@ import { useSyncExternalStore } from 'react';
 
 export const OPEN_NETWORK_CHAT_EVENT = 'swarm:open-chat';
 
+/** Routes where a full-page Brain scene owns the chat panel. Scenes
+ *  embedded elsewhere (feed live-post previews) never claim the request. */
+export function isBrainScenePath(pathname: string): boolean {
+  return pathname === '/brain' || pathname === '/brain/join' || /^\/projects\/[^/]+\/hub$/.test(pathname);
+}
+
 let open = false;
 const listeners = new Set<() => void>();
 
