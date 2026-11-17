@@ -601,6 +601,9 @@ export function P2PStatusIndicator() {
                     </Button>
                   )}
                 </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Share this link to invite your friends
+                </p>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
