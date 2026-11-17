@@ -14,24 +14,27 @@ vi.mock("@/lib/history/loadUnifiedHistory", () => ({ loadUnifiedHistory: () => l
 afterEach(cleanup);
 
 describe("unified wallet history", () => {
-  it("lists Credits and SWARM together with each asset's settlement", async () => {
+  it("lists Credits and SWARM in one ledger: Asset | Action | Direction | Weight-type | Amount", async () => {
     render(<UnifiedHistory userId="member" />);
-    expect(await screen.findByText("+5 Credits")).toBeTruthy();
-    expect(screen.getByText("−2 SWARM")).toBeTruthy();
-    expect(screen.getByText("Off-chain")).toBeTruthy();
-    expect(screen.getByText("SWARM ledger")).toBeTruthy();
+    await screen.findByText("Credits");
+    const cells = (row: HTMLElement) => [...row.querySelectorAll("td")].map(td => td.firstChild?.textContent);
+    const [, swarm, credits] = screen.getAllByRole("row");
+    expect(screen.getAllByRole("columnheader").map(h => h.textContent))
+      .toEqual(["Asset", "Action", "Direction", "Weight-type", "Amount"]);
+    expect(cells(swarm)).toEqual(["SWARM", "Tip", "Outgoing", "Hollow", "2"]);
+    expect(cells(credits)).toEqual(["Credits", "Tip", "Incoming", "Minted", "5"]);
   });
 
   it("stays on one asset when locked", async () => {
     render(<UnifiedHistory userId="member" asset={CREDITS_ASSET} lockAsset />);
-    expect(await screen.findByText("+5 Credits")).toBeTruthy();
-    await waitFor(() => expect(screen.queryByText("−2 SWARM")).toBeNull());
+    expect(await screen.findByText("Credits")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("SWARM")).toBeNull());
     expect(screen.queryByLabelText("Filter by asset")).toBeNull();
   });
 
   it("reloads when either ledger announces a new transaction", async () => {
     render(<UnifiedHistory userId="member" />);
-    await screen.findByText("+5 Credits");
+    await screen.findByText("Credits");
     const before = load.mock.calls.length;
     window.dispatchEvent(new Event("credit-transaction"));
     window.dispatchEvent(new Event("wallet-tip-updated"));

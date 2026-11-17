@@ -29,6 +29,17 @@ export type HistoryKind =
 
 export type HistoryDirection = "in" | "out";
 
+/**
+ * Weight-type: SWARM is the only asset with engraving weight (its coin's seal
+ * tier, or Hollow when no engraved coin is attached). Every other asset is
+ * typed by origin: Credits are Minted, imported tokens are Ported, and tokens
+ * created on SWARM are CREATOR.
+ */
+export type WeightType = "Hollow" | "Basic" | "Rare" | "Legendary" | "Minted" | "Ported" | "CREATOR";
+
+/** Where an asset comes from; decides its weight-type. */
+export type AssetOrigin = "swarm" | "credits" | "ported" | "creator";
+
 export interface HistoryLeg {
   /** Filter key, e.g. CREDITS, SWARM, MINTME, or a sub-chain ticker. */
   asset: string;
@@ -37,6 +48,8 @@ export interface HistoryLeg {
   amount: number;
   direction: HistoryDirection;
   settlement: HistorySettlement;
+  origin: AssetOrigin;
+  weight: WeightType;
 }
 
 export interface UnifiedHistoryEntry {
@@ -52,6 +65,8 @@ export interface UnifiedHistoryEntry {
   fee?: number;
   /** Original record type, kept for detail and debugging. */
   rawType: string;
+  /** Engraved SWARM coin this record moved, when it names one. */
+  coinId?: string;
 }
 
 export interface HistoryChainInfo {
@@ -65,7 +80,7 @@ const WRAP_MATCH_WINDOW_MS = 5 * 60_000;
 const short = (id: string) => (id.length > 12 ? `${id.slice(0, 8)}…` : id);
 
 function creditLeg(amount: number, direction: HistoryDirection): HistoryLeg {
-  return { asset: CREDITS_ASSET, ticker: "Credits", amount, direction, settlement: "off-chain" };
+  return { asset: CREDITS_ASSET, ticker: "Credits", amount, direction, settlement: "off-chain", origin: "credits", weight: "Minted" };
 }
 
 function creditKind(tx: CreditTransaction): HistoryKind {
@@ -223,19 +238,50 @@ const metaString = (tx: SwarmTransaction, key: string) =>
 /** Creator-market records carry the SWARM paid in `amount` and the token quantity in `meta.tokens`. */
 const isCreatorTrade = (tx: SwarmTransaction) => tx.type === "creator_token_buy" || tx.type === "creator_token_sell";
 
-function chainAsset(tx: SwarmTransaction, chains: Map<string, HistoryChainInfo>): { asset: string; ticker: string } {
+function tipOrigin(assetId: string | undefined, chainId: string): AssetOrigin {
+  if (assetId?.startsWith("creator:")) return "creator";
+  if (assetId?.startsWith("external:") || assetId?.startsWith("custom:")) return "ported";
+  if (assetId?.startsWith("chain:")) return assetId === "chain:SWARM" ? "swarm" : "creator";
+  return chainId === "SWARM" ? "swarm" : "creator";
+}
+
+function chainAsset(
+  tx: SwarmTransaction,
+  chains: Map<string, HistoryChainInfo>,
+): { asset: string; ticker: string; origin: AssetOrigin } {
+  const chainId = tx.chainId || "SWARM";
   // Only a wallet tip's ticker names the asset in `amount`; elsewhere it may describe another leg.
   const metaTicker = tx.type === "wallet_tip" ? metaString(tx, "ticker") : undefined;
   const currency = isCreatorTrade(tx) ? undefined : metaString(tx, "currency");
-  if (metaTicker) return { asset: metaTicker.toUpperCase(), ticker: metaTicker };
-  if (currency) {
-    if (currency.startsWith("CREATOR:")) return { asset: currency.toUpperCase(), ticker: "Creator token" };
-    const symbol = metaString(tx, "symbol") ?? currency;
-    return { asset: currency.toUpperCase(), ticker: symbol };
+  if (metaTicker) {
+    return { asset: metaTicker.toUpperCase(), ticker: metaTicker, origin: tipOrigin(metaString(tx, "assetId"), chainId) };
   }
-  const chainId = tx.chainId || "SWARM";
+  if (currency) {
+    if (currency.startsWith("CREATOR:")) return { asset: currency.toUpperCase(), ticker: "Creator token", origin: "creator" };
+    if (currency.toUpperCase() === "SWARM") return { asset: "SWARM", ticker: "SWARM", origin: "swarm" };
+    const symbol = metaString(tx, "symbol") ?? currency;
+    return { asset: currency.toUpperCase(), ticker: symbol, origin: "ported" };
+  }
   const ticker = chains.get(chainId)?.ticker ?? chainId;
-  return { asset: ticker.toUpperCase(), ticker };
+  // Sub-chain coins are created on SWARM by members, so they carry the CREATOR type.
+  return { asset: ticker.toUpperCase(), ticker, origin: chainId === "SWARM" ? "swarm" : "creator" };
+}
+
+const ORIGIN_WEIGHT: Record<Exclude<AssetOrigin, "swarm">, WeightType> = {
+  credits: "Minted",
+  ported: "Ported",
+  creator: "CREATOR",
+};
+
+const TIER_WEIGHT: Record<string, WeightType> = { basic: "Basic", rare: "Rare", legendary: "Legendary" };
+
+/** SWARM weight comes from the engraved coin a record names; fungible SWARM is Hollow. */
+function swarmWeight(tier: string | null | undefined): WeightType {
+  return (tier && TIER_WEIGHT[tier.toLowerCase()]) || "Hollow";
+}
+
+function legWeight(origin: AssetOrigin, tier?: string | null): WeightType {
+  return origin === "swarm" ? swarmWeight(tier) : ORIGIN_WEIGHT[origin];
 }
 
 /**
@@ -262,7 +308,8 @@ export function fromChainTransaction(
   if (tx.from !== userId && tx.to !== userId) return null;
   const direction: HistoryDirection =
     tx.to === userId || tx.from === "system" || tx.from.startsWith("bridge:") ? "in" : "out";
-  const { asset, ticker } = chainAsset(tx, chains);
+  const { asset, ticker, origin } = chainAsset(tx, chains);
+  const coinId = metaString(tx, "coinId");
   const otherParty = direction === "in" ? tx.from : tx.to;
   const message = typeof tx.meta?.message === "string" && tx.meta.message ? `“${tx.meta.message}”` : undefined;
   return {
@@ -271,12 +318,16 @@ export function fromChainTransaction(
     kind: chainKind(tx),
     label: chainLabel(tx, direction),
     timestamp: tx.timestamp,
-    legs: chainLegs(tx, { asset, ticker, amount: tx.amount ?? 0, direction, settlement: chainSettlement(tx) }),
+    legs: chainLegs(tx, {
+      asset, ticker, amount: tx.amount ?? 0, direction, settlement: chainSettlement(tx),
+      origin, weight: legWeight(origin, metaString(tx, "tier")),
+    }),
     counterparty: otherParty && otherParty !== userId && !SYSTEM_PARTIES.has(otherParty) && !otherParty.startsWith("bridge:")
       ? otherParty : undefined,
     note: message,
     fee: tx.fee > 0 ? tx.fee : undefined,
     rawType: tx.type,
+    coinId,
   };
 }
 
@@ -291,6 +342,8 @@ function chainLegs(tx: SwarmTransaction, primary: HistoryLeg): HistoryLeg[] {
     amount: tokens,
     direction: primary.direction === "in" ? "out" : "in",
     settlement: "swarm-ledger",
+    origin: "creator",
+    weight: "CREATOR",
   }];
 }
 
@@ -322,9 +375,13 @@ export interface BuildUnifiedHistoryInput {
   credits: CreditTransaction[];
   chain: SwarmTransaction[];
   chains?: HistoryChainInfo[];
+  /** Engraving tier per SWARM coin id (null when the coin is not engraved). */
+  coinTiers?: Map<string, string | null>;
 }
 
-export function buildUnifiedHistory({ userId, credits, chain, chains = [] }: BuildUnifiedHistoryInput): UnifiedHistoryEntry[] {
+export function buildUnifiedHistory({
+  userId, credits, chain, chains = [], coinTiers = new Map(),
+}: BuildUnifiedHistoryInput): UnifiedHistoryEntry[] {
   const chainMap = new Map(chains.map(c => [c.chainId, c]));
   const seenChain = new Set<string>();
   const chainTxs = chain.filter(tx => (seenChain.has(tx.id) ? false : (seenChain.add(tx.id), true)));
@@ -359,7 +416,11 @@ export function buildUnifiedHistory({ userId, credits, chain, chains = [] }: Bui
   for (const tx of chainTxs) {
     if (pairedReleases.has(tx.id)) continue;
     const entry = fromChainTransaction(tx, userId, chainMap);
-    if (entry) entries.push(entry);
+    if (!entry) continue;
+    if (entry.coinId && coinTiers.has(entry.coinId)) {
+      for (const leg of entry.legs) if (leg.origin === "swarm") leg.weight = swarmWeight(coinTiers.get(entry.coinId));
+    }
+    entries.push(entry);
   }
 
   return entries.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
@@ -382,6 +443,51 @@ export function historyAssets(entries: UnifiedHistoryEntry[]): { asset: string; 
   return [...map.entries()]
     .map(([asset, ticker]) => ({ asset, ticker }))
     .sort((a, b) => rank(a.asset) - rank(b.asset) || a.ticker.localeCompare(b.ticker));
+}
+
+/** One ledger line: Asset | Action | Direction | Weight-type | Amount. */
+export interface LedgerRow {
+  key: string;
+  entryId: string;
+  asset: string;
+  ticker: string;
+  action: string;
+  direction: "Incoming" | "Outgoing";
+  weight: WeightType;
+  amount: number;
+  timestamp: string;
+  detail: string;
+  settlement: HistorySettlement;
+}
+
+export const HISTORY_ACTION_LABELS: Record<HistoryKind, string> = {
+  tip: "Tip",
+  transfer: "Transfer",
+  deposit: "Deposit",
+  withdrawal: "Withdrawal",
+  reward: "Reward",
+  conversion: "Conversion",
+  exchange: "Trade",
+  spend: "Spend",
+  other: "Other",
+};
+
+/** Flatten history into one ledger: every leg of every entry is one row, Credits and SWARM alike. */
+export function ledgerRows(entries: UnifiedHistoryEntry[], asset?: string): LedgerRow[] {
+  const rows: LedgerRow[] = [];
+  for (const e of entries) {
+    e.legs.forEach((leg, i) => {
+      if (asset && leg.asset !== asset) return;
+      const detail = [e.label, e.counterparty ? `${leg.direction === "in" ? "from" : "to"} ${short(e.counterparty)}` : "", e.note ?? ""]
+        .filter(Boolean).join(" · ");
+      rows.push({
+        key: `${e.id}#${i}`, entryId: e.id, asset: leg.asset, ticker: leg.ticker,
+        action: HISTORY_ACTION_LABELS[e.kind], direction: leg.direction === "in" ? "Incoming" : "Outgoing",
+        weight: leg.weight, amount: leg.amount, timestamp: e.timestamp, detail, settlement: leg.settlement,
+      });
+    });
+  }
+  return rows;
 }
 
 export const HISTORY_KIND_LABELS: Record<HistoryKind, string> = {

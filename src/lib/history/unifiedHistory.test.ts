@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
-import { buildUnifiedHistory, CREDITS_ASSET, filterHistory, historyAssets } from "./unifiedHistory";
+import { buildUnifiedHistory, CREDITS_ASSET, filterHistory, historyAssets, ledgerRows } from "./unifiedHistory";
 
 const me = "member";
 const credit = (over: Partial<CreditTransaction>): CreditTransaction => ({
@@ -160,5 +160,46 @@ describe("unified transaction history", () => {
       "chain:native": ["mintme", "MINTME"],
       "chain:token": ["mintme", "TOK"],
     });
+  });
+
+  it("types weight: SWARM by engraving tier, Credits Minted, imports Ported, creator tokens CREATOR", () => {
+    const history = buildUnifiedHistory({
+      userId: me,
+      credits: [credit({})],
+      chain: [
+        chainTx({ id: "rare", type: "coin_transfer", amount: 5, timestamp: "2026-11-17T13:00:00Z", meta: { coinId: "coin-r" } }),
+        chainTx({ id: "hollow", meta: { ticker: "SWARM", assetId: "chain:SWARM", intent: "tip" }, timestamp: "2026-11-17T12:00:00Z" }),
+        chainTx({ id: "mm", meta: { ticker: "MINTME", assetId: "external:MINTME" }, timestamp: "2026-11-17T11:30:00Z" }),
+        chainTx({ id: "sub", type: "token_transfer", chainId: "coin-abc", timestamp: "2026-11-17T11:00:00Z" }),
+        chainTx({ id: "buy", type: "creator_token_buy", from: me, to: "creator", amount: 2,
+          timestamp: "2026-11-17T10:30:00Z", meta: { tokenId: "art", ticker: "ART", tokens: 100 } }),
+      ],
+      chains: [{ chainId: "coin-abc", ticker: "ABC" }],
+      coinTiers: new Map([["coin-r", "rare"]]),
+    });
+    expect(ledgerRows(history).map(r => [r.ticker, r.action, r.direction, r.weight, r.amount])).toEqual([
+      ["SWARM", "Transfer", "Outgoing", "Rare", 5],
+      ["SWARM", "Tip", "Outgoing", "Hollow", 2],
+      ["MINTME", "Tip", "Outgoing", "Ported", 2],
+      ["ABC", "Transfer", "Outgoing", "CREATOR", 2],
+      ["SWARM", "Trade", "Outgoing", "Hollow", 2],
+      ["ART", "Trade", "Incoming", "CREATOR", 100],
+      ["Credits", "Reward", "Incoming", "Minted", 10],
+    ]);
+  });
+
+  it("puts both legs of a wrap in the ledger and filters rows by asset", () => {
+    const history = buildUnifiedHistory({
+      userId: me,
+      credits: [credit({ id: "wrap", type: "transfer", fromUserId: me, toUserId: "community-pool", amount: 100,
+        meta: { description: "Locked", wrapRequestId: "w1" } })],
+      chain: [chainTx({ id: "release", type: "credit_lock", from: "community-pool", to: me, amount: 1,
+        timestamp: "2026-11-17T10:00:00Z", meta: { creditsLocked: 100 } })],
+    });
+    expect(ledgerRows(history).map(r => [r.ticker, r.action, r.direction, r.weight, r.amount])).toEqual([
+      ["Credits", "Conversion", "Outgoing", "Minted", 100],
+      ["SWARM", "Conversion", "Incoming", "Hollow", 1],
+    ]);
+    expect(ledgerRows(history, "SWARM")).toHaveLength(1);
   });
 });

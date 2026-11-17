@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowDownLeft, ArrowUpRight, Repeat } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { loadUnifiedHistory } from "@/lib/history/loadUnifiedHistory";
 import {
   filterHistory,
   historyAssets,
   HISTORY_KIND_LABELS,
+  ledgerRows,
   SETTLEMENT_LABELS,
-  shortParty,
   type HistoryKind,
-  type HistoryLeg,
   type UnifiedHistoryEntry,
 } from "@/lib/history/unifiedHistory";
 
@@ -32,24 +31,12 @@ interface UnifiedHistoryProps {
   limit?: number;
 }
 
-function formatAmount(leg: HistoryLeg): string {
-  const value = leg.amount.toLocaleString(undefined, { maximumFractionDigits: 8 });
-  return `${leg.direction === "in" ? "+" : "−"}${value} ${leg.ticker}`;
-}
-
-function EntryIcon({ entry }: { entry: UnifiedHistoryEntry }) {
-  if (entry.legs.length > 1) return <Repeat className="h-4 w-4 text-primary mt-0.5 shrink-0" />;
-  return entry.legs[0].direction === "in"
-    ? <ArrowDownLeft className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
-    : <ArrowUpRight className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />;
-}
-
 export function UnifiedHistory({
   userId,
   asset: initialAsset,
   lockAsset = false,
   title = "Transaction History",
-  description = "Credits and SWARM activity in one place. Each asset keeps its own balance and rules.",
+  description = "One ledger for Credits, SWARM and every other asset. Each asset keeps its own balance and rules.",
   limit = 200,
 }: UnifiedHistoryProps) {
   const [entries, setEntries] = useState<UnifiedHistoryEntry[]>([]);
@@ -80,11 +67,11 @@ export function UnifiedHistory({
     () => (Object.keys(HISTORY_KIND_LABELS) as HistoryKind[]).filter(k => entries.some(e => e.kind === k)),
     [entries],
   );
-  const visible = useMemo(
-    () => filterHistory(entries, {
-      asset: asset === ALL ? undefined : asset,
-      kind: kind === ALL ? undefined : kind,
-    }).slice(0, limit),
+  const rows = useMemo(
+    () => ledgerRows(
+      filterHistory(entries, { kind: kind === ALL ? undefined : kind }),
+      asset === ALL ? undefined : asset,
+    ).slice(0, limit),
     [entries, asset, kind, limit],
   );
 
@@ -127,54 +114,45 @@ export function UnifiedHistory({
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
             </div>
-          ) : visible.length === 0 ? (
+          ) : rows.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">No transactions yet</div>
           ) : (
-            <ul className="space-y-2">
-              {visible.map(entry => (
-                <li
-                  key={entry.id}
-                  className="flex items-start justify-between gap-3 p-3 border rounded-lg hover:bg-accent/30 transition-colors"
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <EntryIcon entry={entry} />
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm leading-tight break-words">{entry.label}</p>
-                      <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                          {HISTORY_KIND_LABELS[entry.kind]}
-                        </Badge>
-                        {[...new Set(entry.legs.map(l => l.settlement))].map(s => (
-                          <Badge key={s} variant="outline" className="text-[10px] px-1.5 py-0">
-                            {SETTLEMENT_LABELS[s]}
-                          </Badge>
-                        ))}
-                        {entry.counterparty && (
-                          <span className="text-[10px] text-muted-foreground" title={entry.counterparty}>
-                            {entry.legs[0].direction === "in" ? "from" : "to"} {shortParty(entry.counterparty)}
-                          </span>
-                        )}
+            <Table className="text-xs sm:text-sm">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Asset</TableHead>
+                  <TableHead>Action</TableHead>
+                  <TableHead>Direction</TableHead>
+                  <TableHead>Weight-type</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map(row => (
+                  <TableRow key={row.key} title={`${row.detail} · ${SETTLEMENT_LABELS[row.settlement]}`}>
+                    <TableCell className="font-medium">{row.ticker}</TableCell>
+                    <TableCell>
+                      <div>{row.action}</div>
+                      <div className="text-[10px] text-muted-foreground" title={new Date(row.timestamp).toLocaleString()}>
+                        {formatDistanceToNow(new Date(row.timestamp), { addSuffix: true })}
                       </div>
-                      {entry.note && <p className="text-xs text-muted-foreground mt-1 break-words">{entry.note}</p>}
-                      <p className="text-[10px] text-muted-foreground mt-0.5" title={new Date(entry.timestamp).toLocaleString()}>
-                        {formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    {entry.legs.map((leg, i) => (
-                      <p
-                        key={i}
-                        className={`font-semibold text-sm tabular-nums ${leg.direction === "in" ? "text-emerald-500" : "text-orange-500"}`}
-                      >
-                        {formatAmount(leg)}
-                      </p>
-                    ))}
-                    {entry.fee && <p className="text-[10px] text-muted-foreground">Fee: {entry.fee}</p>}
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    </TableCell>
+                    <TableCell className={row.direction === "Incoming" ? "text-emerald-500" : "text-orange-500"}>
+                      {row.direction}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={row.weight === "Rare" || row.weight === "Legendary" ? "default" : "outline"}
+                        className="text-[10px] px-1.5 py-0">
+                        {row.weight}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-semibold">
+                      {row.amount.toLocaleString(undefined, { maximumFractionDigits: 8 })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </ScrollArea>
       </CardContent>
