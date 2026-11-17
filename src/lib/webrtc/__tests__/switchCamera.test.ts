@@ -29,6 +29,7 @@ class FakeStream {
   getVideoTracks() { return this.tracks.filter((t) => t.kind === 'video'); }
   getAudioTracks() { return this.tracks.filter((t) => t.kind === 'audio'); }
   getTracks() { return [...this.tracks]; }
+  dispatchEvent() { return true; }
   addTrack(t: FakeTrack) { this.tracks.push(t); }
   removeTrack(t: FakeTrack) { this.tracks = this.tracks.filter((x) => x !== t); }
 }
@@ -139,5 +140,44 @@ describe('WebRTCManager.switchCamera', () => {
     expect(front.stop).toHaveBeenCalled();
     expect(getUserMedia).toHaveBeenCalledTimes(2);
     expect(m.getActiveCameraId()).toBe('back');
+  });
+
+  it('remembers the pick without opening a camera when the camera is off', async () => {
+    const m = new WebRTCManager('local-peer', 'Local');
+    localStorage.clear();
+    await m.switchCamera('usb-cam');
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem('swarm-preferred-devices') ?? '{}').videoInputId).toBe('usb-cam');
+  });
+});
+
+describe('WebRTCManager.switchMicrophone', () => {
+  it('swaps the mic on the audio sender and keeps the user muted', async () => {
+    const getUserMedia = vi.fn(async (c: { audio: { deviceId: { exact: string } } }) => {
+      const t = new FakeTrack(c.audio.deviceId.exact);
+      t.kind = 'audio';
+      return new FakeStream([t]);
+    });
+    Object.defineProperty(globalThis.navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
+
+    const m = new WebRTCManager('local-peer', 'Local');
+    const oldMic = new FakeTrack('built-in');
+    oldMic.kind = 'audio';
+    const local = new FakeStream([oldMic]);
+    // @ts-expect-error – private
+    m.localStream = local;
+    m.toggleAudio(false);
+    const audioSender = { track: oldMic as unknown, replaceTrack: vi.fn(async (t: unknown) => { audioSender.track = t; }) };
+    const pc = { getTransceivers: () => [{ sender: audioSender }], getSenders: () => [audioSender], connectionState: 'connected' };
+    // @ts-expect-error – private
+    m.connections.set('peer-a', pc);
+
+    await m.switchMicrophone('headset');
+
+    expect((audioSender.track as FakeTrack).deviceId).toBe('headset');
+    expect(oldMic.stop).toHaveBeenCalled();
+    expect(local.getAudioTracks()[0].deviceId).toBe('headset');
+    expect(local.getAudioTracks()[0].enabled).toBe(false);
+    expect(m.getActiveMicrophoneId()).toBe('headset');
   });
 });

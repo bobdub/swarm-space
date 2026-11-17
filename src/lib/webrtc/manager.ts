@@ -21,6 +21,31 @@ const MEDIA_HEALTH_INTERVAL_MS = 8_000;
 /** Minimum gap between repairs of the same peer. */
 const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
 
+/** Dispatched on the local MediaStream after a camera or mic switch. */
+export const LOCAL_INPUT_SWITCHED_EVENT = 'swarm-input-switched';
+
+/** Shared with the pre-join modal, which writes the same key. */
+const PREFERRED_DEVICES_KEY = 'swarm-preferred-devices';
+
+function loadPreferredInput(kind: 'audio' | 'video'): string | undefined {
+  try {
+    const raw = localStorage.getItem(PREFERRED_DEVICES_KEY);
+    const prefs = raw ? (JSON.parse(raw) as { audioInputId?: string; videoInputId?: string }) : {};
+    return (kind === 'audio' ? prefs.audioInputId : prefs.videoInputId) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function savePreferredInput(kind: 'audio' | 'video', deviceId: string): void {
+  try {
+    const raw = localStorage.getItem(PREFERRED_DEVICES_KEY);
+    const prefs = raw ? JSON.parse(raw) : {};
+    prefs[kind === 'audio' ? 'audioInputId' : 'videoInputId'] = deviceId;
+    localStorage.setItem(PREFERRED_DEVICES_KEY, JSON.stringify(prefs));
+  } catch { /* storage unavailable */ }
+}
+
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
   private connections = new Map<string, RTCPeerConnection>();
@@ -52,8 +77,8 @@ export class WebRTCManager {
   private selfMuted = false;
   /** Desired camera state. Announced to the room so peers only draw a tile when it is on. */
   private cameraEnabled = false;
-  /** Bumped per camera switch so a stale in-flight switch can tell it lost. */
-  private cameraSwitchSeq = 0;
+  /** Bumped per input switch so a stale in-flight switch can tell it lost. */
+  private inputSwitchSeq = { audio: 0, video: 0 };
 
   // ── Reconnection state ──────────────────────────────────────────
   private reconnectAttempts = new Map<string, number>();
@@ -568,11 +593,8 @@ export class WebRTCManager {
         const needVideo = video && !hasVideo;
 
         if (needAudio || needVideo) {
-          const audioConstraint =
-            needAudio && deviceIds?.audioInputId
-              ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
-              : needAudio;
-          const videoConstraint = needVideo ? this.videoConstraintFor(deviceIds?.videoInputId) : false;
+          const audioConstraint = needAudio ? this.inputConstraintFor('audio', deviceIds?.audioInputId) : false;
+          const videoConstraint = needVideo ? this.inputConstraintFor('video', deviceIds?.videoInputId) : false;
           const constraints: MediaStreamConstraints = {
             audio: audioConstraint,
             video: videoConstraint,
@@ -611,11 +633,8 @@ export class WebRTCManager {
       // First-time: create fresh stream. Honour optional deviceIds so the
       // call site doesn't need a second getUserMedia (which re-prompts in
       // some browsers and always re-acquires the mic).
-      const audioConstraint =
-        audio && deviceIds?.audioInputId
-          ? ({ deviceId: { exact: deviceIds.audioInputId } } as MediaTrackConstraints)
-          : audio;
-      const videoConstraint = video ? this.videoConstraintFor(deviceIds?.videoInputId) : false;
+      const audioConstraint = audio ? this.inputConstraintFor('audio', deviceIds?.audioInputId) : false;
+      const videoConstraint = video ? this.inputConstraintFor('video', deviceIds?.videoInputId) : false;
       this.localStream = await navigator.mediaDevices.getUserMedia({
         audio: audioConstraint,
         video: videoConstraint,
@@ -651,18 +670,14 @@ export class WebRTCManager {
   }
 
   /**
-   * Video constraint for a camera request: an explicit device is required
-   * exactly; otherwise the camera the user last picked is preferred (not
-   * required, so a missing device falls back to the default camera).
+   * Constraint for a camera or microphone request: an explicit device is
+   * required exactly; otherwise the device the user last picked is preferred
+   * (not required, so a missing device falls back to the default one).
    */
-  private videoConstraintFor(videoInputId?: string): boolean | MediaTrackConstraints {
-    if (videoInputId) return { deviceId: { exact: videoInputId } };
-    try {
-      const raw = localStorage.getItem('swarm-preferred-devices');
-      const preferred = raw ? (JSON.parse(raw) as { videoInputId?: string }).videoInputId : undefined;
-      if (preferred) return { deviceId: { ideal: preferred } };
-    } catch { /* storage unavailable */ }
-    return true;
+  private inputConstraintFor(kind: 'audio' | 'video', explicitId?: string): boolean | MediaTrackConstraints {
+    if (explicitId) return { deviceId: { exact: explicitId } };
+    const preferred = loadPreferredInput(kind);
+    return preferred ? { deviceId: { ideal: preferred } } : true;
   }
 
   stopLocalStream(): void {
@@ -690,83 +705,121 @@ export class WebRTCManager {
 
   /** Device id of the camera currently feeding the local video track, if any. */
   getActiveCameraId(): string | null {
-    const track = this.localStream?.getVideoTracks().find(t => t.readyState === 'live');
-    return track?.getSettings().deviceId ?? null;
+    return this.activeInputId('video');
+  }
+
+  /** Device id of the microphone currently feeding the local audio track, if any. */
+  getActiveMicrophoneId(): string | null {
+    return this.activeInputId('audio');
+  }
+
+  private activeInputId(kind: 'audio' | 'video'): string | null {
+    const tracks = kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks();
+    return tracks?.find(t => t.readyState === 'live')?.getSettings().deviceId ?? null;
   }
 
   /**
    * Switch the local camera to another video input without leaving the call.
-   * The new track is swapped onto every peer connection's video sender with
-   * `replaceTrack`, which needs no renegotiation, so peers keep the same
-   * connection and simply start receiving the new picture. The previous
-   * camera is released only after the swap succeeds.
+   * When the camera is off, the choice is only remembered and used the next
+   * time it turns on.
    */
-  async switchCamera(deviceId: string): Promise<MediaStream> {
+  switchCamera(deviceId: string): Promise<MediaStream | null> {
+    return this.switchInput('video', deviceId);
+  }
+
+  /**
+   * Switch the local microphone to another audio input without leaving the
+   * call. The remembered mute is kept. With no live mic the choice is only
+   * remembered for the next acquisition.
+   */
+  switchMicrophone(deviceId: string): Promise<MediaStream | null> {
+    return this.switchInput('audio', deviceId);
+  }
+
+  /**
+   * Swap a new input onto every peer connection's sender for that kind with
+   * `replaceTrack`, which needs no renegotiation, so peers keep the same
+   * connection and simply start receiving the new source. The previous
+   * device is released only after the swap succeeds.
+   */
+  private async switchInput(kind: 'audio' | 'video', deviceId: string): Promise<MediaStream | null> {
     const stream = this.localStream;
-    if (!stream) {
-      throw new Error('No local stream to switch camera on');
-    }
-    const oldTrack = stream.getVideoTracks()[0] ?? null;
-    if (oldTrack && oldTrack.readyState === 'live' && oldTrack.getSettings().deviceId === deviceId) {
+    const tracksOf = (s: MediaStream) => (kind === 'audio' ? s.getAudioTracks() : s.getVideoTracks());
+    const oldTrack = stream ? tracksOf(stream).find(t => t.readyState === 'live') ?? null : null;
+    if (!stream || !oldTrack) {
+      // Nothing live to swap: remember the choice for the next acquisition.
+      savePreferredInput(kind, deviceId);
       return stream;
     }
-    const seq = ++this.cameraSwitchSeq;
+    if (oldTrack.getSettings().deviceId === deviceId) {
+      savePreferredInput(kind, deviceId);
+      return stream;
+    }
+    const seq = ++this.inputSwitchSeq[kind];
+    const wantedEnabled = () => (kind === 'audio' ? !this.selfMuted : this.cameraEnabled);
     // A switch is abandoned when the stream was stopped (call ended), the
     // camera was turned off, or a newer switch started while we awaited.
     const stillWanted = () =>
-      this.localStream === stream && this.cameraEnabled && this.cameraSwitchSeq === seq;
+      this.localStream === stream &&
+      this.inputSwitchSeq[kind] === seq &&
+      (kind === 'audio' || this.cameraEnabled);
+
+    const constraints: MediaStreamConstraints =
+      kind === 'audio' ? { audio: { deviceId: { exact: deviceId } } } : { video: { deviceId: { exact: deviceId } } };
 
     // Some devices (mostly phones) can only open one camera at a time, so
     // if acquiring alongside the old one fails, release it and try again.
     let newStream: MediaStream;
     try {
-      newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+      newStream = await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
-      if (!oldTrack || !stillWanted()) throw error;
+      if (!stillWanted()) throw error;
       oldTrack.stop();
-      newStream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } } });
+      newStream = await navigator.mediaDevices.getUserMedia(constraints);
     }
-    const newTrack = newStream.getVideoTracks()[0];
+    const newTrack = tracksOf(newStream)[0];
     newStream.getTracks().filter(t => t !== newTrack).forEach(t => t.stop());
-    if (!newTrack) throw new Error('Selected camera produced no video track');
-    // Send no picture until the switch is committed, so a camera-off that
-    // lands mid-switch can never leak live video to peers.
+    if (!newTrack) throw new Error(`Selected ${kind} input produced no track`);
+    // Send nothing until the switch is committed, so a camera-off or mute
+    // that lands mid-switch can never leak to peers.
     newTrack.enabled = false;
 
     const swapped: RTCRtpSender[] = [];
     const abort = async (reason: string): Promise<never> => {
       newTrack.stop();
-      // Put peers back on whatever the stream now holds (the old camera if
+      // Put peers back on whatever the stream now holds (the old device if
       // it is still live and present, otherwise nothing).
       const current = this.localStream === stream
-        ? stream.getVideoTracks().find(t => t.readyState === 'live') ?? null
+        ? tracksOf(stream).find(t => t.readyState === 'live') ?? null
         : null;
       for (const sender of swapped) {
         await sender.replaceTrack(current).catch(() => {});
       }
-      throw new Error(`Camera switch abandoned: ${reason}`);
+      throw new Error(`Input switch abandoned: ${reason}`);
     };
 
     if (!stillWanted()) return abort('call or camera state changed');
 
+    const slot = kind === 'audio' ? 0 : 1;
+    const screenSenders = new Set(this.screenSenders.values());
     for (const [peerId, pc] of this.connections) {
-      const videoSender =
-        pc.getTransceivers()[1]?.sender ??
-        pc.getSenders().find(s => s.track?.kind === 'video' && !Array.from(this.screenSenders.values()).includes(s));
-      if (!videoSender) continue;
+      const sender =
+        pc.getTransceivers()[slot]?.sender ??
+        pc.getSenders().find(s => s.track?.kind === kind && !screenSenders.has(s));
+      if (!sender) continue;
       try {
-        await videoSender.replaceTrack(newTrack);
-        swapped.push(videoSender);
+        await sender.replaceTrack(newTrack);
+        swapped.push(sender);
       } catch (error) {
         // replaceTrack only rejects when the new track would need a fresh
-        // negotiation (or the connection is closing). Keep the old camera
-        // for everyone instead of leaving this peer with dead video.
+        // negotiation (or the connection is closing). Keep the old device
+        // for everyone instead of leaving this peer with a dead track.
         if (pc.connectionState === 'closed') continue;
         console.warn(`[WebRTC] replaceTrack failed for ${peerId}`, error);
-        if (oldTrack && oldTrack.readyState === 'live') {
-          return abort(`peer ${peerId} cannot take the new camera without renegotiation`);
+        if (oldTrack.readyState === 'live') {
+          return abort(`peer ${peerId} cannot take the new ${kind} input without renegotiation`);
         }
-        // Old camera already released (single-camera device): slot the new
+        // Old device already released (single-camera device): slot the new
         // track the normal way and renegotiate with this peer.
         await this.slotTrackIntoPeer(pc, newTrack).catch(() => false);
         if (this.currentRoomId) {
@@ -777,23 +830,22 @@ export class WebRTCManager {
       if (!stillWanted()) return abort('call or camera state changed');
     }
 
-    for (const t of stream.getVideoTracks()) {
+    for (const t of tracksOf(stream)) {
       stream.removeTrack(t);
       t.stop();
     }
     stream.addTrack(newTrack);
-    newTrack.enabled = this.cameraEnabled;
+    newTrack.enabled = wantedEnabled();
+    // Script-side addTrack raises no event; tell bound <video> elements to
+    // re-attach so every browser renders the new source.
+    stream.dispatchEvent(new Event(LOCAL_INPUT_SWITCHED_EVENT));
+    savePreferredInput(kind, deviceId);
 
-    try {
-      const raw = localStorage.getItem('swarm-preferred-devices');
-      const prefs = raw ? JSON.parse(raw) : {};
-      localStorage.setItem('swarm-preferred-devices', JSON.stringify({ ...prefs, videoInputId: deviceId }));
-    } catch { /* storage unavailable */ }
-
-    console.log('[WebRTC] Camera switched to', deviceId);
+    console.log(`[WebRTC] ${kind === 'audio' ? 'Microphone' : 'Camera'} switched to`, deviceId);
     this.announceMediaState();
     return stream;
   }
+
 
   /** True if there is at least one live (not ended) audio track on the local stream. */
   hasLiveAudioTrack(): boolean {

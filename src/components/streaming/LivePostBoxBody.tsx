@@ -18,14 +18,13 @@ import {
   type RoomChatMessage,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { registerLiveRoomBinding, latchLeave, clearLeaveLatch } from '@/lib/streaming/spectatedLiveRoomStore';
-import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { getWebRTCManager, LOCAL_INPUT_SWITCHED_EVENT } from '@/lib/webrtc/manager';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { StreamRoom } from '@/types/streaming';
 import { applyLiveAvPriority } from '@/lib/streaming/avPriority';
 import { registerLivePostBox } from '@/lib/streaming/livePostBoxRegistry';
 import { setFloatingLiveDock } from '@/lib/streaming/floatingLiveDockStore';
 import { cn } from '@/lib/utils';
-import { CameraSwitchMenu } from './CameraSwitchMenu';
 
 interface LivePostBoxBodyProps {
   room: StreamRoom;
@@ -278,6 +277,20 @@ export function LivePostBoxBody({
     }
   }, [tiles]);
 
+  // A camera switch (builder Options) swaps the track in place; re-attach.
+  useEffect(() => {
+    if (!localStream) return;
+    const rebind = () => {
+      const el = videoRefs.current.get('self');
+      if (!el) return;
+      el.srcObject = null;
+      el.srcObject = localStream;
+      void el.play().catch(() => {});
+    };
+    localStream.addEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+    return () => localStream.removeEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+  }, [localStream]);
+
   const handleResyncTile = useCallback((peerId: string) => {
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
@@ -455,12 +468,6 @@ export function LivePostBoxBody({
             {cameraOn ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
             {cameraOn ? 'Cam on' : 'Cam off'}
           </Button>
-          <CameraSwitchMenu
-            cameraOn={cameraOn}
-            variant="secondary"
-            iconClassName="h-3.5 w-3.5"
-            onSwitched={(stream) => setLocalStream(new MediaStream(stream.getTracks()))}
-          />
           <div className="ml-auto flex items-center gap-2">
             <Button
               type="button"
