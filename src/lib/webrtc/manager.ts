@@ -508,6 +508,11 @@ export class WebRTCManager {
     spikeHealth('stream', 'webrtc.leaveRoom', 0.4);
     if (!this.currentRoomId) return;
 
+    // A screen share belongs to the room it was shared in. Leaving the room
+    // (Disconnect, switching rooms, closing the tab) ends it for everyone,
+    // announced while we still know the room so viewers drop the tile.
+    this.stopScreenShare();
+
     const room = this.rooms.get(this.currentRoomId);
     if (room) {
       room.participants = room.participants.filter(p => p !== this.userId);

@@ -24,7 +24,7 @@ interface Tile {
   isScreen: boolean;
 }
 
-function TileVideo({
+export function TileVideo({
   stream,
   muted,
   className,

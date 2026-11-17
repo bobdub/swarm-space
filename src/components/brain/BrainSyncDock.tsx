@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Brain } from 'lucide-react';
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Brain, MonitorOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
@@ -11,9 +11,12 @@ interface Props {
   peerCount: number;
   isMuted: boolean;
   toggleMute: () => void;
+  /** True while this user is sharing their screen to the room. */
+  isSharingScreen?: boolean;
+  stopScreenShare?: () => void;
 }
 
-export function BrainSyncDock({ peerCount, isMuted, toggleMute }: Props) {
+export function BrainSyncDock({ peerCount, isMuted, toggleMute, isSharingScreen = false, stopScreenShare }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const manager = user ? getWebRTCManager(user.id, user.username) : null;
@@ -40,6 +43,8 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute }: Props) {
   const disconnect = () => {
     clearBrainSync();
     if (!manager) return;
+    // Hanging up ends the host's screen share for every viewer.
+    try { manager.stopScreenShare(); } catch { /* ignore */ }
     try { manager.toggleVideo(false); } catch { /* ignore */ }
     void manager.leaveRoom();
     manager.stopLocalStream();
@@ -68,6 +73,20 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute }: Props) {
       <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={toggleCamera} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}>
         {cameraOn ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
       </Button>
+      {isSharingScreen && stopScreenShare && (
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-8 gap-1 px-2 text-xs text-primary"
+          onClick={stopScreenShare}
+          aria-label="Stop sharing screen"
+          title="Stop sharing screen"
+        >
+          <MonitorOff className="h-4 w-4" />
+          <span className="hidden sm:inline">Stop sharing</span>
+        </Button>
+      )}
       <Button type="button" size="icon" variant="destructive" className="h-8 w-8 rounded-full" onClick={disconnect} aria-label="Disconnect from the Brain">
         <PhoneOff className="h-4 w-4" />
       </Button>

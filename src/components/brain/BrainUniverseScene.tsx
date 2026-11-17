@@ -166,7 +166,7 @@ import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
-import { syncBrainRoom } from '@/lib/brain/brainSyncStore';
+import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
   speakInfinity,
@@ -1225,7 +1225,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     user ? getWebRTCManager(user.id, user.username).isCameraOn() : false,
   );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  // A share started earlier keeps running while Brain-synced on other pages,
+  // so coming back picks the live capture up again.
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(() =>
+    user ? getWebRTCManager(user.id, user.username).getScreenStream() : null,
+  );
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
   // ── Entry gate: avatar + mic test before spawn ────────────────────
@@ -1449,9 +1453,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     }
   }, [screenStream, user]);
 
-  // Release any capture when leaving the universe.
+  // Follow the call layer's share state: the share can also end from the
+  // Brain sync bar, the browser's own "Stop sharing" button, or a room leave.
+  useEffect(() => {
+    if (!user) return;
+    const manager = getWebRTCManager(user.id, user.username);
+    const syncShare = () => setScreenStream(manager.getScreenStream());
+    syncShare();
+    return manager.onMessage((m) => {
+      if (m.type === 'screen-share-started' || m.type === 'screen-share-stopped') syncShare();
+    });
+  }, [user]);
+
+  // Leaving the page while Brain-synced keeps the share live for viewers;
+  // the sync bar shows it and lets the host end it. Otherwise release it.
+  const roomIdRef = useRef(roomId);
+  useEffect(() => { roomIdRef.current = roomId; }, [roomId]);
   useEffect(() => () => {
     if (!user) return;
+    if (isBrainSynced(roomIdRef.current)) return;
     try { getWebRTCManager(user.id, user.username).stopScreenShare(); } catch { /* ignore */ }
   }, [user]);
 
