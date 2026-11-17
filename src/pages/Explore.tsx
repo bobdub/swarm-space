@@ -9,6 +9,8 @@ import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
 import { PostCard } from "@/components/PostCard";
+import { GuestSignupPostCard } from "@/components/preview/GuestSignupPostCard";
+import { isGuestUser } from "@/lib/preview/guestAccess";
 import { BlogPostCard } from "@/components/BlogPostCard";
 import { classifyPost } from "@/lib/blogging/awareness";
 import { getAll } from "@/lib/store";
@@ -378,6 +380,7 @@ const Explore = () => {
           </div>
         </header>
         <section className="space-y-6">
+          {isGuestUser(user) && <GuestSignupPostCard />}
           <Tabs defaultValue="recent-posts" className="space-y-6">
             <TabsList className="grid w-full grid-cols-4 bg-[hsla(245,70%,8%,0.6)] border border-[hsla(174,59%,56%,0.2)]">
               <TabsTrigger value="recent-posts" className="gap-2">

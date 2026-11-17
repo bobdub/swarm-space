@@ -15,3 +15,7 @@ export function guestSignupRequired(user: unknown, pathname: string): boolean {
 export function brainDisplayName(user: UserMeta): string {
   return isGuestUser(user) ? user.guestName?.trim() || 'Guest' : user.username;
 }
+/** Link into the existing sign-up wizard, returning the guest to `redirect` afterwards. */
+export function guestSignupHref(redirect = '/explore'): string {
+  return `/auth?signup=1&redirect=${encodeURIComponent(redirect)}`;
+}
