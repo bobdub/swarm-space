@@ -3408,7 +3408,12 @@ export class StandaloneSwarmMesh {
       if (displayName) entry.alias = displayName;
       this.saveLibrary();
       this.emitPeers();
-      if (userId && isPublicWalletAddress(msg.walletAddress)) this.deriveNamespaceAnchor(fromPeerId, userId, msg.walletAddress);
+      if (userId && isPublicWalletAddress(msg.walletAddress)) {
+        // Claim the wallet now so any pending derivation for an older wallet is discarded.
+        if (entry.walletAddress?.toLowerCase() !== msg.walletAddress.toLowerCase()) this.clearNamespaceAnchor(entry);
+        entry.walletAddress = msg.walletAddress;
+        this.deriveNamespaceAnchor(fromPeerId, userId, msg.walletAddress);
+      }
       if (userId) void import('@/lib/blockchain/wallets/nativeAddress')
         .then(({ hydrateNativeWalletPeer }) => hydrateNativeWalletPeer({ userId, username, displayName, avatarRef }))
         .catch(() => { /* address resolution retries durable hydration */ });
@@ -3431,8 +3436,9 @@ export class StandaloneSwarmMesh {
     void import('@/lib/uqrc/namespaceIdentity').then(async ({ namespaceIdentity }) => {
       const identity = await namespaceIdentity(userId, walletAddress);
       const entry = this.library.get(peerId);
-      // Identity may have rotated while hashing; never attach stale coordinates.
-      if (!entry || entry.userId !== userId) return;
+      // Identity or wallet may have rotated while hashing; a superseded
+      // derivation must never overwrite the newer anchor.
+      if (!entry || entry.userId !== userId || entry.walletAddress?.toLowerCase() !== walletAddress.toLowerCase()) return;
       Object.assign(entry, identity, { walletAddress });
       this.saveLibrary();
     }).catch(() => { /* no namespace anchor without a real public address */ });
