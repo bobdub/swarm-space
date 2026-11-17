@@ -6,7 +6,11 @@ export interface LearnedExpression {
   text: string;
   weight: number;
   source: 'memory' | 'personality';
+  /** Distinct local voice ids (peer or author hash) that carried this line; capped. */
+  voices?: string[];
 }
+
+export const MAX_EXPRESSION_VOICES = 8;
 
 export const MAX_EXPRESSIONS = 256;
 const MAX_EXPRESSION_LENGTH = 1000;

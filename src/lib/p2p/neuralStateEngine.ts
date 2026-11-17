@@ -2,6 +2,7 @@ import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
 import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
+import { CORE_MEMORY_STORAGE_KEY } from '../brain/coreMemories';
 
 export type InteractionKind =
   | 'gossip'
@@ -1160,6 +1161,9 @@ export class NeuralStateEngine {
       // Expressions stay on-device, separate from the mesh digest.
       localStorage.setItem('infinity-local-expressions', JSON.stringify(this.dualLearning.languageLearner.getExpressions()));
       localStorage.setItem('infinity-semantic-basins', JSON.stringify(this.dualLearning.languageLearner.semantic.serialize()));
+      // Phase 4: engrave newly qualifying lines, then keep the ring on-device.
+      try { this.dualLearning.coreMemories.sealFrom(this.dualLearning.languageLearner.getExpressions(), getSharedFieldEngine()); } catch { /* optional */ }
+      localStorage.setItem(CORE_MEMORY_STORAGE_KEY, JSON.stringify(this.dualLearning.coreMemories.serialize()));
     } catch (err) {
       console.warn('[NeuralEngine] Failed to persist brain state:', err);
     }
@@ -1172,6 +1176,8 @@ export class NeuralStateEngine {
       if (expressions) this.dualLearning.languageLearner.restoreExpressions(JSON.parse(expressions));
       const basins = localStorage.getItem('infinity-semantic-basins');
       if (basins) this.dualLearning.languageLearner.semantic.restore(JSON.parse(basins));
+      const core = localStorage.getItem(CORE_MEMORY_STORAGE_KEY);
+      if (core) this.dualLearning.coreMemories.restore(JSON.parse(core));
       const raw = localStorage.getItem(NeuralStateEngine.STORAGE_KEY);
       if (!raw) return;
       const digest = JSON.parse(raw) as NeuralStateDigest;

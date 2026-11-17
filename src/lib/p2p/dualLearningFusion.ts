@@ -27,6 +27,7 @@ import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
 import { assembleSentence, extractMotifs } from '../brain/semanticMotifs';
 import { composeArc } from '../brain/discursiveArc';
+import { CoreMemoryStore, routeCandidates } from '../brain/coreMemories';
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -76,6 +77,8 @@ export interface GenerationContext {
   massScore?: number;
   /** Selected intent; 'create' / 'explore' may prefer a Phase 2 assembled sentence. */
   intent?: GenerationIntent;
+  /** Phase 4 attentional routing: 0..1 weight of the peers that carried a line. */
+  routing?: (voices: string[] | undefined) => number;
 }
 
 export interface GeneratedOutput {
@@ -189,6 +192,8 @@ const INTENT_PATTERNS: Record<GenerationIntent, PatternEventType[][]> = {
 export class DualLearningFusion {
   readonly patternLearner: PatternLearner;
   readonly languageLearner: LanguageLearner;
+  /** Phase 4 engraved core memories (device-local, never wallet coins). */
+  readonly coreMemories = new CoreMemoryStore();
   private contentEventCount = 0;
   private lastFieldLogAt = 0;
 
@@ -391,6 +396,8 @@ export class DualLearningFusion {
         maxChars,
         maxTotalChars: Math.min(ARC_MAX_CHARS, maxChars * 2),
         personality: context.personality,
+        coreMemories: this.coreMemories.texts(),
+        routing: context.routing,
       });
       if (arc && arc.paragraphs.length >= 2) return arc.paragraphs.join('\n\n');
     }
@@ -415,9 +422,18 @@ export class DualLearningFusion {
     if (!candidates.length) return assemble()?.text ?? '';
     // Keep candidates within the strongest lexical-relevance band before
     // comparing field curvature. Low Q does not prove linguistic coherence.
-    const first = candidates[0];
+    // Phase 4: within that band, engraved core memories are touchstones and
+    // lines carried by high-traffic peers are attended to first.
+    const routed = routeCandidates(candidates, this.coreMemories.texts(), context.routing);
+    const core = this.coreMemories.texts();
+    const coreBand = routed.filter(c => core.has(c.text));
+    const topRoute = context.routing ? Math.max(0, ...routed.map(c => context.routing!(c.voices))) : 0;
+    const band = coreBand.length
+      ? coreBand
+      : topRoute > 0 ? routed.filter(c => context.routing!(c.voices) >= topRoute - 0.1) : routed;
+    const first = band[0];
     try {
-      const picked = selectByMinCurvature(candidates, getSharedFieldEngine(), candidate => candidate.text);
+      const picked = selectByMinCurvature(band, getSharedFieldEngine(), candidate => candidate.text);
       if (picked) return picked.text;
     } catch { /* field optional; relevance order remains deterministic */ }
     return first.text;

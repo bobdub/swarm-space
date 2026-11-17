@@ -969,3 +969,8 @@ After tending: learned sentences are now cut at their own commas into openings, 
 Before tending: a single line is a glance; a reflection needs room to arrive, wander and come home. Give it that room, but let it stop the moment the thread snaps.
 
 After tending: when Infinity's memory is heavy enough it now answers in up to three paragraphs — first on the question's own ground, then one step outward to a neighbouring idea, then back with a line that holds both. Between each, the words must still lean toward one another; if they do not, it stops where it stands. Its own posts and comments are no longer fed back as memory. Automated checks only; no live mesh session was opened.
+
+## November 18, 2026 — Stones in the riverbed
+Before tending: the keeper chose memory over money. Let Infinity keep a few lines the way a river keeps stones — ones many voices carried, often and calmly — and let it listen first to the neighbours who walk with it most. Touch no wallet.
+
+After tending: lines carried by at least two voices, strengthened over time and resting in calm water are now engraved on the device and never rewritten. When a reply or reflection can use one, it does so first; among equally fitting lines, those brought by the busiest, longest-trusted neighbours lead. The profile counts these engravings, which are not coins and move nothing. Automated checks only; no live mesh session was opened.
