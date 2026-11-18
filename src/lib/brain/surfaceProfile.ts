@@ -101,9 +101,91 @@ function continents(n: Vec3): number {
   );
 }
 
-/** Raw continents noise at an Earth-local unit normal (float64). */
-export function sampleContinents(localNormal: Vec3): number {
+// ── Islands ───────────────────────────────────────────────────────────
+//
+// The scattered noise land is the planet's natural geography. On top of
+// it sit a few named islands: a raised dome in the continents field whose
+// value falls through the coastline (0.48) at `radiusM` and carries on
+// down through the shelf and slope, so each island has a beach, wadeable
+// shallows and a real drop to the ocean floor, exactly like the noise
+// coasts. The outline wobbles with low-frequency noise so it reads as a
+// natural island rather than a disc.
+//
+// Islands are registered through a lazy provider (earth.ts registers the
+// shared village) because earth.ts imports this module. Land-snapping
+// (`snapToLand`) reads the BASE land mask, so registering an island never
+// moves the village frame, the volcano or any other snapped site.
+
+export interface Island {
+  /** Earth-local unit normal at the island's centre. */
+  center: Vec3;
+  /** Distance (m of arc) from the centre to the waterline. */
+  radiusM: number;
+}
+
+/** Continents value at an island's summit (inland: landMask = 1). */
+export const ISLAND_PEAK_VALUE = 0.62;
+/** ± fraction the island radius wobbles around its outline. */
+const ISLAND_RADIUS_WOBBLE = 0.18;
+
+let _islandProvider: (() => Island[]) | null = null;
+let _islands: Island[] | null = null;
+let _resolvingIslands = false;
+let _islandRadius = 0;
+
+/** Register the island list provider (called once by earth.ts) and the
+ *  planet radius that island distances are measured on. */
+export function setIslandProvider(provider: (() => Island[]) | null, planetRadius = 0): void {
+  _islandProvider = provider;
+  _islandRadius = planetRadius;
+  _islands = null;
+}
+
+/** Resolved islands (empty while the provider is itself resolving). */
+export function getIslands(): Island[] {
+  if (_islands) return _islands;
+  if (!_islandProvider || _resolvingIslands) return [];
+  _resolvingIslands = true;
+  try {
+    _islands = _islandProvider();
+  } finally {
+    _resolvingIslands = false;
+  }
+  return _islands;
+}
+
+/** Island contribution to the continents field at `n` (−∞ when far). */
+function islandField(n: Vec3, radius: number): number {
+  const islands = getIslands();
+  let best = -Infinity;
+  for (const isl of islands) {
+    const c = isl.center;
+    const dot = Math.max(-1, Math.min(1, n[0] * c[0] + n[1] * c[1] + n[2] * c[2]));
+    const arc = Math.acos(dot) * radius;
+    const r = isl.radiusM;
+    if (arc > r * 2.5) continue;
+    // Natural outline: wobble the radius with the coarse continents noise.
+    const wobble = 1 + ISLAND_RADIUS_WOBBLE * (noise3(n[0] * 12, n[1] * 12, n[2] * 12) * 2 - 1);
+    const t = arc / (r * wobble);
+    // Linear fall from the summit through the coast (t = 1) and on down
+    // the shelf and slope to the ocean floor.
+    const v = ISLAND_PEAK_VALUE - (ISLAND_PEAK_VALUE - COAST_VALUE) * t;
+    if (v > best) best = v;
+  }
+  return best;
+}
+
+/** Continents value of the natural noise land only (no islands). */
+export function sampleBaseContinents(localNormal: Vec3): number {
   return continents(localNormal);
+}
+
+/** Continents value at an Earth-local unit normal (float64): the noise
+ *  land plus any registered islands. Drives land, sea floor and colour. */
+export function sampleContinents(localNormal: Vec3): number {
+  const base = continents(localNormal);
+  if (!_islandProvider || _islandRadius <= 0) return base;
+  return Math.max(base, islandField(localNormal, _islandRadius));
 }
 
 /** Sea-floor depth below sea level (m) for a continents value: beach shelf
@@ -122,6 +204,12 @@ export function landMaskFromContinents(c: number): number {
 
 /** 0 = ocean, 1 = inland. Matches the shader's landMask. */
 export function sampleLandMask(localNormal: Vec3): number {
+  return landMaskFromContinents(sampleContinents(localNormal));
+}
+
+/** Land mask of the natural noise land only — used for site snapping so
+ *  adding an island never moves anything already placed. */
+export function sampleBaseLandMask(localNormal: Vec3): number {
   return landMaskFromContinents(continents(localNormal));
 }
 
@@ -174,7 +262,7 @@ export function snapToLand(
   opts: { maxArcMeters: number; threshold?: number; radius: number; basis?: TangentBasis; steps?: number },
 ): Vec3 {
   const threshold = opts.threshold ?? 0.6;
-  if (sampleLandMask(seed) >= threshold) return seed;
+  if (sampleBaseLandMask(seed) >= threshold) return seed;
   const { right, forward } = tangentBasis(seed, opts.basis);
   const STEPS = opts.steps ?? 96;
   for (let i = 1; i <= STEPS; i++) {
@@ -183,12 +271,12 @@ export function snapToLand(
     const theta = t * Math.PI * 6;
     const aR = (Math.cos(theta) * arc) / opts.radius;
     const aF = (Math.sin(theta) * arc) / opts.radius;
-    let nx = seed[0] + right[0] * aR + forward[0] * aF;
-    let ny = seed[1] + right[1] * aR + forward[1] * aF;
-    let nz = seed[2] + right[2] * aR + forward[2] * aF;
+    const nx = seed[0] + right[0] * aR + forward[0] * aF;
+    const ny = seed[1] + right[1] * aR + forward[1] * aF;
+    const nz = seed[2] + right[2] * aR + forward[2] * aF;
     const nn = Math.hypot(nx, ny, nz) || 1;
     const cand: Vec3 = [nx / nn, ny / nn, nz / nn];
-    if (sampleLandMask(cand) >= threshold) return cand;
+    if (sampleBaseLandMask(cand) >= threshold) return cand;
   }
   return seed;
 }

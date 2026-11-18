@@ -30,7 +30,8 @@ import {
   setEarthPoseTime,
   worldPosToLocalNormal,
 } from '../earth';
-import { sampleLandMask, OCEAN_FLOOR_DEPTH_M } from '../surfaceProfile';
+import { sampleLandMask, sampleBaseLandMask, OCEAN_FLOOR_DEPTH_M, LAND_LIFT, getIslands } from '../surfaceProfile';
+import { getVolcanoOrgan } from '../volcanoOrgan';
 import { UqrcPhysics, PHYSICS_HZ } from '../uqrcPhysics';
 import { HORIZON_M } from '../horizonFade';
 
@@ -94,6 +95,68 @@ describe('terrain manifold: render and physics share one ground', () => {
     // The village stands on land, so support = the drawn ground.
     const n = frame.normal;
     expect(feetRadiusAt(n)).toBeCloseTo(EARTH_RADIUS + groundElevationAt(n) + 0.05, 9);
+  });
+});
+
+describe('the village island', () => {
+  /** Ground along a bearing from the village, `m` metres of arc out. */
+  function groundOut(bearing: number, m: number): number {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    const a = m / EARTH_RADIUS;
+    const tx = Math.cos(bearing) * a;
+    const tz = Math.sin(bearing) * a;
+    const n: [number, number, number] = [
+      f.normal[0] + f.right[0] * tx + f.forward[0] * tz,
+      f.normal[1] + f.right[1] * tx + f.forward[1] * tz,
+      f.normal[2] + f.right[2] * tx + f.forward[2] * tz,
+    ];
+    const l = Math.hypot(n[0], n[1], n[2]);
+    return groundElevationAt([n[0] / l, n[1] / l, n[2] / l]);
+  }
+
+  it('the village stands on dry land in the middle of its own island', () => {
+    const n = getEarthLocalSiteFrame(VILLAGE).normal;
+    expect(getIslands().length).toBe(1);
+    expect(sampleLandMask(n)).toBeGreaterThan(0.99);
+    expect(groundElevationAt(n)).toBeGreaterThan(LAND_LIFT - 0.3);
+    expect(isSwimmingAt(n)).toBe(false);
+  });
+
+  it('about 400 m across, with beaches shelving into shallows and then deep sea', () => {
+    for (let k = 0; k < 8; k++) {
+      const bearing = (k / 8) * Math.PI * 2;
+      // Inland plateau, then a beach that slopes down to the waterline.
+      expect(groundOut(bearing, 60)).toBeGreaterThan(LAND_LIFT - 0.5);
+      expect(groundOut(bearing, 120)).toBeGreaterThan(0.5);
+      // Past the waterline the sea floor shelves down: wadeable first,
+      // then out of your depth, never a cliff.
+      let wadeable = 0;
+      for (let m = 150; m <= 300; m += 5) {
+        const g = groundOut(bearing, m);
+        if (g < -0.1 && g > -1.2) wadeable++;
+      }
+      expect(wadeable).toBeGreaterThan(2); // ≥ 15 m of wading shallows
+      expect(groundOut(bearing, 260)).toBeLessThan(0);
+      expect(groundOut(bearing, 330)).toBeLessThan(groundOut(bearing, 230));
+      let prev = groundOut(bearing, 0);
+      for (let m = 10; m <= 400; m += 10) {
+        const g = groundOut(bearing, m);
+        // Beach and shallows are gentle (under ~7°); the drop-off beyond is
+        // steeper, like a real island slope, but never a cliff.
+        expect(prev - g).toBeLessThan(m <= 230 ? 1.2 : 3);
+        prev = g;
+      }
+    }
+  });
+
+  it('nothing else moves: the village is not re-snapped and the volcano stays put', () => {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    // The natural (noise) land under the village is still sea; the site
+    // frame was placed with that base mask, not the island.
+    expect(sampleBaseLandMask(f.normal)).toBeLessThan(0.05);
+    const c = getVolcanoOrgan(VILLAGE).centerNormal;
+    const dot = f.normal[0] * c[0] + f.normal[1] * c[1] + f.normal[2] * c[2];
+    expect(Math.acos(Math.min(1, dot)) * EARTH_RADIUS).toBeCloseTo(546.7, 0);
   });
 });
 
