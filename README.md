@@ -106,7 +106,7 @@ Legacy accounts using the older passphrase system can migrate to the hardened pr
 ```bash
 git clone https://github.com/your-username/imagination-network.git
 cd imagination-network
-npm install           # or: bun install
+bun install           # bun.lock is the only lockfile
 npm run dev           # or: bun dev
 ```
 
