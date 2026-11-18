@@ -1171,6 +1171,11 @@ export class MediaCoinEngine {
   private passEntry(passId: string, coinId: string, from: string) {
     let entry = this.incoming.get(passId);
     if (!entry) {
+      // A new hand-off of the same coin from the same peer supersedes any
+      // earlier, incomplete one (a retry after a failed send).
+      for (const [id, other] of this.incoming) {
+        if (other.coinId === coinId && other.from === from) this.incoming.delete(id);
+      }
       entry = { coinId, from, pieces: new Map() };
       this.incoming.set(passId, entry);
     }

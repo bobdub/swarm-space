@@ -150,4 +150,18 @@ describe("media coin loop", () => {
     await settle();
     expect(got).toEqual(["c4"]);
   });
+
+  it("drops an incomplete hand-off when the sender retries", async () => {
+    const net = createNetwork();
+    net.link("alice", "bob");
+    const bob = engineFor(net, "bob");
+    const t = net.transport("alice");
+    const piece = { index: 0, hash: "h", data: btoa("x"), size: 1, priority: true };
+    for (const passId of ["p1", "p2", "p3"]) {
+      await t.send("media-coin", "bob", { type: "coin-pass-piece", coinId: "c5", payload: { passId, chunk: piece }, msgId: `m-${passId}` });
+    }
+    await settle();
+    const incoming = (bob as unknown as { incoming: Map<string, unknown> }).incoming;
+    expect(Array.from(incoming.keys())).toEqual(["p3"]);
+  });
 });

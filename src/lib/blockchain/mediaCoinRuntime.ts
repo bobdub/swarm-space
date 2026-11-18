@@ -89,11 +89,25 @@ function queueLaunch(item: PendingLaunch): void {
   writePending([...list, item]);
 }
 
+function removePending(walletCoinId: string): void {
+  writePending(readPending().filter((p) => p.walletCoinId !== walletCoinId));
+}
+
+/**
+ * Run queued launches one at a time. Each item leaves the persisted queue
+ * only after its launch finishes, so a reload or a failing item never
+ * drops the launches behind it.
+ */
 async function drainPendingLaunches(): Promise<void> {
-  const list = readPending();
-  if (!list.length) return;
-  writePending([]);
-  for (const item of list) await launchMediaCoinLoop(item.walletCoinId, item.file);
+  for (const item of readPending()) {
+    try {
+      await launchMediaCoinLoop(item.walletCoinId, item.file);
+    } catch (err) {
+      console.warn("[mediaCoinRuntime] queued launch failed; will retry next start", item.walletCoinId, err);
+      continue;
+    }
+    removePending(item.walletCoinId);
+  }
 }
 
 export function startMediaCoinRuntime(transport: MeshTransportAdapter): void {
