@@ -263,55 +263,13 @@ function fract(n: number): number {
   return n - Math.floor(n);
 }
 
-function mix(a: number, b: number, t: number): number {
-  return a * (1 - t) + b * t;
-}
-
 function smoothstep(min: number, max: number, value: number): number {
   const t = Math.max(0, Math.min(1, (value - min) / (max - min || 1)));
   return t * t * (3 - 2 * t);
 }
 
-function hashNoise3(x: number, y: number, z: number): number {
-  let px = fract(x * 443.8975);
-  let py = fract(y * 397.2973);
-  let pz = fract(z * 491.1871);
-  const dot = px * (py + 19.19) + py * (pz + 19.19) + pz * (px + 19.19);
-  px = fract(px + dot);
-  py = fract(py + dot);
-  pz = fract(pz + dot);
-  return fract((px + py) * pz);
-}
-
-function noise3(x: number, y: number, z: number): number {
-  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z);
-  const fx = fract(x), fy = fract(y), fz = fract(z);
-  const ux = fx * fx * (3 - 2 * fx);
-  const uy = fy * fy * (3 - 2 * fy);
-  const uz = fz * fz * (3 - 2 * fz);
-
-  const n000 = hashNoise3(ix, iy, iz);
-  const n100 = hashNoise3(ix + 1, iy, iz);
-  const n010 = hashNoise3(ix, iy + 1, iz);
-  const n110 = hashNoise3(ix + 1, iy + 1, iz);
-  const n001 = hashNoise3(ix, iy, iz + 1);
-  const n101 = hashNoise3(ix + 1, iy, iz + 1);
-  const n011 = hashNoise3(ix, iy + 1, iz + 1);
-  const n111 = hashNoise3(ix + 1, iy + 1, iz + 1);
-
-  return mix(
-    mix(mix(n000, n100, ux), mix(n010, n110, ux), uy),
-    mix(mix(n001, n101, ux), mix(n011, n111, ux), uy),
-    uz,
-  );
-}
-
 function getSpawnSurfaceScore(normal: Vec3): number {
-  const continents =
-    noise3(normal[0] * 3.5, normal[1] * 3.5, normal[2] * 3.5) * 0.6 +
-    noise3(normal[0] * 8.0, normal[1] * 8.0, normal[2] * 8.0) * 0.3 +
-    noise3(normal[0] * 16.0, normal[1] * 16.0, normal[2] * 16.0) * 0.1;
-  const landMask = smoothstep(0.48, 0.55, continents);
+  const landMask = sampleLandMask(normal);
   const polarIce = smoothstep(0.78, 0.92, Math.abs(normal[1]));
   const horizonComfort = 1 - Math.abs(normal[1]) * 0.35;
   return landMask * (1 - polarIce * 0.7) * horizonComfort;
@@ -860,7 +818,11 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   let bestNormal = makeCandidate(theta, phi);
   let bestScore = getSpawnSurfaceScore(bestNormal);
   const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  for (let i = 1; i < 8; i++) {
+  // Land is three continents with ocean between them, so a handful of
+  // probes can all fall in the sea. 48 golden-angle probes cover the
+  // whole 10°..60° sunlit ring densely enough that one always lands on
+  // a continent (every point on Earth is < 45° from a coast).
+  for (let i = 1; i < 48; i++) {
     const t = theta + goldenAngle * i;
     const u = fract(h2 / 0x100000000 + i * 0.61803398875);
     const p = phiMin + u * (phiMax - phiMin);
