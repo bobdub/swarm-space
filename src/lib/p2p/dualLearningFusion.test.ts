@@ -14,6 +14,10 @@ function makeContentEvent(overrides?: Partial<ContentEvent>): ContentEvent {
   };
 }
 
+/** Fixed rolls so intent selection is reproducible: 0.99 never explores. */
+const NEVER_EXPLORE = () => 0.99;
+const ALWAYS_EXPLORE = () => 0;
+
 describe('DualLearningFusion', () => {
   it('should ingest content events into both learners', () => {
     const fusion = new DualLearningFusion();
@@ -37,7 +41,7 @@ describe('DualLearningFusion', () => {
   });
 
   it('should select intent based on context', () => {
-    const fusion = new DualLearningFusion();
+    const fusion = new DualLearningFusion(undefined, undefined, NEVER_EXPLORE);
 
     // High energy + creativity → create
     const intent = fusion.selectIntent({
@@ -54,6 +58,22 @@ describe('DualLearningFusion', () => {
       creativityActive: false,
     });
     expect(reflectIntent).toBe('reflect');
+
+    // Mid energy, no exploration roll → engage
+    expect(fusion.selectIntent({ recentPosts: [], currentEnergy: 0.5, creativityActive: true })).toBe('engage');
+  });
+
+  it('explores when the exploration roll lands under the exploration rate', () => {
+    const fusion = new DualLearningFusion(undefined, undefined, ALWAYS_EXPLORE);
+    expect(fusion.selectIntent({ recentPosts: [], currentEnergy: 0.9, creativityActive: true })).toBe('explore');
+    expect(fusion.selectIntent({ recentPosts: [], currentEnergy: 0.1, creativityActive: true, explorationForced: true })).toBe('explore');
+  });
+
+  it('lets a lucky roll through low creativity instead of always reflecting', () => {
+    // creativity 0.15 reflects only when the roll exceeds 0.3. A roll of 0.28
+    // stays under that and above the 25% exploration ceiling, so energy decides.
+    const fusion = new DualLearningFusion(undefined, undefined, () => 0.28);
+    expect(fusion.selectIntent({ recentPosts: [], currentEnergy: 0.9, creativityActive: 0.15 })).toBe('create');
   });
 
   it('should report generation readiness', () => {
@@ -127,7 +147,7 @@ describe('DualLearningFusion', () => {
   });
 
   it('stays silent rather than padding unrelated words from rich vocabulary', () => {
-    const fusion = new DualLearningFusion();
+    const fusion = new DualLearningFusion(undefined, undefined, NEVER_EXPLORE);
     for (let i = 0; i < 60; i++) {
       fusion.ingestContentEvent(makeContentEvent({ text: `the network lattice word${i} grows with curvature vocabulary` }));
     }
@@ -136,7 +156,7 @@ describe('DualLearningFusion', () => {
   });
 
   it('rejects the copied Hello old opening even with signature tokens requested', () => {
-    const fusion = new DualLearningFusion();
+    const fusion = new DualLearningFusion(undefined, undefined, NEVER_EXPLORE);
     for (let i = 0; i < 60; i++) {
       fusion.ingestContentEvent(makeContentEvent({ text: `Hello old friend, the network remembers word${i}.` }));
     }
@@ -145,7 +165,7 @@ describe('DualLearningFusion', () => {
   });
 
   it('realizes the learned whole UQRC expression without splitting its formula', () => {
-    const fusion = new DualLearningFusion();
+    const fusion = new DualLearningFusion(undefined, undefined, NEVER_EXPLORE);
     const expression = 'The UQRC operator is 𝒪_UQRC(u) = ν Δ u + ℛ u + L_S u.';
     for (let i = 0; i < 60; i++) {
       fusion.ingestContentEvent(makeContentEvent({ text: `unrelated word${i} builds enough varied vocabulary for learning` }));
