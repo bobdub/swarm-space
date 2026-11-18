@@ -10,6 +10,28 @@ export function isCustomTokenSync(tx: SwarmTransaction): boolean {
   return tx.type === "external_deposit" && tx.meta?.custody === CUSTOM_TOKEN_CUSTODY;
 }
 
+/**
+ * Exact token units of a ledger record. New records carry `amountUnits`; older ones only carry a
+ * JS number, which can print as "1e-7" or hold more decimals than the token, so convert it safely.
+ */
+export function recordUnits(tx: SwarmTransaction, decimals: number): bigint {
+  const raw = String(tx.meta?.amountUnits ?? "");
+  if (/^[1-9]\d*$/.test(raw)) return BigInt(raw);
+  const amount = Number(tx.amount);
+  let text = String(amount);
+  if (/e/i.test(text)) text = amount.toFixed(Math.min(decimals, 100));
+  const [whole, fraction = ""] = text.split(".");
+  const kept = fraction.slice(0, decimals);
+  return parseUnits(kept ? `${whole}.${kept}` : whole, decimals);
+}
+
+/** A confirmed MintMe transfer matches a withdrawal record by exact units, or by the 8-decimal amount older records kept. */
+function withdrawalMatches(tx: SwarmTransaction, sentUnits: bigint, decimals: number): boolean {
+  const raw = String(tx.meta?.amountUnits ?? "");
+  if (/^[1-9]\d*$/.test(raw)) return BigInt(raw) === sentUnits;
+  return Math.round(Number(formatUnits(sentUnits, decimals)) * 1e8) / 1e8 === Number(tx.amount);
+}
+
 /** External custody only: native peer transfers do not alter MintMe ingress. */
 export function customTokenCustodyFlows(ledger: readonly SwarmTransaction[], owner: string, address: string, contract: string, decimals: number) {
   let inflow = 0n, outflow = 0n;
@@ -20,8 +42,7 @@ export function customTokenCustodyFlows(ledger: readonly SwarmTransaction[], own
     if (String(tx.meta?.currency).toLowerCase() !== `mintme:${contract.toLowerCase()}`) continue;
     const cold = String(tx.meta?.custodyAddress ?? tx.meta?.coldKeyAddress ?? tx.meta?.address ?? "").toLowerCase();
     if (cold !== address.toLowerCase() || !(Number(tx.amount) > 0)) continue;
-    const raw = String(tx.meta?.amountUnits ?? "");
-    const units = /^[1-9]\d*$/.test(raw) ? BigInt(raw) : parseUnits(String(tx.amount), decimals);
+    const units = recordUnits(tx, decimals);
     if (tx.type === "external_deposit" && tx.to === owner) inflow += units;
     if (tx.type === "external_withdraw" && tx.from === owner) outflow += units;
   }
@@ -59,7 +80,7 @@ export async function readCustomTokenCustody(address: string, contract: string, 
         || sent.from.toLowerCase() !== address.toLowerCase() || sent.to?.toLowerCase() !== contract.toLowerCase()) continue;
       const decoded = transfers.parseTransaction({ data: sent.data });
       if (decoded?.name === "transfer" && String(decoded.args[0]).toLowerCase() === tx.to.toLowerCase()
-        && decoded.args[1] === parseUnits(String(tx.amount), decimals)) outflow += decoded.args[1];
+        && withdrawalMatches(tx, decoded.args[1], decimals)) outflow += decoded.args[1];
     }
     return (settled < current ? settled : current) + outflow;
   } finally { provider.destroy(); }

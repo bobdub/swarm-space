@@ -5,6 +5,7 @@ import type { SwarmTransaction } from "../types";
 const state = vi.hoisted(() => ({
   ledger: [] as SwarmTransaction[], held: 10_000_000_000_000n, decimals: 12,
   sign: vi.fn(), broadcast: vi.fn(), balance: vi.fn(), receipt: vi.fn(), transaction: vi.fn(), locked: false,
+  sent: [] as { units: bigint; to: string }[],
 }));
 const wallet = new Wallet(`0x${"01".repeat(32)}`);
 const address = wallet.address.toLowerCase();
@@ -26,7 +27,8 @@ vi.mock("../wallets/coldKey", () => ({
   deriveColdKey: async () => {
     if (state.locked) throw new Error("Wallet locked");
     return { address, wallet: { signMessage: async (message: string) => { state.sign(message); return wallet.signMessage(message); } } };
-  }, getColdKeyAuthority: vi.fn(), sendColdKeyTokenTransfer: vi.fn(),
+  }, getColdKeyAuthority: async () => ({ kind: "vault" }),
+  sendColdKeyTokenTransfer: async (p: { units: bigint; to: string }) => { state.sent.push(p); return `0x${"ef".repeat(32)}`; },
 }));
 vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () => ({ broadcast: state.broadcast }) }));
 vi.mock("./depositSync", () => ({ isDepositSynced: () => true, connectedPeerCount: async () => 1, markDepositsSynced: async () => true }));
@@ -38,13 +40,15 @@ vi.mock("../chain", () => ({ getSwarmChain: () => ({
     if (!await verifyCustomTokenSync(tx, state.ledger, true)) return false;
     state.ledger.push(tx); return true;
   },
+  addTransaction: (tx: SwarmTransaction) => { state.ledger.push(tx); },
 }) }));
-import { addCustomToken, getRecordedTokenBalance, syncCustomTokenDeposits } from "./customTokens";
+import { addCustomToken, getRecordedTokenBalance, numberToUnits, syncCustomTokenDeposits, withdrawCustomToken } from "./customTokens";
+import { Interface } from "ethers";
 import { customTokenCustodyFlows, verifyCustomTokenSync } from "./customTokenCustody";
 
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); state.ledger = []; state.held = 10_000_000_000_000n;
-  state.decimals = 12; state.locked = false;
+  state.decimals = 12; state.locked = false; state.sent = [];
   addCustomToken("member", { address: contract, symbol: "Dreams", decimals: 12 });
 });
 describe("confirmed imported token deposits", () => {
@@ -95,5 +99,41 @@ describe("confirmed imported token deposits", () => {
     state.receipt.mockResolvedValue(null); state.transaction.mockResolvedValue(null);
     expect(await syncCustomTokenDeposits("member", contract)).toBe(0);
     expect(state.ledger).toHaveLength(2);
+  });
+
+  describe("confirmed withdrawals before a new deposit", () => {
+    const dest = `0x${"ab".repeat(20)}`;
+    const confirm = (units: bigint) => {
+      const data = new Interface(["function transfer(address,uint256) returns (bool)"]).encodeFunctionData("transfer", [dest, units]);
+      state.receipt.mockResolvedValue({ status: 1, blockNumber: 90 });
+      state.transaction.mockResolvedValue({ from: address, to: contract, data });
+    };
+    it("credits the full new deposit after withdrawing an amount with more than 8 decimals", async () => {
+      await syncCustomTokenDeposits("member", contract);
+      const token = { address: contract, symbol: "Dreams", decimals: 12, addedAt: 0 };
+      await withdrawCustomToken({ swarmId: "member", token, amount: 1.123456789, to: dest });
+      const sent = state.sent[0].units;
+      confirm(sent);
+      state.held = 10_000_000_000_000n - sent + 5_000_000_000_000n;
+      expect(await syncCustomTokenDeposits("member", contract)).toBe(5);
+    });
+    it("counts an older withdrawal record of 0.1 on an 18-decimal token", async () => {
+      state.decimals = 18;
+      addCustomToken("member", { address: contract, symbol: "Dreams", decimals: 18 });
+      state.ledger.push({ id: "old-dep", type: "external_deposit", from: "x", to: "member", amount: 1, fee: 0, nonce: 1, timestamp: "", signature: "", publicKey: "",
+        meta: { currency: `MINTME:${contract}`, address } } as SwarmTransaction);
+      state.ledger.push({ id: "old-out", type: "external_withdraw", from: "member", to: dest, amount: 0.1, fee: 0, nonce: 2, timestamp: "", signature: "", publicKey: address,
+        meta: { currency: `MINTME:${contract}`, coldKeyAddress: address, txHash: `0x${"ab".repeat(32)}` } } as SwarmTransaction);
+      const sent = numberToUnits(0.1, 18);
+      confirm(sent);
+      state.held = 10n ** 18n - sent + 2n * 10n ** 18n;
+      expect(await syncCustomTokenDeposits("member", contract)).toBe(2);
+    });
+    it("keeps checking deposits when an older record holds a tiny amount like 0.0000001", async () => {
+      state.ledger.push({ id: "tiny", type: "external_deposit", from: "x", to: "member", amount: 0.0000001, fee: 0, nonce: 1, timestamp: "", signature: "", publicKey: "",
+        meta: { currency: `MINTME:${contract}`, address } } as SwarmTransaction);
+      state.held = 100_000n + 3_000_000_000_000n;
+      expect(await syncCustomTokenDeposits("member", contract)).toBe(3);
+    });
   });
 });
