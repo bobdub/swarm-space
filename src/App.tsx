@@ -32,6 +32,7 @@ import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
 import { BrainSyncHost } from "@/components/brain/BrainSyncHost";
 import { BrainInviteConnection } from "@/components/brain/BrainInviteConnection";
 import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
+import { SwarmLinkInterceptor } from "@/components/routing/SwarmLinkInterceptor";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
@@ -163,6 +164,8 @@ function AppContent() {
       <CoinEngravingService />
       <BrainChunkPreloader />
       <BrainInviteConnection />
+      {/* SWARM links navigate in-app so a Brain meeting keeps running. */}
+      <SwarmLinkInterceptor />
 
       <div className="pb-16 md:pb-0">
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>

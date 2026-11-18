@@ -44,6 +44,7 @@ import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/w
 import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
 import { extractYoutubeVideoIds, stripYoutubeLinks } from "@/lib/blogging/youtube";
 import { YouTubeFacade } from "@/components/blogging/YouTubeFacade";
+import { SwarmLink } from "@/components/routing/SwarmLink";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -72,15 +73,13 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
       if (hideYoutube && extractYoutubeVideoIds(rawUrl).length > 0) { lastIndex = matchIndex + match[0].length; continue; }
       const href = normalizeUrl(rawUrl);
       nodes.push(
-        <a
+        <SwarmLink
           key={`link-${matchIndex}-${rawUrl}`}
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
           className="text-[hsl(174,59%,76%)] underline-offset-4 hover:underline"
         >
           {rawUrl}
-        </a>
+        </SwarmLink>
       );
     } else if (match[0].startsWith('@')) {
       // @mention match
