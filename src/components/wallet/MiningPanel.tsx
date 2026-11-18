@@ -7,8 +7,10 @@ import {
   CheckCircle2, AlertTriangle, Zap, Leaf, Shield, Timer, PlugZap
 } from "lucide-react";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import type { MiningStats } from "@/lib/p2p/swarmMesh.standalone";
 import { getMiningRewards } from "@/lib/blockchain/miningRewards";
+import { netRewardPerBlock } from "@/lib/mining/miningSummary";
+import { useMeshMining } from "@/hooks/useMeshMining";
 import { formatDistanceToNow } from "date-fns";
 import { MintMeMiningCard } from "./MintMeMiningCard";
 
@@ -16,39 +18,37 @@ const EMPTY_STATS: MiningStats = {
   blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
   heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
   acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
-  confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0,
+  confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0, confirmedHollowBlocks: 0,
   lastConfirmedAt: null, contentMultiplier: 1.0, seedingActive: false,
   chunksServedSinceLastBlock: 0, blockHeight: 0, consensusFailures: 0,
   transactionsProcessed: 0, spaceHosted: 0,
 };
 
+/** Must match MINING_INTERVAL in swarmMesh.standalone. */
+const BLOCK_INTERVAL_S = 15;
+
 export function MiningPanel() {
-  const { isEnabled, stats: p2pStats, getActivePeerConnections } = useP2PContext();
+  const { stats: p2pStats, getActivePeerConnections } = useP2PContext();
   const rewards = getMiningRewards();
 
-  const [miningStats, setMiningStats] = useState<MiningStats>(EMPTY_STATS);
-  const activePeerCount = Math.max(p2pStats.connectedPeers, getActivePeerConnections().length);
-  const hasRecentPulse = Boolean(miningStats.lastHeartbeatAt && Date.now() - miningStats.lastHeartbeatAt < 45_000);
-  const isConnected = (isEnabled && activePeerCount > 0) || hasRecentPulse;
-  const estimatedNext = Math.max(10, 15 - Math.min(5, activePeerCount));
-  const [countdown, setCountdown] = useState(estimatedNext);
-
-  useEffect(() => {
-    try {
-      const mesh = getSwarmMeshStandalone();
-      const unsub = mesh.onMiningChange(setMiningStats);
-      return unsub;
-    } catch {
-      // Mesh not initialized
-    }
-  }, []);
+  // Same source as the Node Dashboard mining card.
+  const mining = useMeshMining();
+  const miningStats = mining.stats ?? EMPTY_STATS;
+  const meshPeers = mining.peers;
+  const isConnected = mining.active;
+  const [countdown, setCountdown] = useState(BLOCK_INTERVAL_S);
 
   useEffect(() => {
     if (!isConnected) return;
-    setCountdown(estimatedNext);
-    const iv = setInterval(() => setCountdown(c => Math.max(0, c - 1)), 1000);
+    const anchor = miningStats.lastBlockMinedAt ?? Date.now();
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - anchor) / 1000);
+      setCountdown(Math.max(0, BLOCK_INTERVAL_S - (elapsed % BLOCK_INTERVAL_S)));
+    };
+    tick();
+    const iv = setInterval(tick, 1000);
     return () => clearInterval(iv);
-  }, [isConnected, miningStats.blockHeight, estimatedNext]);
+  }, [isConnected, miningStats.lastBlockMinedAt]);
 
   if (!isConnected) {
     return (
@@ -60,7 +60,7 @@ export function MiningPanel() {
               CREATOR Mining
             </CardTitle>
             <Badge variant="outline" className="border-destructive/50 text-destructive gap-1">
-              <WifiOff className="h-3 w-3" /> Offline
+              <WifiOff className="h-3 w-3" /> {mining.enabled ? "Offline" : "Paused"}
             </Badge>
           </div>
         </CardHeader>
@@ -70,16 +70,19 @@ export function MiningPanel() {
               <PlugZap className="h-8 w-8 text-muted-foreground" />
             </div>
             <div className="space-y-2">
-              <h3 className="text-lg font-semibold text-foreground">Not Mining</h3>
+              <h3 className="text-lg font-semibold text-foreground">
+                {mining.enabled ? "Not Mining" : "Mining Paused"}
+              </h3>
               <p className="text-sm text-muted-foreground max-w-xs">
-                Mining requires an active SWARM Mesh connection with peers.
-                No blocks are produced, no rewards are earned while offline.
+                {mining.enabled
+                  ? "Mining requires an active SWARM Mesh connection with peers. No blocks are produced, no rewards are earned while offline."
+                  : "Mining is paused on the Node Dashboard. Start it there to resume producing blocks."}
               </p>
             </div>
             <div className="rounded-lg bg-muted/50 border border-border/30 p-3 text-xs text-muted-foreground w-full">
               <span className="font-medium text-foreground">How CREATOR mining works:</span>{" "}
               Connect to the mesh → produce blocks → peers vote to confirm → earn SWARM tokens.
-              Content activity (seeding files) multiplies your rewards.
+              Content activity (seeding files) makes your blocks full instead of hollow.
             </div>
           </div>
 
@@ -95,17 +98,13 @@ export function MiningPanel() {
   // ONLINE STATE — Real live mining dashboard
   // ═══════════════════════════════════════════════════════════════════
 
-  // Honest earnings: only CONFIRMED blocks earn full rewards, hollow blocks get 50%
-  const fullBlocks = miningStats.confirmedBlocks - miningStats.hollowBlocks;
-  const hollowConfirmed = Math.min(miningStats.hollowBlocks, miningStats.confirmedBlocks);
-  const meshWork = Math.max(0, fullBlocks) + Math.floor(hollowConfirmed * 0.5) + miningStats.blocksRelayed + miningStats.peersDiscovered;
-  const networkService = Math.ceil((miningStats.heartbeatsSent + miningStats.acksReceived) / 10);
-  const grossEarned = (meshWork * rewards.TRANSACTION_PROCESSED) + (networkService * rewards.MB_HOSTED);
-  const netEarned = grossEarned * (1 - rewards.NETWORK_POOL_PERCENTAGE);
+  // Earnings come from the shared summary — identical to the Node Dashboard
+  // figure and to what AutoMiningService credits.
+  const { meshWorkUnits: meshWork, serviceUnits: networkService, net: netEarned, hollowConfirmedBlocks } = mining.earnings;
 
   // Network health score (0-100)
   const healthScore = Math.min(100, Math.round(
-    (activePeerCount * 15) +
+    (meshPeers * 15) +
     (miningStats.heartbeatsReceived > 0 ? 20 : 0) +
     (miningStats.blocksRelayed > 0 ? 15 : 0) +
     (miningStats.acksReceived > 0 ? 10 : 0) +
@@ -121,11 +120,9 @@ export function MiningPanel() {
     : null; // null = no data yet, don't fake 100%
 
   // Last block reward calculation
-  const lastBlockWasHollow = miningStats.hollowBlocks > 0 && miningStats.hollowBlocks >= miningStats.confirmedBlocks;
-  const perBlockReward = rewards.TRANSACTION_PROCESSED * (lastBlockWasHollow ? 0.5 : 1.0);
-  const perBlockNet = perBlockReward * (1 - rewards.NETWORK_POOL_PERCENTAGE);
+  const lastBlockWasHollow = hollowConfirmedBlocks > 0 && hollowConfirmedBlocks >= miningStats.confirmedBlocks;
+  const perBlockNet = netRewardPerBlock(lastBlockWasHollow);
   const lastBlockTimestamp = miningStats.lastConfirmedAt ?? miningStats.lastBlockMinedAt;
-
 
   return (
     <div className="space-y-4">
@@ -193,12 +190,12 @@ export function MiningPanel() {
               </span>
             </div>
             <div className="mt-1">
-              <Progress value={((estimatedNext - countdown) / estimatedNext) * 100} className="h-1" />
+              <Progress value={((BLOCK_INTERVAL_S - countdown) / BLOCK_INTERVAL_S) * 100} className="h-1" />
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
-              Est. reward: {miningStats.seedingActive
-                ? `${(rewards.TRANSACTION_PROCESSED * miningStats.contentMultiplier * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(4)} SWARM (${miningStats.contentMultiplier.toFixed(1)}x)`
-                : `${(rewards.TRANSACTION_PROCESSED * 0.5 * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(4)} SWARM (hollow)`
+              Est. reward once confirmed: {miningStats.seedingActive
+                ? `${netRewardPerBlock(false).toFixed(4)} SWARM (full block)`
+                : `${netRewardPerBlock(true).toFixed(4)} SWARM (hollow)`
               }
             </div>
           </div>
@@ -214,7 +211,7 @@ export function MiningPanel() {
           </div>
           <Progress value={healthScore} className="h-2" />
           <div className="flex justify-between mt-2 text-xs text-muted-foreground">
-            <span>{p2pStats.connectedPeers} peer{p2pStats.connectedPeers !== 1 ? 's' : ''} connected</span>
+            <span>{meshPeers} peer{meshPeers !== 1 ? 's' : ''} connected</span>
             <span>
               {miningStats.lastHeartbeatAt
                 ? `Last pulse ${formatDistanceToNow(miningStats.lastHeartbeatAt, { addSuffix: true })}`
@@ -256,7 +253,7 @@ export function MiningPanel() {
               : '—'
             }
             sub={miningStats.blocksMinedTotal > 0
-              ? `${miningStats.hollowBlocks} hollow (50% reward)`
+              ? `${miningStats.hollowBlocks} hollow (50% reward once confirmed)`
               : 'No blocks produced yet'
             }
           />
@@ -314,7 +311,7 @@ export function MiningPanel() {
             <span>Network service: {networkService} units × {rewards.MB_HOSTED} SWARM</span>
           </div>
           <div className="mt-1 text-xs text-primary/70">
-            5% network pool contribution: {(grossEarned * rewards.NETWORK_POOL_PERCENTAGE).toFixed(3)} SWARM
+            5% network pool contribution: {mining.earnings.pool.toFixed(3)} SWARM
           </div>
         </div>
 
@@ -323,13 +320,13 @@ export function MiningPanel() {
           <p className="rounded-lg bg-muted/50 border border-border/30 p-3">
             <span className="font-medium text-foreground">CREATOR Proof:</span>{' '}
             Blocks must travel the mesh and receive peer consensus before you earn. Content activity (seeding/receiving files)
-            multiplies your rewards. Hollow blocks (no content activity) earn 50%. 
+            makes a block full. Hollow blocks (no content activity) earn 50%. 
             <strong className="text-primary"> Honest mining = honest rewards.</strong>
           </p>
         </div>
       </CardContent>
     </Card>
-    <MintMeMiningCard connectedPeers={activePeerCount} />
+    <MintMeMiningCard connectedPeers={Math.max(meshPeers, p2pStats.connectedPeers, getActivePeerConnections().length)} />
     </div>
   );
 }

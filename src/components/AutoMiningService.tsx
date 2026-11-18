@@ -13,7 +13,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getFeatureFlags } from "@/config/featureFlags";
 import { rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
-import { getSwarmMeshStandalone, type MiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
+import { settleMiningPayout } from "@/lib/mining/miningPayouts";
 import { saveMiningSession } from "@/lib/blockchain/storage";
 import type { MiningSession } from "@/lib/blockchain/types";
 import { toast } from "sonner";
@@ -22,11 +23,9 @@ import { canUseMemberFeatures } from '@/lib/preview/guestAccess';
 // Module-level flag — survives re-renders and re-mounts from navigation
 let globalNotified = false;
 
-// Track last-seen stats to only reward NEW activity
-let lastSeenStats: MiningStats | null = null;
-
 // Stable session ID for the auto-miner lifetime
 let autoMineSessionId: string | null = null;
+let autoMineStartedAt: string | null = null;
 
 export function AutoMiningService() {
   const { user } = useAuth();
@@ -56,6 +55,7 @@ export function AutoMiningService() {
         hashRate: 0,
         status: "active",
       };
+      autoMineStartedAt = session.startedAt;
       saveMiningSession(session).catch(() => {});
 
       // ── BUG-11 FIX: Write __swarmMeshState immediately ──
@@ -68,19 +68,11 @@ export function AutoMiningService() {
         updatedAt: Date.now(),
       };
 
-      // Snapshot current stats so we only reward deltas
-      try {
-        lastSeenStats = getSwarmMeshStandalone().getMiningStats();
-      } catch {
-        lastSeenStats = null;
-      }
-
-      let tickCount = 0;
+      // Keep __swarmMeshState fresh for mineHealthValidator. Rewards no
+      // longer wait on this tick — they are paid from the mining-change
+      // subscription below the moment the mesh counters move.
       intervalRef.current = setInterval(() => {
         if (!user) return;
-        tickCount++;
-
-        // ── BUG-11 FIX: Keep __swarmMeshState fresh every tick ──
         (window as any).__swarmMeshState = {
           userId: user.id,
           peerCount: stats.connectedPeers,
@@ -89,57 +81,6 @@ export function AutoMiningService() {
           meshHealth: stats.connectedPeers > 0 ? 100 : 0,
           updatedAt: Date.now(),
         };
-
-        try {
-          const mesh = getSwarmMeshStandalone();
-          const current = mesh.getMiningStats();
-
-          if (!lastSeenStats) {
-            lastSeenStats = current;
-            return;
-          }
-
-          // ── CREATOR Proof: Only reward CONFIRMED blocks ──
-          const newConfirmed = current.confirmedBlocks - (lastSeenStats.confirmedBlocks ?? 0);
-          const newHollow = current.hollowBlocks - (lastSeenStats.hollowBlocks ?? 0);
-          const newRelays = current.blocksRelayed - (lastSeenStats.blocksRelayed ?? 0);
-          const newHeartbeats = current.heartbeatsSent - (lastSeenStats.heartbeatsSent ?? 0);
-          const newAcks = current.acksReceived - (lastSeenStats.acksReceived ?? 0);
-          const newPeersDiscovered = current.peersDiscovered - (lastSeenStats.peersDiscovered ?? 0);
-
-          // Full confirmed blocks + hollow blocks at 50% + relays + discoveries = mesh work
-          const fullBlockWork = Math.max(0, newConfirmed - newHollow);
-          const hollowWork = Math.floor(Math.max(0, newHollow) * 0.5);
-          const meshWork = fullBlockWork + hollowWork + newRelays + newPeersDiscovered;
-
-          // Heartbeats + acks = network service
-          const networkService = newHeartbeats + newAcks;
-
-          if (meshWork > 0) {
-            void rewardTransactionProcessing(user.id, meshWork);
-          }
-          if (networkService > 0) {
-            void rewardSpaceHosting(user.id, Math.ceil(networkService / 10));
-          }
-
-          // ── BUG-10 FIX: Update session every 5th tick (~2.5 min) ──
-          if (autoMineSessionId && tickCount % 5 === 0) {
-            const updatedSession: MiningSession = {
-              id: autoMineSessionId,
-              userId: user.id,
-              startedAt: session.startedAt,
-              blocksFound: current.confirmedBlocks,
-              totalReward: 0,
-              hashRate: 0,
-              status: "active",
-            };
-            saveMiningSession(updatedSession).catch(() => {});
-          }
-
-          lastSeenStats = current;
-        } catch {
-          // Mesh not available — skip this cycle
-        }
       }, 30_000);
     }
 
@@ -187,6 +128,42 @@ export function AutoMiningService() {
       }
     };
   }, [isEnabled, stats.connectedPeers, user]);
+
+  // ── Event-driven payouts ──
+  // Pay as soon as the mesh mining counters change (block confirmed, relay,
+  // discovery, heartbeat/ack) instead of every 30s. Payouts are derived from
+  // the same summary the mining displays use, so they always agree. Mesh
+  // work already requires live peers, so we don't gate on the (10s-polled)
+  // React peer count here.
+  useEffect(() => {
+    const flags = getFeatureFlags();
+    if (!flags.swarmMeshMode || !isEnabled || !user || !canUseMemberFeatures(user)) return;
+    let mesh: ReturnType<typeof getSwarmMeshStandalone>;
+    try { mesh = getSwarmMeshStandalone(); } catch { return; }
+
+    let lastConfirmed = -1;
+    const userId = user.id;
+    const unsub = mesh.onMiningChange((current) => {
+      const due = settleMiningPayout(userId, current);
+      if (due.meshWorkUnits > 0) void rewardTransactionProcessing(userId, due.meshWorkUnits);
+      if (due.serviceUnits > 0) void rewardSpaceHosting(userId, due.serviceUnits);
+
+      // BUG-10: keep the persisted session's block count current.
+      if (autoMineSessionId && current.confirmedBlocks !== lastConfirmed) {
+        lastConfirmed = current.confirmedBlocks;
+        saveMiningSession({
+          id: autoMineSessionId,
+          userId,
+          startedAt: autoMineStartedAt ?? new Date().toISOString(),
+          blocksFound: current.confirmedBlocks,
+          totalReward: 0,
+          hashRate: 0,
+          status: "active",
+        }).catch(() => {});
+      }
+    });
+    return unsub;
+  }, [isEnabled, user]);
 
   return null;
 }
