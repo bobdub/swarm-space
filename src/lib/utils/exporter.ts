@@ -1,165 +1,17 @@
+/**
+ * Personal Archive (.zip) export: one Markdown file per post with YAML
+ * frontmatter and its threaded conversation, decrypted media linked by
+ * relative path, and a README summary. Built entirely in the browser.
+ */
 import { get, getAll } from "../store";
-import type { Post } from "@/types";
+import type { Comment, Post } from "@/types";
 import { getCurrentUser } from "../auth";
 import type { Manifest } from "../fileEncryption";
 import { decryptAndReassembleFile, importFileKey } from "../fileEncryption";
+import { buildZip, type ZipFileEntry } from "../archive/zip";
+import { mediaPath, postPath, renderArchiveReadme, renderPostMarkdown, type ArchiveMediaRef } from "../archive/archiveFormat";
 
 const textEncoder = new TextEncoder();
-
-interface ZipFileEntry {
-  name: string;
-  data: Uint8Array;
-  lastModified?: Date;
-}
-
-interface BuiltZip {
-  chunks: ZipChunk[];
-  totalSize: number;
-}
-
-interface ZipChunk {
-  type: "file" | "central" | "eocd";
-  name?: string;
-  data: Uint8Array;
-}
-
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ data[i]) & 0xff];
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-const CRC32_TABLE = (() => {
-  const table = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    let c = i;
-    for (let k = 0; k < 8; k++) {
-      if (c & 1) {
-        c = 0xedb88320 ^ (c >>> 1);
-      } else {
-        c >>>= 1;
-      }
-    }
-    table[i] = c >>> 0;
-  }
-  return table;
-})();
-
-function dosDateTime(date: Date): { date: number; time: number } {
-  let year = date.getFullYear();
-  if (year < 1980) {
-    year = 1980;
-  } else if (year > 2107) {
-    year = 2107;
-  }
-  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
-  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1);
-  return { date: dosDate, time: dosTime };
-}
-
-function concatChunks(chunks: Uint8Array[]): Uint8Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
-function encodeFile(entry: ZipFileEntry, offset: number): { fileChunk: ZipChunk; centralChunk: ZipChunk; length: number } {
-  const nameBytes = textEncoder.encode(entry.name);
-  const dataBytes = entry.data;
-  const crc = crc32(dataBytes);
-  const modified = entry.lastModified ?? new Date();
-  const { date, time } = dosDateTime(modified);
-
-  const localHeader = new Uint8Array(30 + nameBytes.length);
-  const localView = new DataView(localHeader.buffer);
-  localView.setUint32(0, 0x04034b50, true);
-  localView.setUint16(4, 20, true); // version needed
-  localView.setUint16(6, 0, true); // flags
-  localView.setUint16(8, 0, true); // compression method: store
-  localView.setUint16(10, time, true);
-  localView.setUint16(12, date, true);
-  localView.setUint32(14, crc, true);
-  localView.setUint32(18, dataBytes.length, true);
-  localView.setUint32(22, dataBytes.length, true);
-  localView.setUint16(26, nameBytes.length, true);
-  localView.setUint16(28, 0, true); // extra length
-  localHeader.set(nameBytes, 30);
-
-  const fileRecord = concatChunks([localHeader, dataBytes]);
-
-  const centralHeader = new Uint8Array(46 + nameBytes.length);
-  const centralView = new DataView(centralHeader.buffer);
-  centralView.setUint32(0, 0x02014b50, true);
-  centralView.setUint16(4, 0x031e, true); // version made by (3.0 UNIX)
-  centralView.setUint16(6, 20, true);
-  centralView.setUint16(8, 0, true);
-  centralView.setUint16(10, 0, true);
-  centralView.setUint16(12, time, true);
-  centralView.setUint16(14, date, true);
-  centralView.setUint32(16, crc, true);
-  centralView.setUint32(20, dataBytes.length, true);
-  centralView.setUint32(24, dataBytes.length, true);
-  centralView.setUint16(28, nameBytes.length, true);
-  centralView.setUint16(30, 0, true);
-  centralView.setUint16(32, 0, true);
-  centralView.setUint16(34, 0, true);
-  centralView.setUint16(36, 0, true);
-  centralView.setUint32(38, 0, true);
-  centralView.setUint32(42, offset, true);
-  centralHeader.set(nameBytes, 46);
-
-  return {
-    fileChunk: { type: "file", name: entry.name, data: fileRecord },
-    centralChunk: { type: "central", name: entry.name, data: centralHeader },
-    length: fileRecord.length,
-  };
-}
-
-function buildZip(entries: ZipFileEntry[]): BuiltZip {
-  const fileChunks: ZipChunk[] = [];
-  const centralChunks: ZipChunk[] = [];
-  let offset = 0;
-
-  for (const entry of entries) {
-    const { fileChunk, centralChunk, length } = encodeFile(entry, offset);
-    fileChunks.push(fileChunk);
-    centralChunks.push(centralChunk);
-    offset += length;
-  }
-
-  const centralSize = centralChunks.reduce((sum, chunk) => sum + chunk.data.length, 0);
-  const centralOffset = offset;
-
-  const eocd = new Uint8Array(22);
-  const eocdView = new DataView(eocd.buffer);
-  eocdView.setUint32(0, 0x06054b50, true);
-  eocdView.setUint16(4, 0, true);
-  eocdView.setUint16(6, 0, true);
-  eocdView.setUint16(8, entries.length, true);
-  eocdView.setUint16(10, entries.length, true);
-  eocdView.setUint32(12, centralSize, true);
-  eocdView.setUint32(16, centralOffset, true);
-  eocdView.setUint16(20, 0, true);
-
-  const chunks = [...fileChunks, ...centralChunks, { type: "eocd" as const, data: eocd }];
-  const totalSize = offset + centralSize + eocd.length;
-
-  return { chunks, totalSize };
-}
-
-function sanitizeFilename(name: string, fallback: string): string {
-  const trimmed = name.trim();
-  if (!trimmed) return fallback;
-  const sanitized = trimmed.replace(/[^a-zA-Z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-  return sanitized || fallback;
-}
 
 export interface ExportRequestOptions {
   includePosts: boolean;
@@ -186,6 +38,7 @@ export interface ExportSummary {
   };
   counts: {
     posts: number;
+    comments: number;
     attachments: number;
     files: number;
   };
@@ -212,6 +65,7 @@ export interface AttachmentResolution {
 
 export interface ExporterDependencies {
   loadPosts(): Promise<Post[]>;
+  loadComments(): Promise<Comment[]>;
   resolveAttachment(manifestId: string): Promise<AttachmentResolution | null>;
 }
 
@@ -224,6 +78,14 @@ const defaultDependencies: ExporterDependencies = {
       return posts.filter((post) => post.author === currentUser.id);
     } catch (error) {
       console.error("[exporter] Failed to load posts", error);
+      return [];
+    }
+  },
+  async loadComments(): Promise<Comment[]> {
+    try {
+      return await getAll<Comment>("comments");
+    } catch (error) {
+      console.error("[exporter] Failed to load comments", error);
       return [];
     }
   },
@@ -251,6 +113,11 @@ const defaultDependencies: ExporterDependencies = {
 export interface CreateExportStreamContext {
   onProgress?: (update: ExportProgressUpdate) => void;
   dependencies?: Partial<ExporterDependencies>;
+}
+
+function safeDate(value: string | undefined, fallback: Date): Date {
+  const ms = value ? Date.parse(value) : NaN;
+  return Number.isFinite(ms) ? new Date(ms) : fallback;
 }
 
 export async function createAccountExportStream(
@@ -300,9 +167,50 @@ export async function createAccountExportStream(
   }
 
   const entries: ZipFileEntry[] = [];
+  const generatedAt = new Date();
+
+  // Media first, so each post can link the files that really made it in.
+  const mediaByManifest = new Map<string, ArchiveMediaRef>();
+  for (const attachment of attachments) {
+    const manifest = attachment.manifest;
+    const ref: ArchiveMediaRef = {
+      path: mediaPath(manifest.fileId, manifest.originalName ?? manifest.fileId),
+      manifestId: manifest.fileId,
+      name: manifest.originalName ?? manifest.fileId,
+      mime: manifest.mime || "application/octet-stream",
+      size: manifest.size,
+    };
+    mediaByManifest.set(manifest.fileId, ref);
+    entries.push({ name: ref.path, data: new Uint8Array(attachment.data), lastModified: safeDate(manifest.createdAt, generatedAt) });
+  }
+
+  let commentTotal = 0;
+  if (includePosts) {
+    const postIds = new Set(postsToInclude.map((p) => p.id));
+    const commentsByPost = new Map<string, Comment[]>();
+    for (const comment of await dependencies.loadComments()) {
+      if (!postIds.has(comment.postId)) continue;
+      if (!commentsByPost.has(comment.postId)) commentsByPost.set(comment.postId, []);
+      commentsByPost.get(comment.postId)!.push(comment);
+    }
+    const usedPaths = new Set<string>();
+    for (const post of postsToInclude) {
+      const media = (post.manifestIds ?? []).map((id) => mediaByManifest.get(id)).filter((m): m is ArchiveMediaRef => !!m);
+      const comments = commentsByPost.get(post.id) ?? [];
+      commentTotal += comments.length;
+      let path = postPath(post);
+      for (let n = 2; usedPaths.has(path); n++) path = postPath(post).replace(/\.md$/, `_${n}.md`);
+      usedPaths.add(path);
+      entries.push({
+        name: path,
+        data: textEncoder.encode(renderPostMarkdown(post, media, comments)),
+        lastModified: safeDate(post.editedAt ?? post.createdAt, generatedAt),
+      });
+    }
+  }
 
   const summary: ExportSummary = {
-    generatedAt: new Date().toISOString(),
+    generatedAt: generatedAt.toISOString(),
     selection: {
       includePosts,
       includeMedia,
@@ -311,6 +219,7 @@ export async function createAccountExportStream(
     },
     counts: {
       posts: postsToInclude.length,
+      comments: commentTotal,
       attachments: attachments.length,
       files: 0,
     },
@@ -324,39 +233,27 @@ export async function createAccountExportStream(
     warnings,
   };
 
-  if (includePosts) {
-    const postsJson = JSON.stringify(postsToInclude, null, 2);
-    entries.push({
-      name: "posts/posts.json",
-      data: textEncoder.encode(postsJson),
-    });
-  }
-
-  for (const attachment of attachments) {
-    const manifest = attachment.manifest;
-    const safeName = sanitizeFilename(manifest.originalName ?? manifest.fileId, manifest.fileId);
-    const dir = `media/${manifest.fileId}`;
-    entries.push({
-      name: `${dir}/${safeName}`,
-      data: new Uint8Array(attachment.data),
-    });
-    const manifestJson = JSON.stringify(manifest, null, 2);
-    entries.push({
-      name: `${dir}/manifest.json`,
-      data: textEncoder.encode(manifestJson),
-    });
-  }
-
-  const summaryJson = JSON.stringify(summary, null, 2);
-  entries.push({
-    name: "summary.json",
-    data: textEncoder.encode(summaryJson),
+  const me = getCurrentUser();
+  entries.unshift({
+    name: "README.md",
+    data: textEncoder.encode(renderArchiveReadme({
+      generatedAt: summary.generatedAt,
+      username: me?.username,
+      displayName: me?.displayName,
+      userId: me?.id,
+      posts: summary.counts.posts,
+      comments: commentTotal,
+      media: attachments.length,
+      warnings,
+    })),
+    lastModified: generatedAt,
   });
 
   summary.counts.files = entries.length;
 
   const { chunks, totalSize } = buildZip(entries);
-  const fileName = options.fileName ?? `flux-export-${Date.now()}.zip`;
+  const stamp = summary.generatedAt.slice(0, 10);
+  const fileName = options.fileName ?? `swarm-archive-${me?.username ? `${me.username}-` : ""}${stamp}.zip`;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

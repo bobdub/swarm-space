@@ -51,6 +51,7 @@ import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
 import { AccountExportModal } from "@/components/AccountExportModal";
 import { SovereignSecurityPanel } from "@/components/settings/SovereignSecurityPanel";
+import { ArchiveImportModal } from "@/components/settings/ArchiveImportModal";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
@@ -671,6 +672,16 @@ const Settings = () => {
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-6">
+              <Card className="space-y-3 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <div>
+                  <h2 className="text-xl font-bold">Personal archive</h2>
+                  <p className="text-sm text-foreground/60">
+                    Take your posts, conversations and media with you as a .zip you can read offline, and restore it on any device.
+                  </p>
+                </div>
+                <AccountExportModal />
+                <ArchiveImportModal />
+              </Card>
               <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
               <PersonalServersPanel />
               <GroupWarePanel />

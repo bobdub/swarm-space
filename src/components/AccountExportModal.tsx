@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { DownloadCloud, FileText, ImageIcon, Loader2, ShieldCheck } from "lucide-react";
+import { DownloadCloud, FileText, ImageIcon, Loader2, Share2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   createAccountExportStream,
@@ -29,6 +29,13 @@ function formatBytes(bytes: number): string {
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+/** iOS / Android hand files to the native share tray (Save to Files, Quick Share). */
+function isMobileShareTarget(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 export function AccountExportModal() {
   const [open, setOpen] = useState(false);
   const [includePosts, setIncludePosts] = useState(true);
@@ -40,6 +47,7 @@ export function AccountExportModal() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [errors, setErrors] = useState<string | null>(null);
+  const [archiveFile, setArchiveFile] = useState<File | null>(null);
 
   useEffect(() => {
     return () => {
@@ -58,6 +66,7 @@ export function AccountExportModal() {
     setSummary(null);
     setErrors(null);
     setFileName(null);
+    setArchiveFile(null);
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
       setDownloadUrl(null);
@@ -118,6 +127,7 @@ export function AccountExportModal() {
       }
 
       const blob = new Blob(chunks as BlobPart[], { type: "application/zip" });
+      setArchiveFile(new File([blob], exportFileName, { type: "application/zip" }));
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
       setFileName(exportFileName);
@@ -137,6 +147,24 @@ export function AccountExportModal() {
     }
   }, [canExport, includePosts, includeMedia, isExporting]);
 
+  const canShareArchive = useMemo(() => {
+    if (!archiveFile || !isMobileShareTarget()) return false;
+    try {
+      return typeof navigator.share === "function" && (navigator.canShare?.({ files: [archiveFile] }) ?? false);
+    } catch {
+      return false;
+    }
+  }, [archiveFile]);
+
+  const handleShare = useCallback(async () => {
+    if (!archiveFile) return;
+    try {
+      await navigator.share({ files: [archiveFile], title: archiveFile.name });
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError") toast.error("Sharing failed; use Download instead");
+    }
+  }, [archiveFile]);
+
   const progressPercent = useMemo(() => {
     if (!progress) return 0;
     return Math.min(100, Math.round(progress.percent));
@@ -148,10 +176,10 @@ export function AccountExportModal() {
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <DownloadCloud className="h-4 w-4" />
-            Export content archive
+            Export personal archive
           </div>
           <p className="text-xs text-muted-foreground">
-            Bundle your posts and media into a portable archive.
+            A .zip of your posts as Markdown, their conversations, and decrypted media. Readable offline.
           </p>
         </div>
         <DialogTrigger asChild>
@@ -164,7 +192,7 @@ export function AccountExportModal() {
 
       <DialogContent className="max-w-xl">
         <DialogHeader className="space-y-2">
-          <DialogTitle>Export your data</DialogTitle>
+          <DialogTitle>Export your personal archive</DialogTitle>
           <DialogDescription>
             Choose what to include. Exports run locally so your content never leaves this device.
           </DialogDescription>
@@ -184,7 +212,7 @@ export function AccountExportModal() {
                   Posts & activity
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Includes your posts with metadata, reactions, and timestamps.
+                  Each post as a Markdown file with tags, timestamps, coin ID and its threaded comments.
                 </p>
               </div>
             </label>
@@ -201,7 +229,7 @@ export function AccountExportModal() {
                   Media attachments
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Reassembles referenced files and adds manifest details for each attachment.
+                  Decrypts attachments into a media folder, linked from each post.
                 </p>
               </div>
             </label>
@@ -231,6 +259,9 @@ export function AccountExportModal() {
               <ul className="space-y-1 text-xs text-muted-foreground">
                 <li>
                   <span className="font-medium text-foreground">Posts:</span> {summary.counts.posts}
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Comments:</span> {summary.counts.comments}
                 </li>
                 <li>
                   <span className="font-medium text-foreground">Media files:</span> {summary.counts.attachments}
@@ -264,8 +295,14 @@ export function AccountExportModal() {
           >
             Cancel
           </Button>
+          {downloadUrl && fileName && canShareArchive ? (
+            <Button onClick={() => void handleShare()} className="gap-2">
+              <Share2 className="h-4 w-4" />
+              Save or share
+            </Button>
+          ) : null}
           {downloadUrl && fileName ? (
-            <Button asChild>
+            <Button asChild variant={canShareArchive ? "outline" : "default"}>
               <a href={downloadUrl} download={fileName}>
                 Download archive
               </a>
