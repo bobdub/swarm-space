@@ -15,6 +15,13 @@ import {
   isTreeFelled,
 } from '@/lib/world/treeChopStore';
 import { spawnDrop } from '@/lib/world/worldDropsStore';
+import {
+  HITS_TO_BREAK,
+  BREAK_MS,
+  registerStoneHit,
+  clearStoneMine,
+  isStoneBroken,
+} from '@/lib/world/stoneMineStore';
 import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { swingProgress, swingResisted, swingSuccess } from '@/lib/world/swingFeedback';
 import { playerSwingEnergy } from '@/lib/world/swingEnergy';
@@ -43,6 +50,21 @@ function verbFor(toolPrefabId: string): ToolVerb {
   if (toolPrefabId.startsWith('tool_bucket')) return 'gather';
   if (toolPrefabId.startsWith('consumable_salt')) return 'sharpen';
   return 'none';
+}
+
+/** Nature kinds made of rock. Only a pick can break them. */
+export const ROCK_KINDS: ReadonlySet<string> = new Set(['stone', 'mountain', 'volcano']);
+
+/**
+ * Rock is pick work. Returns null when the tool may strike `natureKind`,
+ * otherwise the line to show the player. An axe edge only bounces off
+ * stone, so the Stone Axe (and every other non-pick) is refused here,
+ * before any swing energy is spent.
+ */
+export function rockToolRefusal(toolPrefabId: string, natureKind: string, toolLabel: string): string | null {
+  if (!ROCK_KINDS.has(natureKind)) return null;
+  if (verbFor(toolPrefabId) === 'mine') return null;
+  return `${toolLabel} can't break stone. Use a Stone Pick.`;
 }
 
 function unitFrom(v: Vec3): Vec3 {
@@ -254,7 +276,7 @@ function clearTargetIfBlock(blockId: string): void {
 /** Reach (m, surface distance from the avatar) per nature kind a verb can work. */
 const AUTO_REACH: Record<ToolVerb, Record<string, number>> = {
   chop: { tree: 4.2 },
-  mine: { mountain: 14, volcano: 18 },
+  mine: { stone: 3.4, mountain: 14, volcano: 18 },
   gather: { flower: 2.8, grass: 2.8, fish: 3.2, water: 3.2 },
   whittle: {},
   dig: {},
@@ -278,6 +300,7 @@ export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): Tool
   let best: { block: ReturnType<ReturnType<typeof getBuilderBlockEngine>['listBlocks']>[number]; score: number } | null = null;
   for (const block of getBuilderBlockEngine().listBlocks((b) => b.kind in reachTable)) {
     if (block.kind === 'tree' && isTreeFelled(block.bodyId)) continue;
+    if (block.kind === 'stone' && isStoneBroken(block.bodyId)) continue;
     const body = physics.getBody(block.bodyId);
     if (!body) continue;
     const dx = body.pos[0] - self.pos[0];
@@ -355,6 +378,23 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   // last one topples it and scatters wood on the ground.
   if (verb === 'chop' && target.natureKind === 'tree') {
     return chopTree(toolPrefabId, target.blockId, selfId);
+  }
+
+  // Rock is pick-only: the Stone Axe and every other tool is turned away.
+  const rockRefusal = rockToolRefusal(toolPrefabId, target.natureKind, prefab.label);
+  if (rockRefusal) {
+    const body = getBrainPhysics().getBody(target.blockId);
+    const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+    const up = unitFrom(point);
+    const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
+    emitTargetImpact(point, up, prefab.color, probe.intensity, 'wrong tool', false, 'stone');
+    swingProgress(toolPrefabId, prefab.label, rockRefusal);
+    return false;
+  }
+
+  // Loose boulders break apart under a pick, like a tree under an axe.
+  if (verb === 'mine' && target.natureKind === 'stone') {
+    return mineStone(toolPrefabId, target.blockId, selfId);
   }
 
   // Rock faces yield stone to a pick, chip by chip. The mountain stays —
@@ -491,6 +531,93 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
     try { getBuilderBlockEngine().removeBlock(blockId); } catch { /* already gone */ }
     clearTreeChop(blockId);
   }, TOPPLE_MS + STUMP_FADE_MS);
+  return true;
+}
+
+/** Loose stone pieces a boulder of `size` (≈0.55..1.05) breaks into. */
+export function stoneYieldFor(size: unknown): number {
+  const s = typeof size === 'number' && Number.isFinite(size) ? size : 0.8;
+  return Math.max(2, Math.min(4, Math.round(1 + s * 2.4)));
+}
+
+/**
+ * Mine a granite boulder with a pick. Every bite still runs the shared
+ * `applyImpact` predicate. Accepted bites accumulate: the boulder jolts
+ * and chips smaller, and on the final one it cracks apart, scattering
+ * stone drops that the player picks up like wood from a felled tree.
+ */
+async function mineStone(toolPrefabId: string, blockId: string, selfId?: string): Promise<boolean> {
+  const toolPrefab = getPrefab(toolPrefabId);
+  const tool = getToolAny(toolPrefabId);
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!toolPrefab || !block) return false;
+  // Already breaking apart: its stone is on the ground, further bites do nothing.
+  if (isStoneBroken(blockId)) {
+    clearTargetIfBlock(blockId);
+    return false;
+  }
+
+  const body = getBrainPhysics().getBody(blockId);
+  const point: Vec3 = body ? [body.pos[0], body.pos[1], body.pos[2]] : [0, 0, 0];
+  if (landBlocks(point, selfId)) return false;
+
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, toolPrefab.color, tool?.mass ?? toolPrefab.mass);
+
+  if (!tool) {
+    emitTargetImpact(point, up, toolPrefab.color, probe.intensity, 'miss', false, 'stone');
+    swingProgress(toolPrefabId, toolPrefab.label, 'This tool cannot break stone.');
+    return false;
+  }
+
+  const swing = applyImpact({
+    tool,
+    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    curvatureLoad: probe.curvatureLoad,
+    target: { kind: 'block', block, bondTerm: bondTermForKind('stone') },
+    actorId: selfId,
+  });
+
+  emitTargetImpact(
+    point,
+    up,
+    toolPrefab.color,
+    probe.intensity,
+    swing.cut ? 'mine' : 'resist',
+    swing.cut,
+    'stone',
+  );
+
+  if (!swing.cut) {
+    swingResisted(toolPrefabId, toolPrefab.label, 'The stone');
+    return true;
+  }
+
+  const state = registerStoneHit(blockId);
+  if (state.hits < HITS_TO_BREAK) {
+    const left = HITS_TO_BREAK - state.hits;
+    swingProgress(toolPrefabId, toolPrefab.label, `The stone cracks — ${left} more ${left === 1 ? 'swing' : 'swings'}.`);
+    return true;
+  }
+
+  // Broken. Stone scatters as the boulder falls apart.
+  clearTargetIfBlock(blockId);
+  const pieces = stoneYieldFor(block.meta.size);
+  swingSuccess(toolPrefabId, toolPrefab.label, `The stone breaks apart · ${pieces} stone to pick up.`);
+  const stoneDir = localDirFromWorld(point);
+  for (let i = 0; i < pieces; i++) {
+    const angle = (i / pieces) * Math.PI * 2;
+    spawnDrop({
+      kind: 'stone',
+      qty: 1,
+      localDir: offsetLocalDir(stoneDir, Math.cos(angle) * 1.1, Math.sin(angle) * 1.1),
+      upOffset: 0,
+    });
+  }
+  window.setTimeout(() => {
+    try { getBuilderBlockEngine().removeBlock(blockId); } catch { /* already gone */ }
+    clearStoneMine(blockId);
+  }, BREAK_MS);
   return true;
 }
 
