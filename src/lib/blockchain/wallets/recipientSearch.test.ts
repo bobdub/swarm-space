@@ -13,7 +13,7 @@ beforeEach(() => {
   state.candidates = [member("u-sam", "sam", "Sam"), member("u-samantha", "samantha", "Samantha"), member("me", "samuel"), member("entity", "Infinity", "Infinity", true)];
   state.resolve.mockReset();
   state.resolve.mockImplementation(async (id: string) => {
-    if (["u-sam", "u-samantha", "raw-id", "0x68588ba69f51bf95f0e040b0d8f646e9fe526218"].includes(id)) return { id: id.startsWith("0x") ? "alias-owner" : id, username: id };
+    if (["u-sam", "u-samantha", "u-imposter", "raw-id", "0x68588ba69f51bf95f0e040b0d8f646e9fe526218"].includes(id)) return { id: id.startsWith("0x") ? "alias-owner" : id, username: id };
     throw new Error("SWARM wallet recipient not found. Sync with this user first.");
   });
 });
@@ -48,4 +48,10 @@ test("raw wallet ids and 0x aliases still resolve as a fallback", async () => {
   await expect(resolveWalletRecipientInput("swarm:nobody", "me")).rejects.toThrow("recipient not found");
   await expect(resolveWalletRecipientInput("@ghost", "me")).rejects.toThrow("No synced member found for @ghost");
   await expect(resolveWalletRecipientInput("  ", "me")).rejects.toThrow("Enter a username");
+});
+
+test("a pasted raw wallet id beats a member whose handle shares those characters", async () => {
+  state.candidates.push(member("u-imposter", "raw-id"));
+  expect((await resolveWalletRecipientInput("raw-id", "me")).id).toBe("raw-id");
+  expect((await resolveWalletRecipientInput("@raw-id", "me")).id).toBe("u-imposter");
 });

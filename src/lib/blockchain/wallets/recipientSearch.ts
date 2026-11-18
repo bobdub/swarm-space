@@ -51,6 +51,11 @@ export async function searchWalletRecipients(input: string, senderId: string, li
 export async function resolveWalletRecipientInput(input: string, senderId: string): Promise<User> {
   const query = normalizeRecipientQuery(input);
   if (!query) throw new Error("Enter a username or SWARM wallet address.");
+  // A pasted wallet id that belongs to a known account wins over name matches.
+  if (!input.trim().startsWith("@") && !looksLikeWalletAddress(input)) {
+    const direct = await resolveNativeWalletRecipient(input.trim()).catch(() => null);
+    if (direct) return direct;
+  }
   if (!looksLikeWalletAddress(input)) {
     const matches = await searchWalletRecipients(input, senderId, Infinity);
     const exact = matches.filter(m => m.username.toLowerCase() === query.toLowerCase());
