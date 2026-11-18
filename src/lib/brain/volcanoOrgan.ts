@@ -93,7 +93,6 @@ function snapNormalToLandLocal(
     radius: EARTH_RADIUS,
     basis: { right: lf.right, forward: lf.forward },
     steps: 96,
-    fallback: 'seed',
   });
 }
 

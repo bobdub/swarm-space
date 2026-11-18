@@ -15,9 +15,8 @@ import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
- * shader colours three continents and the ocean between them from the
- * shared continent field in surfaceProfile.ts, baked per vertex by
- * terrainMesh.ts so the drawn ground is the ground physics walks on.
+ * shader colours land/ocean from a low-frequency noise of the sphere's
+ * unit-vector position so it looks alive without external assets.
  */
 const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
@@ -71,7 +70,7 @@ const earthFragment = /* glsl */ `
   uniform float uVolcCraterD;
   uniform float uEarthR;
 
-  // Cheap value noise — used for near-camera ground detail.
+  // Cheap value noise — enough for a believable continents pattern.
   float hash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
     p += dot(p, p.yzx + 19.19);

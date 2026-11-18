@@ -22,7 +22,6 @@ import {
   anchorOnEarth,
   BODY_SHELL_RADIUS,
   beginEarthFrame,
-  earthLocalToWorld,
   endEarthFrame,
   getEarthLocalSiteFrame,
   getEarthPose,
@@ -110,22 +109,6 @@ describe('walking: feet stay on the drawn ground and ride the planet', () => {
     return p;
   }
 
-  function makeWalkerAt(t0: number, localN: [number, number, number]) {
-    const p = new UqrcPhysics();
-    setEarthPoseTime(t0);
-    endEarthFrame();
-    const pose = getEarthPose();
-    const w = earthLocalToWorld(
-      [localN[0] * BODY_SHELL_RADIUS, localN[1] * BODY_SHELL_RADIUS, localN[2] * BODY_SHELL_RADIUS],
-      pose,
-    );
-    p.addBody({
-      id: 'self', kind: 'self', pos: [...w] as [number, number, number],
-      vel: [0, 0, 0], mass: 1, trust: 0.5, meta: { attachedTo: 'earth-surface' },
-    });
-    return p;
-  }
-
   function clearance(p: UqrcPhysics) {
     const pose = getEarthPose();
     const b = p.getBody('self')!;
@@ -134,18 +117,10 @@ describe('walking: feet stay on the drawn ground and ride the planet', () => {
     return { feetAboveGround: r - BODY_CENTER_HEIGHT - feetRadiusAt(n), n };
   }
 
-  it('standing on open sea no longer sinks feet under the drawn sea', () => {
-    // Find a point well out on open ocean.
-    const rnd = seeded(99);
-    let sea: [number, number, number] | null = null;
-    while (!sea) {
-      const v = [rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1];
-      const l = Math.hypot(v[0], v[1], v[2]);
-      if (l < 0.1 || l > 1) continue;
-      const n: [number, number, number] = [v[0] / l, v[1] / l, v[2] / l];
-      if (sampleLandMask(n) === 0 && groundElevationAt(n) < 0.01) sea = n;
-    }
-    const p = makeWalkerAt(T_NOV, sea);
+  it('the shared village (open ocean) no longer sinks feet under the drawn sea', () => {
+    // The village anchor sits on open ocean — the spawn every player shares.
+    expect(sampleLandMask(getEarthLocalSiteFrame(VILLAGE).normal)).toBeLessThan(0.1);
+    const p = makeWalker(T_NOV, VILLAGE);
     const tick = (p as unknown as { tick(): void }).tick.bind(p);
     let worst = Infinity;
     for (let i = 0; i < PHYSICS_HZ * 3; i++) {
