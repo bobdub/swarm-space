@@ -42,6 +42,8 @@ export function setGuestName(userId: string, name: string): boolean {
     if (!isGuestUser(current) || current.id !== userId) return false;
     localStorage.setItem(GUEST_ME_KEY, JSON.stringify({ ...current, guestName: normalized, displayName: normalized }));
     window.dispatchEvent(new Event('user-login'));
+    // Re-announce to peers already connected, so the new name reaches them.
+    window.dispatchEvent(new Event('profile-updated'));
     return true;
   } catch { return false; }
 }
