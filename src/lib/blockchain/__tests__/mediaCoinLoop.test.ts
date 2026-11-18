@@ -164,4 +164,21 @@ describe("media coin loop", () => {
     const incoming = (bob as unknown as { incoming: Map<string, unknown> }).incoming;
     expect(Array.from(incoming.keys())).toEqual(["p3"]);
   });
+
+  it("completes a retried hand-off even when the first one's validation finishes late", async () => {
+    const net = createNetwork();
+    net.link("alice", "bob");
+    const alice = engineFor(net, "alice");
+    const bob = engineFor(net, "bob");
+    const got: string[] = [];
+    bob.onUnpack((u) => { got.push(u.manifest.coinId); });
+    const data = new Uint8Array(1_500_000).map((_, i) => i % 13);
+    await alice.mint({ name: "r", type: "application/octet-stream", data }, "alice", { coinId: "c6" });
+    const route = { creatorId: "alice", hops: ["alice"], ttl: 4 };
+    const send = (alice as unknown as { sendCoin(c: string, r: typeof route, p: string): Promise<boolean> }).sendCoin.bind(alice);
+    // Two back-to-back hand-offs of the same coin, as a retry would send.
+    await Promise.all([send("c6", route, "bob"), send("c6", route, "bob")]);
+    await settle();
+    expect(got).toEqual(["c6"]);
+  });
 });
