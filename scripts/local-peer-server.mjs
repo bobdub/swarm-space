@@ -90,8 +90,18 @@ async function smoke() {
   const idA = `smoke-a-${suffix}`;
   const idB = `smoke-b-${suffix}`;
 
+  // Node < 22 has no global WebSocket; fall back to the `ws` package.
+  let WebSocketImpl = globalThis.WebSocket;
+  if (!WebSocketImpl) {
+    try {
+      WebSocketImpl = (await import('ws')).WebSocket;
+    } catch {
+      throw new Error('No WebSocket available: use Node 22+ or Bun, or install dependencies so the `ws` package is present.');
+    }
+  }
+
   const open = (id) => new Promise((resolve, reject) => {
-    const ws = new WebSocket(wsUrl(id));
+    const ws = new WebSocketImpl(wsUrl(id));
     const timer = setTimeout(() => reject(new Error(`${id}: no OPEN from server`)), 10_000);
     ws.addEventListener('message', (event) => {
       const msg = JSON.parse(String(event.data));

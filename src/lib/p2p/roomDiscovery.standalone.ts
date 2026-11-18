@@ -33,16 +33,15 @@
 import { getCurrentUser } from '@/lib/auth';
 import { canonicalizePathnameForUser } from '@/lib/routing/canonicalHome';
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
-import { primarySignalingEndpoint } from './signalingEndpoints';
 
 /**
- * Beacons and probes use the first configured signaling server (a local
- * PeerServer in dev/CI), falling back to PeerJS Cloud when none is set.
+ * Beacons and probes dial the signaling server the mesh is currently on, so
+ * they follow its failover (configured server first, PeerJS Cloud last).
+ * Each probe is created fresh and beacons expire, so a failover is picked up
+ * on the next discovery cycle.
  */
 function signalingServer() {
-  const { host, port, secure, path } = primarySignalingEndpoint(
-    (import.meta.env ?? {}) as Record<string, string | boolean | undefined>,
-  );
+  const { host, port, secure, path } = getSwarmMeshStandalone().getSignalingEndpoint();
   return { host, port, secure, path };
 }
 

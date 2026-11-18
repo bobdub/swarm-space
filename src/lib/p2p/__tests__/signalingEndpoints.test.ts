@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PEERJS_CLOUD_ENDPOINT, SignalingEndpointRotation, primarySignalingEndpoint, resolveSignalingEndpoints } from '../signalingEndpoints';
+import { PEERJS_CLOUD_ENDPOINT, SignalingEndpointRotation, resolveSignalingEndpoints } from '../signalingEndpoints';
 
 describe('signaling endpoints', () => {
   it('defaults to PeerJS Cloud alone', () => {
@@ -15,11 +15,6 @@ describe('signaling endpoints', () => {
     });
     expect(list.map(e => e.host)).toEqual(['a.example.org', '0.peerjs.com', 'b.example.org']);
     expect(list[2]).toMatchObject({ port: 9000, secure: false, path: '/myapp' });
-  });
-  it('uses the configured server as primary and PeerJS Cloud when none is set', () => {
-    expect(primarySignalingEndpoint({})).toEqual(PEERJS_CLOUD_ENDPOINT);
-    expect(primarySignalingEndpoint({ VITE_PEERJS_HOST: '127.0.0.1', VITE_PEERJS_PORT: '9000', VITE_PEERJS_SECURE: 'false' }))
-      .toMatchObject({ host: '127.0.0.1', port: 9000, secure: false, path: '/' });
   });
   it('ignores an unparseable endpoint list', () => {
     expect(resolveSignalingEndpoints({ VITE_PEERJS_ENDPOINTS: '{nope' })).toEqual([PEERJS_CLOUD_ENDPOINT]);

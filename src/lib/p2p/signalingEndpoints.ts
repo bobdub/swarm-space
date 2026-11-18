@@ -91,15 +91,6 @@ export function resolveSignalingEndpoints(env: EnvShape = {}): SignalingEndpoint
 }
 
 /**
- * First endpoint of the resolved list: the configured server when one is set,
- * otherwise PeerJS Cloud. For single-endpoint peers (test mode, room beacons)
- * so they share a signaling namespace with the main mesh.
- */
-export function primarySignalingEndpoint(env: EnvShape = {}): SignalingEndpoint {
-  return resolveSignalingEndpoints(env)[0];
-}
-
-/**
  * Ordered failover: stay on an endpoint while it works, move to the next one
  * after `failuresBeforeSwitch` consecutive init failures, and wrap around.
  * A successful open resets the failure count but keeps the current endpoint.
