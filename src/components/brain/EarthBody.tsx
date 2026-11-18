@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import { Text } from '@react-three/drei';
 import {
   EARTH_RADIUS,
+  EARTH_SPHERE_RINGS,
+  EARTH_SPHERE_SEGMENTS,
   getEarthPose,
   MOON_RADIUS,
   WORLD_SCALE,
@@ -99,7 +101,11 @@ const earthFragment = /* glsl */ `
     float shoreMask = smoothstep(0.42, 0.50, continents) * (1.0 - smoothstep(0.50, 0.58, continents));
     // Mix ocean → shore → land, then overlay volcLand where uplift is
     // tall enough to count as dry surface. Polar ice last (latitude wins).
-    vec3 col = mix(uColOcean, uColShore, shoreMask);
+    // Sea floor colour by depth: sandy shallows fade to the deep ocean
+    // bed. The see-through water surface is drawn separately at sea level.
+    float seaDepth = max(0.0, uEarthR - length(vLocalPos));
+    vec3 seaFloor = mix(uColShore * 0.85, uColOcean * 0.55, smoothstep(0.6, 14.0, seaDepth));
+    vec3 col = mix(seaFloor, uColShore, shoreMask);
     col = mix(col, uColLand, landMask);
     float volcMask = smoothstep(2.0, 8.0, volcLift);
     col = mix(col, uColVolc, volcMask);
@@ -133,9 +139,10 @@ const earthFragment = /* glsl */ `
       vec3 groundCol = mix(grassDark, grassLight, micro);
       groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
       groundCol *= 0.85 + stripes * 0.3;
-      // Where the planet shader said "land", paint ground; over ocean, ripple.
-      vec3 oceanRipple = ocean * (0.85 + sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0) * 0.15);
-      vec3 surfaceCol = mix(oceanRipple, groundCol, max(landMask, volcMask));
+      // Where the planet shader said "land", paint ground. Out at sea the
+      // terrain is the sea floor under the see-through water surface.
+      vec3 seaBed = seaFloor * (0.75 + micro * 0.4);
+      vec3 surfaceCol = mix(seaBed, groundCol, max(landMask, volcMask));
       col = mix(col, surfaceCol, nearMix);
     }
 
@@ -228,6 +235,12 @@ export function EarthBody() {
   );
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
+  // Sea surface uses the same blue as the ocean channel (ocean palette
+  // with a faint H₂O tint), so the water reads blue and matches orbit view.
+  const waterColor = useMemo(() => {
+    const o = uniforms.uColOcean.value as THREE.Vector3;
+    return new THREE.Color(o.x, o.y, o.z);
+  }, [uniforms]);
   const moonUniforms = useMemo(
     () => ({
       uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
@@ -290,6 +303,21 @@ export function EarthBody() {
           fragmentShader={earthFragment}
           uniforms={uniforms}
           side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Sea surface at sea level. Out at sea the terrain below is the sea
+          floor (shallows → shelf → deep ocean bed), seen through the water;
+          over land the terrain is higher and hides this sphere by depth. */}
+      <mesh renderOrder={1}>
+        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
+        <meshPhongMaterial
+          color={waterColor}
+          emissive={waterColor}
+          emissiveIntensity={0.25}
+          transparent
+          opacity={0.6}
+          shininess={80}
+          depthWrite={false}
         />
       </mesh>
       {/* Soft glow halo */}

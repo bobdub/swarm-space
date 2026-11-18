@@ -28,9 +28,26 @@ import type { Vec3 } from './earth';
  *  walking avatar visibly steps UP onto a beach. */
 export const LAND_LIFT = 6.0;
 /** Terrain lift (m) above which ground counts as dry for surface
- *  classification. Feet no longer drop by this over water: the ocean is
- *  drawn as solid ground, so physics keeps feet on it (see groundHeight). */
+ *  classification. */
 export const WATER_WADE_DEPTH = 0.9;
+// ── Sea floor (bathymetry) ───────────────────────────────────────────
+//
+// Like Earth's coasts: a beach shelves gently into wadeable shallows, the
+// continental shelf carries on a little deeper, then the continental slope
+// drops to the deep ocean floor. Depth follows the continents value below
+// the coastline (0.48), so it works for any continents field. The floor is
+// solid everywhere, so nothing can fall into the planet.
+
+/** Continents value where the beach meets the sea (landMask starts here). */
+export const COAST_VALUE = 0.48;
+/** Continents value at the outer edge of the shelf. */
+export const SHELF_EDGE_VALUE = 0.42;
+/** Continents value where the slope reaches the deep ocean floor. */
+export const OCEAN_FLOOR_VALUE = 0.3;
+/** Depth (m) at the outer edge of the shelf — well past wading depth. */
+export const SHELF_DEPTH_M = 4;
+/** Deep ocean floor depth below sea level (m). */
+export const OCEAN_FLOOR_DEPTH_M = 30;
 /** Walk speed multiplier when wading. Drag is real. */
 export const WATER_WALK_SCALE = 0.45;
 
@@ -175,6 +192,15 @@ export function nearestContinent(n: Vec3): number {
 /** Continent field at an Earth-local unit normal (float64). */
 export function sampleContinents(localNormal: Vec3): number {
   return continentField(localNormal);
+}
+
+/** Sea-floor depth below sea level (m) for a continents value: beach shelf
+ *  → continental shelf → slope → deep ocean floor. 0 on land. */
+export function seaDepthFromContinents(c: number): number {
+  return (
+    SHELF_DEPTH_M * smoothstep(COAST_VALUE, SHELF_EDGE_VALUE, c) +
+    (OCEAN_FLOOR_DEPTH_M - SHELF_DEPTH_M) * smoothstep(SHELF_EDGE_VALUE, OCEAN_FLOOR_VALUE, c)
+  );
 }
 
 /** Land mask from a continents value — the single coastline threshold. */

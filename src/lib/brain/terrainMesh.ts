@@ -27,7 +27,7 @@
  */
 import { EARTH_RADIUS, EARTH_SPHERE_RINGS, EARTH_SPHERE_SEGMENTS } from './earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID, sampleVolcanoElevation } from './volcanoOrgan';
-import { sampleContinents, LAND_LIFT, landMaskFromContinents } from './surfaceProfile';
+import { sampleContinents, LAND_LIFT, landMaskFromContinents, seaDepthFromContinents } from './surfaceProfile';
 
 type Vec3 = [number, number, number];
 
@@ -38,7 +38,8 @@ export interface TerrainGrid {
   H: number;
   /** Unit directions, (H+1)·(W+1)·3, in three.js SphereGeometry order. */
   dirs: Float64Array;
-  /** Metres above EARTH_RADIUS at each vertex (land lift + volcano). */
+  /** Metres above sea level (EARTH_RADIUS) at each vertex: land lift +
+   *  volcano on land, negative (the sea floor) out at sea. */
   lift: Float64Array;
   /** Continents noise value at each vertex (drives colour bands). */
   continents: Float64Array;
@@ -82,7 +83,11 @@ export function getTerrainGrid(): TerrainGrid {
       const v = sampleVolcanoElevation(organ, d);
       continents[i] = c;
       volcano[i] = v;
-      lift[i] = landMaskFromContinents(c) * LAND_LIFT + v;
+      const land = landMaskFromContinents(c);
+      const raised = land * LAND_LIFT + v;
+      // Off the coast the ground is the sea floor: shelf, slope, ocean bed.
+      // The volcano cone still rises out of the sea where it reaches it.
+      lift[i] = raised - seaDepthFromContinents(c) * (1 - Math.min(1, v / 2));
     }
   }
   _grid = { W, H, dirs, lift, continents, volcano };
@@ -132,7 +137,8 @@ function rayTriangle(d: Vec3, a: Vec3, b: Vec3, c: Vec3): { t: number; inside: n
 /**
  * Metres above EARTH_RADIUS of the RENDERED ground along an Earth-local
  * unit normal: the exact intersection of that ray with the displaced
- * triangle the GPU draws there. Includes land lift and the volcano cone.
+ * triangle the GPU draws there. Includes land lift and the volcano cone;
+ * negative out at sea, where the ground is the sea floor.
  */
 export function sampleTerrainLift(localN: Vec3): number {
   const g = getTerrainGrid();
