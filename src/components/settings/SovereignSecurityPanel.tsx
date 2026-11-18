@@ -28,7 +28,7 @@ import { getCachedPrivateKey, getCurrentUser, loginUser, type UserMeta, type Wra
 import { unwrapPrivateKey, wrapPrivateKey } from "@/lib/crypto";
 import { get, put } from "@/lib/store";
 import { useP2P } from "@/hooks/useP2P";
-import { recoveryUrl } from "@/lib/backup/recoveryVault";
+import { openRecoveryVault, recoveryUrl } from "@/lib/backup/recoveryVault";
 import {
   CUSTODY_EVENT,
   getCustodyAcks,
@@ -46,6 +46,16 @@ async function opensLocalWrap(user: UserMeta, candidate: string): Promise<boolea
   if (!entry?.v || entry.v.rawStored || !entry.v.salt || !entry.v.iv) return false;
   try {
     await unwrapPrivateKey({ wrapped: entry.v.wrapped, salt: entry.v.salt, iv: entry.v.iv }, candidate.trim());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Rotation must retire the old phrase, so re-using it is refused. */
+async function opensCurrentShell(record: OwnVaultRecord, candidate: string): Promise<boolean> {
+  try {
+    await openRecoveryVault(record.envelope, candidate);
     return true;
   } catch {
     return false;
@@ -149,7 +159,11 @@ export function SovereignSecurityPanel() {
 
   const version = vault?.envelope.version ?? 0;
   const handle = discriminator ? `${user.username}#${discriminator}` : user.username;
-  const link = version > 0 ? recoveryUrl(window.location.origin, { id: user.id, v: version, peer: peerId }) : "";
+  // The link names a CUSTODIAN (a peer that acked this shell), because the
+  // device you recover from is usually not this one. Before any custody, fall
+  // back to this node so a second device can still recover while it is online.
+  const linkPeer = custodyPeers[0]?.peerId ?? peerId;
+  const link = version > 0 ? recoveryUrl(window.location.origin, { id: user.id, v: version, peer: linkPeer }) : "";
   const custodyLabel = !vault
     ? "No recovery vault sealed yet"
     : custodyPeers.length > 0
@@ -215,6 +229,10 @@ export function SovereignSecurityPanel() {
       }
       if (await opensLocalWrap(user, phrase)) {
         toast.error("Choose a recovery passphrase different from your account password");
+        return;
+      }
+      if (vault && (await opensCurrentShell(vault, phrase))) {
+        toast.error(`That passphrase already opens shell v${vault.envelope.version}; choose a new one`);
         return;
       }
       const record = await rotateRecoveryShell(privateKey, user, phrase);
