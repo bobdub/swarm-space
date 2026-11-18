@@ -16,6 +16,8 @@
 - Contact identity travels through active-peer library exchange; subscriptions invalidate discovered-peer snapshots independently of media, connected peers' own profiles override relayed hints, and Swarm panel edits use the live library without dialing so storage cannot diverge.
 - Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 
+- Sovereign recovery (`src/lib/backup/recoveryVault.ts`, `vaultCustody.ts`): the local account password only wraps the on-device key and never leaves the browser; the mesh holds only the outer-shell vault (AES-256-GCM, PBKDF2-SHA-256 250k, random salt, GCM AAD binds userId+version) signed by the identity key. Peers hold an envelope only when `computeUserId(signerPublicKey) === userId` and its version is strictly higher, capped at 256 held vaults. Genesis v1 is sealed with the signup password (`genesisDefault`) and the Security panel nudges rotation; rotated phrases must differ from the account password. Never export raw private keys.
+
 ## Verification compatibility
 - Retired verification gameplay and scoring are removed; retain historical medal metadata and verification records for profile and backup compatibility.
 

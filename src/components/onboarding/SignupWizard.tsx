@@ -3,10 +3,12 @@
  *
  * Step 1: Credentials (username, display name, password)
  * Step 2: Network Mode (Swarm Mesh vs Offline Mode)
- * Step 3: Backup Phrase (min 200 chars, mesh recovery)
- * Step 4: Terms of Service (scroll-to-accept)
+ * Step 3: Terms of Service (scroll-to-accept)
  *
  * Nothing is stored to localStorage/IndexedDB until all steps complete.
+ * On creation the genesis (v1) recovery vault is sealed in the background
+ * under the signup password and replicated opportunistically to peers;
+ * a separate recovery phrase can be wrapped later in Settings → Security.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -27,17 +29,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Copy,
-  Download,
   Loader2,
-  Network,
-  Shield,
   Wifi,
   WifiOff,
 } from "lucide-react";
 import { z } from "zod";
-import { createLocalAccount, type UserMeta } from "@/lib/auth";
-import { generateRecoveryKey, generateRecoveryKeyOnly, markRecoveryKeyBackup } from "@/lib/backup/recoveryKey";
+import { createLocalAccount, getCachedPrivateKey, type UserMeta } from "@/lib/auth";
 import { toast } from "sonner";
 import { CREDIT_REWARDS } from "@/lib/credits";
 import tosContent from "../../../TOS.md?raw";
@@ -79,7 +76,7 @@ interface SignupWizardProps {
   defaultNetworkMode?: NetworkMode;
 }
 
-const STEPS = ["credentials", "network", "backup", "tos"] as const;
+const STEPS = ["credentials", "network", "tos"] as const;
 type Step = (typeof STEPS)[number];
 
 export function SignupWizard({
@@ -101,15 +98,7 @@ export function SignupWizard({
   // Step 2 — Network mode
   const [networkMode, setNetworkMode] = useState<NetworkMode>(defaultNetworkMode);
 
-  // Step 3 — Recovery Key
-  const [generatedKey, setGeneratedKey] = useState("");
-  const [keyGenerated, setKeyGenerated] = useState(false);
-  const [keySaved, setKeySaved] = useState(false);
-  const [generatingKey, setGeneratingKey] = useState(false);
-  const [recoveryPhrase, setRecoveryPhrase] = useState("");
-  const [recoverySalt, setRecoverySalt] = useState<Uint8Array | null>(null);
-
-  // Step 4 — TOS
+  // Step 3 — TOS
   const tosRef = useRef<HTMLDivElement>(null);
   const [scrolledTos, setScrolledTos] = useState(false);
   const [tosChecked, setTosChecked] = useState(false);
@@ -127,12 +116,6 @@ export function SignupWizard({
       setPassword("");
       setCredErrors({});
       setNetworkMode(defaultNetworkMode);
-      setGeneratedKey("");
-      setKeyGenerated(false);
-      setKeySaved(false);
-      setGeneratingKey(false);
-      setRecoveryPhrase("");
-      setRecoverySalt(null);
       setScrolledTos(false);
       setTosChecked(false);
       setStorageChecked(false);
@@ -160,17 +143,6 @@ export function SignupWizard({
         return;
       }
       setCredErrors({});
-    }
-
-    if (step === "backup") {
-      if (!keyGenerated || !keySaved) {
-        toast.error("Please generate and save your recovery key first");
-        return;
-      }
-      if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
-        toast.error("Please enter a recovery phrase (at least 6 characters)");
-        return;
-      }
     }
 
     const idx = STEPS.indexOf(step);
@@ -211,30 +183,26 @@ export function SignupWizard({
           { networkMode: networkMode === 'swarm' ? 'swarm' : 'builder' }
       );
 
-      // 2. Generate full encrypted backup now that the user exists
-      try {
-        const backupResult = await generateRecoveryKey(
-          password, user.id, recoveryPhrase.trim(), undefined, recoverySalt ?? undefined
-        );
-        // Store chunks locally (mesh broadcast handled elsewhere)
-        localStorage.setItem(`recovery-chunks:${user.id}`, JSON.stringify(backupResult.chunks));
-        localStorage.setItem(`recovery-manifest:${user.id}`, JSON.stringify(backupResult.manifest));
-      } catch (backupErr) {
-        console.warn("[SignupWizard] Full backup deferred:", backupErr);
-      }
-
-      // 3. Mark as recovery-key account
-      markRecoveryKeyBackup(user.id);
-      localStorage.setItem(`passphrase-backup-done:${user.id}`, "1");
-      // Store the recovery key for download in settings
-      localStorage.setItem(`recovery-key:${user.id}`, generatedKey);
+      // 2. Seal the genesis (v1) recovery vault in the background. It is
+      //    replicated to peers on their next connection; failure never blocks signup.
+      void (async () => {
+        try {
+          const privateKey = await getCachedPrivateKey();
+          if (!privateKey) return;
+          const { sealGenesisVault, pushOwnVaultToAll } = await import("@/lib/backup/vaultCustody");
+          await sealGenesisVault(privateKey, user, password);
+          pushOwnVaultToAll(user.id);
+        } catch (vaultErr) {
+          console.warn("[SignupWizard] Genesis recovery vault deferred:", vaultErr);
+        }
+      })();
 
       toast.success(
         `Welcome, ${user.displayName}! +${CREDIT_REWARDS.GENESIS_ALLOCATION} genesis credits`,
         { id: "signup-success" }
       );
 
-      // 4. Grant storage consent (replaces standalone cookie banner)
+      // 3. Grant storage consent (replaces standalone cookie banner)
       try {
         localStorage.setItem("flux_storage_consent", "granted");
         window.dispatchEvent(new CustomEvent("storage-consent-granted"));
@@ -261,66 +229,6 @@ export function SignupWizard({
     await handleCreate();
   };
 
-  // ── Recovery Key Generation ──
-  const handleGenerateKey = async () => {
-    if (generatingKey) return;
-    if (!recoveryPhrase.trim() || recoveryPhrase.trim().length < 6) {
-      toast.error("Enter a recovery phrase first (at least 6 characters)");
-      setGeneratingKey(false);
-      return;
-    }
-    setGeneratingKey(true);
-    try {
-      const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
-      const result = await generateRecoveryKeyOnly(tempId);
-      setGeneratedKey(result.recoveryKey);
-      setRecoverySalt(result.salt);
-      setKeyGenerated(true);
-    } catch (err) {
-      console.error("[SignupWizard] Key generation failed:", err);
-      toast.error("Failed to generate recovery key. Try again.");
-    } finally {
-      setGeneratingKey(false);
-    }
-  };
-
-  const handleCopyKey = () => {
-    navigator.clipboard.writeText(generatedKey);
-    toast.success("Recovery key copied to clipboard");
-  };
-
-  const handleDownloadKey = () => {
-    const content = [
-      "=== SWARM Recovery Key ===",
-      "",
-      `Date: ${new Date().toISOString()}`,
-      "",
-      "--- RECOVERY KEY (keep this secret) ---",
-      "",
-      generatedKey,
-      "",
-      "--- END ---",
-      "",
-      "To recover your account:",
-      "1. Enter this key + your recovery phrase on any mesh node",
-      "2. The key finds your encrypted backup on the mesh",
-      "3. Your phrase decrypts it — the key alone cannot unlock your account",
-      "",
-      "--- RECOVERY PHRASE (keep this secret) ---",
-      "",
-      "(You must remember or store your phrase separately)",
-    ].join("\n");
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `swarm-recovery-key.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Recovery key downloaded");
-  };
-
-
   return (
     <Dialog
       open={open}
@@ -333,7 +241,6 @@ export function SignupWizard({
           <DialogTitle className="text-lg font-semibold">
             {step === "credentials" && "Create Your Account"}
             {step === "network" && "Choose Your Network"}
-            {step === "backup" && "Recovery Key & Phrase"}
             {step === "tos" && "Terms of Service"}
           </DialogTitle>
           <DialogDescription>
@@ -459,93 +366,7 @@ export function SignupWizard({
             </div>
           )}
 
-          {/* ─── Step 3: Recovery Key ─── */}
-          {step === "backup" && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
-                <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
-                <p className="text-xs leading-relaxed text-foreground/70">
-                  Enter a short phrase or poem — this <strong className="text-foreground">salts your encryption</strong>.
-                  Recovery requires: <strong className="text-foreground">Key + Phrase</strong>. Neither alone unlocks your account.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="recovery-phrase">
-                  Recovery Phrase <span className="text-foreground/40">(min 6 characters)</span>
-                </Label>
-                <Input
-                  id="recovery-phrase"
-                  value={recoveryPhrase}
-                  onChange={(e) => setRecoveryPhrase(e.target.value)}
-                  placeholder="A short poem, phrase, or sentence only you'd know…"
-                  className="text-sm"
-                  disabled={keyGenerated}
-                  autoFocus
-                />
-                <p className="text-xs text-foreground/40">
-                  {recoveryPhrase.length} characters · Never stored on the mesh
-                </p>
-              </div>
-
-              {!keyGenerated ? (
-                <Button
-                  onClick={handleGenerateKey}
-                  disabled={generatingKey}
-                  className="w-full gap-2"
-                >
-                  {generatingKey ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Generating…
-                    </>
-                  ) : (
-                    <>
-                      <Shield className="h-4 w-4" />
-                      Generate Recovery Key
-                    </>
-                  )}
-                </Button>
-              ) : (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,10%,0.6)] p-4">
-                    <p className="text-[0.65rem] uppercase tracking-wider text-foreground/40 mb-2">Your Recovery Key</p>
-                    <code className="block text-sm font-mono text-[hsl(174,59%,56%)] break-all leading-relaxed select-all">
-                      {generatedKey}
-                    </code>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handleCopyKey} className="flex-1 gap-1.5">
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={handleDownloadKey} className="flex-1 gap-1.5">
-                      <Download className="h-3.5 w-3.5" />
-                      Download .txt
-                    </Button>
-                  </div>
-
-                  <div className="flex items-start gap-2.5 pt-1">
-                    <Checkbox
-                      id="key-saved"
-                      checked={keySaved}
-                      onCheckedChange={(v) => setKeySaved(v === true)}
-                      className="mt-0.5"
-                    />
-                    <label
-                      htmlFor="key-saved"
-                      className="text-xs leading-relaxed cursor-pointer select-none text-foreground/80"
-                    >
-                      I've saved my recovery key in a safe place
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ─── Step 4: Terms of Service ─── */}
+          {/* ─── Step 3: Terms of Service ─── */}
           {step === "tos" && (
             <div className="space-y-3 animate-in fade-in slide-in-from-right-4 duration-300">
               <p className="text-xs text-foreground/50">
