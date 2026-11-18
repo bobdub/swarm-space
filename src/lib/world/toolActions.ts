@@ -12,8 +12,11 @@ import {
   STUMP_FADE_MS,
   registerTreeHit,
   clearTreeChop,
+  isTreeFelled,
 } from '@/lib/world/treeChopStore';
 import { spawnDrop } from '@/lib/world/worldDropsStore';
+import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { swingProgress, swingResisted, swingSuccess } from '@/lib/world/swingFeedback';
 
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
@@ -25,7 +28,7 @@ import {
   shellAtDepth,
   DIG_STEP_M,
 } from '@/lib/world/carvedCellsStore';
-import { setToolTarget } from '@/lib/world/toolTargetStore';
+import { getToolTarget, setToolTarget } from '@/lib/world/toolTargetStore';
 import { weatherCurvatureBoost } from '@/lib/world/weather';
 
 
@@ -194,9 +197,7 @@ async function applyImpactToBlock(params: {
 
 
   if (!swing.cut) {
-    toast.message(toolPrefab.label, {
-      description: `${label} resisted the strike (${swing.effectiveCut.toFixed(2)}).`,
-    });
+    swingResisted(toolPrefabId, toolPrefab.label, label);
     return true;
   }
 
@@ -204,10 +205,10 @@ async function applyImpactToBlock(params: {
   const next = Math.max(0, durability - Math.min(1, swing.effectiveCut * 0.35));
   if (next <= 0) {
     getBuilderBlockEngine().removeBlock(block.bodyId);
-    toast.success(toolPrefab.label, { description: `${label} yielded.` });
+    swingSuccess(toolPrefabId, toolPrefab.label, `${label} yielded.`);
   } else {
     getBuilderBlockEngine().upgradeBlock(block.bodyId, { meta: { ...block.meta, durability: next } });
-    toast.message(toolPrefab.label, { description: `${label} ${(next * 100).toFixed(0)}% intact.` });
+    swingProgress(toolPrefabId, toolPrefab.label, `${label} ${(next * 100).toFixed(0)}% intact.`);
   }
   return true;
 }
@@ -228,6 +229,25 @@ export async function applyToolToPlacement(toolPrefabId: string, target: Placeme
     point: hit,
     selfId,
   });
+}
+
+/** What one bucket/hand gather of a nature block adds to the Gathered tally. */
+export const GATHER_YIELD: Record<string, 'water' | 'food' | 'fibre'> = {
+  water: 'water',
+  fish: 'food',
+  flower: 'fibre',
+  grass: 'fibre',
+};
+
+const GATHER_LABEL: Record<'water' | 'food' | 'fibre', string> = {
+  water: 'Water',
+  food: 'Food',
+  fibre: 'Fibre',
+};
+
+function clearTargetIfBlock(blockId: string): void {
+  const cur = getToolTarget();
+  if (cur && cur.kind === 'nature' && cur.blockId === blockId) setToolTarget(null);
 }
 
 /** Reach (m, surface distance from the avatar) per nature kind a verb can work. */
@@ -256,6 +276,7 @@ export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): Tool
   const forward = physics.getIntent(selfId)?.basis?.forward;
   let best: { block: ReturnType<ReturnType<typeof getBuilderBlockEngine>['listBlocks']>[number]; score: number } | null = null;
   for (const block of getBuilderBlockEngine().listBlocks((b) => b.kind in reachTable)) {
+    if (block.kind === 'tree' && isTreeFelled(block.bodyId)) continue;
     const body = physics.getBody(block.bodyId);
     if (!body) continue;
     const dx = body.pos[0] - self.pos[0];
@@ -294,10 +315,11 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
     emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
-      toast.message(prefab.label, { description: 'No gatherable water at this impact point.' });
+      swingProgress(toolPrefabId, prefab.label, 'No gatherable water at this impact point.');
       return false;
     }
-    toast.success(prefab.label, { description: 'Collected water.' });
+    recordHarvestForResource('water', 1);
+    swingSuccess(toolPrefabId, prefab.label, 'Collected water · +1 Water.');
     return true;
   }
 
@@ -305,14 +327,26 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
 
 
 
-  if (verb === 'gather' && (target.natureKind === 'flower' || target.natureKind === 'grass' || target.natureKind === 'fish' || target.natureKind === 'water')) {
+  const gathered = verb === 'gather' ? GATHER_YIELD[target.natureKind] : undefined;
+  if (gathered) {
+    // A stale target (already collected) must not pay out a second time.
+    if (!getBuilderBlockEngine().getBlock(target.blockId)) {
+      clearTargetIfBlock(target.blockId);
+      return false;
+    }
     const body = getBrainPhysics().getBody(target.blockId);
     const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
     const up = unitFrom(point);
     const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
     emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true, materialForKind(target.natureKind));
     getBuilderBlockEngine().removeBlock(target.blockId);
-    toast.success(prefab.label, { description: `Collected ${labelForKind(target.natureKind).toLowerCase()}.` });
+    clearTargetIfBlock(target.blockId);
+    recordHarvestForResource(gathered, 1);
+    swingSuccess(
+      toolPrefabId,
+      prefab.label,
+      `Collected ${labelForKind(target.natureKind).toLowerCase()} · +1 ${GATHER_LABEL[gathered]}.`,
+    );
     return true;
   }
 
@@ -373,6 +407,9 @@ function offsetLocalDir(dir: Vec3, ax: number, az: number): Vec3 {
   return [px / n, py / n, pz / n];
 }
 
+/** Wood pieces a felled tree scatters; each is worth exactly 1 Wood. */
+export const WOOD_PER_TREE = 3;
+
 /**
  * Chop a tree. Every swing still runs the shared `applyImpact` predicate,
  * so a blunt edge or a heavy curvature load is refused exactly as it is
@@ -384,6 +421,11 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
   const tool = getToolAny(toolPrefabId);
   const block = getBuilderBlockEngine().getBlock(blockId);
   if (!toolPrefab || !block) return false;
+  // Already falling: its wood is on the way, further swings do nothing.
+  if (isTreeFelled(blockId)) {
+    clearTargetIfBlock(blockId);
+    return false;
+  }
 
   const body = getBrainPhysics().getBody(blockId);
   const point: Vec3 = body ? [body.pos[0], body.pos[1], body.pos[2]] : [0, 0, 0];
@@ -417,27 +459,25 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
   );
 
   if (!swing.cut) {
-    toast.message(toolPrefab.label, {
-      description: `The trunk resisted (${swing.effectiveCut.toFixed(2)}).`,
-    });
+    swingResisted(toolPrefabId, toolPrefab.label, 'The trunk');
     return true;
   }
 
   const state = registerTreeHit(blockId);
 
   if (state.hits < HITS_TO_FELL) {
-    toast.message(toolPrefab.label, {
-      description: `The tree shakes — ${HITS_TO_FELL - state.hits} more ${HITS_TO_FELL - state.hits === 1 ? 'swing' : 'swings'}.`,
-    });
+    const left = HITS_TO_FELL - state.hits;
+    swingProgress(toolPrefabId, toolPrefab.label, `The tree shakes — ${left} more ${left === 1 ? 'swing' : 'swings'}.`);
     return true;
   }
 
   // Felled. Wood lands a moment later, once the trunk has come down.
-  toast.success('Timber!', { description: 'The tree comes down.' });
+  clearTargetIfBlock(blockId);
+  swingSuccess(toolPrefabId, 'Timber!', `The tree comes down · ${WOOD_PER_TREE} wood to pick up.`);
   const treeDir = localDirFromWorld(point);
   window.setTimeout(() => {
-    for (let i = 0; i < 3; i++) {
-      const angle = (i / 3) * Math.PI * 2;
+    for (let i = 0; i < WOOD_PER_TREE; i++) {
+      const angle = (i / WOOD_PER_TREE) * Math.PI * 2;
       spawnDrop({
         kind: 'wood',
         qty: 1,
@@ -502,9 +542,7 @@ async function mineRock(
   );
 
   if (!swing.cut) {
-    toast.message(toolPrefab.label, {
-      description: `The rock held firm (${swing.effectiveCut.toFixed(2)}).`,
-    });
+    swingResisted(toolPrefabId, toolPrefab.label, 'The rock');
     return true;
   }
 
@@ -515,7 +553,7 @@ async function mineRock(
     localDir: offsetLocalDir(rockDir, (Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2),
     upOffset: 0,
   });
-  toast.success(toolPrefab.label, { description: 'Stone chips loose.' });
+  swingSuccess(toolPrefabId, toolPrefab.label, 'Stone chips loose.');
   return true;
 }
 
@@ -580,14 +618,14 @@ async function digShell(
   );
 
   if (!swing.cut) {
-    const why = swing.reason === 'lava_burns_tool'
-      ? 'Lava burns the tool — it cannot be cut.'
+    const hint = swing.reason === 'lava_burns_tool'
+      ? 'lava burns the tool'
       : swing.reason === 'sharpness_below_threshold'
-        ? `${shell.label} needs a sharper edge (≥ ${shell.sharpnessThreshold.toFixed(2)}).`
+        ? `needs a sharper edge (≥ ${shell.sharpnessThreshold.toFixed(2)})`
         : swing.reason === 'wrong_action_kind'
-          ? `${prefab.label} is the wrong tool for ${shell.label}.`
-          : `${shell.label} resisted (${swing.effectiveCut.toFixed(2)}).`;
-    toast.message(prefab.label, { description: why });
+          ? `${prefab.label} is the wrong tool`
+          : undefined;
+    swingResisted(toolPrefabId, prefab.label, shell.label, hint);
     return true;
   }
 

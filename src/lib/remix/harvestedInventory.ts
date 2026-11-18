@@ -13,7 +13,7 @@
  *   hydrateHarvestedInventory()
  *
  * Mapping helper:
- *   recordHarvestForResource(kind: 'water'|'wood'|'food'|'animal', qty)
+ *   recordHarvestForResource(kind: 'wood'|'stone'|'water'|'fibre'|'food'|'animal', qty)
  *
  * Throttled IDB writes (1.5s) per project core rule on browser perf.
  */
@@ -113,17 +113,33 @@ export function recordHarvestMany(parts: { symbol: string; count: number }[]): v
   if (changed) { scheduleWrite(); notify(); }
 }
 
-/** Resource-kind → element atoms shorthand for in-world harvest events. */
+/**
+ * Resource-kind → element atoms for ONE gathered unit.
+ *
+ * The tool menu's "Gathered" tally (`materials.ts`) folds this bag back
+ * into Wood / Stone / Water / Fibre / Food by element (C→Wood, Si→Stone,
+ * O→Water, H→Fibre, N→Food) and divides by atoms-per-unit (2/2/3/4/2).
+ * Each recipe below is exactly one unit of its own material and nothing
+ * else, so one gathered piece moves its own counter by exactly 1.
+ *
+ * (The old recipes were whole molecules — wood as C₆H₁₀O₅, water as H₂O —
+ * which leaked across counters: chopping a tree raised Water by more than
+ * filling a bucket did, and a bucket of water rounded down to zero.)
+ * Keep in step with ATOMS_PER_UNIT / ELEMENT_MATERIAL in materials.ts —
+ * the materials test guards it.
+ */
 const KIND_MAP: Record<string, { symbol: string; count: number }[]> = {
-  water:  [{ symbol: 'H', count: 2 }, { symbol: 'O', count: 1 }],
-  wood:   [{ symbol: 'C', count: 6 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 5 }],
-  food:   [{ symbol: 'C', count: 5 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 2 }, { symbol: 'N', count: 2 }],
-  animal: [{ symbol: 'C', count: 5 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 2 }, { symbol: 'N', count: 2 }],
+  wood:   [{ symbol: 'C', count: 2 }],
+  stone:  [{ symbol: 'Si', count: 2 }],
+  water:  [{ symbol: 'O', count: 3 }],
+  fibre:  [{ symbol: 'H', count: 4 }],
+  food:   [{ symbol: 'N', count: 2 }],
+  animal: [{ symbol: 'N', count: 2 }],
 };
 
 export function recordHarvestForResource(kind: string, qty: number): void {
   const parts = KIND_MAP[kind];
-  if (!parts || qty <= 0) return;
+  if (!parts || !Number.isFinite(qty) || qty <= 0) return;
   recordHarvestMany(parts.map((p) => ({ symbol: p.symbol, count: p.count * qty })));
 }
 

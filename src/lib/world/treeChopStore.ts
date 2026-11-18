@@ -42,6 +42,9 @@ export function getTreeChop(blockId: string): TreeChopState | undefined {
 /** Register one accepted cut. Returns the state after the hit. */
 export function registerTreeHit(blockId: string): TreeChopState {
   const cur = states.get(blockId);
+  // A falling tree takes no more cuts — otherwise every swing during the
+  // topple would fell it again and scatter another round of wood.
+  if (cur?.toppledAt) return cur;
   const next: TreeChopState = {
     blockId,
     hits: (cur?.hits ?? 0) + 1,
@@ -52,6 +55,11 @@ export function registerTreeHit(blockId: string): TreeChopState {
   states.set(blockId, next);
   notify();
   return next;
+}
+
+/** True once the tree has started to fall (until its stump is cleared). */
+export function isTreeFelled(blockId: string): boolean {
+  return Boolean(states.get(blockId)?.toppledAt);
 }
 
 export function clearTreeChop(blockId: string): void {
