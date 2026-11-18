@@ -24,6 +24,7 @@ import {
 } from '@/lib/world/stoneMineStore';
 import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { swingProgress, swingResisted, swingSuccess } from '@/lib/world/swingFeedback';
+import { playerSwingEnergy } from '@/lib/world/swingEnergy';
 
 import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
@@ -197,7 +198,7 @@ async function applyImpactToBlock(params: {
   const probe = resolveSwingProbe(point, up, toolPrefab.color, tool.mass);
   const swing = applyImpact({
     tool,
-    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    swingEnergy: playerSwingEnergy(tool.mass, probe.intensity),
     curvatureLoad: probe.curvatureLoad,
     target: {
       kind: 'block',
@@ -482,7 +483,7 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
 
   const swing = applyImpact({
     tool,
-    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    swingEnergy: playerSwingEnergy(tool.mass, probe.intensity),
     curvatureLoad: probe.curvatureLoad,
     target: { kind: 'block', block, bondTerm: bondTermForKind('tree') },
     actorId: selfId,
@@ -652,7 +653,7 @@ async function mineRock(
 
   const swing = applyImpact({
     tool,
-    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    swingEnergy: playerSwingEnergy(tool.mass, probe.intensity),
     curvatureLoad: probe.curvatureLoad,
     target: { kind: 'block', block, bondTerm: bondTermForKind(kind) },
     actorId: selfId,
@@ -722,7 +723,7 @@ async function digShell(
   const material = materialForShell(shell.id);
   const swing = applyImpact({
     tool,
-    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    swingEnergy: playerSwingEnergy(tool.mass, probe.intensity),
     // Storms load the field: digging in rain is measurably harder.
     curvatureLoad: probe.curvatureLoad + weatherCurvatureBoost(target.localNormal),
     target: {
