@@ -19,7 +19,8 @@ export type NatureKind =
   | 'bee'
   | 'queen_bee'
   | 'mountain'
-  | 'volcano';
+  | 'volcano'
+  | 'stone';
 
 export interface NatureSpec {
   kind: NatureKind;
@@ -60,7 +61,20 @@ function spec(
  *   fish   = water-rich tissue (H, O, C, N)
  *   hive   = beeswax (C, H, O) skewed waxy
  *   bee    = chitin (C, H, N, O) — yellow/black handled at render time
+ *   stone  = granite: quartz SiO2 + orthoclase feldspar KAlSi3O8
  */
+/**
+ * Granite, per gathered unit: SiO2 (quartz) + KAlSi3O8 (orthoclase).
+ * Shared with `harvestedInventory` so a broken boulder credits exactly
+ * the atoms it is made of.
+ */
+export const STONE_CONSTITUENTS: CompoundConstituent[] = [
+  { symbol: 'Si', count: 4 },
+  { symbol: 'Al', count: 1 },
+  { symbol: 'K', count: 1 },
+  { symbol: 'O', count: 10 },
+];
+
 export const NATURE_CATALOG: Record<NatureKind, NatureSpec> = {
   water: spec('water', 'Water', [
     { symbol: 'H', count: 2 }, { symbol: 'O', count: 1 },
@@ -102,6 +116,11 @@ export const NATURE_CATALOG: Record<NatureKind, NatureSpec> = {
     { symbol: 'Si', count: 1 }, { symbol: 'O', count: 2 },
     { symbol: 'Fe', count: 2 }, { symbol: 'Mg', count: 1 },
   ], 80, 1.6, 9999),
+  // Stone — a loose granite boulder lying on the surface. One formula
+  // unit is quartz (SiO2) + orthoclase feldspar (KAlSi3O8) = Si4 Al K O10.
+  // Unlike a mountain it is *gatherable*: a Stone Pick breaks it apart
+  // and this exact composition is what lands in the player's element bag.
+  stone: spec('stone', 'Stone', STONE_CONSTITUENTS, 12, 0.18, 40),
 };
 
 export function getNatureSpec(kind: NatureKind): NatureSpec {

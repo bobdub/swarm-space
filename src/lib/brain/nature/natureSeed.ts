@@ -12,6 +12,7 @@
  *   - 10 tree seeds (rendered as mature trees in Phase 2)
  *   - 10 fish (7 ♀ + 3 ♂) clustered inside the pond
  *   - 1 hive + 1 queen + 6 worker bees clustered around hive
+ *   - 8 granite boulders (gatherable stone), kept off the pond and hive
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { NATURE_CATALOG, type NatureKind } from './natureCatalog';
@@ -198,5 +199,34 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
     ids.push(id);
   }
 
+  // ── Stone: granite boulders scattered round the meadow. Each carries a
+  // size + shape seed so the renderer can build a unique procedural rock
+  // (no imported model). Placed last so earlier species keep their layout.
+  let placedStones = 0;
+  for (let i = 0; placedStones < STONE_COUNT && i < 200; i++) {
+    const a = r() * Math.PI * 2;
+    const rr = 10 + r() * 16;
+    const x = Math.cos(a) * rr;
+    const z = Math.sin(a) * rr;
+    const size = 0.55 + r() * 0.5;
+    const shapeSeed = Math.floor(r() * 0x7fffffff);
+    if (Math.hypot(x - PCX, z - PCZ) < POND_R + 2) continue;
+    if (Math.hypot(x - HX, z - HZ) < 4) continue;
+    const id = `stone-${placedStones}`;
+    place({
+      anchorPeerId,
+      kind: 'stone',
+      id,
+      rightOffset: x,
+      forwardOffset: z,
+      meta: { size, shapeSeed },
+    });
+    ids.push(id);
+    placedStones++;
+  }
+
   return { anchorPeerId, blockIds: ids };
 }
+
+/** How many gatherable boulders the starter biome scatters. */
+export const STONE_COUNT = 8;
