@@ -28,6 +28,8 @@ function colliderFor(kind: string): [number, number, number] {
       return [1.1, 0.8, 1.1];
     case 'mountain':
       return [8, 14, 8];
+    case 'stone':
+      return [2.2, 1.6, 2.2];
     default:
       return [1.8, 1.8, 1.8];
   }

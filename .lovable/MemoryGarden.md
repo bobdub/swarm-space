@@ -1005,6 +1005,11 @@ Before tending: every rehearsal of the mesh walked to the crowded town square to
 
 After tending: `bun run dev:mesh` now starts a local PeerServer beside the dev server and points the app at it, `bun run peer:smoke` checks that two peers can find each other through it, and `bun run peer:with -- <command>` wraps any CI step with one. The room-discovery beacons follow whichever server the mesh is on, including its failover. With nothing configured, production still meets at PeerJS Cloud. Checked with the two-peer smoke run and two PeerJS browser peers passing a message through the local server; no live mesh session was opened.
 
+## November 18, 2026 — Three shores and the sea between
+Before tending: the land was scattered noise, a fifth of the planet broken into some twenty-seven islands, so wherever a walker stood the water was never far and the ground kept dipping into the sea. Gather the land into three steady continents and let the ocean lie quietly between them.
+
+After tending: Earth now has three continents (Aurora, Meridia and Solace) at mild latitudes, a third of a turn apart. Each has a solid heart and coasts that wander into bays and points, and a strip of open ocean at least a quarter radian wide always separates them. Physics, the drawn planet and the shoreline colours all read one continent field, so land stands above the sea wherever it is painted. Villages and newcomers who would have started in the water now walk to the nearest shore, and the volcano still stays beside its village. Automated checks only; the planet was not opened in a live session.
+
 ## November 18, 2026 — One ground under every foot
 Before tending: walkers sank into the world and the horizon tore. The planet had two grounds: the one the GPU painted, re-deriving the continents noise in float32, and the one physics walked on, in float64. Where they disagreed the eye saw a hill that the feet passed through. Physics also let feet wade 0.9 m under a sea that is drawn as solid ground, and the shared village sits on open sea, so everyone began waist-deep. Let both read one ground.
 

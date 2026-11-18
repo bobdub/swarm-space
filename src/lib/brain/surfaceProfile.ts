@@ -2,7 +2,7 @@
  * surfaceProfile — single source of truth for "is this Earth point land
  * or water, and how high does the land sit above sea level?"
  *
- * The Earth shader draws a continents/ocean noise pattern. Until now
+ * The Earth shader draws three continents surrounded by ocean. Until now
  * physics didn't know about it: avatars walked on a perfectly spherical
  * shell, so they could stride across oceans without ever touching the
  * water. This module reproduces the SAME noise field used by the shader
@@ -73,20 +73,108 @@ function noise3(x: number, y: number, z: number): number {
 }
 
 /**
- * Continents noise — same coefficients as the Earth shader so painted
- * green pixels and physical land sit at exactly the same locations.
+ * Three continents separated by open ocean.
+ *
+ * The old field was multi-octave value noise thresholded at ~0.5, which
+ * produced ~18% land shattered into dozens of islands: walking anywhere
+ * meant wading through water. Land is now three deterministic spherical
+ * caps whose coastlines are wobbled by low-frequency noise. Every
+ * continent's interior is solid land and every pair is separated by a
+ * guaranteed strip of ocean (see `MIN_OCEAN_GAP_RAD`), so sea level sits
+ * cleanly below land everywhere.
+ *
+ * Shader and physics read the same numbers: `CONTINENTS_GLSL` is
+ * generated from the constants below and injected into EarthBody.
  */
-function continents(n: Vec3): number {
-  return (
-    noise3(n[0] * 3.5, n[1] * 3.5, n[2] * 3.5) * 0.6 +
-    noise3(n[0] * 8.0, n[1] * 8.0, n[2] * 8.0) * 0.3 +
-    noise3(n[0] * 16.0, n[1] * 16.0, n[2] * 16.0) * 0.1
-  );
+export interface ContinentSeed {
+  name: string;
+  /** Latitude of the continent's heart, degrees. */
+  latDeg: number;
+  /** Longitude of the continent's heart, degrees. */
+  lonDeg: number;
+  /** Angular radius of the coastline before wobble, radians. */
+  radius: number;
 }
 
-/** Raw continents noise at an Earth-local unit normal (float64). */
+export const CONTINENTS: readonly ContinentSeed[] = [
+  { name: 'Aurora', latDeg: 16, lonDeg: 10, radius: 0.7 },
+  { name: 'Meridia', latDeg: -16, lonDeg: 128, radius: 0.66 },
+  { name: 'Solace', latDeg: 4, lonDeg: 250, radius: 0.68 },
+];
+
+/** Max coastline wobble, radians either way (~10° ≈ 300 m on Earth):
+ *  enough for bays and peninsulas without breaking a continent apart. */
+export const COAST_WARP = 0.18;
+/** Field units per radian of distance inside the coast. The landMask
+ *  smoothstep(0.48, 0.55) band is therefore ~0.07 rad (~120 m) wide. */
+const FIELD_SLOPE = 1.0;
+/** Smallest ocean strip any two continents are allowed to leave between
+ *  their wobbled coasts, radians (~0.25 rad ≈ 425 m of open water). */
+export const MIN_OCEAN_GAP_RAD = 0.25;
+
+/** Earth-local unit normal at a continent's heart. */
+export function continentCenter(c: ContinentSeed): Vec3 {
+  const lat = (c.latDeg * Math.PI) / 180;
+  const lon = (c.lonDeg * Math.PI) / 180;
+  return [Math.cos(lat) * Math.cos(lon), Math.sin(lat), Math.cos(lat) * Math.sin(lon)];
+}
+
+const CENTERS: Vec3[] = CONTINENTS.map(continentCenter);
+
+/** Coast wobble in radians, -COAST_WARP..+COAST_WARP. Same for every
+ *  continent (it is a function of position only). */
+function coastWarp(n: Vec3): number {
+  const w =
+    noise3(n[0] * 3.0, n[1] * 3.0, n[2] * 3.0) * 0.55 +
+    noise3(n[0] * 6.0, n[1] * 6.0, n[2] * 6.0) * 0.3 +
+    noise3(n[0] * 13.0, n[1] * 13.0, n[2] * 13.0) * 0.15;
+  // Summed value noise clusters near 0.5, so stretch it ×2.5 and clamp —
+  // coasts reach most of the ±COAST_WARP range (bays and peninsulas)
+  // while the clamp keeps the separation guarantee exact.
+  return Math.max(-1, Math.min(1, (w - 0.5) * 2.5)) * COAST_WARP;
+}
+
+function angleBetween(a: Vec3, b: Vec3): number {
+  const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  return Math.acos(Math.max(-1, Math.min(1, d)));
+}
+
+/** Signed angular distance inside continent `i`'s wobbled coast, radians
+ *  (positive = inland, negative = offshore). */
+function insideCoast(n: Vec3, i: number, warp: number): number {
+  return CONTINENTS[i].radius + warp - angleBetween(n, CENTERS[i]);
+}
+
+/**
+ * Continent field, 0..1. 0.5 is the coastline; values above are inland,
+ * below are ocean. Kept in the old 0..1 range so the shader's shore
+ * colour band (0.42..0.58) keeps working unchanged.
+ */
+export function continentField(n: Vec3): number {
+  const warp = coastWarp(n);
+  let best = -Infinity;
+  for (let i = 0; i < CONTINENTS.length; i++) {
+    const v = insideCoast(n, i, warp);
+    if (v > best) best = v;
+  }
+  return Math.max(0, Math.min(1, 0.5 + best * FIELD_SLOPE));
+}
+
+/** Index of the continent this point belongs to (or is nearest to). */
+export function nearestContinent(n: Vec3): number {
+  const warp = coastWarp(n);
+  let best = -Infinity;
+  let idx = 0;
+  for (let i = 0; i < CONTINENTS.length; i++) {
+    const v = insideCoast(n, i, warp);
+    if (v > best) { best = v; idx = i; }
+  }
+  return idx;
+}
+
+/** Continent field at an Earth-local unit normal (float64). */
 export function sampleContinents(localNormal: Vec3): number {
-  return continents(localNormal);
+  return continentField(localNormal);
 }
 
 /** Land mask from a continents value — the single coastline threshold. */
@@ -96,7 +184,77 @@ export function landMaskFromContinents(c: number): number {
 
 /** 0 = ocean, 1 = inland. Matches the shader's landMask. */
 export function sampleLandMask(localNormal: Vec3): number {
-  return landMaskFromContinents(continents(localNormal));
+  return landMaskFromContinents(continentField(localNormal));
+}
+
+function glslFloat(v: number): string {
+  const s = v.toFixed(6);
+  return s.includes('.') ? s : `${s}.0`;
+}
+
+/**
+ * GLSL twin of `continentField` / `sampleLandMask`. Self-contained (own
+ * hash/noise names) so it can be dropped into any shader. Provides:
+ *   float continentField(vec3 n);
+ *   float continentLandMask(vec3 n);
+ */
+export const CONTINENTS_GLSL = /* glsl */ `
+  float cHash(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yzx + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+  float cNoise(vec3 x) {
+    vec3 i = floor(x); vec3 f = fract(x);
+    vec3 u = f * f * (3.0 - 2.0 * f);
+    return mix(
+      mix(mix(cHash(i+vec3(0,0,0)), cHash(i+vec3(1,0,0)), u.x),
+          mix(cHash(i+vec3(0,1,0)), cHash(i+vec3(1,1,0)), u.x), u.y),
+      mix(mix(cHash(i+vec3(0,0,1)), cHash(i+vec3(1,0,1)), u.x),
+          mix(cHash(i+vec3(0,1,1)), cHash(i+vec3(1,1,1)), u.x), u.y),
+      u.z);
+  }
+  float continentField(vec3 n) {
+    float warp = clamp((cNoise(n * 3.0) * 0.55 + cNoise(n * 6.0) * 0.3 + cNoise(n * 13.0) * 0.15 - 0.5) * 2.5, -1.0, 1.0) * ${glslFloat(COAST_WARP)};
+    float best = -1000.0;
+${CONTINENTS.map((c, i) => {
+  const [x, y, z] = CENTERS[i];
+  return `    best = max(best, ${glslFloat(c.radius)} + warp - acos(clamp(dot(n, vec3(${glslFloat(x)}, ${glslFloat(y)}, ${glslFloat(z)})), -1.0, 1.0)));`;
+}).join('\n')}
+    return clamp(0.5 + best * ${glslFloat(FIELD_SLOPE)}, 0.0, 1.0);
+  }
+  float continentLandMask(vec3 n) {
+    return smoothstep(0.48, 0.55, continentField(n));
+  }
+`;
+
+/**
+ * Walk from `seed` along the great circle toward the heart of the
+ * nearest continent until the land mask reaches `threshold`. Always
+ * succeeds because every continent's heart is solid land.
+ */
+export function walkToNearestContinent(seed: Vec3, threshold = 0.6): Vec3 {
+  if (sampleLandMask(seed) >= threshold) return seed;
+  const target = CENTERS[nearestContinent(seed)];
+  const total = angleBetween(seed, target);
+  if (total < 1e-9) return target;
+  const sinT = Math.sin(total);
+  const STEPS = 128;
+  for (let i = 1; i <= STEPS; i++) {
+    const t = i / STEPS;
+    let a: number, b: number;
+    if (sinT < 1e-6) { a = 1 - t; b = t; } else {
+      a = Math.sin((1 - t) * total) / sinT;
+      b = Math.sin(t * total) / sinT;
+    }
+    const x = seed[0] * a + target[0] * b;
+    const y = seed[1] * a + target[1] * b;
+    const z = seed[2] * a + target[2] * b;
+    const len = Math.hypot(x, y, z) || 1;
+    const cand: Vec3 = [x / len, y / len, z / len];
+    if (sampleLandMask(cand) >= threshold) return cand;
+  }
+  return target;
 }
 
 /** Metres of vertical lift above EARTH_RADIUS at this point. Land lifts
@@ -141,11 +299,21 @@ function tangentBasis(seed: Vec3, prefer?: TangentBasis): TangentBasis {
  * - `basis`: optional tangent frame to keep the spiral aligned to a
  *   site (e.g. village right/forward) so the snap stays in eyesight.
  *
- * Returns the seed unchanged if no land cell is found in budget.
+ * - `fallback`: what to return if the spiral finds no land in budget.
+ *   'continent' (default) walks to the nearest continent so callers
+ *   never end up in the ocean; 'seed' returns the seed unchanged (used
+ *   by the volcano, which must stay within eyesight of its village).
  */
 export function snapToLand(
   seed: Vec3,
-  opts: { maxArcMeters: number; threshold?: number; radius: number; basis?: TangentBasis; steps?: number },
+  opts: {
+    maxArcMeters: number;
+    threshold?: number;
+    radius: number;
+    basis?: TangentBasis;
+    steps?: number;
+    fallback?: 'continent' | 'seed';
+  },
 ): Vec3 {
   const threshold = opts.threshold ?? 0.6;
   if (sampleLandMask(seed) >= threshold) return seed;
@@ -164,5 +332,5 @@ export function snapToLand(
     const cand: Vec3 = [nx / nn, ny / nn, nz / nn];
     if (sampleLandMask(cand) >= threshold) return cand;
   }
-  return seed;
+  return opts.fallback === 'seed' ? seed : walkToNearestContinent(seed, threshold);
 }
