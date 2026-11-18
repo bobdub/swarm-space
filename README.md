@@ -110,7 +110,9 @@ bun install           # bun.lock is the only lockfile
 npm run dev           # or: bun dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:8080](http://localhost:8080).
+
+To test the mesh locally without the throttled shared PeerJS Cloud, run `bun run dev:mesh` instead: it starts a local PeerServer on port 9000 and points the dev server at it. See [ops/PEERJS.md](ops/PEERJS.md#0-local-peerserver-for-development-and-ci).
 
 ### First-Time Setup
 
@@ -180,7 +182,7 @@ docs/                     # Architecture, security audits, roadmaps, RFCs
 
 ## 🔧 Custom PeerJS Signaling
 
-PeerJS Cloud (`wss://0.peerjs.com:443/`) is the default. Self-hosted deployments can override via environment variables:
+PeerJS Cloud (`wss://0.peerjs.com:443/`) is the default. For local development and CI, `bun run dev:mesh`, `bun run peer:server`, `bun run peer:smoke` and `bun run peer:with -- <command>` run a local PeerServer instead (see [ops/PEERJS.md](ops/PEERJS.md)). Self-hosted deployments can override via environment variables (template in `.env.example`):
 
 ```bash
 VITE_PEERJS_HOST=my-peerjs.example.com

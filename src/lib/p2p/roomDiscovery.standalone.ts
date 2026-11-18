@@ -34,6 +34,17 @@ import { getCurrentUser } from '@/lib/auth';
 import { canonicalizePathnameForUser } from '@/lib/routing/canonicalHome';
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 
+/**
+ * Beacons and probes dial the signaling server the mesh is currently on, so
+ * they follow its failover (configured server first, PeerJS Cloud last).
+ * Each probe is created fresh and beacons expire, so a failover is picked up
+ * on the next discovery cycle.
+ */
+function signalingServer() {
+  const { host, port, secure, path } = getSwarmMeshStandalone().getSignalingEndpoint();
+  return { host, port, secure, path };
+}
+
 // ── Constants ──────────────────────────────────────────────────────────
 
 const CHANNEL = 'room-discovery';
@@ -375,10 +386,7 @@ class RoomDiscoveryStandalone {
 
       const probePeer = new PeerClass(probePeerId, {
         debug: 0,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        ...signalingServer(),
       });
 
       // Timeout: if probe doesn't connect within 8s, give up
@@ -430,10 +438,7 @@ class RoomDiscoveryStandalone {
 
       const beaconPeer = new PeerClass(beaconId, {
         debug: 0,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        ...signalingServer(),
       });
 
       this.beaconPeer = beaconPeer;

@@ -849,6 +849,8 @@ export class StandaloneSwarmMesh {
 
   getNodeId(): string { return this.nodeId; }
   getPeerId(): string { return this.peerId; }
+  /** Signaling server the mesh is currently on (follows failover). */
+  getSignalingEndpoint(): SignalingEndpoint { return this.signalingRotation.current(); }
 
   // ═══════════════════════════════════════════════════════════════════
   // FLAGS

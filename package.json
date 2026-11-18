@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mesh": "node scripts/local-peer-server.mjs dev",
+    "peer:server": "node scripts/local-peer-server.mjs serve",
+    "peer:smoke": "node scripts/local-peer-server.mjs smoke",
+    "peer:with": "node scripts/local-peer-server.mjs run",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",

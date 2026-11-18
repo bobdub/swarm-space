@@ -999,3 +999,8 @@ After tending: invite links now open whether they arrive as `/connect#peer-…`,
 Before tending: the media coin loop check sometimes failed. It gave each hand-off a fixed fifty turns of the clock to hash, seal and unpack, but the hashing happens off to the side, and on a busy machine it can still be working when the count runs out. Let the check watch the coin arrive instead of counting.
 
 After tending: the loop check now waits until the coin actually lands (or ten seconds pass), then lingers the same fifty turns so a duplicate would still be caught. The engine itself was not touched. Automated checks only; no live mesh session was opened.
+
+## November 18, 2026 — A quiet room of our own
+Before tending: every rehearsal of the mesh walked to the crowded town square to find its partner, and the square kept turning people away. Give the house its own small room to practise in, and leave the square open for the real gathering.
+
+After tending: `bun run dev:mesh` now starts a local PeerServer beside the dev server and points the app at it, `bun run peer:smoke` checks that two peers can find each other through it, and `bun run peer:with -- <command>` wraps any CI step with one. The room-discovery beacons follow whichever server the mesh is on, including its failover. With nothing configured, production still meets at PeerJS Cloud. Checked with the two-peer smoke run and two PeerJS browser peers passing a message through the local server; no live mesh session was opened.
