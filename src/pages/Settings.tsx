@@ -39,6 +39,8 @@ import {
   getStoredAccounts,
   restoreLocalAccount,
   logoutUser,
+  getCachedPrivateKey,
+  loginUser,
   type UserMeta,
 } from "@/lib/auth";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -81,6 +83,9 @@ const Settings = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deletePassphrase, setDeletePassphrase] = useState("");
+  const [needsDeletePassphrase, setNeedsDeletePassphrase] = useState(false);
+  const [deleteLocalOnly, setDeleteLocalOnly] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
@@ -752,8 +757,8 @@ const Settings = () => {
                   <h2 className="text-lg font-bold text-destructive">Danger Zone</h2>
                   <p className="text-sm text-foreground/70">
                     Deleting your account wipes every local key, message, draft, and cached chunk
-                    on this device. Your peer-id will simply disappear from the mesh as other peers
-                    prune you. <strong>This cannot be undone</strong> — export a backup first if you
+                    on this device. Connected peers are sent a signed notice to remove your posts and
+                    pass it on; copies anywhere else fade out within 15 days. <strong>This cannot be undone</strong> — export a backup first if you
                     want to come back later.
                   </p>
                 </div>
@@ -782,11 +787,40 @@ const Settings = () => {
                     placeholder="DELETE"
                     autoComplete="off"
                   />
+                  {needsDeletePassphrase && (
+                    <div className="space-y-2">
+                      <Label htmlFor="delete-passphrase" className="text-sm">
+                        Enter your passphrase so connected peers can be told to remove your posts:
+                      </Label>
+                      <Input
+                        id="delete-passphrase"
+                        type="password"
+                        value={deletePassphrase}
+                        onChange={(e) => setDeletePassphrase(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={deleteLocalOnly}
+                      />
+                      <label className="flex items-center gap-2 text-xs text-foreground/70">
+                        <input
+                          type="checkbox"
+                          checked={deleteLocalOnly}
+                          onChange={(e) => setDeleteLocalOnly(e.target.checked)}
+                        />
+                        Delete on this device only. Copies on peers fade out within 15 days.
+                      </label>
+                    </div>
+                  )}
                   <div className="flex justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => { setDeleteOpen(false); setDeleteConfirm(""); }}
+                      onClick={() => {
+                        setDeleteOpen(false);
+                        setDeleteConfirm("");
+                        setDeletePassphrase("");
+                        setNeedsDeletePassphrase(false);
+                        setDeleteLocalOnly(false);
+                      }}
                       disabled={deleting}
                     >
                       Cancel
@@ -798,6 +832,38 @@ const Settings = () => {
                       onClick={async () => {
                         setDeleting(true);
                         try {
+                          // 0. Sign an account tombstone with the identity key and send it to
+                          //    connected peers BEFORE the key is wiped, so they purge our posts
+                          //    and refuse them afterwards. Needs the key unlocked.
+                          if (!deleteLocalOnly) {
+                            let privateKey = await getCachedPrivateKey();
+                            if (!privateKey) {
+                              try {
+                                privateKey = await loginUser(deletePassphrase || undefined);
+                              } catch {
+                                privateKey = null;
+                              }
+                            }
+                            if (!privateKey) {
+                              setNeedsDeletePassphrase(true);
+                              toast.error(
+                                deletePassphrase
+                                  ? "That passphrase didn't unlock your key."
+                                  : "Enter your passphrase, or choose to delete on this device only.",
+                              );
+                              setDeleting(false);
+                              return;
+                            }
+                            const { issueAccountTombstone } = await import("@/lib/p2p/contentLifecycle");
+                            const sent = await issueAccountTombstone(privateKey);
+                            if (sent && sent.peersReached > 0) {
+                              toast.message(`Told ${sent.peersReached} connected peer(s) to remove your posts.`);
+                              // Give the data channels a moment to flush before the wipe.
+                              await new Promise((resolve) => setTimeout(resolve, 1500));
+                            } else {
+                              toast.message("No peers are online, so your posts on other devices will fade out within 15 days.");
+                            }
+                          }
                           // 1. Wipe localStorage + sessionStorage entirely.
                           try { localStorage.clear(); } catch { /* ignore */ }
                           try { sessionStorage.clear(); } catch { /* ignore */ }

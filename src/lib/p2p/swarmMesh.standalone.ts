@@ -1609,6 +1609,7 @@ export class StandaloneSwarmMesh {
       window.addEventListener('profile-updated', this._onProfileUpdated);
     }
 
+    await this.attachContentLifecycle();
     await this.loadPostsFromDB();
     await this.scanLocalSeeders();
     await this.connectSignaling();
@@ -2119,6 +2120,10 @@ export class StandaloneSwarmMesh {
           engine.onInteraction(rId, { kind: 'connection' as 'gossip', success: true });
         }).catch(() => { /* ignore */ });
       } catch { /* ignore */ }
+
+      // Presence hints and deletion tombstones go before the inventory so the
+      // peer drops dead content instead of offering it back to us.
+      this.sendLifecycleState(conn);
 
       // Exchange content inventories
       this.sendContentInventory(conn);
@@ -2719,6 +2724,62 @@ export class StandaloneSwarmMesh {
     console.log(`[SwarmMesh] 📬 Received mention-alert — creating notification`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // CONTENT LIFECYCLE — signed tombstones, author presence, fadeout
+  // (src/lib/p2p/contentLifecycle.ts owns the rules; this is transport)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private lifecycle: typeof import('./contentLifecycle') | null = null;
+  private lifecycleAttach: Promise<typeof import('./contentLifecycle') | null> | null = null;
+
+  private attachContentLifecycle(): Promise<typeof import('./contentLifecycle') | null> {
+    if (!this.lifecycleAttach) {
+      this.lifecycleAttach = import('./contentLifecycle')
+        .then(async (lc) => {
+          await lc.ensureLifecycleLoaded();
+          lc.registerTombstoneTransport((tombstones, excludePeerId) => {
+            const payload = JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId });
+            let reached = 0;
+            for (const [peerId, conn] of this.connections) {
+              if (peerId === excludePeerId || !conn.open) continue;
+              try { conn.send(payload); reached++; } catch { /* ignore */ }
+            }
+            return reached;
+          });
+          lc.onContentPurged((ids) => {
+            let n = 0;
+            for (const id of ids) if (this.contentStore.delete(id)) n++;
+            if (n > 0) this.emitContentChange();
+          });
+          this.lifecycle = lc;
+          return lc;
+        })
+        .catch((err) => {
+          console.warn('[SwarmMesh] Content lifecycle unavailable:', err);
+          this.lifecycleAttach = null;
+          return null;
+        });
+    }
+    return this.lifecycleAttach;
+  }
+
+  private sendLifecycleState(conn: import('peerjs').DataConnection): void {
+    const lc = this.lifecycle;
+    if (!lc) return;
+    try {
+      const hints = lc.getPresenceHints();
+      if (Object.keys(hints).length > 0) {
+        conn.send(JSON.stringify({ type: 'author-presence', hints, from: this.peerId }));
+      }
+      const tombstones = lc.getActiveTombstones();
+      if (tombstones.length > 0) {
+        conn.send(JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId }));
+      }
+    } catch { /* ignore */ }
+    // Deletions made while the identity key was locked go out once it can sign.
+    void lc.flushPendingTombstones().catch(() => { /* retried on the next connect or sweep */ });
+  }
+
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
@@ -2777,6 +2838,12 @@ export class StandaloneSwarmMesh {
         case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
         case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
+        case 'content-tombstone':
+          void this.attachContentLifecycle()
+            .then((lc) => lc?.receiveTombstones(msg.tombstones, from))
+            .catch(() => { /* invalid tombstones are dropped */ });
+          break;
+        case 'author-presence': this.lifecycle?.receivePresenceHints(msg.hints); break;
         default: break;
       }
     } catch (e) {
@@ -2811,8 +2878,20 @@ export class StandaloneSwarmMesh {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
     let n = 0;
+    const refused: Array<{ id?: string; author?: string }> = [];
     for (const item of items) {
       if (!item.id) continue;
+      // Anti-resurrection: never take back deleted content; tell the sender why.
+      const lc = this.lifecycle;
+      if (lc && (item.type === 'post' || item.type === 'comment')) {
+        const data = (item.data ?? {}) as { id?: unknown; author?: unknown };
+        const author = typeof data.author === 'string' ? data.author : item.author;
+        const postId = item.type === 'post' ? (typeof data.id === 'string' ? data.id : item.id) : undefined;
+        if (lc.isPostTombstoned(postId, author)) {
+          refused.push({ id: postId, author });
+          continue;
+        }
+      }
       const existing = this.contentStore.get(item.id);
       const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : now();
       const shouldReplace =
@@ -2831,6 +2910,13 @@ export class StandaloneSwarmMesh {
       if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
       if (item.type === 'project' && item.data) void this.writeProjectToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
+    }
+    if (refused.length > 0 && this.lifecycle) {
+      const tombstones = this.lifecycle.tombstonesFor(refused);
+      const conn = this.connections.get(fromPeerId);
+      if (conn && tombstones.length > 0) {
+        try { conn.send(JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId })); } catch { /* ignore */ }
+      }
     }
     if (n > 0) {
       console.log(`[SwarmMesh] 📦 ${n} new/updated item(s), total: ${this.contentStore.size}`);
@@ -3397,6 +3483,9 @@ export class StandaloneSwarmMesh {
     const avatarRef = typeof msg.avatarRef === 'string' ? msg.avatarRef : undefined;
 
     if (!userId && !username && !displayName) return;
+
+    // A live connection is the strongest sign an author is active (fadeout clock).
+    if (userId) this.lifecycle?.noteAuthorSeen(userId);
 
     const entry = this.library.get(fromPeerId);
     if (entry) {
@@ -4015,6 +4104,12 @@ export class StandaloneSwarmMesh {
   private async writePostToDB(postData: Record<string, unknown>, sourcePeerId?: string): Promise<void> {
     try {
       if (!postData.id) return;
+      // Tombstoned, or its author faded here and we did not favorite it: don't store.
+      const lc = await this.attachContentLifecycle();
+      if (lc && !(await lc.shouldAcceptIncomingPost(postData as { id?: string; author?: string }))) {
+        if (this.contentStore.delete(String(postData.id))) this.emitContentChange();
+        return;
+      }
       const normalizedPostData = this.normalizeBlogFlags(postData);
 
       const manifestIds = Array.isArray(normalizedPostData.manifestIds)

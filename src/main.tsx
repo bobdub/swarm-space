@@ -26,6 +26,15 @@ scheduleIdle(() => {
     .catch((err) => console.warn('[main] guardrails chain failed', err));
 });
 
+// ── Content lifecycle — expire old tombstones, fade out posts whose authors
+// have been silent for 15 days (favorites and own posts are kept), and send
+// deletions signed while the key was locked. Idle-time, every 6 hours.
+scheduleIdle(() => {
+  import('./lib/p2p/contentLifecycle')
+    .then((m) => m.startContentLifecycle())
+    .catch((err) => console.warn('[main] content lifecycle failed', err));
+});
+
 // ── Sync Vault ingest — observes MediaCustody events and writes verified
 // media into the source peer's local vault. Feature-flagged; no new gossip.
 scheduleIdle(() => {
