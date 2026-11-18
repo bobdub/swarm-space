@@ -76,7 +76,7 @@ function labelForKind(kind: string): string {
   return kind.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
-function bondTermForKind(kind: string): number {
+export function bondTermForKind(kind: string): number {
   if (/tree|wood|trunk|log|root/.test(kind)) return 0.42;
   if (/stone|rock|mountain|foundation/.test(kind)) return 0.88;
   if (/grass|flower|fish|water/.test(kind)) return 0.18;
@@ -572,7 +572,7 @@ async function mineStone(toolPrefabId: string, blockId: string, selfId?: string)
 
   const swing = applyImpact({
     tool,
-    swingEnergy: Math.max(0.2, tool.mass * (0.3 + probe.intensity * 8)),
+    swingEnergy: playerSwingEnergy(tool.mass, probe.intensity),
     curvatureLoad: probe.curvatureLoad,
     target: { kind: 'block', block, bondTerm: bondTermForKind('stone') },
     actorId: selfId,
