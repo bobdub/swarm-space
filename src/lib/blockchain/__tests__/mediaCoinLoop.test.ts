@@ -115,4 +115,39 @@ describe("media coin loop", () => {
     const announce = net.broadcasts.find((b) => (b.payload as { type: string }).type === "coin-announce")!;
     expect((announce.payload as { payload: Record<string, unknown> }).payload.encryptionKey).toBeUndefined();
   });
+
+  it("keeps the coin when a hand-off fails, and retries it", async () => {
+    const net = createNetwork();
+    net.link("alice", "bob");
+    const alice = engineFor(net, "alice");
+    const got: string[] = [];
+    // Bob is linked but not listening yet, so every send fails.
+    await alice.mint({ name: "f", type: "text/plain", data: new Uint8Array([4, 5, 6]) }, "alice", { coinId: "c3" });
+    alice.launch("c3");
+    await settle();
+    expect(alice.getHeldCoinIds()).toEqual(["c3"]);
+
+    const bob = engineFor(net, "bob");
+    bob.onUnpack((u) => { got.push(u.manifest.coinId); });
+    (alice as unknown as { retryHeld(): void }).retryHeld();
+    await settle();
+    expect(got).toEqual(["c3"]);
+    expect(alice.getHeldCoinIds()).toEqual([]);
+  });
+
+  it("ignores a resent hand-off it already unpacked", async () => {
+    const net = createNetwork();
+    net.link("alice", "bob");
+    const alice = engineFor(net, "alice");
+    const bob = engineFor(net, "bob");
+    const got: string[] = [];
+    bob.onUnpack((u) => { got.push(u.manifest.coinId); });
+    await alice.mint({ name: "g", type: "text/plain", data: new Uint8Array([7]) }, "alice", { coinId: "c4" });
+    const route = { creatorId: "alice", hops: ["alice"], ttl: 4 };
+    const send = (alice as unknown as { sendCoin(c: string, r: typeof route, p: string): Promise<boolean> }).sendCoin.bind(alice);
+    await send("c4", route, "bob");
+    await send("c4", route, "bob");
+    await settle();
+    expect(got).toEqual(["c4"]);
+  });
 });
