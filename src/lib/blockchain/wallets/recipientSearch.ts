@@ -2,12 +2,14 @@
  * Wallet recipient search — find a SWARM wallet by @username or display name
  * instead of a raw wallet id. Candidates come from the same sources as
  * @mentions (swarm library + synced local users, blocked/ignored excluded),
- * minus the network entity and the sender, and resolve to the existing
- * ledger identity through the shared native wallet resolver.
+ * minus the sender, and resolve to the existing ledger identity through the
+ * shared native wallet resolver. Infinity (the system AI) appears once and
+ * receives into its community donations vault.
  */
 import { resolveMentionCandidates, type MentionCandidate } from "@/lib/mentions";
 import { resolveNativeWalletRecipient } from "./nativeAddress";
 import type { User } from "@/types";
+import { INFINITY_RECIPIENT, isInfinityRecipient } from "../infinity/vaults";
 
 export interface WalletRecipientCandidate {
   userId: string;
@@ -27,7 +29,12 @@ export function normalizeRecipientQuery(input: string): string {
   return input.trim().replace(/^@+/, "").trim();
 }
 
+const INFINITY_CANDIDATE: WalletRecipientCandidate = {
+  userId: INFINITY_RECIPIENT.id, username: INFINITY_RECIPIENT.username, displayName: INFINITY_RECIPIENT.displayName,
+};
+
 function toCandidate(c: MentionCandidate): WalletRecipientCandidate {
+  if (c.isEntity) return INFINITY_CANDIDATE;
   return { userId: c.userId, username: c.username, displayName: c.displayName || c.username, avatarRef: c.avatarRef };
 }
 
@@ -37,8 +44,9 @@ export async function searchWalletRecipients(input: string, senderId: string, li
   if (!query || looksLikeWalletAddress(input)) return [];
   const lower = query.toLowerCase();
   const found = (await resolveMentionCandidates(query, Infinity))
-    .filter(c => !c.isEntity && c.userId && c.userId !== senderId)
-    .map(toCandidate);
+    .filter(c => c.userId && c.userId !== senderId)
+    .map(toCandidate)
+    .filter((c, i, all) => all.findIndex(o => o.userId === c.userId) === i);
   // An exact handle beats prefix matches so "@sam" never hides behind "@samantha".
   found.sort((a, b) => Number(b.username.toLowerCase() === lower) - Number(a.username.toLowerCase() === lower));
   return found.slice(0, limit);
@@ -51,6 +59,7 @@ export async function searchWalletRecipients(input: string, senderId: string, li
 export async function resolveWalletRecipientInput(input: string, senderId: string): Promise<User> {
   const query = normalizeRecipientQuery(input);
   if (!query) throw new Error("Enter a username or SWARM wallet address.");
+  if (isInfinityRecipient(input)) return resolveNativeWalletRecipient(INFINITY_RECIPIENT.id);
   // A pasted wallet id that belongs to a known account wins over name matches.
   if (!input.trim().startsWith("@") && !looksLikeWalletAddress(input)) {
     const direct = await resolveNativeWalletRecipient(input.trim()).catch(() => null);

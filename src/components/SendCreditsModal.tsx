@@ -13,6 +13,7 @@ import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockcha
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { TIP_WEIGHT_LABELS, type TipWeight } from "@/lib/blockchain/wallets/tipWeight";
+import { INFINITY_GIFT_VAULT } from "@/lib/blockchain/infinity/vaults";
 
 interface SendCreditsModalProps {
   toUserId: string;
@@ -205,6 +206,9 @@ export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, 
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
+              {toUserId === INFINITY_GIFT_VAULT && <p className="mt-2 text-xs text-foreground/60">
+                Goes to Infinity&apos;s community donations vault. No one holds its key, so gifts stay in the pool until a network action moves them.
+              </p>}
             </div>
           </div>
 

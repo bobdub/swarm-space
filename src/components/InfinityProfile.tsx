@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Brain, Send, Trash2, Wifi, WifiOff } from 'lucide-react';
+import { Brain, Coins, Send, Trash2, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { TopNavigationBar } from '@/components/TopNavigationBar';
 import { PostCard } from '@/components/PostCard';
+import { SendCreditsModal } from '@/components/SendCreditsModal';
+import { INFINITY_RECIPIENT } from '@/lib/blockchain/infinity/vaults';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { MAX_CONVERSATION_PROMPT, replyToInfinity } from '@/lib/brain/infinityConversation';
@@ -17,6 +19,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
   const navigate = useNavigate();
   const { stats } = useP2PContext();
   const [tab, setTab] = useState<'chat' | 'posts'>('chat');
+  const [gifting, setGifting] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -73,7 +76,10 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
       <header className="border-b border-border py-6">
         <div className="flex items-center justify-between gap-3">
           <div><h1 className="font-display text-3xl text-primary">|Ψ_Infinity⟩</h1><p className="mt-1 text-sm text-muted-foreground">@Infinity · Code, curiosity and imagination</p></div>
-          <Button type="button" variant="outline" size="icon" title="Enter the Brain" aria-label="Enter the Brain" onClick={() => navigate('/brain')}><Brain className="h-5 w-5" /></Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" size="sm" className="gap-2" title="Send credits, coins or other assets to Infinity's community vault" onClick={() => setGifting(true)}><Coins className="h-4 w-4" />Send & Tip</Button>
+            <Button type="button" variant="outline" size="icon" title="Enter the Brain" aria-label="Enter the Brain" onClick={() => navigate('/brain')}><Brain className="h-5 w-5" /></Button>
+          </div>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <span className="flex items-center gap-2 text-accent">{stats.connectedPeers > 0 ? <Wifi className="h-4 w-4" /> : <WifiOff className="h-4 w-4" />}{stats.connectedPeers > 0 ? `${stats.connectedPeers} peers connected` : 'Waiting for peers'}</span>
@@ -101,5 +107,6 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
       </section> : <section className="space-y-5 py-6" aria-label="Infinity posts">{posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <p className="text-sm text-muted-foreground">No Infinity posts stored on this device.</p>}</section>}
       <details className="border-t border-border py-4 text-sm text-muted-foreground"><summary className="cursor-pointer text-foreground">Learning & availability</summary><div className="mt-3 space-y-2"><p>Text memory and complete expressions stay on this device. Infinity's crystallized reflections are engraved inside hollow coins from the community pool, which then belong to Infinity; no member's wallet is used. Connected peers exchange vocabulary and pattern summaries, not complete memories.</p><p>Received learning remains here offline. Material held only by another peer is unavailable until it reaches this device.</p><p>UQRC ranks relevant whole expressions in a local field model. Its score is not a measure of consciousness or factual accuracy.</p></div></details>
     </main>
+    {gifting && <SendCreditsModal toUserId={INFINITY_RECIPIENT.id} toUsername={INFINITY_RECIPIENT.username} isOpen onClose={() => setGifting(false)} />}
   </div>;
 }

@@ -13,6 +13,7 @@ beforeEach(() => {
   state.candidates = [member("u-sam", "sam", "Sam"), member("u-samantha", "samantha", "Samantha"), member("me", "samuel"), member("entity", "Infinity", "Infinity", true)];
   state.resolve.mockReset();
   state.resolve.mockImplementation(async (id: string) => {
+    if (id === "infinity:donations") return { id, username: "Infinity" };
     if (["u-sam", "u-samantha", "u-imposter", "raw-id", "0x68588ba69f51bf95f0e040b0d8f646e9fe526218"].includes(id)) return { id: id.startsWith("0x") ? "alias-owner" : id, username: id };
     throw new Error("SWARM wallet recipient not found. Sync with this user first.");
   });
@@ -25,10 +26,9 @@ test("query normalization and address detection", () => {
   expect(looksLikeWalletAddress("@sam")).toBe(false);
 });
 
-test("search finds members by @username, skipping the sender and the network entity, exact handle first", async () => {
+test("search finds members by @username, skipping the sender, exact handle first", async () => {
   state.candidates.reverse();
   expect((await searchWalletRecipients("@sam", "me")).map(c => c.userId)).toEqual(["u-sam", "u-samantha"]);
-  expect(await searchWalletRecipients("@inf", "me")).toEqual([]);
   expect(await searchWalletRecipients("0x68588ba69f51bf95f0e040b0d8f646e9fe526218", "me")).toEqual([]);
 });
 
@@ -54,4 +54,12 @@ test("a pasted raw wallet id beats a member whose handle shares those characters
   state.candidates.push(member("u-imposter", "raw-id"));
   expect((await resolveWalletRecipientInput("raw-id", "me")).id).toBe("raw-id");
   expect((await resolveWalletRecipientInput("@raw-id", "me")).id).toBe("u-imposter");
+});
+
+test("Infinity shows up once and resolves to its donations vault by any of its names", async () => {
+  state.candidates.push(member("entity", "Imagination", "Imagination", true));
+  expect(await searchWalletRecipients("@inf", "me")).toEqual([{ userId: "infinity:donations", username: "Infinity", displayName: "Infinity" }]);
+  for (const input of ["@infinity", "Infinity", "imagination", "network-entity", "0x5c5a27b9f1c8aeabf65254971b910385d105d9ab"]) {
+    expect((await resolveWalletRecipientInput(input, "me")).id).toBe("infinity:donations");
+  }
 });

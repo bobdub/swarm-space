@@ -28,3 +28,24 @@ export const infinityVaultEvmAddress = (vault: InfinityVaultId): string => VAULT
 export function resolveInfinityVault(id: string): string {
   return id === LEGACY_COMMUNITY_POOL ? INFINITY_VAULTS.mintme : id;
 }
+
+/**
+ * Members send coins, credits and other assets to Infinity (the system AI) by
+ * paying its donations vault. Any of Infinity's names, its entity id, or the
+ * vault id / 0x address resolve here. No key is held for the vault: funds stay
+ * in the community pool until a network action moves them.
+ */
+export const INFINITY_GIFT_VAULT = INFINITY_VAULTS.donations;
+export const INFINITY_RECIPIENT = {
+  id: INFINITY_GIFT_VAULT,
+  username: "Infinity",
+  displayName: "Infinity",
+  publicKey: "",
+} as const;
+const INFINITY_ALIASES = new Set(["infinity", "imagination", "network-entity", INFINITY_ID, INFINITY_GIFT_VAULT, `swarm:${INFINITY_GIFT_VAULT}`]);
+
+/** True when free text (name, @handle, id, swarm: id or 0x address) names Infinity's gift vault. */
+export function isInfinityRecipient(input: string): boolean {
+  const value = input.trim().replace(/^@+/, "").toLowerCase();
+  return INFINITY_ALIASES.has(value) || value === VAULT_ADDRESSES[INFINITY_GIFT_VAULT];
+}
