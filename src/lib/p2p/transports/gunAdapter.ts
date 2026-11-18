@@ -139,9 +139,14 @@ export class GunAdapter {
   }
 
   /**
-   * Broadcast a message to ALL peers (no specific target)
+   * Broadcast a message to ALL peers (no specific target).
+   *
+   * In registry mode each peer normally owns one graph slot (its peerId), so
+   * the latest write wins. Pass `slot` for messages that must not be
+   * overwritten by the next presence beacon before a relay syncs them
+   * (e.g. invite knocks sent while the relay connection is still opening).
    */
-  broadcastToAll(channel: string, payload: unknown): boolean {
+  broadcastToAll(channel: string, payload: unknown, options: { slot?: string } = {}): boolean {
     let delivered = false;
     const id = this.createMessageId();
 
@@ -171,7 +176,7 @@ export class GunAdapter {
         }
         const graph = this.gun.get(graphKey);
         if (this.options.registryMode) {
-          graph.get(this.localPeerId).put(envelope as never);
+          graph.get(options.slot ?? this.localPeerId).put(envelope as never);
         } else {
           graph.set(envelope as never);
         }

@@ -192,6 +192,11 @@ type GatewayPeersListener = (peers: GatewayPeerInfo[]) => void;
 let instance: GlobalCell | null = null;
 
 export const INVITE_KNOCK_TTL_MS = 30_000;
+
+/** Registry slot for one caller→target knock, separate from the caller's presence slot. */
+export function inviteKnockSlot(fromPeerId: string, toPeerId: string): string {
+  return `${fromPeerId}~knock~${toPeerId}`;
+}
 /** Knocks are addressed, fresh (≤30s) and deduplicated so relays cannot replay them. */
 export function acceptInviteKnock(
   k: { id?: string; from?: string; to?: string; at?: number } | null | undefined,
@@ -244,7 +249,9 @@ class GlobalCell {
       return false;
     }
     const knock = { id: `${this.localPeerId}:${targetPeerId}:${Date.now()}`, from: this.localPeerId, to: targetPeerId, at: Date.now() };
-    try { this.gunAdapter.broadcastToAll('invite-knock', knock); return true; } catch { return false; }
+    // Each caller→target knock gets its own registry slot, so the next presence
+    // beacon (or another knock) cannot overwrite it before the relay syncs.
+    try { this.gunAdapter.broadcastToAll('invite-knock', knock, { slot: inviteKnockSlot(this.localPeerId, targetPeerId) }); return true; } catch { return false; }
   }
 
   private flushPendingKnocks(): void {
