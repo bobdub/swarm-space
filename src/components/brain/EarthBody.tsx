@@ -11,14 +11,14 @@ import {
   WORLD_SCALE,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
-import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
+import { LAND_LIFT, CONTINENTS_GLSL } from '@/lib/brain/surfaceProfile';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
 /**
  * Procedural blue-green Earth — no textures, no day/night cycle. The
- * shader colours land/ocean from a low-frequency noise of the sphere's
- * unit-vector position so it looks alive without external assets.
+ * shader colours three continents and the ocean between them from the
+ * shared continent field in surfaceProfile.ts (CONTINENTS_GLSL).
  */
 const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
@@ -35,29 +35,11 @@ const earthVertex = /* glsl */ `
   uniform float uEarthR;        // EARTH_RADIUS, world units
   uniform float uLandLift;      // metres land sits above ocean baseline
 
-  // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
-  // shoreline pixels and the JS-sampled land mask agree exactly.
-  float vHash(vec3 p) {
-    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-    p += dot(p, p.yzx + 19.19);
-    return fract((p.x + p.y) * p.z);
-  }
-  float vNoise(vec3 x) {
-    vec3 i = floor(x); vec3 f = fract(x);
-    vec3 u = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(mix(vHash(i+vec3(0,0,0)), vHash(i+vec3(1,0,0)), u.x),
-          mix(vHash(i+vec3(0,1,0)), vHash(i+vec3(1,1,0)), u.x), u.y),
-      mix(mix(vHash(i+vec3(0,0,1)), vHash(i+vec3(1,0,1)), u.x),
-          mix(vHash(i+vec3(0,1,1)), vHash(i+vec3(1,1,1)), u.x), u.y),
-      u.z);
-  }
+  // Three continents + ocean — generated from surfaceProfile.ts so the
+  // displaced coastline and the physics land mask are the same numbers.
+  ${CONTINENTS_GLSL}
   float vLandMask(vec3 nrm) {
-    float continents =
-      vNoise(nrm * 3.5) * 0.6 +
-      vNoise(nrm * 8.0) * 0.3 +
-      vNoise(nrm * 16.0) * 0.1;
-    return smoothstep(0.48, 0.55, continents);
+    return continentLandMask(nrm);
   }
 
   float volcElevation(vec3 nrm) {
@@ -117,7 +99,9 @@ const earthFragment = /* glsl */ `
   uniform float uVolcCraterD;
   uniform float uEarthR;
 
-  // Cheap value noise — enough for a believable continents pattern.
+  ${CONTINENTS_GLSL}
+
+  // Cheap value noise — used for near-camera ground detail.
   float hash(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
     p += dot(p, p.yzx + 19.19);
@@ -136,8 +120,8 @@ const earthFragment = /* glsl */ `
 
   void main() {
     vec3 n = normalize(vNormalLocal);
-    float continents = noise(n * 3.5) * 0.6 + noise(n * 8.0) * 0.3 + noise(n * 16.0) * 0.1;
-    float landMask = smoothstep(0.48, 0.55, continents);
+    float continents = continentField(n);
+    float landMask = continentLandMask(n);
     // Re-derive volcano elevation in fragment so volcLand classification
     // is per-pixel, not vertex-interpolated. Mirrors volcElevation() in
     // the vertex shader and sampleVolcanoElevation() in JS.
