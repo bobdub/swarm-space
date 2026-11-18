@@ -13,17 +13,20 @@ import { getWalletTipAssets, sendWalletTip, type TipAsset } from "@/lib/blockcha
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
 import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { TIP_WEIGHT_LABELS, type TipWeight } from "@/lib/blockchain/wallets/tipWeight";
+import { INFINITY_GIFT_VAULT } from "@/lib/blockchain/infinity/vaults";
 
 interface SendCreditsModalProps {
   toUserId: string;
   toUsername: string;
+  /** Friendly name shown above the @handle so senders can confirm who they pay. */
+  toDisplayName?: string;
   isOpen: boolean;
   onClose: () => void;
   /** Preselect an asset (e.g. when opened from a specific wallet row). */
   initialAssetId?: string;
 }
 
-export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initialAssetId }: SendCreditsModalProps) {
+export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, onClose, initialAssetId }: SendCreditsModalProps) {
   const recipientAddress = useNativeWalletAddress(toUserId);
   const [amount, setAmount] = useState("");
   const [assets, setAssets] = useState<TipAsset[]>([]);
@@ -193,8 +196,9 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
             <Label className="text-sm font-display uppercase tracking-[0.2em] text-foreground/70">
               Recipient
             </Label>
-            <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground">
-              @{toUsername}
+            <div className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground" data-testid="send-recipient">
+              {toDisplayName && toDisplayName !== toUsername && <span className="mr-2 font-medium">{toDisplayName}</span>}
+              <span className={toDisplayName && toDisplayName !== toUsername ? "text-foreground/60" : undefined}>@{toUsername}</span>
               <div className="mt-2 flex min-w-0 items-center gap-2">
                 <span className="min-w-0 flex-1 break-all font-mono text-xs">{recipientAddress || "Loading address…"}</span>
                 <Button type="button" variant="ghost" size="icon" aria-label="Copy SWARM wallet address" title="Copy SWARM wallet address"
@@ -202,6 +206,9 @@ export function SendCreditsModal({ toUserId, toUsername, isOpen, onClose, initia
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
+              {toUserId === INFINITY_GIFT_VAULT && <p className="mt-2 text-xs text-foreground/60">
+                Goes to Infinity&apos;s community donations vault. No one holds its key, so gifts stay in the pool until a network action moves them.
+              </p>}
             </div>
           </div>
 

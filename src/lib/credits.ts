@@ -4,6 +4,7 @@ import { CreditTransaction, CreditBalance, User, Post } from "@/types";
 import { recordPostCredit } from "./postMetrics";
 import { getCurrentUser } from "./auth";
 import { z } from "zod";
+import { INFINITY_GIFT_VAULT, INFINITY_RECIPIENT } from "./blockchain/infinity/vaults";
 import type { AchievementEvent } from "./achievements";
 
 /**
@@ -722,6 +723,7 @@ interface TransferOptions {
 }
 
 async function ensureRecipientExists(userId: string): Promise<User> {
+  if (userId === INFINITY_GIFT_VAULT) return { ...INFINITY_RECIPIENT } as User;
   const recipient = await get<User>("users", userId);
   if (!recipient) {
     throw new Error("Recipient user not found");
