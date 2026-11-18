@@ -17,6 +17,8 @@ import {
   TOPPLE_MS,
   STUMP_FADE_MS,
 } from '@/lib/world/treeChopStore';
+import { getStoneMine, HITS_TO_BREAK, BREAK_MS } from '@/lib/world/stoneMineStore';
+import { buildBoulderGeometry } from '@/lib/brain/nature/boulderGeometry';
 
 import { VolcanoLavaPool } from '@/components/brain/VolcanoLavaPool';
 
@@ -79,6 +81,15 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'hive': return <Hive color={color} />;
     case 'queen_bee': return <Bee color={color} queen />;
     case 'bee': return <Bee color={color} />;
+    case 'stone':
+      return (
+        <Boulder
+          color={color}
+          blockId={block.bodyId}
+          size={(block.meta?.size as number) ?? 0.8}
+          shapeSeed={(block.meta?.shapeSeed as number) ?? 1}
+        />
+      );
     case 'mountain': return <Mountain color={color} height={(block.meta?.height as number) ?? 12} />;
     default: return null;
   }
@@ -220,6 +231,65 @@ function Bee({ color, queen = false }: { color: string; queen?: boolean }) {
     </group>
   );
 }
+function Boulder({
+  color,
+  blockId,
+  size,
+  shapeSeed,
+}: {
+  color: string;
+  blockId: string;
+  size: number;
+  shapeSeed: number;
+}) {
+  // Procedural granite: a seeded, lumpy icosphere built in code — no
+  // imported model. Each boulder's seed makes its silhouette unique.
+  const geometry = useMemo(() => buildBoulderGeometry(shapeSeed), [shapeSeed]);
+  // The blended element colour is oxygen-heavy (pinkish); weather it toward
+  // granite grey so it reads as rock while keeping its feldspar warmth.
+  const tint = useMemo(() => new THREE.Color(color).lerp(new THREE.Color('#8d8a86'), 0.72), [color]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  const groupRef = useRef<THREE.Group>(null);
+
+  // Mining is visible: each accepted bite jolts the boulder and chips it a
+  // little smaller; the breaking bite shrinks it away into loose stone.
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const state = getStoneMine(blockId);
+    if (!state) {
+      g.position.set(0, 0, 0);
+      g.scale.setScalar(1);
+      return;
+    }
+    const now = Date.now();
+    if (state.brokenAt) {
+      const t = Math.min(1, (now - state.brokenAt) / BREAK_MS);
+      g.position.set(0, 0, 0);
+      g.scale.setScalar(Math.max(0.001, 1 - t * t));
+      return;
+    }
+    const since = now - state.lastHitAt;
+    const jolt = since < 300 ? Math.sin(since / 18) * 0.05 * (1 - since / 300) : 0;
+    g.position.set(jolt, 0, -jolt);
+    g.scale.setScalar(1 - 0.08 * Math.min(state.hits, HITS_TO_BREAK));
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh
+        geometry={geometry}
+        position={[0, size * 0.42, 0]}
+        scale={[size * 1.15, size * 0.78, size]}
+        castShadow
+        receiveShadow
+      >
+        <meshStandardMaterial color={tint} roughness={0.96} metalness={0.04} flatShading />
+      </mesh>
+    </group>
+  );
+}
+
 function Mountain({ color, height }: { color: string; height: number }) {
   // Cone of rock with a snowy cap. Base radius scales with height so
   // tall mountains read as massive, not pencil-thin.
