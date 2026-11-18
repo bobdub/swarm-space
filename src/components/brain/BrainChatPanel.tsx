@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Link } from 'react-router-dom';
+import { SwarmLink } from '@/components/routing/SwarmLink';
 import {
   AtSign,
   CornerDownRight,
@@ -77,6 +79,9 @@ export interface BrainChatLine {
 
 const MAX_LEN = CHAT_MESSAGE_MAX_LENGTH;
 const LONG_MESSAGE_THRESHOLD = 2400;
+
+/** Links in chat: SWARM links stay in-app (the meeting keeps running), external ones open a new tab. */
+const CHAT_MARKDOWN_COMPONENTS = { a: SwarmLink };
 
 /**
  * CommonMark collapses single newlines inside a paragraph, which flattens
@@ -917,7 +922,7 @@ export function BrainChatPanel({
                     <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                   <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{formatChatMarkdown(m.text)}</ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{formatChatMarkdown(m.text)}</ReactMarkdown>
                   </div>
                 </div>
               ))}
@@ -1022,7 +1027,7 @@ export function BrainChatPanel({
                       </div>
                     </div>
                     <div className="prose prose-invert prose-sm max-w-none min-w-0 break-words text-foreground/90 [&_a]:text-primary [&_code]:rounded [&_code]:bg-black/40 [&_code]:px-1 [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:rounded-md [&_pre]:bg-black/50 [&_pre]:p-2">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>
                         {formatChatMarkdown(display)}
                       </ReactMarkdown>
                     </div>
@@ -1140,9 +1145,9 @@ export function BrainChatPanel({
                 </button>
               ))}
               {historyCoins.length > 5 && (
-                <a href="/wallet" className="block pt-1 text-[11px] text-primary/70 hover:text-primary">
+                <Link to="/wallet" className="block pt-1 text-[11px] text-primary/70 hover:text-primary">
                   View all {historyCoins.length} saved chat coins in your wallet →
-                </a>
+                </Link>
               )}
             </div>
           )}
