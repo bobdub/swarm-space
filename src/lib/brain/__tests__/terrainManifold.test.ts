@@ -13,22 +13,25 @@ import { describe, it, expect, afterEach } from 'vitest';
 import * as THREE from 'three';
 import { buildTerrainGeometry } from '../terrainGeometry';
 import { getTerrainGrid, sampleTerrainLift } from '../terrainMesh';
-import { feetRadiusAt, groundElevationAt } from '../groundHeight';
+import { feetRadiusAt, groundElevationAt, isSwimmingAt, SWIM_BODY_DEPTH } from '../groundHeight';
 import {
   BODY_CENTER_HEIGHT,
+  EYE_LIFT,
   EARTH_RADIUS,
   EARTH_SPHERE_RINGS,
   EARTH_SPHERE_SEGMENTS,
   anchorOnEarth,
   BODY_SHELL_RADIUS,
   beginEarthFrame,
+  earthLocalToWorld,
   endEarthFrame,
   getEarthLocalSiteFrame,
   getEarthPose,
   setEarthPoseTime,
   worldPosToLocalNormal,
 } from '../earth';
-import { sampleLandMask } from '../surfaceProfile';
+import { sampleLandMask, sampleBaseLandMask, OCEAN_FLOOR_DEPTH_M, LAND_LIFT, getIslands } from '../surfaceProfile';
+import { getVolcanoOrgan } from '../volcanoOrgan';
 import { UqrcPhysics, PHYSICS_HZ } from '../uqrcPhysics';
 import { HORIZON_M } from '../horizonFade';
 
@@ -87,11 +90,86 @@ describe('terrain manifold: render and physics share one ground', () => {
     geom.dispose();
   });
 
-  it('feetRadiusAt is the rendered ground plus the foot cushion', () => {
+  it('on land, feetRadiusAt is the rendered ground plus the foot cushion', () => {
     const frame = getEarthLocalSiteFrame(VILLAGE);
-    // feetRadiusAt is the rendered ground + cushion everywhere.
+    // The village stands on land, so support = the drawn ground.
     const n = frame.normal;
     expect(feetRadiusAt(n)).toBeCloseTo(EARTH_RADIUS + groundElevationAt(n) + 0.05, 9);
+  });
+});
+
+describe('the village island', () => {
+  /** Ground along a bearing from the village, `m` metres of arc out. */
+  function groundOut(bearing: number, m: number): number {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    const a = m / EARTH_RADIUS;
+    const tx = Math.cos(bearing) * a;
+    const tz = Math.sin(bearing) * a;
+    const n: [number, number, number] = [
+      f.normal[0] + f.right[0] * tx + f.forward[0] * tz,
+      f.normal[1] + f.right[1] * tx + f.forward[1] * tz,
+      f.normal[2] + f.right[2] * tx + f.forward[2] * tz,
+    ];
+    const l = Math.hypot(n[0], n[1], n[2]);
+    return groundElevationAt([n[0] / l, n[1] / l, n[2] / l]);
+  }
+
+  it('the village stands on dry land in the middle of its own island', () => {
+    const n = getEarthLocalSiteFrame(VILLAGE).normal;
+    expect(getIslands().length).toBe(1);
+    expect(sampleLandMask(n)).toBeGreaterThan(0.99);
+    expect(groundElevationAt(n)).toBeGreaterThan(LAND_LIFT - 0.3);
+    expect(isSwimmingAt(n)).toBe(false);
+  });
+
+  it('about 400 m across, with beaches shelving into shallows and then deep sea', () => {
+    for (let k = 0; k < 8; k++) {
+      const bearing = (k / 8) * Math.PI * 2;
+      // Inland plateau, then a beach that slopes down to the waterline.
+      expect(groundOut(bearing, 60)).toBeGreaterThan(LAND_LIFT - 0.5);
+      expect(groundOut(bearing, 120)).toBeGreaterThan(0.5);
+      // Past the waterline the sea floor shelves down: wadeable first,
+      // then out of your depth, never a cliff.
+      let wadeable = 0;
+      for (let m = 150; m <= 300; m += 5) {
+        const g = groundOut(bearing, m);
+        if (g < -0.1 && g > -1.2) wadeable++;
+      }
+      expect(wadeable).toBeGreaterThan(2); // ≥ 15 m of wading shallows
+      expect(groundOut(bearing, 260)).toBeLessThan(0);
+      expect(groundOut(bearing, 330)).toBeLessThan(groundOut(bearing, 230));
+      let prev = groundOut(bearing, 0);
+      for (let m = 10; m <= 400; m += 10) {
+        const g = groundOut(bearing, m);
+        // Beach and shallows are gentle (under ~7°); the drop-off beyond is
+        // steeper, like a real island slope, but never a cliff.
+        expect(prev - g).toBeLessThan(m <= 230 ? 1.2 : 3);
+        prev = g;
+      }
+    }
+  });
+
+  it('measures island distance along the true direction, not a scaled one', () => {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    // 180 m off on the tangent plane, not normalized (as block placement passes it).
+    const raw: [number, number, number] = [
+      f.normal[0] + f.right[0] * (180 / EARTH_RADIUS),
+      f.normal[1] + f.right[1] * (180 / EARTH_RADIUS),
+      f.normal[2] + f.right[2] * (180 / EARTH_RADIUS),
+    ];
+    const l = Math.hypot(raw[0], raw[1], raw[2]);
+    const unit: [number, number, number] = [raw[0] / l, raw[1] / l, raw[2] / l];
+    expect(sampleLandMask(raw)).toBeCloseTo(sampleLandMask(unit), 6);
+  });
+
+  it('nothing else moves: the village is not re-snapped and the volcano stays put', () => {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    // The natural (noise) land under the village is still sea; the site
+    // frame was placed with that base mask, not the island.
+    expect(sampleBaseLandMask(f.normal)).toBeLessThan(0.05);
+    const c = getVolcanoOrgan(VILLAGE).centerNormal;
+    const dot = f.normal[0] * c[0] + f.normal[1] * c[1] + f.normal[2] * c[2];
+    expect(Math.acos(Math.min(1, dot)) * EARTH_RADIUS).toBeCloseTo(546.7, 0);
   });
 });
 
@@ -109,6 +187,22 @@ describe('walking: feet stay on the drawn ground and ride the planet', () => {
     return p;
   }
 
+  function makeWalkerAt(t0: number, localN: [number, number, number]) {
+    const p = new UqrcPhysics();
+    setEarthPoseTime(t0);
+    endEarthFrame();
+    const pose = getEarthPose();
+    const w = earthLocalToWorld(
+      [localN[0] * BODY_SHELL_RADIUS, localN[1] * BODY_SHELL_RADIUS, localN[2] * BODY_SHELL_RADIUS],
+      pose,
+    );
+    p.addBody({
+      id: 'self', kind: 'self', pos: [...w] as [number, number, number],
+      vel: [0, 0, 0], mass: 1, trust: 0.5, meta: { attachedTo: 'earth-surface' },
+    });
+    return p;
+  }
+
   function clearance(p: UqrcPhysics) {
     const pose = getEarthPose();
     const b = p.getBody('self')!;
@@ -117,21 +211,91 @@ describe('walking: feet stay on the drawn ground and ride the planet', () => {
     return { feetAboveGround: r - BODY_CENTER_HEIGHT - feetRadiusAt(n), n };
   }
 
-  it('the shared village (open ocean) no longer sinks feet under the drawn sea', () => {
-    // The village anchor sits on open ocean — the spawn every player shares.
-    expect(sampleLandMask(getEarthLocalSiteFrame(VILLAGE).normal)).toBeLessThan(0.1);
-    const p = makeWalker(T_NOV, VILLAGE);
+  /** Deterministic scan (Fibonacci sphere) for a sea point whose floor
+   *  depth satisfies `ok`; `skip` picks a later match for variety. */
+  function findSeaPoint(skip: number, ok: (ground: number) => boolean): [number, number, number] {
+    const N = 60000;
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    let seen = 0;
+    for (let i = 0; i < N; i++) {
+      const y = 1 - (2 * (i + 0.5)) / N;
+      const rr = Math.sqrt(1 - y * y);
+      const n: [number, number, number] = [Math.cos(golden * i) * rr, y, Math.sin(golden * i) * rr];
+      if (sampleLandMask(n) < 0.05 && ok(groundElevationAt(n)) && seen++ >= skip) return n;
+    }
+    throw new Error('no sea point found');
+  }
+
+  function settle(p: UqrcPhysics, seconds: number) {
     const tick = (p as unknown as { tick(): void }).tick.bind(p);
     let worst = Infinity;
-    for (let i = 0; i < PHYSICS_HZ * 3; i++) {
+    for (let i = 0; i < PHYSICS_HZ * seconds; i++) {
       setEarthPoseTime(T_NOV + (i + 1) / PHYSICS_HZ);
       endEarthFrame(); beginEarthFrame();
       tick();
       if (i > PHYSICS_HZ) worst = Math.min(worst, clearance(p).feetAboveGround);
     }
-    // Previously −0.9 m (the wade dip): waist-deep inside what is drawn as ground.
+    return worst;
+  }
+
+  function bodyRadius(p: UqrcPhysics) {
+    const pose = getEarthPose();
+    const b = p.getBody('self')!;
+    return Math.hypot(b.pos[0] - pose.center[0], b.pos[1] - pose.center[1], b.pos[2] - pose.center[2]);
+  }
+
+  it('the sea has a real floor: shallows near the coast, deep ocean between continents', () => {
+    const deep = findSeaPoint(3, (g) => g < -OCEAN_FLOOR_DEPTH_M + 1);
+    expect(groundElevationAt(deep)).toBeGreaterThan(-OCEAN_FLOOR_DEPTH_M - 0.5);
+    findSeaPoint(0, (g) => g < -0.3 && g > -1.2); // wadeable shallows exist
+  });
+
+  it('shallows: the walker wades on the sea floor, eyes above the water', () => {
+    const shallow = findSeaPoint(1, (g) => g < -0.4 && g > -1.0);
+    const p = makeWalkerAt(T_NOV, shallow);
+    const worst = settle(p, 3);
+    expect(isSwimmingAt(shallow)).toBe(false);
     expect(worst).toBeGreaterThan(-1e-6);
     expect(clearance(p).feetAboveGround).toBeLessThan(0.25);
+    // Feet on the floor, below the water surface; eye above it.
+    expect(bodyRadius(p) - BODY_CENTER_HEIGHT).toBeLessThan(EARTH_RADIUS);
+    expect(bodyRadius(p) + EYE_LIFT).toBeGreaterThan(EARTH_RADIUS + 0.2);
+  });
+
+  it('deep water: the walker floats and swims at the surface, head out', () => {
+    const deep = findSeaPoint(13, (g) => g < -10);
+    const p = makeWalkerAt(T_NOV, deep);
+    const worst = settle(p, 15);
+    expect(isSwimmingAt(deep)).toBe(true);
+    expect(worst).toBeGreaterThan(-1e-6);
+    const r = bodyRadius(p);
+    expect(r).toBeCloseTo(EARTH_RADIUS - SWIM_BODY_DEPTH, 0);
+    expect(r + EYE_LIFT).toBeGreaterThan(EARTH_RADIUS + 0.2);
+  });
+
+  it('a walker shoved below the sea floor is put straight back on top', () => {
+    const rnd = seeded(7);
+    let sea: [number, number, number] | null = null;
+    while (!sea) {
+      const v = [rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1];
+      const l = Math.hypot(v[0], v[1], v[2]);
+      if (l < 0.1 || l > 1) continue;
+      const n: [number, number, number] = [v[0] / l, v[1] / l, v[2] / l];
+      if (sampleLandMask(n) === 0) sea = n;
+    }
+    const p = makeWalkerAt(T_NOV, sea);
+    const b = p.getBody('self')!;
+    const pose = getEarthPose();
+    // Push 4 m under the bed, falling fast toward the core.
+    const dx = b.pos[0] - pose.center[0], dy = b.pos[1] - pose.center[1], dz = b.pos[2] - pose.center[2];
+    const r = Math.hypot(dx, dy, dz);
+    const k = (r - 5) / r;
+    b.pos = [pose.center[0] + dx * k, pose.center[1] + dy * k, pose.center[2] + dz * k];
+    b.vel = [-dx / r * 20, -dy / r * 20, -dz / r * 20];
+    setEarthPoseTime(T_NOV + 1 / PHYSICS_HZ);
+    endEarthFrame(); beginEarthFrame();
+    (p as unknown as { tick(): void }).tick();
+    expect(clearance(p).feetAboveGround).toBeGreaterThan(-1e-6);
   });
 
   it('walking across coastlines never puts feet below the rendered ground', () => {

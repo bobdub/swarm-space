@@ -73,7 +73,7 @@ import {
 import { WATER_WALK_SCALE } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
-import { groundElevationAt } from './groundHeight';
+import { supportElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -986,10 +986,11 @@ export class UqrcPhysics {
           // glued to the planet under spin.
           // The floor is the rendered terrain itself (groundElevationAt
           // intersects the same displaced triangles the GPU draws), so the
-          // physics manifold and the render manifold commute. Water is
-          // solid underfoot: the ocean is drawn opaque at the baseline.
+          // physics manifold and the render manifold commute. Out at sea
+          // the support is the sea floor, or the water itself once it is
+          // deep enough to swim (supportElevationAt).
           const elevation = isSurfaceHumanoid
-            ? groundElevationAt(worldPosToLocalNormal(b.pos, pose))
+            ? supportElevationAt(worldPosToLocalNormal(b.pos, pose))
             : 0;
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
@@ -1105,7 +1106,7 @@ export class UqrcPhysics {
                 // on a volcano slope settles to the slope, not to the
                 // spherical baseline shell (which would phase the body
                 // through the visible cone).
-                const elevation = groundElevationAt(worldPosToLocalNormal(b.pos, pose));
+                const elevation = supportElevationAt(worldPosToLocalNormal(b.pos, pose));
                 const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {

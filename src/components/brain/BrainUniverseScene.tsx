@@ -143,7 +143,7 @@ import {
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
 import { worldPosToLocalNormal } from '@/lib/brain/earth';
-import { feetRadiusAt, groundElevationAt } from '@/lib/brain/groundHeight';
+import { feetRadiusAt, supportElevationAt } from '@/lib/brain/groundHeight';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
 // Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
@@ -240,7 +240,7 @@ function spawnNearSharedVillage(
   // Earth-local normal (un-spin) so we sample the noise on the planet
   // frame, matching shader and physics samplers.
   const localN = quatRotate(pose.invSpinQuat, localUnit);
-  const lift = groundElevationAt(localN);
+  const lift = supportElevationAt(localN);
   const k = (r + lift) / r;
   return [
     pose.center[0] + dx * k,
