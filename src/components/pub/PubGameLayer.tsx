@@ -5,19 +5,30 @@
  * a single contextual prompt, and opens the matching game panel. The pub
  * is the interface: entry and exit are positional, the panel is only the
  * board readout.
+ *
+ * Sitting at the card table or stepping up to the darts board uses the
+ * same press-and-hold as raising a staged build: hold the prompt until
+ * the ring fills. Pointer events make this work with mouse and touch.
  */
 
 import { useCallback, useEffect, useState } from 'react';
 import { useNearbyInteractable } from '@/hooks/useNearbyInteractable';
+import { usePressAndHold } from '@/hooks/usePressAndHold';
+import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
+import { setActiveTable } from '@/lib/pub/activeTableStore';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
 import { isSeated, leaveSeat } from '@/lib/pub/seating';
-import { leaveTable, setLocalPeerId } from '@/lib/pub/gameTableStore';
+import { leaveTable, setLocalPeerAliasResolver, setLocalPeerId } from '@/lib/pub/gameTableStore';
+import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { SeatDebugOverlay } from '@/components/pub/SeatDebugOverlay';
 import {
   isSeatDebugOn,
   subscribeSpectator,
 } from '@/lib/pub/spectatorCameraStore';
+
+/** How long to hold the prompt before you sit down or step up to play. */
+const SIT_HOLD_MS = 900;
 
 export function PubGameLayer({
   selfId,
@@ -44,6 +55,13 @@ export function PubGameLayer({
   // to whichever table we happen to be hosting.
   useEffect(() => { setLocalPeerId(selfId); }, [selfId]);
 
+  // Other players know us by our mesh peer id, not our account id. Stamp
+  // it on the seat we take so they can find it and draw us on the stool.
+  useEffect(() => {
+    setLocalPeerAliasResolver(getLocalMeshPeerId);
+    return () => setLocalPeerAliasResolver(null);
+  }, []);
+
   const open = useCallback(() => {
     if (nearTableId) setOpenTableId(nearTableId);
   }, [nearTableId]);
@@ -55,6 +73,12 @@ export function PubGameLayer({
       return null;
     });
   }, [selfId]);
+
+  // Let the 3D bar draw the in-world "hold to leave" button.
+  useEffect(() => {
+    setActiveTable(openTableId, close);
+  }, [openTableId, close]);
+  useEffect(() => () => setActiveTable(null, null), []);
 
   // Deliberately walking away closes the panel and frees the seat. Idle
   // physics drift can no longer switch this check to a neighbouring game.
@@ -69,21 +93,25 @@ export function PubGameLayer({
     return () => window.clearTimeout(timer);
   }, [openTableId, nearTableId, close]);
 
-  // Keyboard: E to join, Q to leave.
+  // Press-and-hold to sit or play, the same gesture as raising a build.
+  const hold = usePressAndHold(open, {
+    durationMs: SIT_HOLD_MS,
+    enabled: !openTableId && !!nearTableId,
+  });
+
+  // Keyboard: Q still leaves. Joining is press-and-hold only.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
       if (target?.isContentEditable) return;
-      if (e.key === 'e' || e.key === 'E') {
-        if (!openTableId && nearTableId) open();
-      } else if (e.key === 'q' || e.key === 'Q') {
+      if (e.key === 'q' || e.key === 'Q') {
         if (openTableId) close();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [openTableId, nearTableId, open, close]);
+  }, [openTableId, close]);
 
   if (!selfId) return null;
 
@@ -98,10 +126,18 @@ export function PubGameLayer({
         <div className="pointer-events-none fixed inset-x-0 bottom-40 z-40 flex justify-center px-3">
           <button
             type="button"
-            onClick={open}
-            className="pointer-events-auto rounded-full border border-primary/60 bg-[hsla(265,70%,8%,0.92)] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-foreground shadow-[0_0_20px_hsla(265,70%,55%,0.4)]"
+            {...hold.bind}
+            data-testid="pub-hold-prompt"
+            aria-label={`Press and hold to ${near.interaction.label}`}
+            style={{ touchAction: 'none', WebkitTouchCallout: 'none' }}
+            className="pointer-events-auto flex select-none items-center gap-2 rounded-full border border-primary/60 bg-[hsla(265,70%,8%,0.92)] py-1.5 pl-1.5 pr-4 text-xs font-semibold uppercase tracking-wide text-foreground shadow-[0_0_20px_hsla(265,70%,55%,0.4)]"
           >
-            {mobile ? `Tap to ${near.interaction.label}` : `Press [E] to ${near.interaction.label}`}
+            <HoldProgressRing value={hold.progress} size={24} />
+            <span>
+              {hold.progress > 0
+                ? `${near.interaction.label} · ${Math.round(hold.progress * 100)}%`
+                : `${mobile ? 'Touch' : 'Press'} and hold to ${near.interaction.label}`}
+            </span>
           </button>
         </div>
       )}

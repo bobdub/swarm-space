@@ -1853,7 +1853,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // bridge their actual words on the next turn (A↔B learning).
       try {
         const fusion = getSharedNeuralEngine().getDualLearning();
-        fusion.ingestContentEvent({ text: remote.text, reactions: 0, comments: 1, shares: 0, trustScore: 90, peerId: remote.author || remote.id, timestamp: remote.ts });
+        fusion.ingestContentEvent({ text: remote.text, reactions: 0, comments: 1, shares: 0, trustScore: 90, peerId: remote.peerId || remote.author || remote.id, timestamp: remote.ts });
       } catch { /* learner optional */ }
     });
     return () => unsub();

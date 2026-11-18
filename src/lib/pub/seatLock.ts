@@ -26,7 +26,7 @@ export function seatIndexOf(table: PubTable, peerId: string): number {
   const ordered = [...table.seats].sort(
     (a, b) => (a.joinedAt - b.joinedAt) || a.peerId.localeCompare(b.peerId),
   );
-  return ordered.findIndex((s) => s.peerId === peerId);
+  return ordered.findIndex((s) => s.peerId === peerId || (!!s.meshPeerId && s.meshPeerId === peerId));
 }
 
 /** Every seat lock currently known across all synced tables. */

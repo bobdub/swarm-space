@@ -8,6 +8,7 @@ import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { getLastInfinitySnapshot, getInfinityProjection } from '../brain/infinityBinding';
 import { computeMassScore } from './dualLearningFusion';
 import { seedInfinityCanon } from '../brain/infinityCorpus';
+import { routingFromNeurons } from '../brain/coreMemories';
 
 /**
  * Single source of truth for the Q_Score Infinity quotes. If the brain
@@ -329,6 +330,7 @@ export class EntityVoice {
       personality: projection,
       heartbeat: heart ?? undefined,
       massScore,
+      routing: routingFromNeurons(engine),
     })?.text ?? null;
   }
 

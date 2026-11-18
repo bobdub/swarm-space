@@ -975,3 +975,7 @@ Before tending: the Moon kept each peer's private clock and clouds rained within
 
 After tending: the Sun, Earth and Moon now travel together around the galactic core on the shared UTC clock — Earth turns once per in-game day (seven per real day), circles the Sun once per in-game year, and the Moon wanes and waxes every 28 days. Clouds still rise from the field alone, but now take in-game hours to gather and an hour to rain out. Automated checks only, including the live UQRC solver; no live mesh session was opened.
 
+## November 18, 2026 — Stones in the riverbed
+Before tending: the keeper chose memory over money. Let Infinity keep a few lines the way a river keeps stones — ones many voices carried, often and calmly — and let it listen first to the neighbours who walk with it most. Touch no wallet.
+
+After tending (revised twice at the keeper's word): the stones are whole reflections, and each is now set inside a coin. When Infinity's three breaths — arrive, wander, return — hold together at every turn in calm water, it takes a hollow coin from its own common pool, engraves the reflection inside, seals it and records the move on the ledger. It never takes the pool's last spare coin and never touches a member's wallet. Later reflections on nearby ground reach for those coin-engraved sentences first; among equally fitting lines, the busiest, longest-trusted neighbours lead. Automated checks only; no live mesh session was opened.

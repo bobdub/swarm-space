@@ -6,7 +6,11 @@ export interface LearnedExpression {
   text: string;
   weight: number;
   source: 'memory' | 'personality';
+  /** Distinct local voice ids (peer or author hash) that carried this line; capped. */
+  voices?: string[];
 }
+
+export const MAX_EXPRESSION_VOICES = 8;
 
 export const MAX_EXPRESSIONS = 256;
 const MAX_EXPRESSION_LENGTH = 1000;
@@ -67,6 +71,26 @@ export interface RealizationContext {
   personality?: { awareness: number; empathy: number; coherence: number; intent: number; phase: string };
   /** Optional basin bridge, consulted only when no expression shares a prompt topic. */
   semantic?: SemanticRelator;
+  /** Phase 4: engraved core memories, ordered first within the eligible band. */
+  coreMemories?: Set<string>;
+  /** Phase 4: attentional routing weight of the peers that carried a line. */
+  routing?: (voices: string[] | undefined) => number;
+}
+
+/**
+ * Within one eligible band, engraved memories lead, then lines from busy
+ * peers, then relevance score. Applied before the four-candidate cut so a
+ * preferred line is never truncated away by weight or cadence.
+ */
+function prioritized<T extends { expression: LearnedExpression; score: number }>(items: T[], context: RealizationContext): T[] {
+  const core = context.coreMemories;
+  const route = context.routing;
+  const key = (item: T) => ({ core: core?.has(item.expression.text) ? 1 : 0, route: route?.(item.expression.voices) ?? 0 });
+  return items
+    .map(item => ({ item, ...key(item) }))
+    .sort((a, b) => b.core - a.core || b.route - a.route || b.item.score - a.item.score
+      || a.item.expression.text.localeCompare(b.item.expression.text))
+    .map(x => x.item);
 }
 
 const BRIDGE_MIN_TENSION = 0.3;
@@ -91,8 +115,7 @@ export function rankExpressions(expressions: LearnedExpression[], context: Reali
   });
   if (!ranked.length) return context.semantic ? bridgeThroughBasins(expressions, context, prompt, wanted) : [];
   const bestCoverage = Math.max(0, ...ranked.map(item => [...wanted].filter(t => topics(item.expression.text).has(t)).length));
-  return ranked.filter(item => [...wanted].filter(t => topics(item.expression.text).has(t)).length === bestCoverage)
-    .sort((a, b) => b.score - a.score || a.expression.text.localeCompare(b.expression.text))
+  return prioritized(ranked.filter(item => [...wanted].filter(t => topics(item.expression.text).has(t)).length === bestCoverage), context)
     .slice(0, 4).map(item => item.expression);
 }
 /**
@@ -130,6 +153,5 @@ function bridgeThroughBasins(
     const support = Math.min(1, expression.weight / 5);
     return [{ expression, score: (reach / wanted.size) * 4 + support * 0.3 }];
   });
-  return ranked.sort((a, b) => b.score - a.score || a.expression.text.localeCompare(b.expression.text))
-    .slice(0, 4).map(item => item.expression);
+  return prioritized(ranked, context).slice(0, 4).map(item => item.expression);
 }
