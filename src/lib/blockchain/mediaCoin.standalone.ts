@@ -334,6 +334,10 @@ export class MediaCoinEngine {
   /** Incoming hand-offs being assembled, keyed by passId. */
   private incoming = new Map<string, { coinId: string; from: string; route?: MediaCoinRoute; manifest?: MediaCoinManifest; pieces: Map<number, MediaChunk> }>();
   private holdTimer: ReturnType<typeof setInterval> | null = null;
+  /** Coins with a hand-off in flight; they stay in `held` until it succeeds. */
+  private sending = new Set<string>();
+  /** Hand-offs already unpacked here (coinId + route), so a resend is ignored. */
+  private passedRoutes = new Set<string>();
   private unpackListeners = new Set<(u: MediaCoinUnpacked) => void | Promise<void>>();
   private loopListeners = new Set<(l: MediaCoinLoopComplete) => void>();
 
@@ -1115,42 +1119,53 @@ export class MediaCoinEngine {
     return null;
   }
 
+  /**
+   * Hand the coin on. It stays in `held` until every frame of the hand-off
+   * was accepted by the transport, so a failed send is retried rather
+   * than losing the coin.
+   */
   private forward(coinId: string, route: MediaCoinRoute): void {
+    this.held.set(coinId, route);
+    if (this.sending.has(coinId)) return;
     const next = this.nextHop(route);
-    if (!next) {
-      this.held.set(coinId, route);
-      return;
-    }
-    this.held.delete(coinId);
-    this.sendCoin(coinId, route, next);
+    if (!next) return;
+    this.sending.add(coinId);
+    void this.sendCoin(coinId, route, next)
+      .catch(() => false)
+      .then((ok) => {
+        this.sending.delete(coinId);
+        if (ok && this.held.get(coinId) === route) this.held.delete(coinId);
+      });
   }
 
   private retryHeld(): void {
     for (const [coinId, route] of Array.from(this.held)) this.forward(coinId, route);
   }
 
-  private sendCoin(coinId: string, route: MediaCoinRoute, peerId: string): void {
+  private async sendCoin(coinId: string, route: MediaCoinRoute, peerId: string): Promise<boolean> {
     const manifest = this.manifests.get(coinId);
     const chunkMap = this.chunks.get(coinId);
-    if (!manifest || !chunkMap) return;
+    if (!manifest || !chunkMap) return false;
     const passId = genId("pass");
-    void this.transport.send(CHANNEL, peerId, {
+    const sends: Promise<boolean>[] = [this.transport.send(CHANNEL, peerId, {
       type: "coin-pass",
       coinId,
       payload: { passId, manifest, route },
       msgId: genId("msg"),
-    } as MediaCoinMessage);
+    } as MediaCoinMessage)];
     for (let i = 0; i < manifest.totalChunks; i++) {
       const chunk = chunkMap.get(i);
-      if (!chunk) continue;
-      void this.transport.send(CHANNEL, peerId, {
+      if (!chunk) return false;
+      sends.push(this.transport.send(CHANNEL, peerId, {
         type: "coin-pass-piece",
         coinId,
         payload: { passId, chunk },
         msgId: genId("msg"),
-      } as MediaCoinMessage);
+      } as MediaCoinMessage));
     }
-    console.log(`[MediaCoin] 🔁 Passed ${coinId} to ${peerId.slice(0, 8)} (hop ${route.hops.length})`);
+    const ok = (await Promise.all(sends)).every(Boolean);
+    console.log(`[MediaCoin] 🔁 ${ok ? "Passed" : "Failed to pass"} ${coinId} to ${peerId.slice(0, 8)} (hop ${route.hops.length})`);
+    return ok;
   }
 
   private passEntry(passId: string, coinId: string, from: string) {
@@ -1197,6 +1212,15 @@ export class MediaCoinEngine {
         console.warn(`[MediaCoin] ❌ Coin ${manifest.coinId} from ${from.slice(0, 8)} failed verification`);
         return;
       }
+    }
+
+    // A resent hand-off of a route we already unpacked is ignored.
+    const routeKey = `${manifest.coinId}|${entry.route.hops.join(",")}`;
+    if (this.passedRoutes.has(routeKey)) return;
+    this.passedRoutes.add(routeKey);
+    if (this.passedRoutes.size > SEEN_CAP) {
+      const first = this.passedRoutes.values().next().value;
+      if (first) this.passedRoutes.delete(first);
     }
 
     const local = this.transport.localPeerId;
