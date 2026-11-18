@@ -5,7 +5,7 @@
  */
 import type { AnchorHTMLAttributes } from 'react';
 import { Link } from 'react-router-dom';
-import { resolveSwarmPath } from '@/lib/routing/swarmLinks';
+import { isExternalWebLink, resolveSwarmPath } from '@/lib/routing/swarmLinks';
 
 export type SwarmLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   /** react-markdown passes its AST node; it must not reach the DOM. */
@@ -19,6 +19,14 @@ export function SwarmLink({ href, children, node: _node, target: _target, rel: _
       <Link to={path} {...rest}>
         {children}
       </Link>
+    );
+  }
+  if (!isExternalWebLink(href)) {
+    // Same-page anchors, mailto:, files… keep the browser's own behaviour.
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
     );
   }
   return (

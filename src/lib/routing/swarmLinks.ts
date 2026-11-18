@@ -23,6 +23,15 @@ function currentOrigin(): string | null {
   return window.location.origin;
 }
 
+/** Base for relative links: the current document URL, so `u/alice` and
+ *  `?tab=posts` resolve exactly as the browser would. */
+function resolveBase(origin: string | null): string {
+  if (typeof window !== 'undefined' && window.location && origin === window.location.origin) {
+    return window.location.href;
+  }
+  return origin ?? 'http://swarm.invalid';
+}
+
 /**
  * Returns the in-app path (`/posts/abc?x=1#y`) for a SWARM link, or `null`
  * when the URL is external, not http(s), or not a routable page.
@@ -39,7 +48,7 @@ export function resolveSwarmPath(
 
   let url: URL;
   try {
-    url = new URL(raw, origin ?? 'http://swarm.invalid');
+    url = new URL(raw, resolveBase(origin));
   } catch {
     return null;
   }
@@ -66,7 +75,7 @@ export function isExternalWebLink(href: string | null | undefined, origin?: stri
   if (!raw || raw.startsWith('#')) return false;
   let url: URL;
   try {
-    url = new URL(raw, o ?? 'http://swarm.invalid');
+    url = new URL(raw, resolveBase(o));
   } catch {
     return false;
   }

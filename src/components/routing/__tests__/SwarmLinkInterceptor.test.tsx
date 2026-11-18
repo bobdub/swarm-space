@@ -69,6 +69,19 @@ describe('SWARM links during a Brain meeting', () => {
     expect(a.getAttribute('rel')).toContain('noopener');
   });
 
+  it('keeps same-page fragment links in the current tab', () => {
+    renderApp(<ReactMarkdown components={{ a: SwarmLink }}>{'[section](#section)'}</ReactMarkdown>);
+    expect(screen.getByText('section').getAttribute('target')).toBeNull();
+  });
+
+  it('resolves relative links against the current page', () => {
+    window.history.pushState({}, '', '/brain/join');
+    renderApp(<a href="u/alice">rel</a>);
+    fireEvent.click(screen.getByText('rel'));
+    expect(screen.getByTestId('where').textContent).toBe('/brain/u/alice');
+    window.history.pushState({}, '', '/');
+  });
+
   it('leaves modified clicks to the browser', () => {
     renderApp(<a href="/posts/abc">post</a>);
     const click = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
