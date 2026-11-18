@@ -184,9 +184,9 @@ export async function withdrawCustomToken(p: { swarmId: string; token: CustomTok
   const authority = await getColdKeyAuthority(swarmId);
   if (!authority) throw new Error("Engrave your cold-wallet key first — a Creator Coin Vault or 1 mined SWARM is required");
   const { wallet, address: coldAddress } = await deriveColdKey(swarmId);
+  const units = numberToUnits(amount, token.decimals);
   const txHash = await sendColdKeyTokenTransfer({
-    wallet, tokenAddress: token.address, symbol: token.symbol, to,
-    units: numberToUnits(amount, token.decimals),
+    wallet, tokenAddress: token.address, symbol: token.symbol, to, units,
   });
   const at = Date.now();
   const currency = tokenCurrency(token.address);
@@ -194,7 +194,9 @@ export async function withdrawCustomToken(p: { swarmId: string; token: CustomTok
     id: generateTransactionId(), type: "external_withdraw", from: swarmId, to,
     amount: Math.round(amount * 1e8) / 1e8, timestamp: new Date(at).toISOString(), signature: txHash,
     publicKey: coldAddress, nonce: at, fee: 0,
-    meta: { kind: "external_withdraw", currency, symbol: token.symbol, contract: token.address, address: coldAddress, destination: to, coldKeyAddress: coldAddress, keyAuthority: authority.kind, txHash },
+    meta: { kind: "external_withdraw", currency, symbol: token.symbol, contract: token.address, address: coldAddress, destination: to, coldKeyAddress: coldAddress, keyAuthority: authority.kind, txHash,
+      // Exact units sent, so deposit checks can match this withdrawal on MintMe without rounding.
+      amountUnits: units.toString() },
   };
   getSwarmChain().addTransaction(tx);
   try { window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: { id: tx.id } })); } catch { /* */ }
