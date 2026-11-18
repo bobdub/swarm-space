@@ -49,6 +49,7 @@ import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWit
 const Index = lazy(() => import("./pages/Index"));
 const PeerConnect = lazy(() => import("./pages/PeerConnect"));
 const Auth = lazy(() => import("./pages/Auth"));
+const Recover = lazy(() => import("./pages/Recover"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Explore = lazy(() => import("./pages/Explore"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -172,6 +173,7 @@ function AppContent() {
           <Routes>
             {/* Public routes — no login required */}
             <Route path="/auth" element={<Auth />} />
+            <Route path="/recover" element={<Recover />} />
             <Route path="/preview" element={<Preview />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/whitepaper" element={<WhitepaperPage />} />
