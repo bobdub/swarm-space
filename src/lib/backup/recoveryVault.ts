@@ -51,6 +51,13 @@ export interface VaultPayload {
   sealedAt: string;
 }
 
+/**
+ * Which secret seals the shell: the account password (the genesis default,
+ * which follows local password changes) or a separate Recovery Passphrase.
+ * Signed, so every device of the identity agrees on it.
+ */
+export type VaultShellMode = "account" | "recovery";
+
 export interface UnsignedVaultEnvelope {
   format: typeof VAULT_FORMAT;
   userId: string;
@@ -60,6 +67,8 @@ export interface UnsignedVaultEnvelope {
   ciphertext: string;
   createdAt: string;
   signerPublicKey: string;
+  /** Absent on envelopes sealed before the mode was recorded. */
+  shell?: VaultShellMode;
 }
 
 export interface RecoveryVaultEnvelope extends UnsignedVaultEnvelope {
@@ -88,8 +97,12 @@ async function deriveShellKey(passphrase: string, salt: Uint8Array, iterations: 
 }
 
 function signingBytes(envelope: UnsignedVaultEnvelope): ArrayBuffer {
-  const { format, userId, version, kdf, cipher, ciphertext, createdAt, signerPublicKey } = envelope;
-  return bytes(canonicalJsonBytes({ format, userId, version, kdf, cipher, ciphertext, createdAt, signerPublicKey }));
+  const { format, userId, version, kdf, cipher, ciphertext, createdAt, signerPublicKey, shell } = envelope;
+  // `shell` is signed only when present so earlier envelopes still verify.
+  return bytes(canonicalJsonBytes({
+    format, userId, version, kdf, cipher, ciphertext, createdAt, signerPublicKey,
+    ...(shell !== undefined ? { shell } : {}),
+  }));
 }
 
 async function importVerifyKey(publicKey: string): Promise<CryptoKey> {
@@ -112,6 +125,7 @@ export async function sealRecoveryVault(input: {
   user: VaultProfile;
   version: number;
   passphrase: string;
+  shell?: VaultShellMode;
   now?: Date;
 }): Promise<RecoveryVaultEnvelope> {
   const passphrase = normalizePassphrase(input.passphrase);
@@ -155,6 +169,7 @@ export async function sealRecoveryVault(input: {
     ciphertext: arrayBufferToBase64(ciphertext),
     createdAt,
     signerPublicKey: input.user.publicKey,
+    ...(input.shell ? { shell: input.shell } : {}),
   };
 
   const signingKey = await crypto.subtle.importKey(
@@ -185,6 +200,7 @@ export function isVaultEnvelopeShape(value: unknown): value is RecoveryVaultEnve
     isStr(e.ciphertext, MAX_ENVELOPE_BYTES) &&
     isStr(e.createdAt, 64) &&
     isStr(e.signerPublicKey, 1024) &&
+    (e.shell === undefined || e.shell === "account" || e.shell === "recovery") &&
     isStr(e.signature, 1024)
   );
 }

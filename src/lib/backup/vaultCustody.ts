@@ -22,6 +22,7 @@ import {
   verifyRecoveryVault,
   type RecoveryVaultEnvelope,
   type VaultProfile,
+  type VaultShellMode,
 } from "./recoveryVault";
 
 export const VAULT_CHANNEL = "recovery-vault";
@@ -164,7 +165,7 @@ export async function bestKnownVault(userId: string): Promise<RecoveryVaultEnvel
 
 /** Genesis v1: sealed in the background at signup with the signup password. */
 export async function sealGenesisVault(privateKey: string, user: VaultProfile, signupPassword: string): Promise<OwnVaultRecord> {
-  const envelope = await sealRecoveryVault({ privateKey, user, version: 1, passphrase: signupPassword });
+  const envelope = await sealRecoveryVault({ privateKey, user, version: 1, passphrase: signupPassword, shell: "account" });
   const record = { envelope, genesisDefault: true };
   await saveOwnVault(record);
   return record;
@@ -192,24 +193,25 @@ export async function ensureGenesisVault(privateKey: string, user: VaultProfile,
 export async function followPasswordChange(privateKey: string, user: VaultProfile, newAccountPassword: string): Promise<OwnVaultRecord | null> {
   const own = await getOwnVault(user.id);
   if (!own?.genesisDefault) return null;
-  const record = await rotateRecoveryShell(privateKey, user, newAccountPassword);
-  const kept = { ...record, genesisDefault: true };
-  await put("meta", { k: OWN_KEY(user.id), v: kept });
-  announce(user.id);
-  return kept;
+  return rotateRecoveryShell(privateKey, user, newAccountPassword, "account");
 }
 
 /**
  * Wrap a new outer shell at v(N+1). The previous envelope is replaced locally
  * and the new one is pushed to every connected peer, which overwrite theirs.
  */
-export async function rotateRecoveryShell(privateKey: string, user: VaultProfile, newPassphrase: string): Promise<OwnVaultRecord> {
+export async function rotateRecoveryShell(
+  privateKey: string,
+  user: VaultProfile,
+  newPassphrase: string,
+  shell: VaultShellMode = "recovery",
+): Promise<OwnVaultRecord> {
   // Another device of this identity may already have rotated: allocate above
   // the highest verified shell we know of, own or held.
   const known = await bestKnownVault(user.id);
   const version = (known?.version ?? 0) + 1;
-  const envelope = await sealRecoveryVault({ privateKey, user, version, passphrase: newPassphrase });
-  const record = { envelope, genesisDefault: false };
+  const envelope = await sealRecoveryVault({ privateKey, user, version, passphrase: newPassphrase, shell });
+  const record = { envelope, genesisDefault: shell === "account" };
   await saveOwnVault(record);
   pushOwnVaultToAll(user.id);
   return record;
@@ -220,7 +222,16 @@ export async function adoptRestoredVault(envelope: RecoveryVaultEnvelope): Promi
   if (!(await verifyRecoveryVault(envelope))) throw new Error("Refusing to adopt an unverified vault.");
   const existing = await getOwnVault(envelope.userId);
   if (existing && !supersedes(envelope, existing.envelope)) return;
-  await saveOwnVault({ envelope, genesisDefault: envelope.version === 1 && (existing?.genesisDefault ?? true) });
+  await saveOwnVault({ envelope, genesisDefault: isAccountShell(envelope, existing) });
+}
+
+/**
+ * Whether a shell is sealed with the account password. Signed envelopes say
+ * so; older ones without the field are only known to be genesis at v1.
+ */
+export function isAccountShell(envelope: RecoveryVaultEnvelope, existing?: OwnVaultRecord | null): boolean {
+  if (envelope.shell) return envelope.shell === "account";
+  return envelope.version === 1 && (existing?.genesisDefault ?? true);
 }
 
 // ── Wire protocol ──────────────────────────────────────────────────────
@@ -285,17 +296,18 @@ export async function handleVaultMessage(fromPeer: string, payload: unknown): Pr
       if (msg.envelope?.userId && msg.envelope.userId === activeUserId()) {
         try { await adoptRestoredVault(msg.envelope); } catch { /* unverified: ignored */ }
       }
-      if (await holdVault(msg.envelope, fromPeer)) {
-        send(fromPeer, { kind: "ack", userId: msg.envelope.userId, version: msg.envelope.version, signature: msg.envelope.signature });
-        return;
-      }
-      // We hold a shell that wins over the one offered (newer, or the
-      // tie-break winner): hand it back so the sender converges too.
+      // We know a shell that wins over the one offered (newer, or the
+      // tie-break winner), whether held for a peer or our own: hand it back
+      // so the sender converges instead of acknowledging the loser.
       if (msg.envelope && typeof msg.envelope.userId === "string") {
         const better = await bestKnownVault(msg.envelope.userId);
         if (better && !sameEnvelope(better, msg.envelope) && supersedes(better, msg.envelope)) {
           send(fromPeer, { kind: "store", envelope: better });
+          return;
         }
+      }
+      if (await holdVault(msg.envelope, fromPeer)) {
+        send(fromPeer, { kind: "ack", userId: msg.envelope.userId, version: msg.envelope.version, signature: msg.envelope.signature });
       }
       return;
     }

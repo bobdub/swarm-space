@@ -181,4 +181,57 @@ describe("vault custody follow-ups", () => {
     expect(await custody.followPasswordChange(me.privateKey, me.user, "yet-another")).toBeNull();
     stop();
   });
+
+  it("a password-resealed shell stays an account shell when another device adopts it", async () => {
+    const me = await identity();
+    const t = fakeTransport([]);
+    const stop = custody.startVaultCustody({ transport: t.transport, getActiveUserId: () => me.user.id });
+    await custody.sealGenesisVault(me.privateKey, me.user, "pw-one");
+    const followed = await custody.followPasswordChange(me.privateKey, me.user, "pw-two");
+    expect(followed?.envelope.shell).toBe("account");
+
+    // A fresh device restores v2: the signed mode survives adoption.
+    db.clear();
+    await custody.adoptRestoredVault(followed!.envelope);
+    expect((await custody.getOwnVault(me.user.id))?.genesisDefault).toBe(true);
+    expect((await custody.followPasswordChange(me.privateKey, me.user, "pw-three"))?.envelope.version).toBe(3);
+
+    const separate = await custody.rotateRecoveryShell(me.privateKey, me.user, "separate recovery phrase");
+    expect(separate.envelope.shell).toBe("recovery");
+    db.clear();
+    await custody.handleVaultMessage("peer-own", { kind: "store", envelope: separate.envelope });
+    expect((await custody.getOwnVault(me.user.id))?.genesisDefault).toBe(false);
+    stop();
+  });
+
+  it("the shell mode is signed: flipping it breaks verification", async () => {
+    const me = await identity();
+    const env = await sealRecoveryVault({ ...me, version: 2, passphrase: "phrase", shell: "recovery" });
+    const { verifyRecoveryVault } = await import("../recoveryVault");
+    expect(await verifyRecoveryVault(env)).toBe(true);
+    expect(await verifyRecoveryVault({ ...env, shell: "account" })).toBe(false);
+    const legacy = await sealRecoveryVault({ ...me, version: 1, passphrase: "phrase" });
+    expect(legacy.shell).toBeUndefined();
+    expect(await verifyRecoveryVault(legacy)).toBe(true);
+  });
+
+  it("an own-vault tie-break winner is handed back instead of acking the loser", async () => {
+    const me = await identity();
+    const t = fakeTransport([]);
+    const stop = custody.startVaultCustody({ transport: t.transport, getActiveUserId: () => me.user.id });
+    const ours = await custody.rotateRecoveryShell(me.privateKey, me.user, "phrase on this device");
+    const winnerIsOurs = ours.envelope;
+    // Build a same-version rival that loses the tie-break.
+    const rival = await sealRecoveryVault({ ...me, version: winnerIsOurs.version, passphrase: "other device", now: new Date(Date.parse(winnerIsOurs.createdAt) - 60_000) });
+    const { supersedes } = await import("../recoveryVault");
+    expect(supersedes(winnerIsOurs, rival)).toBe(true);
+
+    const sentBefore = t.sent.length;
+    await custody.handleVaultMessage("peer-other", { kind: "store", envelope: rival });
+    const reply = t.sent.slice(sentBefore);
+    expect(reply).toHaveLength(1);
+    expect(reply[0]).toMatchObject({ peerId: "peer-other", payload: { kind: "store", envelope: { signature: winnerIsOurs.signature } } });
+    expect(await custody.getHeldVault(me.user.id)).toBeNull();
+    stop();
+  });
 });
