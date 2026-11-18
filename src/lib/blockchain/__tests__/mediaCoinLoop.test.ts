@@ -33,7 +33,19 @@ function createNetwork() {
   return { transport, link, broadcasts };
 }
 
-const settle = async () => { for (let i = 0; i < 50; i++) await new Promise((r) => setTimeout(r, 0)); };
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const settle = async () => { for (let i = 0; i < 50; i++) await tick(); };
+/**
+ * Hashing, encryption and decryption run on WebCrypto, which resolves on the
+ * runtime's thread pool, so how many event-loop turns a hand-off needs depends
+ * on machine load. Wait for the outcome itself (bounded by a deadline) instead
+ * of a fixed number of turns, then settle so late duplicates still show up.
+ */
+const until = async (ready: () => boolean, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs;
+  while (!ready() && Date.now() < deadline) await tick();
+  await settle();
+};
 const engines: MediaCoinEngine[] = [];
 afterEach(() => { for (const e of engines.splice(0)) e.stop(); });
 
@@ -64,7 +76,7 @@ describe("media coin loop", () => {
     const manifest = await alice.mint({ name: "clip.mp4", type: "video/mp4", data }, "alice", { encrypt: true, coinId: "mined-7" });
     expect(manifest.coinId).toBe("mined-7");
     expect(alice.launch("mined-7")).toBe(true);
-    await settle();
+    await until(() => done.length > 0);
 
     expect(unpacked.map((x) => x.at)).toEqual(["bob", "carol"]);
     for (const { u } of unpacked) expect(Array.from(u.bytes)).toEqual(Array.from(data));
@@ -87,7 +99,7 @@ describe("media coin loop", () => {
 
     net.link("alice", "bob");
     (alice as unknown as { retryHeld(): void }).retryHeld();
-    await settle();
+    await until(() => got.length > 0);
     expect(got).toEqual(["c1"]);
   });
 
@@ -130,7 +142,7 @@ describe("media coin loop", () => {
     const bob = engineFor(net, "bob");
     bob.onUnpack((u) => { got.push(u.manifest.coinId); });
     (alice as unknown as { retryHeld(): void }).retryHeld();
-    await settle();
+    await until(() => got.length > 0 && alice.getHeldCoinIds().length === 0);
     expect(got).toEqual(["c3"]);
     expect(alice.getHeldCoinIds()).toEqual([]);
   });
@@ -147,7 +159,7 @@ describe("media coin loop", () => {
     const send = (alice as unknown as { sendCoin(c: string, r: typeof route, p: string): Promise<boolean> }).sendCoin.bind(alice);
     await send("c4", route, "bob");
     await send("c4", route, "bob");
-    await settle();
+    await until(() => got.length > 0);
     expect(got).toEqual(["c4"]);
   });
 
@@ -178,7 +190,7 @@ describe("media coin loop", () => {
     const send = (alice as unknown as { sendCoin(c: string, r: typeof route, p: string): Promise<boolean> }).sendCoin.bind(alice);
     // Two back-to-back hand-offs of the same coin, as a retry would send.
     await Promise.all([send("c6", route, "bob"), send("c6", route, "bob")]);
-    await settle();
+    await until(() => got.length > 0);
     expect(got).toEqual(["c6"]);
   });
 });
