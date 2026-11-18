@@ -187,6 +187,11 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
 
     await transferEngravedCoinToVault(coin, peerId, file);
     engraved += 1;
+
+    // Send a copy of the content, engraved in this coin, around the mesh.
+    void import("./mediaCoinRuntime")
+      .then((m) => m.launchMediaCoinLoop(coin.coinId, file))
+      .catch(() => {});
   }
 
   const waiting = awaiting.length - engraved;

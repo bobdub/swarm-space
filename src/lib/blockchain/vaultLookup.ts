@@ -41,7 +41,7 @@ export async function resolveFromVaults(
  * Resolve through the manifest's chunk refs and decrypt; fall back to a
  * direct chunk read for legacy single-chunk refs.
  */
-async function readEntryBytes(ref: string): Promise<Uint8Array | null> {
+export async function readEntryBytes(ref: string): Promise<Uint8Array | null> {
   try {
     const { importFileKey, decryptAndReassembleFile } = await import("@/lib/fileEncryption");
     type FileManifest = Parameters<typeof decryptAndReassembleFile>[0];

@@ -14,6 +14,10 @@
  *   2. RELAY — Coin propagates via mesh; priority-first replication
  *   3. SERVE — Feed player pulls chunks progressively for instant playback
  *   4. REWARD — Peers earn hosting credits for serving chunks
+ *   5. LOOP — `launch()` hands the whole coin (manifest + every chunk's
+ *      bytes) to one connected peer. Each peer verifies and unpacks it,
+ *      appends itself to the route, and passes it to a connected peer not
+ *      yet visited, until the coin loops back to its creator.
  *
  * This module uses the same MeshTransportAdapter interface as
  * TorrentSwarm so it can ride on any active mesh instance.
@@ -136,6 +140,30 @@ export interface MediaHostReward {
   timestamp: number;
 }
 
+/** Route a travelling coin carries: who made it and who has unpacked it. */
+export interface MediaCoinRoute {
+  creatorId: string;
+  /** Peer ids that have held this coin, creator first, in visit order. */
+  hops: string[];
+  /** Hand-offs left before the coin heads home to its creator. */
+  ttl: number;
+}
+
+/** A coin that arrived whole and was verified, ready to be stored locally. */
+export interface MediaCoinUnpacked {
+  manifest: MediaCoinManifest;
+  route: MediaCoinRoute;
+  fromPeerId: string;
+  /** Plaintext file bytes (decrypted when the coin was encrypted). */
+  bytes: Uint8Array;
+}
+
+/** A coin that came back to its creator. */
+export interface MediaCoinLoopComplete {
+  coinId: string;
+  route: MediaCoinRoute;
+}
+
 /** Thin adapter — same interface as TorrentSwarm uses */
 export interface MeshTransportAdapter {
   send(
@@ -161,6 +189,11 @@ const MAX_PIPELINE = 4;
 const POLL_MS = 1_500;
 const STALL_MS = 30_000;
 const SEEN_CAP = 500;
+/** Default hand-offs before a travelling coin heads home. */
+export const MEDIA_COIN_LOOP_TTL = 16;
+/** Largest file a coin will carry whole between peers (bigger stays torrent-only). */
+export const MEDIA_COIN_PASS_MAX_BYTES = 100 * 1024 * 1024;
+const HOLD_RETRY_MS = 5_000;
 
 // ── Message Protocol ──────────────────────────────────────────────────
 
@@ -169,7 +202,9 @@ type MsgType =
   | "coin-have" // advertise which chunks we hold
   | "coin-request" // ask for a specific chunk
   | "coin-piece" // deliver a chunk
-  | "coin-interested"; // express interest in a coin
+  | "coin-interested" // express interest in a coin
+  | "coin-pass" // hand the whole coin to one peer: manifest + route
+  | "coin-pass-piece"; // one chunk of a coin being handed over
 
 interface MediaCoinMessage {
   type: MsgType;
@@ -293,8 +328,21 @@ export class MediaCoinEngine {
 
   private unsub: (() => void) | null = null;
 
+  // Loop state
+  /** Coins waiting for a peer to hand off to (no eligible peer connected). */
+  private held = new Map<string, MediaCoinRoute>();
+  /** Incoming hand-offs being assembled, keyed by passId. */
+  private incoming = new Map<string, { coinId: string; from: string; route?: MediaCoinRoute; manifest?: MediaCoinManifest; pieces: Map<number, MediaChunk> }>();
+  private holdTimer: ReturnType<typeof setInterval> | null = null;
+  private unpackListeners = new Set<(u: MediaCoinUnpacked) => void | Promise<void>>();
+  private loopListeners = new Set<(l: MediaCoinLoopComplete) => void>();
+
   constructor(transport: MeshTransportAdapter) {
     this.transport = transport;
+  }
+
+  get localPeerId(): string {
+    return this.transport.localPeerId;
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -305,12 +353,15 @@ export class MediaCoinEngine {
     this.unsub = this.transport.onMessage(CHANNEL, (peerId, payload) => {
       this.handleMessage(peerId, payload as MediaCoinMessage);
     });
+    this.holdTimer = setInterval(() => this.retryHeld(), HOLD_RETRY_MS);
     console.log("[MediaCoin] ✅ Engine started");
   }
 
   stop(): void {
     this.unsub?.();
     this.unsub = null;
+    if (this.holdTimer) clearInterval(this.holdTimer);
+    this.holdTimer = null;
     for (const t of this.pollTimers.values()) clearInterval(t);
     this.pollTimers.clear();
     this.seenMsgs.clear();
@@ -328,6 +379,8 @@ export class MediaCoinEngine {
       codec?: string;
       duration?: number;
       encrypt?: boolean;
+      /** Real mined wallet coin id to engrave onto; generated when absent. */
+      coinId?: string;
       onProgress?: (p: MediaCoinProgress) => void;
     }
   ): Promise<MediaCoinManifest> {
@@ -368,7 +421,7 @@ export class MediaCoinEngine {
     }
 
     // ── Split into sequential chunks ─────────────────────────────────
-    const coinId = genId("media-coin");
+    const coinId = options?.coinId ?? genId("media-coin");
     const chunkHashes: string[] = [];
     const chunkMap = new Map<number, MediaChunk>();
 
@@ -460,11 +513,13 @@ export class MediaCoinEngine {
       this.manifests.set(manifest.coinId, manifest);
     }
 
-    // Broadcast announce
+    // Broadcast announce. The decryption key never rides a broadcast: it
+    // travels only inside a direct coin hand-off (see launch()).
+    const { encryptionKey: _key, encryptionIvPrefix: _iv, ...publicManifest } = manifest;
     const msg: MediaCoinMessage = {
       type: "coin-announce",
       coinId: manifest.coinId,
-      payload: manifest,
+      payload: publicManifest,
       msgId: genId("msg"),
     };
     this.transport.broadcast(CHANNEL, msg);
@@ -643,6 +698,12 @@ export class MediaCoinEngine {
         break;
       case "coin-piece":
         this.onPiece(peerId, msg);
+        break;
+      case "coin-pass":
+        void this.onPass(peerId, msg);
+        break;
+      case "coin-pass-piece":
+        void this.onPassPiece(peerId, msg);
         break;
     }
   }
@@ -1008,6 +1069,197 @@ export class MediaCoinEngine {
     console.log(
       `[MediaCoin] ✅ Complete: "${manifest.name}" (${totalLen} bytes)`
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // 5️⃣ LOOP — Hand the whole coin peer to peer until it returns home
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Start a coin's loop from its creator. The coin must be minted locally
+   * (all chunks held). Returns false when the coin is too large to carry.
+   */
+  launch(coinId: string, ttl = MEDIA_COIN_LOOP_TTL): boolean {
+    const manifest = this.manifests.get(coinId);
+    if (!manifest || !this.hasAllChunks(coinId)) return false;
+    if (manifest.totalSize > MEDIA_COIN_PASS_MAX_BYTES) return false;
+    const local = this.transport.localPeerId;
+    this.forward(coinId, { creatorId: local, hops: [local], ttl });
+    return true;
+  }
+
+  onUnpack(cb: (u: MediaCoinUnpacked) => void | Promise<void>): () => void {
+    this.unpackListeners.add(cb);
+    return () => this.unpackListeners.delete(cb);
+  }
+
+  onLoopComplete(cb: (l: MediaCoinLoopComplete) => void): () => void {
+    this.loopListeners.add(cb);
+    return () => this.loopListeners.delete(cb);
+  }
+
+  /** Coins currently waiting for a peer to hand off to. */
+  getHeldCoinIds(): string[] {
+    return Array.from(this.held.keys());
+  }
+
+  /** Pick the next holder: an unvisited peer, else home to the creator. */
+  private nextHop(route: MediaCoinRoute): string | null {
+    const local = this.transport.localPeerId;
+    const connected = this.transport.getConnectedPeerIds().filter((p) => p !== local);
+    if (route.ttl > 0) {
+      const fresh = connected.filter((p) => !route.hops.includes(p));
+      if (fresh.length) return fresh[0];
+    }
+    if (local !== route.creatorId && connected.includes(route.creatorId)) return route.creatorId;
+    return null;
+  }
+
+  private forward(coinId: string, route: MediaCoinRoute): void {
+    const next = this.nextHop(route);
+    if (!next) {
+      this.held.set(coinId, route);
+      return;
+    }
+    this.held.delete(coinId);
+    this.sendCoin(coinId, route, next);
+  }
+
+  private retryHeld(): void {
+    for (const [coinId, route] of Array.from(this.held)) this.forward(coinId, route);
+  }
+
+  private sendCoin(coinId: string, route: MediaCoinRoute, peerId: string): void {
+    const manifest = this.manifests.get(coinId);
+    const chunkMap = this.chunks.get(coinId);
+    if (!manifest || !chunkMap) return;
+    const passId = genId("pass");
+    void this.transport.send(CHANNEL, peerId, {
+      type: "coin-pass",
+      coinId,
+      payload: { passId, manifest, route },
+      msgId: genId("msg"),
+    } as MediaCoinMessage);
+    for (let i = 0; i < manifest.totalChunks; i++) {
+      const chunk = chunkMap.get(i);
+      if (!chunk) continue;
+      void this.transport.send(CHANNEL, peerId, {
+        type: "coin-pass-piece",
+        coinId,
+        payload: { passId, chunk },
+        msgId: genId("msg"),
+      } as MediaCoinMessage);
+    }
+    console.log(`[MediaCoin] 🔁 Passed ${coinId} to ${peerId.slice(0, 8)} (hop ${route.hops.length})`);
+  }
+
+  private passEntry(passId: string, coinId: string, from: string) {
+    let entry = this.incoming.get(passId);
+    if (!entry) {
+      entry = { coinId, from, pieces: new Map() };
+      this.incoming.set(passId, entry);
+    }
+    return entry;
+  }
+
+  private async onPass(peerId: string, msg: MediaCoinMessage): Promise<void> {
+    const { passId, manifest, route } = (msg.payload ?? {}) as { passId?: string; manifest?: MediaCoinManifest; route?: MediaCoinRoute };
+    if (!passId || !manifest || !route || manifest.coinId !== msg.coinId) return;
+    if (!Array.isArray(route.hops) || typeof route.creatorId !== "string") return;
+    if (manifest.totalSize > MEDIA_COIN_PASS_MAX_BYTES) return;
+    if (manifest.chunkHashes.length !== manifest.totalChunks) return;
+    if ((await buildMerkleRoot(manifest.chunkHashes)) !== manifest.merkleRoot) return;
+    const entry = this.passEntry(passId, msg.coinId, peerId);
+    entry.manifest = manifest;
+    entry.route = route;
+    await this.tryCompletePass(passId);
+  }
+
+  private async onPassPiece(peerId: string, msg: MediaCoinMessage): Promise<void> {
+    const { passId, chunk } = (msg.payload ?? {}) as { passId?: string; chunk?: MediaChunk };
+    if (!passId || !chunk || chunk.index == null) return;
+    const entry = this.passEntry(passId, msg.coinId, peerId);
+    entry.pieces.set(chunk.index, chunk);
+    await this.tryCompletePass(passId);
+  }
+
+  private async tryCompletePass(passId: string): Promise<void> {
+    const entry = this.incoming.get(passId);
+    if (!entry?.manifest || !entry.route) return;
+    const { manifest, from } = entry;
+    if (entry.pieces.size < manifest.totalChunks) return;
+    this.incoming.delete(passId);
+
+    // Every piece must match the hash the manifest's Merkle root commits to.
+    for (let i = 0; i < manifest.totalChunks; i++) {
+      const piece = entry.pieces.get(i);
+      if (!piece || (await sha256hex(piece.data)) !== manifest.chunkHashes[i]) {
+        console.warn(`[MediaCoin] ❌ Coin ${manifest.coinId} from ${from.slice(0, 8)} failed verification`);
+        return;
+      }
+    }
+
+    const local = this.transport.localPeerId;
+    const route: MediaCoinRoute = {
+      creatorId: entry.route.creatorId,
+      hops: [...entry.route.hops, local],
+      ttl: Math.max(0, entry.route.ttl - 1),
+    };
+
+    if (local === route.creatorId) {
+      this.held.delete(manifest.coinId);
+      const done: MediaCoinLoopComplete = { coinId: manifest.coinId, route };
+      for (const cb of this.loopListeners) cb(done);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("media-coin-loop-complete", { detail: done }));
+      }
+      console.log(`[MediaCoin] 🏁 ${manifest.coinId} looped home after ${route.hops.length - 2} peers`);
+      return;
+    }
+
+    // Unpack: keep the coin's chunks so this peer can serve and pass it on.
+    this.manifests.set(manifest.coinId, manifest);
+    this.chunks.set(manifest.coinId, new Map(entry.pieces));
+
+    try {
+      const bytes = await this.assembleBytes(manifest.coinId);
+      if (bytes) {
+        const unpacked: MediaCoinUnpacked = { manifest, route, fromPeerId: from, bytes };
+        for (const cb of this.unpackListeners) await cb(unpacked);
+      }
+    } catch (err) {
+      console.warn(`[MediaCoin] Unpack of ${manifest.coinId} failed`, err);
+    }
+
+    this.forward(manifest.coinId, route);
+  }
+
+  /** Full plaintext bytes of a locally held coin. */
+  private async assembleBytes(coinId: string): Promise<Uint8Array | null> {
+    const manifest = this.manifests.get(coinId);
+    const chunkMap = this.chunks.get(coinId);
+    if (!manifest || !chunkMap) return null;
+    const key = manifest.encryptionKey && manifest.encryptionIvPrefix
+      ? await crypto.subtle.importKey("raw", b642ab(manifest.encryptionKey), { name: "AES-GCM" }, false, ["decrypt"])
+      : null;
+    const ivPrefix = manifest.encryptionIvPrefix ? new Uint8Array(b642ab(manifest.encryptionIvPrefix)) : null;
+    const parts: Uint8Array[] = [];
+    for (let i = 0; i < manifest.totalChunks; i++) {
+      const chunk = chunkMap.get(i);
+      if (!chunk) return null;
+      let buf = b642ab(chunk.data);
+      if (key && ivPrefix) {
+        const iv = new Uint8Array(12);
+        iv.set(ivPrefix.subarray(0, 4), 0);
+        new DataView(iv.buffer).setUint32(4, i);
+        buf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, buf);
+      }
+      parts.push(new Uint8Array(buf));
+    }
+    const out = new Uint8Array(parts.reduce((s, p) => s + p.byteLength, 0));
+    let off = 0;
+    for (const p of parts) { out.set(p, off); off += p.byteLength; }
+    return out;
   }
 
   // ═══════════════════════════════════════════════════════════════════
