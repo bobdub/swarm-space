@@ -17,6 +17,7 @@ export class SwarmChain {
   private _ready: Promise<void>;
   private _dirty = false;
   private _flushScheduled = false;
+  private _txAddedListeners = new Set<(tx: SwarmTransaction) => void>();
 
   constructor() {
     this._ready = this.loadChain();
@@ -168,6 +169,15 @@ export class SwarmChain {
     }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
+    for (const listener of this._txAddedListeners) {
+      try { listener(transaction); } catch { /* listener errors never block the ledger */ }
+    }
+  }
+
+  /** Observe transactions appended to the pending pool via addTransaction (used for live peer gossip). */
+  onTransactionAdded(listener: (tx: SwarmTransaction) => void): () => void {
+    this._txAddedListeners.add(listener);
+    return () => { this._txAddedListeners.delete(listener); };
   }
 
   /** Validation awaits before a synchronous balance check and append: concurrent receipts cannot overspend. */

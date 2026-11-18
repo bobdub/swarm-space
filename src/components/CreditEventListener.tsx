@@ -61,12 +61,32 @@ async function showCreditToast(payload: CreditNotificationPayload): Promise<void
  * Process an incoming credit transfer received via P2P mesh.
  * If this user is the recipient, credit their local balance.
  */
+// Transfers being applied right now — the same transfer can arrive at once
+// over BroadcastChannel and the mesh, and the DB check below is async.
+const inFlightTransfers = new Set<string>();
+let applyQueue: Promise<void> = Promise.resolve();
+
 async function handleMeshCreditTransfer(transaction: CreditTransaction): Promise<void> {
   const currentUser = getCurrentUser();
   if (!currentUser) return;
 
   // Only process if we are the recipient
   if (transaction.toUserId !== currentUser.id) return;
+  if (inFlightTransfers.has(transaction.id)) return;
+  inFlightTransfers.add(transaction.id);
+  // Apply one transfer at a time: the balance update below is an async
+  // read-modify-write, so a burst of replayed transfers must not interleave.
+  const run = applyQueue.then(() => applyMeshCreditTransfer(transaction, currentUser.id));
+  applyQueue = run.catch(() => undefined);
+  try {
+    await run;
+  } finally {
+    inFlightTransfers.delete(transaction.id);
+  }
+}
+
+async function applyMeshCreditTransfer(transaction: CreditTransaction, currentUserId: string): Promise<void> {
+  const currentUser = { id: currentUserId };
 
   // Deduplicate — check if we already have this transaction
   const existing = await get<CreditTransaction>("creditTransactions", transaction.id);
@@ -90,6 +110,9 @@ async function handleMeshCreditTransfer(transaction: CreditTransaction): Promise
   }
 
   console.log(`[credits] Received ${transaction.amount} credits from ${transaction.fromUserId} via mesh`);
+
+  // Refresh wallet balances/history right away instead of on their next poll.
+  window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
 
   // Show toast
   const senderName = await resolveUserName(transaction.fromUserId);
@@ -147,15 +170,11 @@ const CreditEventListener = () => {
     // Listen via P2P standalone mesh channels
     const cleanups: (() => void)[] = [];
 
-    import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
-      const sm = getSwarmMeshStandalone();
-      const unsub = sm.onMessage("credits", (_peerId: string, payload: unknown) => {
-        const data = payload as { type?: string; transaction?: CreditTransaction };
-        if (data?.type === "credit-transfer" && data.transaction) {
-          void handleMeshCreditTransfer(data.transaction);
-        }
-      });
-      cleanups.push(unsub);
+    // SWARM Mesh: credit gossip (immediate push, multi-hop relay, replay on
+    // connect). Also carries mining-reward ledger entries between peers.
+    // It runs for the app's lifetime, so it is not torn down on unmount.
+    import("@/lib/p2p/creditGossip").then(({ startCreditGossip }) => {
+      void startCreditGossip((transaction) => handleMeshCreditTransfer(transaction));
     }).catch(() => { /* swarm mesh not available */ });
 
     import("@/lib/p2p/builderMode.standalone-archived").then(({ getStandaloneBuilderMode }) => {

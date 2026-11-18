@@ -843,14 +843,11 @@ function broadcastCreditTransferToMesh(transaction: CreditTransaction): void {
     timestamp: Date.now(),
   };
 
-  // Broadcast through standalone P2P modes
+  // SWARM Mesh: gossip immediately to connected peers, relay multi-hop, and
+  // replay to peers that connect later — never dropped for being offline.
   try {
-    import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
-      const sm = getSwarmMeshStandalone();
-      if (sm.getPhase() === "online") {
-        sm.broadcast("credits", payload);
-        console.log("[credits] Broadcast transfer via SWARM Mesh");
-      }
+    import("@/lib/p2p/creditGossip").then(({ publishCreditTransfer }) => {
+      publishCreditTransfer(transaction);
     }).catch(() => {});
   } catch {}
 

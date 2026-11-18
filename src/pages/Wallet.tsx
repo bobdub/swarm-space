@@ -63,13 +63,13 @@ import {
 import { getFeatureFlags } from "@/config/featureFlags";
 import { NFTCard } from "@/components/wallet/NFTCard";
 import { MiningPanel } from "@/components/wallet/MiningPanel";
-import { getSwarmMeshStandalone, type MiningStats as SwarmMiningStats } from "@/lib/p2p/swarmMesh.standalone";
+import { useMeshMining } from "@/hooks/useMeshMining";
 import { getDeployPricing, type DeployPricing } from "@/lib/blockchain/deployPricing";
 
 export default function Wallet() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isEnabled, stats, getActivePeerConnections } = useP2PContext();
+  const { isEnabled } = useP2PContext();
   const [balance, setBalance] = useState<number>(0);
   const [nfts, setNfts] = useState<NFTMetadata[]>([]);
   const [miningSession, setMiningSession] = useState<MiningSession | null>(null);
@@ -81,19 +81,17 @@ export default function Wallet() {
     () => loadWalletNetwork(user?.id),
   );
   const [activeChain, setActiveChain] = useState<ChainContext>(getActiveChain());
-  const [swarmMiningStats, setSwarmMiningStats] = useState<SwarmMiningStats>(() => {
-    try { return getSwarmMeshStandalone().getMiningStats(); } catch { return {} as SwarmMiningStats; }
-  });
+  // Same mining source as the Mining tab and the Node Dashboard.
+  const meshMining = useMeshMining();
 
   const swarmModeEnabled = getFeatureFlags().swarmMeshMode;
-  const activePeerCount = Math.max(stats.connectedPeers, getActivePeerConnections().length);
-  const isActuallyConnected = swarmModeEnabled && isEnabled && activePeerCount > 0;
-  // HONESTY: autoMiningActive only when CONNECTED with peers — not just "enabled"
-  const autoMiningActive = isActuallyConnected;
+  // HONESTY: autoMiningActive only while the mesh block loop is actually running
+  // (toggle on, online, ≥1 peer) — the same test the Mining tab and Node Dashboard use.
+  const autoMiningActive = swarmModeEnabled && isEnabled && meshMining.active;
   const walletMiningStatus = autoMiningActive
-    ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${activePeerCount} peer${activePeerCount === 1 ? "" : "s"} · ${swarmMiningStats.confirmedBlocks ?? 0} confirmed blocks` }
+    ? { label: "CREATOR Mining", variant: "default" as const, detail: `SWARM Mesh · ${meshMining.peers} peer${meshMining.peers === 1 ? "" : "s"} · ${meshMining.stats?.confirmedBlocks ?? 0} confirmed blocks` }
     : swarmModeEnabled
-      ? { label: "Not Mining", variant: "secondary" as const, detail: "No peer connection — no blocks, no rewards until mesh reconnects." }
+      ? { label: meshMining.enabled ? "Not Mining" : "Mining Paused", variant: "secondary" as const, detail: meshMining.enabled ? "No peer connection — no blocks, no rewards until mesh reconnects." : "Mining is paused on the Node Dashboard." }
       : miningSession?.status === "active"
         ? { label: miningSession.status, variant: "default" as const, detail: `${miningSession.blocksFound} blocks | ${miningSession.totalReward} ${activeChain.ticker}` }
         : miningSession?.status
@@ -233,8 +231,6 @@ export default function Wallet() {
 
     const interval = setInterval(() => void loadWalletData(), 10000);
 
-    let unsubMining: (() => void) | undefined;
-    try { unsubMining = getSwarmMeshStandalone().onMiningChange(setSwarmMiningStats); } catch { /* mesh not init */ }
 
     return () => {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
@@ -244,7 +240,6 @@ export default function Wallet() {
       window.removeEventListener("reward-pool-update", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
-      unsubMining?.();
     };
   }, [user]);
 

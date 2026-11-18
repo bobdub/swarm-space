@@ -184,6 +184,8 @@ export interface MiningStats {
   pendingBlocks: number;
   /** Blocks without content activity (reduced reward) */
   hollowBlocks: number;
+  /** Hollow blocks that later reached consensus (paid at 50%) */
+  confirmedHollowBlocks: number;
   /** Timestamp of last consensus-confirmed block */
   lastConfirmedAt: number | null;
   /** Content activity multiplier (1.0 base, up to 2.0 for active seeders) */
@@ -925,7 +927,7 @@ export class StandaloneSwarmMesh {
       blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
       heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
       acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
-      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0,
+      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0, confirmedHollowBlocks: 0,
       lastConfirmedAt: null, contentMultiplier: 1.0, seedingActive: false,
       chunksServedSinceLastBlock: 0, blockHeight: 0, consensusFailures: 0,
       transactionsProcessed: 0, spaceHosted: 0,
@@ -942,6 +944,12 @@ export class StandaloneSwarmMesh {
             (result as Record<string, unknown>)[key] = p[key];
           }
         }
+        // Stats saved before confirmedHollowBlocks existed: estimate it with
+        // the mined hollow share so displays and rewards stay consistent.
+        if (typeof p.confirmedHollowBlocks !== 'number') {
+          const share = result.blocksMinedTotal > 0 ? Math.min(1, result.hollowBlocks / result.blocksMinedTotal) : 0;
+          result.confirmedHollowBlocks = Math.round(result.confirmedBlocks * share);
+        }
         return result;
       }
     } catch { /* ignore */ }
@@ -954,6 +962,9 @@ export class StandaloneSwarmMesh {
   }
 
   getMiningStats(): MiningStats { return { ...this.miningStats }; }
+
+  /** True while the block-production loop is actually running (toggle on, online, ≥1 peer). */
+  isMiningActive(): boolean { return this.miningTimer !== null; }
 
   private startMiningLoop(): void {
     this.stopMiningLoop();
@@ -973,6 +984,9 @@ export class StandaloneSwarmMesh {
       console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — no peers connected. Mining requires active peer connections.');
       return;
     }
+
+    // Let mining displays flip to "active" immediately (the timer is set below).
+    queueMicrotask(() => this.emitMining());
 
     console.log(
       `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
@@ -1133,6 +1147,7 @@ export class StandaloneSwarmMesh {
     this.pendingBlockVotes.delete(blockId);
     this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
     this.miningStats.confirmedBlocks++;
+    if (pending.isHollow) this.miningStats.confirmedHollowBlocks++;
     this.miningStats.blockHeight = pending.height;
     this.miningStats.lastConfirmedAt = now();
     this.saveMiningStats();
@@ -1147,6 +1162,7 @@ export class StandaloneSwarmMesh {
     if (this.miningTimer !== null) {
       clearInterval(this.miningTimer);
       this.miningTimer = null;
+      this.emitMining();
       // Clear pending block expiry timers
       for (const t of this.pendingBlockExpiry) clearTimeout(t);
       this.pendingBlockExpiry = [];
