@@ -65,6 +65,7 @@ describe("Vault Transfer Protocol", () => {
       size: 1024,
       name: "clip.mp4",
       ownerPeerId: "peer-alpha",
+      createdBySelf: true,
     });
 
     const res = await runWrapSweep();
@@ -91,14 +92,14 @@ describe("Vault Transfer Protocol", () => {
     expect(spendBlockedReason(coin)).toBe("vaulted");
 
     // Coin is no longer a free container: a second file must wait.
-    await enrollVaultEntry("peer-alpha", { contentHash: "hash-2", size: 10, ownerPeerId: "peer-alpha" });
+    await enrollVaultEntry("peer-alpha", { contentHash: "hash-2", size: 10, ownerPeerId: "peer-alpha", createdBySelf: true });
     const second = await runWrapSweep();
     expect(second.engraved).toBe(0);
   });
 
   it("routes unverifiable peer ids to the global archive vault", async () => {
     await s("swarmCoins").set("mined-2", minedCoin("mined-2"));
-    await enrollVaultEntry("archive:global", { contentHash: "hash-a", size: 64 });
+    await enrollVaultEntry("archive:global", { contentHash: "hash-a", size: 64, createdBySelf: true });
 
     const res = await runWrapSweep();
     expect(res.engraved).toBe(1);
@@ -110,12 +111,12 @@ describe("Vault Transfer Protocol", () => {
 
   it("does not transfer when engraving is a no-op (duplicate content)", async () => {
     await s("swarmCoins").set("mined-3", minedCoin("mined-3"));
-    await enrollVaultEntry("peer-beta", { contentHash: "dup", size: 8, ownerPeerId: "peer-beta" });
+    await enrollVaultEntry("peer-beta", { contentHash: "dup", size: 8, ownerPeerId: "peer-beta", createdBySelf: true });
     await runWrapSweep();
 
     // Re-queue the same hash directly into files[] to simulate a stale entry.
     const v = (await getVault("peer-beta"))!;
-    v.files.push({ contentHash: "dup", size: 8, ownerPeerId: "peer-beta", receivedAt: new Date().toISOString() });
+    v.files.push({ contentHash: "dup", size: 8, ownerPeerId: "peer-beta", createdBySelf: true, receivedAt: new Date().toISOString() });
     s("syncVaults").set("peer-beta", v);
 
     await s("swarmCoins").set("mined-4", minedCoin("mined-4"));
@@ -126,5 +127,29 @@ describe("Vault Transfer Protocol", () => {
     expect(coin.status).toBe("wallet");
     expect(coin.locked).toBeUndefined();
     expect(txs.filter((t) => t.type === "coin_transfer")).toHaveLength(0);
+  });
+
+  it("never spends a wallet coin on content received from another peer", async () => {
+    await s("swarmCoins").set("mined-5", minedCoin("mined-5"));
+    await enrollVaultEntry("peer-gamma", { contentHash: "theirs", size: 32, ownerPeerId: "peer-gamma", createdBySelf: false });
+    await enrollVaultEntry("peer-delta", { contentHash: "legacy", size: 32, ownerPeerId: "peer-delta" });
+
+    const res = await runWrapSweep();
+    expect(res.engraved).toBe(0);
+    const coin = (await coins()).find((c) => c.coinId === "mined-5")!;
+    expect(coin.status).toBe("wallet");
+    expect(coin.locked).toBeUndefined();
+    expect(txs.filter((t) => t.type === "coin_transfer")).toHaveLength(0);
+    // Peer content stays queued in its vault rather than being dropped.
+    expect((await getVault("peer-gamma"))!.files.map((f) => f.contentHash)).toEqual(["theirs"]);
+  });
+
+  it("backfills the creator flag on an already-queued file", async () => {
+    await s("swarmCoins").set("mined-6", minedCoin("mined-6"));
+    await enrollVaultEntry("peer-self", { contentHash: "mine", size: 16, ownerPeerId: "peer-self" });
+    expect((await runWrapSweep()).engraved).toBe(0);
+
+    await enrollVaultEntry("peer-self", { contentHash: "mine", size: 16, ownerPeerId: "peer-self", createdBySelf: true });
+    expect((await runWrapSweep()).engraved).toBe(1);
   });
 });
