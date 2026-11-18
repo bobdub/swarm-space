@@ -103,4 +103,25 @@ describe("vault custody", () => {
     expect((await pending)?.version).toBe(1);
     stop();
   });
+
+  it("concurrent stores keep every held vault in the capped index", async () => {
+    const ids = await Promise.all(Array.from({ length: 6 }, () => identity()));
+    const envs = await Promise.all(ids.map((me) => sealRecoveryVault({ ...me, version: 1, passphrase: "p" })));
+    await Promise.all(envs.map((e) => custody.holdVault(e, "peer-flood")));
+    const index = (db.get("recovery:custody-index") as { v: Record<string, number> }).v;
+    expect(Object.keys(index).sort()).toEqual(ids.map((m) => m.user.id).sort());
+  });
+
+  it("rotation allocates above a newer shell another device already published", async () => {
+    const me = await identity();
+    const t = fakeTransport([]);
+    const stop = custody.startVaultCustody({ transport: t.transport, getActiveUserId: () => me.user.id });
+    await custody.sealGenesisVault(me.privateKey, me.user, "signup-pass");
+    const fromOtherDevice = await sealRecoveryVault({ ...me, version: 2, passphrase: "other device phrase" });
+    await custody.handleVaultMessage("peer-other", { kind: "store", envelope: fromOtherDevice });
+    expect((await custody.getOwnVault(me.user.id))?.envelope.version).toBe(2);
+    const rotated = await custody.rotateRecoveryShell(me.privateKey, me.user, "third phrase here");
+    expect(rotated.envelope.version).toBe(3);
+    stop();
+  });
 });

@@ -116,7 +116,16 @@ async function readIndex(): Promise<Record<string, number>> {
  */
 export async function holdVault(value: unknown, fromPeer: string): Promise<boolean> {
   if (!(await verifyRecoveryVault(value))) return false;
-  const envelope = value as RecoveryVaultEnvelope;
+  // Serialize index read → evict → write so concurrent stores cannot drop
+  // index entries and escape the MAX_HELD_VAULTS cap.
+  const run = custodyQueue.then(() => holdVerifiedVault(value as RecoveryVaultEnvelope, fromPeer));
+  custodyQueue = run.catch(() => false);
+  return run;
+}
+
+let custodyQueue: Promise<unknown> = Promise.resolve();
+
+async function holdVerifiedVault(envelope: RecoveryVaultEnvelope, fromPeer: string): Promise<boolean> {
   const held = await getHeldVault(envelope.userId);
   if (held && held.version === envelope.version) return true;
   if (!supersedes(envelope, held)) return false;
@@ -163,8 +172,10 @@ export async function sealGenesisVault(privateKey: string, user: VaultProfile, s
  * and the new one is pushed to every connected peer, which overwrite theirs.
  */
 export async function rotateRecoveryShell(privateKey: string, user: VaultProfile, newPassphrase: string): Promise<OwnVaultRecord> {
-  const current = await getOwnVault(user.id);
-  const version = (current?.envelope.version ?? 0) + 1;
+  // Another device of this identity may already have rotated: allocate above
+  // the highest verified shell we know of, own or held.
+  const known = await bestKnownVault(user.id);
+  const version = (known?.version ?? 0) + 1;
   const envelope = await sealRecoveryVault({ privateKey, user, version, passphrase: newPassphrase });
   const record = { envelope, genesisDefault: false };
   await saveOwnVault(record);
@@ -238,6 +249,10 @@ export async function handleVaultMessage(fromPeer: string, payload: unknown): Pr
   const msg = payload as VaultMessage;
   switch (msg.kind) {
     case "store": {
+      // Our own identity rotated on another device: adopt the newer shell.
+      if (msg.envelope?.userId && msg.envelope.userId === activeUserId()) {
+        try { await adoptRestoredVault(msg.envelope); } catch { /* unverified: ignored */ }
+      }
       if (await holdVault(msg.envelope, fromPeer)) {
         send(fromPeer, { kind: "ack", userId: msg.envelope.userId, version: msg.envelope.version });
       }

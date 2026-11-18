@@ -65,6 +65,20 @@ describe("personal archive", () => {
     ].map((c) => ({ ...c, authorName: c.authorName })));
   });
 
+  it("keeps local-only and paywall restrictions through a round trip", () => {
+    const restricted: Post = {
+      ...post, _localOnly: true, walled: true, wallCoinId: "coin-w", unlockCostTokenId: "tok", unlockCostTicker: "SWARM",
+      unlockCostAmount: 3, unlockedBy: ["u-ada"],
+    };
+    const parsed = parsePostMarkdown(renderPostMarkdown(restricted, [], []))!;
+    expect(parsed.post).toMatchObject({
+      _localOnly: true, walled: true, wallCoinId: "coin-w", unlockCostTokenId: "tok", unlockCostTicker: "SWARM", unlockCostAmount: 3, unlockedBy: ["u-ada"],
+    });
+    const open = parsePostMarkdown(renderPostMarkdown(post, [], []))!;
+    expect(open.post._localOnly).toBeUndefined();
+    expect(open.post.walled).toBeUndefined();
+  });
+
   it("imports own posts with re-encrypted media, skipping existing and foreign posts", async () => {
     const { bytes } = await exportBytes();
     const saved: Post[] = [];

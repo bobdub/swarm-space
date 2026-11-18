@@ -146,6 +146,16 @@ export function renderPostMarkdown(post: Post, media: ArchiveMediaRef[], comment
     project_id: post.projectId ?? undefined,
     nsfw: post.nsfw ? true : undefined,
     blog_classification: post.blogClassification,
+    // Privacy and paywall restrictions must survive a round trip, or a
+    // restored post would be broadcast publicly / lose its wall.
+    local_only: post._localOnly ? true : undefined,
+    walled: post.walled ? true : undefined,
+    wall_coin_id: post.wallCoinId,
+    unlock_cost_token_id: post.unlockCostTokenId,
+    unlock_cost_ticker: post.unlockCostTicker,
+    unlock_cost_amount: typeof post.unlockCostAmount === "number" ? post.unlockCostAmount : undefined,
+    unlocked_by: post.walled && post.unlockedBy?.length ? post.unlockedBy : undefined,
+    walled_community_unlocked: post.walledCommunityUnlocked ? true : undefined,
     media: media.map((m) => ({ ...m })),
     comment_count: comments.length,
   });
@@ -198,6 +208,14 @@ export function parsePostMarkdown(markdown: string): ParsedArchivePost | null {
     ...(fields.nsfw === true ? { nsfw: true } : {}),
     ...(str(fields.blog_classification) ? { blogClassification: fields.blog_classification as Post["blogClassification"] } : {}),
     ...(str(fields.coin_id) ? { _coinId: str(fields.coin_id) } : {}),
+    ...(fields.local_only === true ? { _localOnly: true } : {}),
+    ...(fields.walled === true ? { walled: true } : {}),
+    ...(str(fields.wall_coin_id) ? { wallCoinId: str(fields.wall_coin_id) } : {}),
+    ...(str(fields.unlock_cost_token_id) ? { unlockCostTokenId: str(fields.unlock_cost_token_id) } : {}),
+    ...(str(fields.unlock_cost_ticker) ? { unlockCostTicker: str(fields.unlock_cost_ticker) } : {}),
+    ...(typeof fields.unlock_cost_amount === "number" ? { unlockCostAmount: fields.unlock_cost_amount } : {}),
+    ...(Array.isArray(fields.unlocked_by) ? { unlockedBy: fields.unlocked_by.filter((u): u is string => typeof u === "string") } : {}),
+    ...(fields.walled_community_unlocked === true ? { walledCommunityUnlocked: true } : {}),
   };
 
   const media: ArchiveMediaRef[] = Array.isArray(fields.media)
