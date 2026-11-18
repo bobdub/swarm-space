@@ -151,7 +151,14 @@ export class CreditGossip {
       : (isChainPayload(raw) ? raw : null);
     if (!payload) return;
     const id = payloadId(payload);
-    if (!id || this.remembered.has(id)) return;
+    if (!id) return;
+    if (this.remembered.has(id)) {
+      // Already relayed. Still offer a credit transfer for local delivery:
+      // the recipient may have signed in since we first saw it. The handler
+      // dedupes by transaction id, so this never double-credits.
+      if (payload.type === "credit-transfer") await this.deliverCredit(payload.transaction);
+      return;
+    }
     // Remember before applying so our own ledger listener doesn't re-announce it.
     this.remember(id, channel, payload);
 
@@ -160,9 +167,7 @@ export class CreditGossip {
       try { accepted = await this.deps.acceptChainTx(payload.tx); } catch { accepted = false; }
       if (!accepted) return;
     } else {
-      try { await this.deps.onCreditTransfer(payload.transaction); } catch (err) {
-        console.warn("[CreditGossip] credit transfer handler failed:", err);
-      }
+      await this.deliverCredit(payload.transaction);
     }
 
     const hops = (payload.hops ?? 0) + 1;
@@ -170,6 +175,22 @@ export class CreditGossip {
     const relay = { ...payload, hops } as GossipPayload;
     this.remembered.get(id)!.payload = relay;
     this.sendToPeers(channel, relay, this.mesh.getConnectedPeerIds().filter((p) => p !== from));
+  }
+
+  /**
+   * Offer every remembered credit transfer to the local handler again, e.g.
+   * after a different account signs in on this device.
+   */
+  async redeliverCredits(): Promise<void> {
+    for (const entry of [...this.remembered.values()]) {
+      if (entry.payload.type === "credit-transfer") await this.deliverCredit(entry.payload.transaction);
+    }
+  }
+
+  private async deliverCredit(transaction: CreditTransaction): Promise<void> {
+    try { await this.deps.onCreditTransfer(transaction); } catch (err) {
+      console.warn("[CreditGossip] credit transfer handler failed:", err);
+    }
   }
 
   /** Replay remembered updates to peers we haven't talked to yet. */
@@ -265,6 +286,10 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
         subscribeLocalChainTx: (listener) => chain.onTransactionAdded(listener),
       });
       gossip.start();
+      if (typeof window !== "undefined") {
+        // Transfers that arrived while another account (or none) was active.
+        window.addEventListener("user-login", () => { void gossip.redeliverCredits(); });
+      }
       instance = gossip;
       for (const tx of queuedCredits.splice(0)) gossip.publishCreditTransfer(tx);
       return gossip;

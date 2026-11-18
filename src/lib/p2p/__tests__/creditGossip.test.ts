@@ -129,4 +129,21 @@ describe("CreditGossip", () => {
     a.mesh.send("chain-tx", "B", { type: "chain-tx", tx: { ...mintTx("bad"), type: "token_transfer" } });
     expect(b.ledger).toEqual([]);
   });
+
+  it("re-offers a seen transfer for local delivery so a later sign-in can apply it", async () => {
+    const net = new FakeNetwork();
+    const a = node(net, "A"); const b = node(net, "B");
+    net.link("A", "B");
+    a.gossip.publishCreditTransfer(transfer("t5", "bob"));
+    await vi.waitFor(() => expect(b.received).toHaveLength(1));
+    // Simulate the recipient's handler having ignored it (signed out), then a sign-in.
+    b.received.length = 0;
+    await b.gossip.redeliverCredits();
+    expect(b.received.map((t) => t.id)).toEqual(["t5"]);
+    // A replay from a peer is also offered locally again, but not relayed again.
+    const sentBefore = b.mesh.sent.length;
+    a.mesh.send("credits", "B", { type: "credit-transfer", transaction: transfer("t5", "bob"), timestamp: Date.now() });
+    await vi.waitFor(() => expect(b.received).toHaveLength(2));
+    expect(b.mesh.sent.length).toBe(sentBefore);
+  });
 });

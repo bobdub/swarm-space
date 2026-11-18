@@ -64,6 +64,7 @@ async function showCreditToast(payload: CreditNotificationPayload): Promise<void
 // Transfers being applied right now — the same transfer can arrive at once
 // over BroadcastChannel and the mesh, and the DB check below is async.
 const inFlightTransfers = new Set<string>();
+let applyQueue: Promise<void> = Promise.resolve();
 
 async function handleMeshCreditTransfer(transaction: CreditTransaction): Promise<void> {
   const currentUser = getCurrentUser();
@@ -73,8 +74,12 @@ async function handleMeshCreditTransfer(transaction: CreditTransaction): Promise
   if (transaction.toUserId !== currentUser.id) return;
   if (inFlightTransfers.has(transaction.id)) return;
   inFlightTransfers.add(transaction.id);
+  // Apply one transfer at a time: the balance update below is an async
+  // read-modify-write, so a burst of replayed transfers must not interleave.
+  const run = applyQueue.then(() => applyMeshCreditTransfer(transaction, currentUser.id));
+  applyQueue = run.catch(() => undefined);
   try {
-    await applyMeshCreditTransfer(transaction, currentUser.id);
+    await run;
   } finally {
     inFlightTransfers.delete(transaction.id);
   }
