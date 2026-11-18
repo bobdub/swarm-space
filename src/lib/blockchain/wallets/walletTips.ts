@@ -14,6 +14,7 @@ import type { SwarmCoin } from "../types";
 import { assertStorageWritable } from "@/lib/storage/quotaGuard";
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
+import { isCustomTokenSync } from "../deposits/customTokenCustody";
 
 export type { TipAsset } from "./tipRules";
 
@@ -138,6 +139,9 @@ export function startWalletTipSync(): () => void {
       if (isNativeMintMeDeposit(tx)) void getSwarmChain().acceptNativeMintMeDeposit(tx).then(ok => {
         if (ok) window.dispatchEvent(new Event("blockchain-transaction"));
       }).catch(() => {});
+      else if (isCustomTokenSync(tx)) void getSwarmChain().acceptCustomTokenDeposit(tx).then(ok => {
+        if (ok) window.dispatchEvent(new Event("blockchain-transaction"));
+      }).catch(() => {});
       else void receiveWalletTip(tx).catch(() => {});
     }
   };
@@ -150,7 +154,7 @@ export function startWalletTipSync(): () => void {
     const chain = getSwarmChain();
     await chain.whenReady();
     for (const tx of [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()]) {
-      if ((tx.type === "wallet_tip" || isNativeMintMeDeposit(tx)) && !stopped) {
+      if ((tx.type === "wallet_tip" || isNativeMintMeDeposit(tx) || isCustomTokenSync(tx)) && !stopped) {
         await broadcastTip(tx).catch(() => {});
       }
     }

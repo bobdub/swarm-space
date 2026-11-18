@@ -36,8 +36,8 @@ export function MintMeNativeActions({ userId, amount, network = "swarm" }: { use
   </>;
 }
 
-export function CustomTokenNetworkActions({ userId, symbol, address, recorded, network = "swarm", renderWithdrawForm }: {
-  userId: string; symbol: string; address: string; recorded: number; network?: AssetNetwork;
+export function CustomTokenNetworkActions({ userId, symbol, address, decimals, recorded, network = "swarm", renderWithdrawForm }: {
+  userId: string; symbol: string; address: string; decimals?: number; recorded: number; network?: AssetNetwork;
   renderWithdrawForm: (onDone: () => void) => React.ReactNode;
 }) {
   const [sendOpen, setSendOpen] = useState(false);
@@ -47,7 +47,7 @@ export function CustomTokenNetworkActions({ userId, symbol, address, recorded, n
     <Button type="button" variant="outline" size="sm" disabled title="MintMe tokens cannot settle on a SWARM sub-chain"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button>
   </>;
   return <>
-    {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} /> :
+    {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} tokenAddress={address} decimals={decimals} /> :
       <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
     {network === "swarm" ? <span title="Only transfer to online peers on SWARM" className="inline-flex"><NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} /></span> :
       <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} title="Only transfer to wallets that support the MintMe chain" onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}

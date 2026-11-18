@@ -52,7 +52,7 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
     </div>
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
       <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={token.address} recorded={recorded}
-        network={network}
+        network={network} decimals={token.decimals}
         renderWithdrawForm={(onDone) => (
           <Dialog open onOpenChange={(v) => { if (!v) onDone(); }}>
             <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">

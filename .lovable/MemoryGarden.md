@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### November 18, 2026 — Cargo at the quiet doorway
+
+Before tending: count the tokens already resting at their own cold address;
+let one arrival earn one receipt, with keys unseen and old custody preserved.
+
 ### November 16, 2026 — Names with their own roots
 
 Before tending: let shared names remain welcoming, while each mention keeps

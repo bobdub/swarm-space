@@ -86,12 +86,30 @@ export function MintMeMiningService() {
     if (!isReady || !user || isGuestUser(user)) return;
     let cancelled = false;
     const uid = user.id;
-    const sync = () => void import("@/lib/blockchain/wallets/nativeMintmeDirect")
-      .then(m => m.syncNativeMintMeDeposits(uid))
-      .then(credited => {
-        if (!cancelled && credited > 0) void import("sonner").then(({ toast }) => toast.success(`${credited} MINTME arrived in your native wallet`));
-      })
-      .catch(() => { /* locked vault or MintMe unreachable: retry next tick */ });
+    let syncing = false;
+    const sync = async () => {
+      if (cancelled || syncing) return;
+      syncing = true;
+      const notify = async (credited: number, symbol: string) => {
+        if (cancelled || credited <= 0) return;
+        const { toast } = await import("sonner");
+        if (!cancelled) toast.success(`${credited} ${symbol} arrived in your native wallet`);
+      };
+      try {
+        const [native, custom] = await Promise.all([
+          import("@/lib/blockchain/wallets/nativeMintmeDirect"),
+          import("@/lib/blockchain/deposits/customTokens"),
+        ]);
+        if (cancelled) return;
+        await native.syncNativeMintMeDeposits(uid).then(n => notify(n, "MINTME")).catch(() => {});
+        await custom.hydrateCustomTokens(uid);
+        for (const token of custom.listCustomTokens(uid)) {
+          if (cancelled) break;
+          await custom.syncCustomTokenDeposits(uid, token.address).then(n => notify(n, token.symbol)).catch(() => {});
+        }
+      } catch { /* locked vault or MintMe unreachable: retry next tick */ }
+      finally { syncing = false; }
+    };
     const first = window.setTimeout(sync, 5_000);
     const timer = window.setInterval(sync, 120_000);
     return () => { cancelled = true; window.clearTimeout(first); window.clearInterval(timer); };

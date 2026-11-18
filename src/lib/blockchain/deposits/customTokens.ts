@@ -2,10 +2,11 @@
 import { isDepositSynced, markDepositsSynced, connectedPeerCount } from "./depositSync";
 import { getSwarmChain } from "../chain";
 import { generateTransactionId } from "../crypto";
-import { deriveColdKey, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
+import { deriveColdKey, getColdKeyReceivingAddress, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
 import type { SwarmTransaction } from "../types";
 import { _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
-import { customTokenDepositCapacity } from "./customTokenLimits";
+import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
+import { CUSTOM_TOKEN_CUSTODY, customTokenCustodyFlows, customTokenSyncMessage, readCustomTokenCustody } from "./customTokenCustody";
 export { CUSTOM_TOKEN_DEPOSIT_MAX } from "./customTokenLimits";
 
 export function getCustomTokenDepositCapacity(address: string) {
@@ -115,6 +116,53 @@ export async function syncPendingDeposits(swarmId: string): Promise<boolean> {
   const ids = allTransactions().filter((tx) => tx.type === "external_deposit" && tx.to === swarmId && !isDepositSynced(tx.id)).map((tx) => tx.id);
   if (!ids.length) return false;
   return markDepositsSynced(ids, await connectedPeerCount());
+}
+
+const depositChecks = new Map<string, Promise<number>>();
+
+/** Record only confirmed, previously uncredited ERC-20 custody; no external wallet connection. */
+export function syncCustomTokenDeposits(userId: string, tokenAddress: string): Promise<number> {
+  const contract = tokenAddress.trim().toLowerCase();
+  const key = `${userId}:${contract}`;
+  const running = depositChecks.get(key);
+  if (running) return running;
+  const check = async () => {
+    const token = (await hydrateCustomTokens(userId)).find(t => t.address.toLowerCase() === contract);
+    if (!token || !isContractAddress(contract)) throw new Error("Import this MintMe token before checking its deposit.");
+    const chain = getSwarmChain();
+    await chain.whenReady();
+    const address = (await getColdKeyReceivingAddress(userId)).toLowerCase();
+    const backed = await readCustomTokenCustody(address, contract, token.decimals, allTransactions(), userId);
+    const flows = customTokenCustodyFlows(allTransactions(), userId, address, contract, token.decimals);
+    const units = backed - flows.inflow;
+    if (units <= 0n) return 0;
+    const amount = unitsToNumber(units, token.decimals);
+    assertCustomTokenDepositCapacity(allTransactions(), contract, amount);
+    const { wallet, address: signer } = await deriveColdKey(userId);
+    if (signer.toLowerCase() !== address) throw new Error("This receiving address does not match your unlocked wallet.");
+    const cumulative = flows.inflow + units;
+    const at = Date.now();
+    const tx: SwarmTransaction = {
+      id: `token-sync:${contract}:${address}:${cumulative}`, type: "external_deposit", from: address, to: userId,
+      amount, chainId: "SWARM", timestamp: new Date(at).toISOString(), publicKey: address, nonce: at, fee: 0,
+      signature: await wallet.signMessage(customTokenSyncMessage(userId, address, contract, token.decimals, cumulative, units)),
+      meta: { currency: tokenCurrency(contract), custody: CUSTOM_TOKEN_CUSTODY, custodyAddress: address,
+        address, contract, symbol: token.symbol, decimals: token.decimals,
+        amountUnits: units.toString(), cumulativeUnits: cumulative.toString() },
+    };
+    if (!await chain.acceptCustomTokenDeposit(tx)) throw new Error("MintMe could not confirm this deposit yet. Nothing was credited.");
+    window.dispatchEvent(new Event("blockchain-transaction"));
+    // Once recorded, failed mesh delivery must never make an arrival look uncredited.
+    try {
+      const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+      getSwarmMeshStandalone().broadcast("wallet-tips", tx);
+      await syncPendingDeposits(userId);
+    } catch { /* app-wide wallet replay retries delivery */ }
+    return amount;
+  };
+  const result = check().finally(() => depositChecks.delete(key));
+  depositChecks.set(key, result);
+  return result;
 }
 
 /**

@@ -7,6 +7,7 @@ import { verifyWalletTip } from "./wallets/tipSignature";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
+import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows } from "./deposits/customTokenCustody";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -152,6 +153,7 @@ export class SwarmChain {
   addTransaction(transaction: SwarmTransaction): void {
     if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
     if (isNativeMintMeDeposit(transaction)) throw new Error("MINTME custody requires verified acceptance");
+    if (isCustomTokenSync(transaction)) throw new Error("Custom token custody requires verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
@@ -194,6 +196,24 @@ export class SwarmChain {
       const units = nativeMintMeUnits(transaction);
       if (units === null || nativeMintMeBalanceUnits(ledger, transaction.from) < units) return false;
     }
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
+  async acceptCustomTokenDeposit(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    const ledger = () => [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
+    if (this.hasTransaction(transaction.id)) return true;
+    if (!await verifyCustomTokenSync(transaction, ledger(), true)) return false;
+    // Recheck after asynchronous RPC/signature validation before the synchronous append.
+    if (this.hasTransaction(transaction.id)) return true;
+    const current = ledger();
+    const contract = String(transaction.meta?.contract);
+    const address = String(transaction.meta?.custodyAddress);
+    const flows = customTokenCustodyFlows(current, transaction.to, address, contract, Number(transaction.meta?.decimals));
+    if (flows.inflow + BigInt(String(transaction.meta?.amountUnits)) !== BigInt(String(transaction.meta?.cumulativeUnits))) return false;
+    try { assertCustomTokenDepositCapacity(current, contract, Number(transaction.amount)); } catch { return false; }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
@@ -514,6 +534,7 @@ export class SwarmChain {
     for (const block of blocks) {
       for (const tx of block.transactions) {
         if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return false;
+        if (isCustomTokenSync(tx) && (seen.has(tx.id) || !await verifyCustomTokenSync(tx, accepted))) return false;
         if (tx.type === "wallet_tip") {
           if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
           const nonceKey = `${tx.from}:${tx.meta?.assetId}:${tx.nonce}`;
