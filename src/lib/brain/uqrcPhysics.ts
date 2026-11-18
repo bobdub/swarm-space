@@ -60,7 +60,6 @@ import {
 import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
-  sampleVolcanoElevation,
   sampleTerrainDryMask,
 } from './volcanoOrgan';
 import {
@@ -71,14 +70,10 @@ import {
   type CausalState,
   type ProbeHistorySample,
 } from './lightspeed';
-import {
-  sampleLandMask,
-  sampleSurfaceLift,
-  WATER_WADE_DEPTH,
-  WATER_WALK_SCALE,
-} from './surfaceProfile';
+import { WATER_WALK_SCALE } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
+import { groundElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -989,22 +984,13 @@ export class UqrcPhysics {
           // basin so the player walks UP the slope instead of clipping
           // through it. Sampler is Earth-local so the volcano stays
           // glued to the planet under spin.
-          let elevation = 0;
-          if (isSurfaceHumanoid) {
-            const localN = worldPosToLocalNormal(b.pos, pose);
-            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            // Land lift + volcano cone are both real terrain. Subtract a
-            // wade depth when the foot is over open water so avatars
-            // stop walking ON the ocean and start walking IN it.
-            const landMask = sampleTerrainDryMask(organ, localN);
-            // Open water dips the feet by the wade depth so avatars
-            // walk IN the ocean, not on it.
-            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-            elevation =
-              sampleVolcanoElevation(organ, localN)
-              + sampleSurfaceLift(localN)
-              - waterDip;
-          }
+          // The floor is the rendered terrain itself (groundElevationAt
+          // intersects the same displaced triangles the GPU draws), so the
+          // physics manifold and the render manifold commute. Water is
+          // solid underfoot: the ocean is drawn opaque at the baseline.
+          const elevation = isSurfaceHumanoid
+            ? groundElevationAt(worldPosToLocalNormal(b.pos, pose))
+            : 0;
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
           fx += radialAcc * dxC * invR * mass;
@@ -1119,15 +1105,7 @@ export class UqrcPhysics {
                 // on a volcano slope settles to the slope, not to the
                 // spherical baseline shell (which would phase the body
                 // through the visible cone).
-                const localN = worldPosToLocalNormal(b.pos, pose);
-                const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const landMask = sampleTerrainDryMask(organ, localN);
-                // Open water dips the feet by the wade depth.
-                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-                const elevation =
-                  sampleVolcanoElevation(organ, localN)
-                  + sampleSurfaceLift(localN)
-                  - waterDip;
+                const elevation = groundElevationAt(worldPosToLocalNormal(b.pos, pose));
                 const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {

@@ -19,14 +19,19 @@
  * scene-graph node.
  */
 
-import { EARTH_RADIUS, EYE_LIFT } from './earth';
+import { BODY_CENTER_HEIGHT, EARTH_RADIUS, EYE_LIFT } from './earth';
+
+/** Eye height above the ground: body centre height + eye lift above it. */
+export const EYE_HEIGHT_M: number = BODY_CENTER_HEIGHT + EYE_LIFT;
 
 /**
- * Geometric horizon distance for an observer of height `EYE_LIFT` above
- * the visible ground: `d = √(2·R·h)`. At R=1700 m, h≈0.75 m → ~50.5 m.
- * Computed lazily from the Earth scale so it tracks any future rescale.
+ * Geometric horizon distance for an observer whose eye is `EYE_HEIGHT_M`
+ * above the visible ground: `d = √(2·R·h)`. At R=1700 m, h=1.6 m → ~73.8 m.
+ * (EYE_LIFT alone is the eye's offset from the body centre, 0.75 m; using
+ * it here put the fade at ~50 m, hiding things well before the real
+ * horizon.) Computed from the Earth scale so it tracks any future rescale.
  */
-export const HORIZON_M: number = Math.sqrt(2 * EARTH_RADIUS * Math.max(0.1, EYE_LIFT));
+export const HORIZON_M: number = Math.sqrt(2 * EARTH_RADIUS * Math.max(0.1, EYE_HEIGHT_M));
 
 /** Inner edge of the fade band (full opacity inside this radius). */
 export const HORIZON_FADE_INNER: number = HORIZON_M * 0.85;

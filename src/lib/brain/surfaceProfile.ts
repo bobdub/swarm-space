@@ -27,9 +27,9 @@ import type { Vec3 } from './earth';
  *  the planet still reads as a sphere from orbit, large enough that a
  *  walking avatar visibly steps UP onto a beach. */
 export const LAND_LIFT = 6.0;
-/** Wading depth — how far below the visible ground (= ocean surface) the
- *  avatar's feet drop when over open water. About waist-deep on a 1.7 m
- *  human. */
+/** Terrain lift (m) above which ground counts as dry for surface
+ *  classification. Feet no longer drop by this over water: the ocean is
+ *  drawn as solid ground, so physics keeps feet on it (see groundHeight). */
 export const WATER_WADE_DEPTH = 0.9;
 /** Walk speed multiplier when wading. Drag is real. */
 export const WATER_WALK_SCALE = 0.45;
@@ -84,9 +84,19 @@ function continents(n: Vec3): number {
   );
 }
 
+/** Raw continents noise at an Earth-local unit normal (float64). */
+export function sampleContinents(localNormal: Vec3): number {
+  return continents(localNormal);
+}
+
+/** Land mask from a continents value — the single coastline threshold. */
+export function landMaskFromContinents(c: number): number {
+  return smoothstep(0.48, 0.55, c);
+}
+
 /** 0 = ocean, 1 = inland. Matches the shader's landMask. */
 export function sampleLandMask(localNormal: Vec3): number {
-  return smoothstep(0.48, 0.55, continents(localNormal));
+  return landMaskFromContinents(continents(localNormal));
 }
 
 /** Metres of vertical lift above EARTH_RADIUS at this point. Land lifts

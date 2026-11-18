@@ -142,10 +142,8 @@ import {
 } from '@/lib/brain/earth';
 import { getLiveSiteFrame } from '@/lib/brain/earth';
 import { quatRotate } from '@/lib/brain/earth';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
-import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { worldPosToLocalNormal } from '@/lib/brain/earth';
-import { FOOT_CUSHION } from '@/lib/brain/earth';
+import { feetRadiusAt, groundElevationAt } from '@/lib/brain/groundHeight';
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
 // Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
@@ -231,9 +229,9 @@ function spawnNearSharedVillage(
   const tx = Math.cos(angle) * radius;
   const tz = Math.sin(angle) * radius;
   const { worldPos } = anchorOnEarth(SHARED_VILLAGE_ANCHOR_ID, tx, tz, BODY_SHELL_RADIUS, pose);
-  // Lift onto the local land top so the avatar starts on the beach,
-  // not the sea-level baseline shell. Without this, physics settles
-  // the body into the water-wade dip on the very first tick (alt < 0).
+  // Lift onto the rendered ground (land lift + volcano, exactly as drawn)
+  // so the avatar's first frame already stands on the surface physics
+  // will hold it to.
   const dx = worldPos[0] - pose.center[0];
   const dy = worldPos[1] - pose.center[1];
   const dz = worldPos[2] - pose.center[2];
@@ -242,7 +240,7 @@ function spawnNearSharedVillage(
   // Earth-local normal (un-spin) so we sample the noise on the planet
   // frame, matching shader and physics samplers.
   const localN = quatRotate(pose.invSpinQuat, localUnit);
-  const lift = sampleSurfaceLift(localN);
+  const lift = groundElevationAt(localN);
   const k = (r + lift) / r;
   return [
     pose.center[0] + dx * k,
@@ -539,10 +537,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       let terrainR = 0;
       try {
         const eyeLocalN = worldPosToLocalNormal([eyeX, eyeY, eyeZ], pose);
-        terrainR = FEET_SHELL_RADIUS
-          + sampleVolcanoElevation(getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), eyeLocalN)
-          + sampleSurfaceLift(eyeLocalN)
-          + FOOT_CUSHION + 1.2;
+        terrainR = feetRadiusAt(eyeLocalN) + 1.2;
       } catch { /* organ unavailable — fall back to body-relative floor */ }
       const minR = Math.max(bodyR + 0.9, terrainR);
       if (eyeR < minR) {
