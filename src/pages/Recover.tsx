@@ -23,12 +23,20 @@ import { ensureGuestIdentity } from "@/lib/preview/guestMode";
 import { isGuestUser } from "@/lib/preview/guestAccess";
 import { restoreAccountFromVault } from "@/lib/auth";
 import {
+  normalizePassphrase,
   openRecoveryVault,
+  sameEnvelope,
   parseRecoveryParams,
   WrongRecoveryPassphraseError,
   type RecoveryVaultEnvelope,
 } from "@/lib/backup/recoveryVault";
-import { adoptRestoredVault, bestKnownVault, queryVaultFromPeer } from "@/lib/backup/vaultCustody";
+import {
+  adoptRestoredVault,
+  bestKnownVault,
+  followPasswordChange,
+  getOwnVault,
+  queryVaultFromPeer,
+} from "@/lib/backup/vaultCustody";
 import { MEMBER_HOME } from "@/lib/routing/canonicalHome";
 
 type Phase = "no-link" | "starting" | "searching" | "found" | "not-found";
@@ -161,6 +169,16 @@ export default function Recover() {
       const payload = await openRecoveryVault(envelope, passphrase);
       await restoreAccountFromVault(payload, localPassword);
       await adoptRestoredVault(envelope);
+      // A shell sealed with the account password keeps following it: the
+      // new local password becomes the one that opens the next version.
+      if (normalizePassphrase(passphrase) !== normalizePassphrase(localPassword)) {
+        const own = await getOwnVault(payload.userId);
+        if (own?.genesisDefault && sameEnvelope(own.envelope, envelope)) {
+          await followPasswordChange(payload.privateKey, payload.user, localPassword.trim()).catch((err) => {
+            console.warn("[Recover] could not re-seal the account shell", err);
+          });
+        }
+      }
       setPassphrase("");
       setLocalPassword("");
       setConfirmPassword("");
@@ -285,7 +303,7 @@ export default function Recover() {
                 <Label htmlFor="recover-passphrase">Recovery Passphrase</Label>
                 <Input id="recover-passphrase" type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="off" required />
                 <p className="text-xs text-muted-foreground">
-                  The active shell's passphrase{envelope.version === 1 ? " (for v1, your signup password)" : ""}.
+                  The active shell's passphrase. If you never set a separate one, it is your account password.
                 </p>
               </div>
               <div className="space-y-1.5">

@@ -17,10 +17,12 @@
 import { get, put, remove } from "../store";
 import {
   sealRecoveryVault,
+  sameEnvelope,
   supersedes,
   verifyRecoveryVault,
   type RecoveryVaultEnvelope,
   type VaultProfile,
+  type VaultShellMode,
 } from "./recoveryVault";
 
 export const VAULT_CHANNEL = "recovery-vault";
@@ -81,9 +83,11 @@ export async function getCustodyAcks(userId: string): Promise<CustodyAcks> {
   }
 }
 
-async function recordAck(userId: string, version: number, peerId: string, name?: string): Promise<boolean> {
+async function recordAck(userId: string, version: number, peerId: string, name?: string, signature?: string): Promise<boolean> {
   const own = await getOwnVault(userId);
   if (!own || own.envelope.version !== version) return false;
+  // A tie-break loser at the same version is not custody of OUR shell.
+  if (signature && signature !== own.envelope.signature) return false;
   const acks = await getCustodyAcks(userId);
   const fresh: CustodyAcks = acks.version === version ? acks : { version, peers: {} };
   const isNew = !fresh.peers[peerId];
@@ -127,7 +131,7 @@ let custodyQueue: Promise<unknown> = Promise.resolve();
 
 async function holdVerifiedVault(envelope: RecoveryVaultEnvelope, fromPeer: string): Promise<boolean> {
   const held = await getHeldVault(envelope.userId);
-  if (held && held.version === envelope.version) return true;
+  if (sameEnvelope(held, envelope)) return true;
   if (!supersedes(envelope, held)) return false;
 
   const index = await readIndex();
@@ -152,7 +156,7 @@ export async function bestKnownVault(userId: string): Promise<RecoveryVaultEnvel
   const own = (await getOwnVault(userId))?.envelope ?? null;
   const held = await getHeldVault(userId);
   const candidates = [own, held].filter((e): e is RecoveryVaultEnvelope => !!e);
-  candidates.sort((a, b) => b.version - a.version);
+  candidates.sort((a, b) => (supersedes(a, b) ? -1 : supersedes(b, a) ? 1 : 0));
   for (const c of candidates) if (await verifyRecoveryVault(c)) return c;
   return null;
 }
@@ -161,23 +165,53 @@ export async function bestKnownVault(userId: string): Promise<RecoveryVaultEnvel
 
 /** Genesis v1: sealed in the background at signup with the signup password. */
 export async function sealGenesisVault(privateKey: string, user: VaultProfile, signupPassword: string): Promise<OwnVaultRecord> {
-  const envelope = await sealRecoveryVault({ privateKey, user, version: 1, passphrase: signupPassword });
+  const envelope = await sealRecoveryVault({ privateKey, user, version: 1, passphrase: signupPassword, shell: "account" });
   const record = { envelope, genesisDefault: true };
   await saveOwnVault(record);
   return record;
 }
 
 /**
+ * Accounts created before sovereign recovery have no vault. The first time
+ * the account password is entered (it is only ever in memory here), seal the
+ * genesis shell with it, exactly as signup does, and replicate it.
+ * Returns null when a vault already exists.
+ */
+export async function ensureGenesisVault(privateKey: string, user: VaultProfile, accountPassword: string): Promise<OwnVaultRecord | null> {
+  if (await bestKnownVault(user.id)) return null;
+  const record = await sealGenesisVault(privateKey, user, accountPassword);
+  pushOwnVaultToAll(user.id);
+  return record;
+}
+
+/**
+ * While the vault is still the genesis default (sealed with the account
+ * password), a local password change re-seals it under the new password so
+ * "v1 = your account password" stays true. A separately wrapped shell is
+ * never touched by a local password change.
+ */
+export async function followPasswordChange(privateKey: string, user: VaultProfile, newAccountPassword: string): Promise<OwnVaultRecord | null> {
+  const own = await getOwnVault(user.id);
+  if (!own?.genesisDefault) return null;
+  return rotateRecoveryShell(privateKey, user, newAccountPassword, "account");
+}
+
+/**
  * Wrap a new outer shell at v(N+1). The previous envelope is replaced locally
  * and the new one is pushed to every connected peer, which overwrite theirs.
  */
-export async function rotateRecoveryShell(privateKey: string, user: VaultProfile, newPassphrase: string): Promise<OwnVaultRecord> {
+export async function rotateRecoveryShell(
+  privateKey: string,
+  user: VaultProfile,
+  newPassphrase: string,
+  shell: VaultShellMode = "recovery",
+): Promise<OwnVaultRecord> {
   // Another device of this identity may already have rotated: allocate above
   // the highest verified shell we know of, own or held.
   const known = await bestKnownVault(user.id);
   const version = (known?.version ?? 0) + 1;
-  const envelope = await sealRecoveryVault({ privateKey, user, version, passphrase: newPassphrase });
-  const record = { envelope, genesisDefault: false };
+  const envelope = await sealRecoveryVault({ privateKey, user, version, passphrase: newPassphrase, shell });
+  const record = { envelope, genesisDefault: shell === "account" };
   await saveOwnVault(record);
   pushOwnVaultToAll(user.id);
   return record;
@@ -187,15 +221,24 @@ export async function rotateRecoveryShell(privateKey: string, user: VaultProfile
 export async function adoptRestoredVault(envelope: RecoveryVaultEnvelope): Promise<void> {
   if (!(await verifyRecoveryVault(envelope))) throw new Error("Refusing to adopt an unverified vault.");
   const existing = await getOwnVault(envelope.userId);
-  if (existing && existing.envelope.version >= envelope.version) return;
-  await saveOwnVault({ envelope, genesisDefault: envelope.version === 1 });
+  if (existing && !supersedes(envelope, existing.envelope)) return;
+  await saveOwnVault({ envelope, genesisDefault: isAccountShell(envelope, existing) });
+}
+
+/**
+ * Whether a shell is sealed with the account password. Signed envelopes say
+ * so; older ones without the field are only known to be genesis at v1.
+ */
+export function isAccountShell(envelope: RecoveryVaultEnvelope, existing?: OwnVaultRecord | null): boolean {
+  if (envelope.shell) return envelope.shell === "account";
+  return envelope.version === 1 && (existing?.genesisDefault ?? true);
 }
 
 // ── Wire protocol ──────────────────────────────────────────────────────
 
 export type VaultMessage =
   | { kind: "store"; envelope: RecoveryVaultEnvelope }
-  | { kind: "ack"; userId: string; version: number }
+  | { kind: "ack"; userId: string; version: number; signature?: string }
   | { kind: "query"; userId: string; requestId: string }
   | { kind: "response"; requestId: string; envelope: RecoveryVaultEnvelope | null };
 
@@ -253,8 +296,18 @@ export async function handleVaultMessage(fromPeer: string, payload: unknown): Pr
       if (msg.envelope?.userId && msg.envelope.userId === activeUserId()) {
         try { await adoptRestoredVault(msg.envelope); } catch { /* unverified: ignored */ }
       }
+      // We know a shell that wins over the one offered (newer, or the
+      // tie-break winner), whether held for a peer or our own: hand it back
+      // so the sender converges instead of acknowledging the loser.
+      if (msg.envelope && typeof msg.envelope.userId === "string") {
+        const better = await bestKnownVault(msg.envelope.userId);
+        if (better && !sameEnvelope(better, msg.envelope) && supersedes(better, msg.envelope)) {
+          send(fromPeer, { kind: "store", envelope: better });
+          return;
+        }
+      }
       if (await holdVault(msg.envelope, fromPeer)) {
-        send(fromPeer, { kind: "ack", userId: msg.envelope.userId, version: msg.envelope.version });
+        send(fromPeer, { kind: "ack", userId: msg.envelope.userId, version: msg.envelope.version, signature: msg.envelope.signature });
       }
       return;
     }
@@ -262,7 +315,7 @@ export async function handleVaultMessage(fromPeer: string, payload: unknown): Pr
       if (typeof msg.userId !== "string" || typeof msg.version !== "number") return;
       if (msg.userId !== activeUserId()) return;
       const name = peerName(fromPeer);
-      const isNew = await recordAck(msg.userId, msg.version, fromPeer, name);
+      const isNew = await recordAck(msg.userId, msg.version, fromPeer, name, typeof msg.signature === "string" ? msg.signature : undefined);
       if (!isNew) return;
       const own = await getOwnVault(msg.userId);
       const event: CustodyAckEvent = {

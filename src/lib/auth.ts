@@ -541,6 +541,13 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
   await cacheUnlockedPrivateKey(privateKey, user.id);
+  // Accounts from before sovereign recovery get their genesis vault the first
+  // time the password is entered, as signup would have done. Never blocks.
+  if (!isGuestUser(user)) {
+    void import("./backup/vaultCustody")
+      .then((m) => m.ensureGenesisVault(privateKey, user, passphrase))
+      .catch((error) => console.warn("[auth] Genesis recovery vault deferred", error));
+  }
   return privateKey;
 }
 
