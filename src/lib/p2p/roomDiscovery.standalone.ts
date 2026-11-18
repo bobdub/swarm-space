@@ -33,6 +33,18 @@
 import { getCurrentUser } from '@/lib/auth';
 import { canonicalizePathnameForUser } from '@/lib/routing/canonicalHome';
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
+import { primarySignalingEndpoint } from './signalingEndpoints';
+
+/**
+ * Beacons and probes use the first configured signaling server (a local
+ * PeerServer in dev/CI), falling back to PeerJS Cloud when none is set.
+ */
+function signalingServer() {
+  const { host, port, secure, path } = primarySignalingEndpoint(
+    (import.meta.env ?? {}) as Record<string, string | boolean | undefined>,
+  );
+  return { host, port, secure, path };
+}
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -375,10 +387,7 @@ class RoomDiscoveryStandalone {
 
       const probePeer = new PeerClass(probePeerId, {
         debug: 0,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        ...signalingServer(),
       });
 
       // Timeout: if probe doesn't connect within 8s, give up
@@ -430,10 +439,7 @@ class RoomDiscoveryStandalone {
 
       const beaconPeer = new PeerClass(beaconId, {
         debug: 0,
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        path: '/',
+        ...signalingServer(),
       });
 
       this.beaconPeer = beaconPeer;
