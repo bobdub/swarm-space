@@ -1,16 +1,46 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Wifi, WifiOff } from "lucide-react";
+import { Compass, Loader2, MessageCircle, UserRound, Wifi, WifiOff } from "lucide-react";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getBrainInviteState, retryBrainInvite, subscribeBrainInvite } from "@/lib/p2p/brainInvite";
+import { useP2PContext } from "@/contexts/P2PContext";
+import { BRAIN_JOIN_PATH, getBrainInviteState, retryBrainInvite, subscribeBrainInvite } from "@/lib/p2p/brainInvite";
+
+type InviterProfile = { username: string | null; label: string | null };
+
+/** Resolve the inviter's public name from the live connection or discovery cache. */
+function useInviterProfile(peerId: string | null, connected: boolean): InviterProfile {
+  const { getActivePeerConnections, getDiscoveredPeers } = useP2PContext();
+  const [, tick] = useState(0);
+  const read = (): InviterProfile => {
+    if (!peerId) return { username: null, label: null };
+    let profile;
+    try {
+      profile =
+        getActivePeerConnections().find(peer => peer.peerId === peerId)?.profile ??
+        getDiscoveredPeers().find(peer => peer.peerId === peerId)?.profile;
+    } catch {
+      profile = undefined;
+    }
+    const username = profile?.username?.trim() || null;
+    return { username, label: profile?.displayName?.trim() || (username ? `@${username}` : null) };
+  };
+  const inviter = read();
+  // Profiles arrive a beat after the DataChannel opens; poll until named.
+  useEffect(() => {
+    if (!connected || inviter.username) return;
+    const timer = window.setInterval(() => tick(n => (n + 1) & 0xfff), 1000);
+    return () => window.clearInterval(timer);
+  }, [connected, inviter.username]);
+  return inviter;
+}
 
 /**
  * Landing for a plain peer-connect link (`/connect#peer-…`).
  * The dial itself is handled app-wide by BrainInviteConnection and the
- * startup "invite first" hook; this page only shows progress. It never
- * routes into the Brain or a profile — the user decides where to go next.
+ * startup "invite first" hook; this page shows progress and, once connected,
+ * offers next steps. It never routes on its own — the guest picks where to go.
  */
 export default function PeerConnect() {
   const navigate = useNavigate();
@@ -20,11 +50,13 @@ export default function PeerConnect() {
   // React Router stores the history index; 0 means this link opened a fresh tab.
   const canGoBack = ((window.history.state as { idx?: number } | null)?.idx ?? 0) > 0;
   const shortId = state.peerId ? `${state.peerId.slice(0, 18)}${state.peerId.length > 18 ? "…" : ""}` : "";
+  const inviter = useInviterProfile(state.peerId, connected);
+  const inviterName = inviter.label ?? shortId ?? "peer";
 
   const message = pending
     ? `Connecting to ${shortId || "peer"}…`
     : connected
-      ? `Connected to ${shortId || "peer"} as a peer node.`
+      ? `Connected to ${inviterName || "peer"} as a peer node.`
       : state.phase === "invalid"
         ? "This connect link is invalid, your own, or the peer is blocked."
         : "The peer has not answered yet. They may be offline.";
@@ -52,6 +84,34 @@ export default function PeerConnect() {
               {state.peerId}
             </code>
           )}
+          {connected && (
+            <nav aria-label="Next steps" className="space-y-2">
+              <p className="text-sm font-medium">You're in! Where to next?</p>
+              <Button type="button" className="w-full justify-start gap-2" onClick={() => navigate("/explore")}>
+                <Compass className="h-4 w-4" />
+                Start exploring
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full justify-start gap-2"
+                onClick={() => navigate(state.peerId ? `${BRAIN_JOIN_PATH}#${encodeURIComponent(state.peerId)}` : "/brain")}
+              >
+                <MessageCircle className="h-4 w-4" />
+                Join live chat
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-start gap-2"
+                disabled={!inviter.username}
+                onClick={() => inviter.username && navigate(`/u/${encodeURIComponent(inviter.username)}`)}
+              >
+                {inviter.username ? <UserRound className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
+                {inviter.username ? `View ${inviter.label ?? `@${inviter.username}`}'s profile` : "Loading your connection's profile…"}
+              </Button>
+            </nav>
+          )}
           <div className="flex flex-wrap gap-2">
             {state.phase === "unavailable" && (
               <Button type="button" variant="outline" size="sm" onClick={retryBrainInvite}>
@@ -59,7 +119,7 @@ export default function PeerConnect() {
               </Button>
             )}
             {canGoBack && (
-              <Button type="button" variant={connected ? "default" : "ghost"} size="sm" onClick={() => navigate(-1)}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => navigate(-1)}>
                 Back
               </Button>
             )}
