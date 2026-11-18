@@ -33,6 +33,7 @@ import {
   CUSTODY_EVENT,
   getCustodyAcks,
   getOwnVault,
+  followPasswordChange,
   rotateRecoveryShell,
   type OwnVaultRecord,
 } from "@/lib/backup/vaultCustody";
@@ -264,6 +265,10 @@ export function SovereignSecurityPanel() {
         return;
       }
       await put("meta", { k: user.wrappedKeyRef, v: await wrapPrivateKey(privateKey, newPassword.trim()) });
+      // A genesis-default vault follows the account password; a separately
+      // wrapped shell is left alone.
+      const followed = await followPasswordChange(privateKey, user, newPassword.trim()).catch(() => null);
+      if (followed) toast.info(`Recovery vault re-sealed as v${followed.envelope.version} with your new password`);
       setNewPassword("");
       setConfirmPassword("");
       setCurrentPassword("");
@@ -332,11 +337,21 @@ export function SovereignSecurityPanel() {
               </p>
             </div>
 
+            {loaded && !vault && (
+              <Alert className="border-amber-500/50 bg-amber-500/10">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <AlertDescription className="text-xs leading-relaxed">
+                  This account has no recovery vault yet, so it cannot be recovered on another device. Seal one now,
+                  or sign in with your password once and it is sealed for you automatically.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {vault?.genesisDefault && (
               <Alert className="border-amber-500/50 bg-amber-500/10">
                 <AlertTriangle className="h-4 w-4 text-amber-500" />
                 <AlertDescription className="text-xs leading-relaxed">
-                  Your recovery vault (v1) is still sealed with your <strong>signup password</strong>. Wrap a separate
+                  Your recovery vault (v{version}) is still sealed with your <strong>account password</strong>. Wrap a separate
                   Recovery Passphrase so the vault peers hold no longer depends on your account password.
                 </AlertDescription>
               </Alert>

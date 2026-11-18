@@ -19,7 +19,10 @@ describe("identity credential .md", () => {
   });
 
   it("flags a genesis shell and names the file safely", () => {
-    expect(buildIdentityCredentialMarkdown({ ...base, shellVersion: 1, genesisDefault: true })).toContain("Genesis shell");
+    const genesis = buildIdentityCredentialMarkdown({ ...base, shellVersion: 1, genesisDefault: true });
+    expect(genesis).toContain("Genesis shell");
+    expect(genesis).toContain("your account password opens it");
+    expect(genesis).not.toContain("will NOT open");
     expect(credentialFileName("mi ke/..")).toBe("swarm-identity-mi_ke_.md");
   });
 });

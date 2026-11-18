@@ -31,9 +31,11 @@ export function buildIdentityCredentialMarkdown(input: IdentityCredentialInput):
   const generatedAt = (input.generatedAt ?? new Date()).toISOString();
   const warning =
     `This vault is sealed by Outer Shell Version ${input.shellVersion}. ` +
-    `It requires your active Recovery Passphrase to unlock. Your local account password will NOT open this vault.`;
+    (input.genesisDefault
+      ? `Until you wrap a separate Recovery Passphrase, your account password opens it.`
+      : `It requires your active Recovery Passphrase to unlock. Your local account password will NOT open this vault.`);
   const genesisNote = input.genesisDefault
-    ? "\n> **Genesis shell:** version 1 is still sealed with your signup password. Wrap a separate Recovery Passphrase in Settings → Security; from then on only that passphrase opens the vault.\n"
+    ? `\n> **Genesis shell:** version ${input.shellVersion} is still sealed with your account password. Wrap a separate Recovery Passphrase in Settings → Security; from then on only that passphrase opens the vault.\n`
     : "";
 
   return [

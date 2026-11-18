@@ -285,7 +285,7 @@ export default function Recover() {
                 <Label htmlFor="recover-passphrase">Recovery Passphrase</Label>
                 <Input id="recover-passphrase" type="password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} autoComplete="off" required />
                 <p className="text-xs text-muted-foreground">
-                  The active shell's passphrase{envelope.version === 1 ? " (for v1, your signup password)" : ""}.
+                  The active shell's passphrase. If you never set a separate one, it is your account password.
                 </p>
               </div>
               <div className="space-y-1.5">

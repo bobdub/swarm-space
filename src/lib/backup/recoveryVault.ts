@@ -216,11 +216,24 @@ export async function verifyRecoveryVault(value: unknown, now = Date.now()): Pro
   }
 }
 
-/** True when `candidate` should replace `held` (strictly higher signed version). */
+/**
+ * True when `candidate` should replace `held`: a strictly higher signed
+ * version wins. Two devices that rotated offline can produce the same version;
+ * every peer then picks the same winner (later `createdAt`, then the larger
+ * signature), so all copies converge on one shell.
+ */
 export function supersedes(candidate: RecoveryVaultEnvelope, held: RecoveryVaultEnvelope | null | undefined): boolean {
   if (!held) return true;
   if (candidate.userId !== held.userId) return false;
-  return candidate.version > held.version;
+  if (candidate.version !== held.version) return candidate.version > held.version;
+  if (candidate.signature === held.signature) return false;
+  if (candidate.createdAt !== held.createdAt) return candidate.createdAt > held.createdAt;
+  return candidate.signature > held.signature;
+}
+
+/** Same envelope (same version and signature). */
+export function sameEnvelope(a: RecoveryVaultEnvelope | null | undefined, b: RecoveryVaultEnvelope | null | undefined): boolean {
+  return !!a && !!b && a.userId === b.userId && a.version === b.version && a.signature === b.signature;
 }
 
 export class WrongRecoveryPassphraseError extends Error {
