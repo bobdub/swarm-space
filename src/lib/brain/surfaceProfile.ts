@@ -157,15 +157,21 @@ export function getIslands(): Island[] {
 /** Island contribution to the continents field at `n` (−∞ when far). */
 function islandField(n: Vec3, radius: number): number {
   const islands = getIslands();
+  if (islands.length === 0) return -Infinity;
+  // Callers sometimes pass a direction that is not unit length (e.g.
+  // localPos / EARTH_RADIUS for a point off the tangent plane); the arc
+  // distance must use the true direction or offsets read as the summit.
+  const len = Math.hypot(n[0], n[1], n[2]) || 1;
+  const ux = n[0] / len, uy = n[1] / len, uz = n[2] / len;
   let best = -Infinity;
   for (const isl of islands) {
     const c = isl.center;
-    const dot = Math.max(-1, Math.min(1, n[0] * c[0] + n[1] * c[1] + n[2] * c[2]));
+    const dot = Math.max(-1, Math.min(1, ux * c[0] + uy * c[1] + uz * c[2]));
     const arc = Math.acos(dot) * radius;
     const r = isl.radiusM;
     if (arc > r * 2.5) continue;
     // Natural outline: wobble the radius with the coarse continents noise.
-    const wobble = 1 + ISLAND_RADIUS_WOBBLE * (noise3(n[0] * 12, n[1] * 12, n[2] * 12) * 2 - 1);
+    const wobble = 1 + ISLAND_RADIUS_WOBBLE * (noise3(ux * 12, uy * 12, uz * 12) * 2 - 1);
     const t = arc / (r * wobble);
     // Linear fall from the summit through the coast (t = 1) and on down
     // the shelf and slope to the ocean floor.

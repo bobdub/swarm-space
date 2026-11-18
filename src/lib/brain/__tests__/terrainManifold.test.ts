@@ -149,6 +149,19 @@ describe('the village island', () => {
     }
   });
 
+  it('measures island distance along the true direction, not a scaled one', () => {
+    const f = getEarthLocalSiteFrame(VILLAGE);
+    // 180 m off on the tangent plane, not normalized (as block placement passes it).
+    const raw: [number, number, number] = [
+      f.normal[0] + f.right[0] * (180 / EARTH_RADIUS),
+      f.normal[1] + f.right[1] * (180 / EARTH_RADIUS),
+      f.normal[2] + f.right[2] * (180 / EARTH_RADIUS),
+    ];
+    const l = Math.hypot(raw[0], raw[1], raw[2]);
+    const unit: [number, number, number] = [raw[0] / l, raw[1] / l, raw[2] / l];
+    expect(sampleLandMask(raw)).toBeCloseTo(sampleLandMask(unit), 6);
+  });
+
   it('nothing else moves: the village is not re-snapped and the volcano stays put', () => {
     const f = getEarthLocalSiteFrame(VILLAGE);
     // The natural (noise) land under the village is still sea; the site
