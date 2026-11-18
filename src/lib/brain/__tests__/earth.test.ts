@@ -15,7 +15,6 @@ import {
   quatRotate,
   getSurfaceFrame,
   clampToEarthSurface,
-  SUN_POSITION,
   BODY_SHELL_RADIUS,
   STRUCTURE_SHELL_RADIUS,
   projectToBodyShell,
@@ -222,9 +221,9 @@ describe('earth (UQRC pure)', () => {
   it('spawnOnEarth always lands on the sunlit hemisphere (daylight bias)', () => {
     setEarthPoseTime(0);
     const pose = getEarthPose();
-    const sx = SUN_POSITION[0] - pose.center[0];
-    const sy = SUN_POSITION[1] - pose.center[1];
-    const sz = SUN_POSITION[2] - pose.center[2];
+    const sx = pose.sun[0] - pose.center[0];
+    const sy = pose.sun[1] - pose.center[1];
+    const sz = pose.sun[2] - pose.center[2];
     const sLen = Math.hypot(sx, sy, sz);
     const sun = [sx / sLen, sy / sLen, sz / sLen];
     for (let i = 0; i < 50; i++) {

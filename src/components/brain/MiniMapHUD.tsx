@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getEarthPose, getSurfaceFrame, EARTH_RADIUS, SUN_POSITION, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { getEarthPose, getSurfaceFrame, EARTH_RADIUS, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import { getWeather, isWeatherFallback } from '@/lib/world/weather';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
@@ -183,7 +183,7 @@ function readLocalWeather(pos: Vec3): LocalWeather {
   const len = Math.hypot(d[0], d[1], d[2]) || 1;
   const worldN: Vec3 = [d[0] / len, d[1] / len, d[2] / len];
   const localN = quatRotate(pose.invSpinQuat, worldN);
-  const s: Vec3 = [SUN_POSITION[0] - pose.center[0], SUN_POSITION[1] - pose.center[1], SUN_POSITION[2] - pose.center[2]];
+  const s: Vec3 = [pose.sun[0] - pose.center[0], pose.sun[1] - pose.center[1], pose.sun[2] - pose.center[2]];
   const sl = Math.hypot(s[0], s[1], s[2]) || 1;
   const sunDot = (worldN[0] * s[0] + worldN[1] * s[1] + worldN[2] * s[2]) / sl;
   const w = getWeather();
