@@ -549,7 +549,9 @@ function PeerVaultsSection({
       // torrent was received from another peer. Fall back to self only
       // when the persisted snapshot predates the metadata upgrade.
       const owner = t.creatorId && t.creatorId !== localPeerId ? t.creatorId : selfKey;
-      const isSelfOwned = owner === selfKey;
+      // Only a torrent whose recorded creator is this peer counts as
+      // self-created; unknown creators never spend a wallet coin.
+      const isSelfOwned = !!t.creatorId && (t.creatorId === localPeerId || t.creatorId === localPeerId.replace(/^peer-/, ''));
       candidates.push({
         contentHash: t.manifestId,
         ownerPeerId: owner,

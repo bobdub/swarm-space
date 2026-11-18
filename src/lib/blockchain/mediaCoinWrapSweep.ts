@@ -1,7 +1,8 @@
 /**
  * mediaCoinWrapSweep — the vault engraver.
  *
- * Files never fabricate coins. Awaiting-engraver files sit in each
+ * Only files the user created are engraved; content received from other
+ * peers never spends a wallet coin. Files never fabricate coins. Awaiting-engraver files sit in each
  * vault's `files[]` list until a free mined wallet coin is available
  * in the user's wallet. When one is, we engrave the file's metadata
  * onto that real coin (`kind = "media"`), then route the sealed coin
@@ -150,7 +151,9 @@ async function transferEngravedCoinToVault(
  * callers can surface progress.
  */
 export async function runWrapSweep(): Promise<{ engraved: number; waiting: number; wrapped: number }> {
-  const awaiting = await listAwaitingFiles();
+  // Only content this user created may spend one of their wallet coins.
+  // Files received from other peers stay queued and never consume a coin.
+  const awaiting = (await listAwaitingFiles()).filter(({ file }) => file.createdBySelf === true);
   if (awaiting.length === 0) return { engraved: 0, waiting: 0, wrapped: 0 };
 
   let free = await freeMinedWalletCoins();

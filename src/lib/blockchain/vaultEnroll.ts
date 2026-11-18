@@ -29,6 +29,7 @@ export async function enrollContent(input: EnrollInput): Promise<"skipped" | "en
     name: input.name,
     size: input.size,
     completedAt: input.completedAt,
+    createdBySelf: input.isSelf,
   });
   if (result === "skipped") return "skipped";
   return "archived";

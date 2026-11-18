@@ -45,6 +45,8 @@ export interface VaultFileEntry {
   name?: string;
   ref?: string;
   ownerPeerId?: string;
+  /** True only for content this user created; only these may spend a wallet coin. */
+  createdBySelf?: boolean;
   receivedAt: string;
 }
 
@@ -245,6 +247,7 @@ export interface EnrollVaultEntryInput {
   size: number;
   completedAt?: string;
   ownerPeerId?: string;
+  createdBySelf?: boolean;
 }
 
 /**
@@ -263,8 +266,16 @@ export async function enrollVaultEntry(
     // Already engraved somewhere → dedupe.
     const alreadyIndexed = await findVaultEntry(input.contentHash);
     if (alreadyIndexed) return "skipped";
-    // Already queued in this vault → dedupe.
-    if (vault.files.some((f) => f.contentHash === input.contentHash)) return "skipped";
+    // Already queued in this vault → dedupe, but backfill the creator flag
+    // on entries queued before it existed.
+    const queued = vault.files.find((f) => f.contentHash === input.contentHash);
+    if (queued) {
+      if (input.createdBySelf !== undefined && queued.createdBySelf !== input.createdBySelf) {
+        queued.createdBySelf = input.createdBySelf;
+        await saveVaultUnlocked(vault);
+      }
+      return "skipped";
+    }
 
     vault.files.push({
       contentHash: input.contentHash,
@@ -273,6 +284,7 @@ export async function enrollVaultEntry(
       name: input.name,
       ref: input.ref,
       ownerPeerId: input.ownerPeerId,
+      createdBySelf: input.createdBySelf,
       receivedAt: input.completedAt ?? new Date().toISOString(),
     });
     await saveVaultUnlocked(vault);
