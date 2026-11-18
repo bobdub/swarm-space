@@ -3689,6 +3689,12 @@ export class StandaloneSwarmMesh {
           this.torrentSwarmInstance.start();
           console.log('[SwarmMesh] 🌊 TorrentSwarm started — multi-peer content distribution active');
 
+          // Media coins ride the same mesh adapter: whole-coin hand-offs
+          // that loop peer to peer back to their creator.
+          import('@/lib/blockchain/mediaCoinRuntime')
+            .then(({ startMediaCoinRuntime }) => startMediaCoinRuntime(adapter))
+            .catch(err => console.warn('[SwarmMesh] Failed to start media coin runtime:', err));
+
           // Wire Gun relay for secondary content delivery
           this.attachGunRelayToTorrent();
 
@@ -3725,6 +3731,9 @@ export class StandaloneSwarmMesh {
     if (this.torrentSwarmInstance) {
       this.torrentSwarmInstance.stop();
       this.torrentSwarmInstance = null;
+      import('@/lib/blockchain/mediaCoinRuntime')
+        .then(({ stopMediaCoinRuntime }) => stopMediaCoinRuntime())
+        .catch(() => {});
       console.log('[SwarmMesh] 🌊 TorrentSwarm stopped');
     }
   }
