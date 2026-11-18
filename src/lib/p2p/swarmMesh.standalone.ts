@@ -4172,6 +4172,12 @@ export class StandaloneSwarmMesh {
   private async writeCommentToDB(commentData: Record<string, unknown>): Promise<void> {
     try {
       if (!commentData.id) return;
+      // Comments on deleted posts or by deleted accounts stay deleted.
+      const lc = await this.attachContentLifecycle();
+      if (lc && !(await lc.shouldAcceptIncomingComment(commentData))) {
+        if (this.contentStore.delete(String(commentData.id))) this.emitContentChange();
+        return;
+      }
       const db = await this.openDB();
       if (!db.objectStoreNames.contains('comments')) { db.close(); return; }
       const tx = db.transaction('comments', 'readwrite');

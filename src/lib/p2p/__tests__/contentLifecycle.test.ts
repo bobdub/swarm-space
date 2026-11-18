@@ -136,7 +136,7 @@ describe("receiving tombstones", () => {
     expect(h.table("chunks").has("k1")).toBe(false);
     expect(h.table("manifests").has("m-coin")).toBe(true);
     expect(h.table("chunks").has("k2")).toBe(true);
-    expect(purged).toEqual([["p1"]]);
+    expect(purged).toEqual([["p1", "c1"]]);
     expect(sent).toEqual([{ n: 1, exclude: "peer-charlie" }]);
 
     // Same tombstone again (gossip echo) is neither re-applied nor re-forwarded.
@@ -184,6 +184,28 @@ describe("receiving tombstones", () => {
   });
 });
 
+describe("comments", () => {
+  it("refuses comments on a post its author deleted, and from a deleted account", async () => {
+    await lc.receiveTombstones([await signPostTombstone(alice, "p1")]);
+    expect(await lc.shouldAcceptIncomingComment({ postId: "p1", author: eve.id })).toBe(false);
+    expect(await lc.shouldAcceptIncomingComment({ postId: "p2", author: eve.id })).toBe(true);
+
+    const account = await lc.signTombstone(
+      { type: "account_tombstone", authorId: eve.id, deletedAt: new Date().toISOString() },
+      eve.privateKey,
+      eve.publicKey,
+    );
+    await lc.receiveTombstones([account]);
+    expect(await lc.shouldAcceptIncomingComment({ postId: "p2", author: eve.id })).toBe(false);
+  });
+
+  it("ignores someone else's tombstone for a post id while the real post is held", async () => {
+    await seedPost(post("p1", alice.id));
+    await lc.receiveTombstones([await signPostTombstone(eve, "p1")]);
+    expect(await lc.shouldAcceptIncomingComment({ postId: "p1", author: me.id })).toBe(true);
+  });
+});
+
 describe("our own deletions", () => {
   it("signs, stores and broadcasts a post tombstone when the key is unlocked", async () => {
     const mine = post("m1", me.id, { _origin: "local" });
@@ -200,6 +222,16 @@ describe("our own deletions", () => {
     expect(outbound).toHaveLength(1);
     expect(await lc.verifyTombstone(outbound[0])).toBe(true);
     expect(lc.getActiveTombstones()).toEqual(outbound);
+  });
+
+  it("keeps our own uploads, which carry no owner field, when deleting our post", async () => {
+    const mine = post("m1", me.id, { manifestIds: ["upload-1"] });
+    await seedPost(mine);
+    h.table("manifests").set("upload-1", { fileId: "upload-1", chunks: ["k1"], createdAt: "" });
+    h.table("chunks").set("k1", { ref: "k1" });
+    await lc.tombstoneOwnPost(mine);
+    expect(h.table("manifests").has("upload-1")).toBe(true);
+    expect(h.table("chunks").has("k1")).toBe(true);
   });
 
   it("deletes locally while the key is locked and sends the tombstone once it unlocks", async () => {
@@ -248,6 +280,12 @@ describe("fadeout and favorites", () => {
     const result = await lc.sweepContentLifecycle(now);
     expect(result.faded).toEqual(["a1"]);
     expect([...h.table("posts").keys()].sort()).toEqual(["a2", "m1"]);
+  });
+
+  it("does not trust a transported _origin: 'local' flag to exempt another author's post", async () => {
+    await seedPost(post("a1", alice.id, { _origin: "local" }));
+    lc.noteAuthorSeen(alice.id, now - 16 * DAY);
+    expect((await lc.sweepContentLifecycle(now)).faded).toEqual(["a1"]);
   });
 
   it("keeps an old post alive while its author stays active (lastSeen, not createdAt)", async () => {

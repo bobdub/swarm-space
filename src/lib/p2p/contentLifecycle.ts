@@ -348,12 +348,15 @@ async function localAccountIds(): Promise<Set<string>> {
 
 /**
  * Remove posts, their comments, and attached files that nothing else uses.
- * Files anchored to a coin (`_coinId`) or owned by an account on this device
- * are kept, because a coin's media pointers and our own uploads must survive.
+ * Files attached to posts by an account on this device are never released
+ * (local uploads carry no `owner` field, so authorship is the reliable
+ * signal), nor are files anchored to a coin (`_coinId`) or owned locally.
+ * Returns the purged post and comment ids.
  */
 export async function purgePosts(posts: Post[]): Promise<string[]> {
   if (posts.length === 0) return [];
   const ids = new Set(posts.map((p) => p.id));
+  const purgedIds: string[] = [...ids];
 
   for (const post of posts) {
     await remove("posts", post.id).catch(() => undefined);
@@ -362,17 +365,22 @@ export async function purgePosts(posts: Post[]): Promise<string[]> {
   try {
     const comments = await getAll<Comment>("comments");
     for (const comment of comments) {
-      if (ids.has(comment.postId)) await remove("comments", comment.id).catch(() => undefined);
+      if (!ids.has(comment.postId)) continue;
+      await remove("comments", comment.id).catch(() => undefined);
+      purgedIds.push(comment.id);
     }
   } catch {
     /* comments store optional */
   }
 
+  const owners = await localAccountIds();
   const candidateManifests = new Set<string>();
-  for (const post of posts) for (const id of post.manifestIds ?? []) if (id) candidateManifests.add(id);
+  for (const post of posts) {
+    if (owners.has(post.author)) continue;
+    for (const id of post.manifestIds ?? []) if (id) candidateManifests.add(id);
+  }
   if (candidateManifests.size > 0) {
     try {
-      const owners = await localAccountIds();
       const remaining = (await getAll<Post>("posts")).filter((p) => !ids.has(p.id));
       for (const p of remaining) for (const id of p.manifestIds ?? []) candidateManifests.delete(id);
       const manifests = await getAll<Manifest & { _coinId?: string }>("manifests");
@@ -394,16 +402,15 @@ export async function purgePosts(posts: Post[]): Promise<string[]> {
     }
   }
 
-  const list = [...ids];
   for (const listener of purgeListeners) {
     try {
-      listener(list);
+      listener(purgedIds);
     } catch {
       /* listener errors never block a purge */
     }
   }
   notifyPostsChanged();
-  return list;
+  return [...ids];
 }
 
 async function applyRecord(record: TombstoneRecord): Promise<string[]> {
@@ -414,13 +421,25 @@ async function applyRecord(record: TombstoneRecord): Promise<string[]> {
   }
   const all = await getAll<Post>("posts");
   const purged = await purgePosts(all.filter((p) => p.author === record.authorId));
+  const commentIds: string[] = [];
   try {
     const comments = await getAll<Comment>("comments");
     for (const comment of comments) {
-      if (comment.author === record.authorId) await remove("comments", comment.id).catch(() => undefined);
+      if (comment.author !== record.authorId) continue;
+      await remove("comments", comment.id).catch(() => undefined);
+      commentIds.push(comment.id);
     }
   } catch {
     /* comments store optional */
+  }
+  if (commentIds.length > 0) {
+    for (const listener of purgeListeners) {
+      try {
+        listener(commentIds);
+      } catch {
+        /* listener errors never block a purge */
+      }
+    }
   }
   return purged;
 }
@@ -649,6 +668,25 @@ export async function shouldAcceptIncomingPost(post: { id?: string; author?: str
   return post.id ? isPostFavorited(post.id) : false;
 }
 
+/**
+ * Should an incoming comment be stored? No when its author's account is
+ * tombstoned, or its parent post was deleted by that post's author. A
+ * tombstone signed by someone else for the same post id is ignored while the
+ * real post is still held here.
+ */
+export async function shouldAcceptIncomingComment(comment: { postId?: unknown; author?: unknown }): Promise<boolean> {
+  await ensureLifecycleLoaded();
+  const author = typeof comment.author === "string" ? comment.author : undefined;
+  if (author && isPostTombstoned(undefined, author)) return false;
+  if (typeof comment.postId !== "string") return true;
+  const now = Date.now();
+  const matching = [...postTombstones.values()].filter((r) => r.postId === comment.postId && isLive(r, now));
+  if (matching.length === 0) return true;
+  const parent = await get<Post>("posts", comment.postId).catch(() => undefined);
+  if (!parent) return false;
+  return !matching.some((r) => r.authorId === parent.author);
+}
+
 export interface SweepResult {
   faded: string[];
   tombstoned: string[];
@@ -680,7 +718,8 @@ export async function sweepContentLifecycle(now = Date.now()): Promise<SweepResu
       tombstoned.push(post);
       continue;
     }
-    if (!post.author || owners.has(post.author) || post._origin === "local" || post._localOnly) continue;
+    // Ownership comes from this device's accounts, never the transported `_origin` flag.
+    if (!post.author || owners.has(post.author)) continue;
     if (favorites.has(post.id)) continue;
     if (!presence.has(post.author)) {
       noteAuthorSeen(post.author, now);
