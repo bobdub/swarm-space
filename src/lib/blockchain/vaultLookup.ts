@@ -3,7 +3,7 @@
  * Miss falls through cleanly; this module never touches transport.
  */
 import { findVaultEntry, bumpVaultCounter, getVault } from "./syncVault";
-import { getChunk } from "@/lib/store";
+import { get, getChunk } from "@/lib/store";
 import { isVaultsEnabled } from "./vaultConfig";
 
 export interface VaultHit {
@@ -28,11 +28,31 @@ export async function resolveFromVaults(
   if (coin?.failed) return null;
   if (coin?.role === "media" && !coin.sealed) return null;
   if (entry.awaitingSync) return null;
-  const bytes = entry.ref ? await getChunk(entry.ref) : null;
+  const bytes = await readEntryBytes(entry.ref ?? contentHash);
   if (!bytes) {
     await bumpVaultCounter(vault.peerId, "miss");
     return null;
   }
   await bumpVaultCounter(vault.peerId, "hit");
   return { peerId: vault.peerId, coinId: entry.coinId, bytes, mime: entry.mime };
+}
+/**
+ * Vault entries reference a file or torrent manifest id, not a chunk.
+ * Resolve through the manifest's chunk refs and decrypt; fall back to a
+ * direct chunk read for legacy single-chunk refs.
+ */
+async function readEntryBytes(ref: string): Promise<Uint8Array | null> {
+  try {
+    const { importFileKey, decryptAndReassembleFile } = await import("@/lib/fileEncryption");
+    type FileManifest = Parameters<typeof decryptAndReassembleFile>[0];
+    const manifest = await get<FileManifest>("manifests", ref);
+    if (manifest?.chunks?.length) {
+      const key = await importFileKey(manifest);
+      const blob = await decryptAndReassembleFile(manifest, key);
+      return new Uint8Array(await blob.arrayBuffer());
+    }
+  } catch {
+    // Missing chunks or no readable key: fall through to a direct read.
+  }
+  return getChunk(ref);
 }
