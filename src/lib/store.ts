@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 27;
+const DB_VERSION = 28;
 
 
 export interface Chunk {
@@ -397,6 +397,19 @@ export async function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("syncVaults")) {
         const vStore = db.createObjectStore("syncVaults", { keyPath: "peerId" });
         vStore.createIndex("updatedAt", "updatedAt", { unique: false });
+      }
+
+      // Content lifecycle (src/lib/p2p/contentLifecycle.ts): signed deletion
+      // tombstones, per-author last-seen for the 15-day fadeout, and this
+      // device's favorites. Non-destructive addition.
+      if (!db.objectStoreNames.contains("contentTombstones")) {
+        db.createObjectStore("contentTombstones", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("authorPresence")) {
+        db.createObjectStore("authorPresence", { keyPath: "authorId" });
+      }
+      if (!db.objectStoreNames.contains("postFavorites")) {
+        db.createObjectStore("postFavorites", { keyPath: "postId" });
       }
     };
     

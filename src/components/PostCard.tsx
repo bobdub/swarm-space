@@ -1,4 +1,5 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star } from "lucide-react";
+import { usePostFavorite } from "@/hooks/usePostFavorite";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
@@ -169,6 +170,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
+  const { favorited, busy: isFavoriteBusy, toggle: toggleFavorite } = usePostFavorite(post.id);
   const canView = canViewWalledPost(post, currentUser?.id);
   const isWalledHidden = Boolean(post.walled) && !canView && !post.walledCommunityUnlocked;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
@@ -737,9 +739,16 @@ export function PostCard({ post }: PostCardProps) {
 
     setIsDeleting(true);
     try {
-      await removePost(post.id);
+      const result = await removePost(post.id);
       toast({
         title: "Post deleted",
+        description: result?.signed
+          ? result.peersReached > 0
+            ? `Connected peers were told to remove it (${result.peersReached}).`
+            : "Peers will be told to remove it when you next connect."
+          : result
+            ? "Unlock your key and peers will be told to remove it."
+            : undefined,
       });
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
@@ -837,6 +846,8 @@ export function PostCard({ post }: PostCardProps) {
   };
 
   const canBlockUser = Boolean(currentUser) && !isAuthor;
+  // Favorites keep other authors' posts from fading here; our own never fade.
+  const canFavorite = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1069,7 +1080,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost || hasDownloadableMedia) && (
+              {(isAuthor || canBlockUser || canHidePost || canFavorite || hasDownloadableMedia) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1115,6 +1126,27 @@ export function PostCard({ post }: PostCardProps) {
                           {isDeleting ? "Deleting…" : "Delete Post"}
                         </DropdownMenuItem>
                       </>
+                    )}
+                    {canFavorite && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void toggleFavorite()
+                            .then((next) =>
+                              toast({
+                                title: next ? "Kept as a favorite" : "Removed from favorites",
+                                description: next
+                                  ? "This post stays on your device even if its author goes quiet."
+                                  : "It may fade out if its author is inactive for 15 days.",
+                              }),
+                            )
+                            .catch(() => toast({ title: "Couldn't update favorite", variant: "destructive" }));
+                        }}
+                        disabled={isFavoriteBusy}
+                      >
+                        <Star className={`mr-2 h-4 w-4 ${favorited ? "fill-current" : ""}`} />
+                        {favorited ? "Unfavorite" : "Favorite (keep)"}
+                      </DropdownMenuItem>
                     )}
                     {canHidePost && (
                       <DropdownMenuItem
