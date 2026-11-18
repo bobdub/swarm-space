@@ -26,9 +26,10 @@ import { getBrowserQScore, startBrowserHealth } from '@/lib/guardrails/browserHe
 
 import {
   EARTH_RADIUS,
-  SUN_POSITION,
+  GAME_HOUR_SECONDS,
   earthLocalToWorld,
   getEarthPose,
+  getSunDirection,
   quatRotate,
   type Vec3,
 } from '@/lib/brain/earth';
@@ -43,12 +44,32 @@ const MOISTURE_AXIS = 2;
 export const CLOUD_ALTITUDE_M = 120;
 const MAX_CLOUDS = 6;
 const TICK_MS = 1000;
+/**
+ * Game time elapsed per 1 Hz tick, in in-game hours (≈ 0.00194).
+ * Every pacing delta below is a rate *per in-game hour* multiplied by
+ * this, so the weather runs on the shared game clock (one in-game day =
+ * GAME_DAY_SECONDS) rather than on wall-clock seconds. See
+ * docs/project-plans/weather-celestial-time-plan.md.
+ */
+export const WEATHER_TICK_GAME_HOURS = TICK_MS / 1000 / GAME_HOUR_SECONDS;
+/** Charge gained per in-game hour per unit of condensation score (score capped at 1). */
+const CHARGE_PER_GAME_HOUR = 0.5;
+/** Charge a raining cloud loses per in-game hour (≈ 1 game hour of rain). */
+const RAIN_DRAIN_PER_GAME_HOUR = 1;
+/** Charge a cloud over a flattened well evaporates per in-game hour. */
+const EVAPORATE_PER_GAME_HOUR = 1.5;
+/** Lattice-gradient → arc-metres per in-game hour (ℓ_min bookkeeping only). */
+const DRIFT_PER_GAME_HOUR = 900;
 /** Deterministic sample directions over the sphere (Fibonacci lattice). */
 const SAMPLES = 96;
 /** Curvature penalty in the condensation score. */
 const W_CURVE = 0.6;
-/** Score a site must reach before the field supports a cloud. */
-const NUCLEATION_SCORE = 0.06;
+/**
+ * Score a site must reach before the field supports a cloud. Raised from
+ * 0.06: against the live stepped field sampled scores span ≈ 0.1–1.9, so
+ * only a well-defined moisture well now nucleates.
+ */
+export const NUCLEATION_SCORE = 0.6;
 /** Minimum angular separation between two clouds (rad). */
 const MIN_SEPARATION = 0.05;
 
@@ -165,11 +186,8 @@ export function tickWeather(): WeatherSnapshot {
   const physics = getBrainPhysics();
   const field = physics.getField();
 
-  const sx = SUN_POSITION[0] - pose.center[0];
-  const sy = SUN_POSITION[1] - pose.center[1];
-  const sz = SUN_POSITION[2] - pose.center[2];
-  const sLen = Math.hypot(sx, sy, sz) || 1;
-  const sun: Vec3 = [sx / sLen, sy / sLen, sz / sLen];
+  // Epoch-derived Sun direction — the same shared sky every peer sees.
+  const sun = getSunDirection(pose);
 
   // ── Evaporation: lit water writes moisture into u₂ ─────────────────
   const sites: SiteSample[] = [];
@@ -229,7 +247,8 @@ export function tickWeather(): WeatherSnapshot {
         // Well depth sets the size — a strong basin is a big storm.
         radius: 34 + Math.min(1.6, best.score) * 78,
         altitude: CLOUD_ALTITUDE_M,
-        charge: Math.min(0.9, best.score),
+        // A new cloud starts dry; it takes in-game hours to charge to rain.
+        charge: 0,
         raining: false,
         score: best.score,
       });
@@ -258,7 +277,7 @@ export function tickWeather(): WeatherSnapshot {
     const tanX = localGrad[0] - c.normal[0] * radial;
     const tanY = localGrad[1] - c.normal[1] * radial;
     const tanZ = localGrad[2] - c.normal[2] * radial;
-    const DRIFT = 900; // lattice-gradient → arc-metres, ℓ_min bookkeeping only
+    const DRIFT = DRIFT_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS;
     c.normal = normalise([
       c.normal[0] + (tanX * DRIFT) / EARTH_RADIUS,
       c.normal[1] + (tanY * DRIFT) / EARTH_RADIUS,
@@ -266,14 +285,21 @@ export function tickWeather(): WeatherSnapshot {
     ]);
 
     if (!c.raining) {
-      c.charge += Math.max(0, c.score);
+      // Saturates at score 1, so even the deepest well needs two in-game
+      // hours to charge to rain.
+      c.charge += Math.min(1, Math.max(0, c.score)) * CHARGE_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS;
       c.radius = 34 + Math.min(1.6, Math.max(0, c.score)) * 78;
       if (c.charge >= 1) c.raining = true;
       // A well that flattens out never becomes a storm — it evaporates.
       if (c.score <= 0 && c.charge <= 0.02) clouds.splice(i, 1);
-      else c.charge = Math.max(0, c.charge - (c.score <= 0 ? 0.12 : 0));
+      else {
+        c.charge = Math.max(
+          0,
+          c.charge - (c.score <= 0 ? EVAPORATE_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS : 0),
+        );
+      }
     } else {
-      c.charge -= 0.09;
+      c.charge -= RAIN_DRAIN_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS;
 
       // Back-reaction: the moisture leaves the air …
       physics.injectAt(world, -(0.06 + c.charge * 0.05), MOISTURE_AXIS);

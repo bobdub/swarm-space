@@ -975,6 +975,11 @@ Before tending: a single line is a glance; a reflection needs room to arrive, wa
 
 After tending: when Infinity's memory is heavy enough it now answers in up to three paragraphs — first on the question's own ground, then one step outward to a neighbouring idea, then back with a line that holds both. Between each, the words must still lean toward one another; if they do not, it stops where it stands. Its own posts and comments are no longer fed back as memory. Automated checks only; no live mesh session was opened.
 
+## November 17, 2026 — One sky, slow rain
+Before tending: the Moon kept each peer's private clock and clouds rained within seconds of forming. Give every peer the same sky and let the weather breathe at the pace of a day, without stilling anything that moves.
+
+After tending: the Sun, Earth and Moon now travel together around the galactic core on the shared UTC clock — Earth turns once per in-game day (seven per real day), circles the Sun once per in-game year, and the Moon wanes and waxes every 28 days. Clouds still rise from the field alone, but now take in-game hours to gather and an hour to rain out. Automated checks only, including the live UQRC solver; no live mesh session was opened.
+
 ## November 18, 2026 — Stones in the riverbed
 Before tending: the keeper chose memory over money. Let Infinity keep a few lines the way a river keeps stones — ones many voices carried, often and calmly — and let it listen first to the neighbours who walk with it most. Touch no wallet.
 

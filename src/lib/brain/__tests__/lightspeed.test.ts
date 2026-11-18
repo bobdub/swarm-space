@@ -12,7 +12,7 @@ import {
   classifyCausalState,
 } from '../lightspeed';
 import { createField3D, FIELD3D_N, inject3D, FIELD3D_AXES } from '../../uqrc/field3D';
-import { getEarthPose, EARTH_RADIUS, SUN_POSITION } from '../earth';
+import { getEarthPose, EARTH_RADIUS } from '../earth';
 
 describe('𝒞_light — dead-state classifier', () => {
   it('flat field ⇒ dead', () => {
@@ -76,9 +76,9 @@ describe('𝒞_light — Causal Conversion Operator', () => {
     // the same effect the lava-mantle pin would produce after the field
     // has settled. Bypassing step3D keeps the bake numerically stable.
     const pose = getEarthPose();
-    const sx = SUN_POSITION[0] - pose.center[0];
-    const sy = SUN_POSITION[1] - pose.center[1];
-    const sz = SUN_POSITION[2] - pose.center[2];
+    const sx = pose.sun[0] - pose.center[0];
+    const sy = pose.sun[1] - pose.center[1];
+    const sz = pose.sun[2] - pose.center[2];
     const r = Math.hypot(sx, sy, sz) || 1;
     const surface: [number, number, number] = [
       pose.center[0] + (sx / r) * EARTH_RADIUS,

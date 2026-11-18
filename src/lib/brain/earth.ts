@@ -65,10 +65,11 @@ export const EARTH_RADIUS = 8.0 * WORLD_SCALE;          // 1700 m
 export const EARTH_ATMOSPHERE = 2.4 * WORLD_SCALE;       // 510 m thick
 
 /**
- * Single source of truth for the Sun's world-space position. Both the
- * scene's <pointLight>, the Earth/Moon shader `uSunPos` uniforms, and
- * the daylight-biased spawn logic import this constant so they can never
- * disagree about which hemisphere is lit.
+ * The Sun's world-space position at the shared epoch (t = 0). The Sun is
+ * not static: it travels with the solar system along Earth's galactic
+ * orbit and Earth revolves around it once per in-game year. Live consumers
+ * read `pose.sun` (see getEarthPoseAt) so the scene light, shaders, spawn
+ * and weather can never disagree about which hemisphere is lit.
  */
 export const SUN_POSITION: [number, number, number] = [
   60 * WORLD_SCALE,
@@ -160,15 +161,37 @@ export const EARTH_PIN_AMPLITUDE = 2.4;
 /** Legacy export (used by galaxy.ts to scale its earth pin). */
 export const EARTH_PIN_TARGET = EARTH_PIN_AMPLITUDE;
 
+// ── Game time — the single source of truth ─────────────────────────────
+//
+// One game week per real day: 7 in-game days per 24 real hours, so one
+// in-game day lasts 86 400 / 7 ≈ 12 342.857 s (≈ 3.4286 h). Sky,
+// celestial orbits and weather pacing all scale from these constants.
+// See docs/project-plans/weather-celestial-time-plan.md.
+
+/** In-game days per real 24 hours. */
+export const GAME_DAYS_PER_REAL_DAY = 7;
+/** Length of one in-game (solar) day in real seconds: 12 342.857 s. */
+export const GAME_DAY_SECONDS = 86400 / GAME_DAYS_PER_REAL_DAY;
+/** One in-game hour in real seconds (≈ 514.3 s, about 8.6 real minutes). */
+export const GAME_HOUR_SECONDS = GAME_DAY_SECONDS / 24;
+/** In-game days per year: one revolution of Earth around the Sun. */
+export const GAME_YEAR_DAYS = 365;
+/** In-game days per lunar cycle (new moon → new moon). */
+export const LUNAR_CYCLE_DAYS = 28;
+/** Earth's revolution around the Sun (real seconds). */
+export const SOLAR_ORBIT_PERIOD = GAME_YEAR_DAYS * GAME_DAY_SECONDS;
+
 /**
- * Earth's rotational period (seconds, sim time).
+ * Earth's rotational (sidereal) period (seconds, sim time).
  *
- * At R=1700 m, a 60 s day makes the surface move at ~178 m/s, which reads as
- * "the planet spinning under me" in first-person even if the body is pinned.
- * Slow the day to 2 hours so the surface sweep is ~1.48 m/s — still subtly
- * alive, but no longer visually dragging the grounded player around.
+ * Earth orbits the Sun in the same sense it spins, so one turn relative to
+ * the stars is slightly shorter than one turn relative to the Sun — exactly
+ * as on the real Earth. Choosing 1/P_spin = 1/day + 1/year makes the
+ * *solar* day (sunrise → sunrise) exactly GAME_DAY_SECONDS: one sunrise and
+ * one sunset per in-game day, from Earth's rotation alone. At R=1700 m the
+ * surface sweeps at ≈ 0.87 m/s — subtly alive without dragging the player.
  */
-export const EARTH_SPIN_PERIOD = 7200;
+export const EARTH_SPIN_PERIOD = 1 / (1 / GAME_DAY_SECONDS + 1 / SOLAR_ORBIT_PERIOD);
 /** Earth's orbital radius around the galactic core (galaxy.ts core sits at 0,0,0). */
 export const EARTH_ORBIT_RADIUS = Math.hypot(EARTH_POSITION[0], EARTH_POSITION[2]);
 /**
@@ -179,6 +202,55 @@ export const EARTH_ORBIT_RADIUS = Math.hypot(EARTH_POSITION[0], EARTH_POSITION[2
 export const EARTH_ORBIT_PERIOD = 21600;
 /** Initial orbital phase derived from EARTH_POSITION so spawn==boot is continuous. */
 const EARTH_ORBIT_PHASE_0 = Math.atan2(EARTH_POSITION[2], EARTH_POSITION[0]);
+
+// ── The solar system — Sun, Earth and Moon move as one family ───────────
+//
+// Nothing in the sky is static. The whole system rides Earth's galactic
+// orbit (EARTH_ORBIT_PERIOD, unchanged); within it Earth revolves around
+// the Sun once per in-game year and the Moon revolves around Earth once per
+// lunar cycle. Every position derives from the shared UTC epoch clock
+// below, so every peer computes the identical sky.
+
+/** Sun offset from Earth's centre at the epoch (preserves the boot sky). */
+const SUN_OFFSET_0: Vec3 = [
+  SUN_POSITION[0] - EARTH_POSITION[0],
+  SUN_POSITION[1] - EARTH_POSITION[1],
+  SUN_POSITION[2] - EARTH_POSITION[2],
+];
+/** Moon radius (m). */
+export const MOON_RADIUS = EARTH_RADIUS * 0.27;
+/** Moon orbit radius around Earth's centre (m). */
+export const MOON_ORBIT_RADIUS = EARTH_RADIUS * 4.5;
+/** Moon orbit inclination: slight tilt so it doesn't eclipse every month. */
+const MOON_INCLINATION = Math.asin(0.18);
+/**
+ * Moon's sidereal period (seconds). The Sun's direction advances once per
+ * year in the same sense, so 1/P_moon = 1/lunar-cycle + 1/year keeps the
+ * *synodic* period (the phase cycle) at exactly LUNAR_CYCLE_DAYS.
+ */
+export const MOON_ORBIT_PERIOD =
+  1 / (1 / (LUNAR_CYCLE_DAYS * GAME_DAY_SECONDS) + 1 / SOLAR_ORBIT_PERIOD);
+
+/** Sun world position for an Earth centre at shared-epoch time `t`. */
+function sunPositionAt(center: Vec3, t: number): Vec3 {
+  // Earth's prograde revolution about the Sun ⇔ the Sun's direction, seen
+  // from Earth, turns about +Y once per year.
+  const off = quatRotate(quatY((t / SOLAR_ORBIT_PERIOD) * Math.PI * 2), SUN_OFFSET_0);
+  return [center[0] + off[0], center[1] + off[1], center[2] + off[2]];
+}
+
+/** Moon offset from Earth's centre (world axes) at shared-epoch time `t`. */
+export function getMoonOffsetAt(seconds: number): Vec3 {
+  const theta = (seconds / MOON_ORBIT_PERIOD) * Math.PI * 2;
+  const c = Math.cos(theta);
+  const s = Math.sin(theta);
+  // Prograde (same sense as quatY spin), tilted about the X axis.
+  return [
+    c * MOON_ORBIT_RADIUS,
+    s * Math.sin(MOON_INCLINATION) * MOON_ORBIT_RADIUS,
+    -s * Math.cos(MOON_INCLINATION) * MOON_ORBIT_RADIUS,
+  ];
+}
 
 /** djb2 string hash → uint32 deterministic. */
 function hash32(s: string): number {
@@ -257,6 +329,10 @@ export interface EarthPose {
   invSpinQuat: Quat;  // rotation world → Earth-local (conjugate)
   spinAngle: number;  // radians, for debug / shader sync
   orbitPhase: number;
+  /** Sun world position (moves with the solar system). */
+  sun: Vec3;
+  /** Moon world position (orbits Earth). */
+  moon: Vec3;
 }
 
 /**
@@ -332,7 +408,48 @@ export function getEarthPoseAt(seconds: number): EarthPose {
   ];
   const spinQuat = quatY(spinAngle);
   const invSpinQuat = quatConjugate(spinQuat);
-  return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase };
+  const sun = sunPositionAt(center, t);
+  const mo = getMoonOffsetAt(t);
+  const moon: Vec3 = [center[0] + mo[0], center[1] + mo[1], center[2] + mo[2]];
+  return { center, spinQuat, invSpinQuat, spinAngle, orbitPhase, sun, moon };
+}
+
+/** Unit vector from Earth's centre toward the Sun for a pose. */
+export function getSunDirection(pose: EarthPose = getEarthPose()): Vec3 {
+  return unitFrom(pose.center, pose.sun);
+}
+
+/** Unit vector from Earth's centre toward the Moon for a pose. */
+export function getMoonDirection(pose: EarthPose = getEarthPose()): Vec3 {
+  return unitFrom(pose.center, pose.moon);
+}
+
+/** Epoch-derived Sun direction at an explicit shared-epoch time. */
+export function getSunDirectionAt(seconds: number): Vec3 {
+  return getSunDirection(getEarthPoseAt(seconds));
+}
+
+/** Epoch-derived Moon direction at an explicit shared-epoch time. */
+export function getMoonDirectionAt(seconds: number): Vec3 {
+  return getMoonDirection(getEarthPoseAt(seconds));
+}
+
+/**
+ * Illuminated fraction of the Moon's disc seen from Earth (0 new … 1 full),
+ * read from the Sun–Earth–Moon geometry, not from a phase counter.
+ */
+export function getMoonIllumination(pose: EarthPose = getEarthPose()): number {
+  const s = getSunDirection(pose);
+  const m = getMoonDirection(pose);
+  return (1 - (s[0] * m[0] + s[1] * m[1] + s[2] * m[2])) / 2;
+}
+
+function unitFrom(from: Vec3, to: Vec3): Vec3 {
+  const x = to[0] - from[0];
+  const y = to[1] - from[1];
+  const z = to[2] - from[2];
+  const len = Math.hypot(x, y, z) || 1;
+  return [x / len, y / len, z / len];
 }
 
 /**
@@ -516,6 +633,8 @@ export function getEarthLocalSiteFrame(anchorId: string): {
     invSpinQuat: [0, 0, 0, 1],
     spinAngle: 0,
     orbitPhase: EARTH_ORBIT_PHASE_0,
+    sun: [...SUN_POSITION],
+    moon: [EARTH_POSITION[0] + MOON_ORBIT_RADIUS, EARTH_POSITION[1], EARTH_POSITION[2]],
   };
   const worldAtZero = spawnOnEarth(anchorId, zeroPose);
   const localPos: Vec3 = [
@@ -707,9 +826,10 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   // the same patch of soil — the soil rotates *with* the spawn instead
   // of sliding underneath it as Earth spins.
   const center: Vec3 = pose ? pose.center : EARTH_POSITION;
-  const sx0 = SUN_POSITION[0] - center[0];
-  const sy0 = SUN_POSITION[1] - center[1];
-  const sz0 = SUN_POSITION[2] - center[2];
+  const sunPos: Vec3 = pose ? pose.sun : SUN_POSITION;
+  const sx0 = sunPos[0] - center[0];
+  const sy0 = sunPos[1] - center[1];
+  const sz0 = sunPos[2] - center[2];
   const sLen = Math.hypot(sx0, sy0, sz0) || 1;
   const sun: Vec3 = [sx0 / sLen, sy0 / sLen, sz0 / sLen];
   // Build an orthonormal basis (sun, e1, e2) so we can parameterise the

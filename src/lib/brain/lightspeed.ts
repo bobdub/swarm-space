@@ -21,7 +21,7 @@
  * Never writes to the field. Never decides. Diagnostic only.
  */
 import { sample3D, FIELD3D_N, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
-import { EARTH_RADIUS, SUN_POSITION, getEarthPose, type EarthPose } from './earth';
+import { EARTH_RADIUS, getEarthPose, type EarthPose } from './earth';
 import { recordProbe, type BrainOrgan } from './probeLedger';
 
 // NOTE: constants are duplicated from uqrcPhysics.ts on purpose — importing
@@ -197,17 +197,17 @@ export function classifyCausalState(
 
 /** Sun → Earth surface (Sun-facing point) → Sun round-trip probe. */
 export function sunEarthRoundTrip(field: Field3D, pose: EarthPose = getEarthPose()): CausalProbe {
-  const sx = SUN_POSITION[0] - pose.center[0];
-  const sy = SUN_POSITION[1] - pose.center[1];
-  const sz = SUN_POSITION[2] - pose.center[2];
+  const sx = pose.sun[0] - pose.center[0];
+  const sy = pose.sun[1] - pose.center[1];
+  const sz = pose.sun[2] - pose.center[2];
   const r = Math.hypot(sx, sy, sz) || 1;
   const surface: [number, number, number] = [
     pose.center[0] + (sx / r) * EARTH_RADIUS,
     pose.center[1] + (sy / r) * EARTH_RADIUS,
     pose.center[2] + (sz / r) * EARTH_RADIUS,
   ];
-  const fwd = traceCausalRay(field, SUN_POSITION, surface, 96);
-  const back = traceCausalRay(field, surface, SUN_POSITION, 96);
+  const fwd = traceCausalRay(field, pose.sun, surface, 96);
+  const back = traceCausalRay(field, surface, pose.sun, 96);
   const rayLength = fwd.length + back.length;
   const flatDt = rayLength / C_LIGHT;
   const actualDt = fwd.actualDt + back.actualDt;
@@ -255,9 +255,9 @@ export function emitNeuralProbe(
   const pose = opts.pose ?? getEarthPose();
   // Surface entry point — Sun-facing for determinism so cross-peer
   // probes can be compared without coordinating positions.
-  const sx = SUN_POSITION[0] - pose.center[0];
-  const sy = SUN_POSITION[1] - pose.center[1];
-  const sz = SUN_POSITION[2] - pose.center[2];
+  const sx = pose.sun[0] - pose.center[0];
+  const sy = pose.sun[1] - pose.center[1];
+  const sz = pose.sun[2] - pose.center[2];
   const r = Math.hypot(sx, sy, sz) || 1;
   const surface: [number, number, number] = [
     pose.center[0] + (sx / r) * EARTH_RADIUS,

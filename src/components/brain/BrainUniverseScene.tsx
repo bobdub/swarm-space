@@ -58,6 +58,7 @@ import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
+import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
@@ -130,7 +131,6 @@ import {
   updateEarthPin,
   getAvatarMass,
   getSurfaceFrame,
-  SUN_POSITION,
   EYE_LIFT,
   getEarthSpawnTransform,
   BODY_SHELL_RADIUS,
@@ -146,10 +146,6 @@ import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { getVolcanoOrgan, sampleVolcanoElevation, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { worldPosToLocalNormal } from '@/lib/brain/earth';
 import { FOOT_CUSHION } from '@/lib/brain/earth';
-import { COSMO_COMPOUNDS } from '@/lib/brain/cosmoChemistry';
-// Sun light colour driven by the H/He plasma compound — shader, scene
-// light, and HUD all read from the same chemistry source.
-const SUN_LIGHT_COLOR = COSMO_COMPOUNDS.sun.color;
 import { RemoteAvatarBody } from '@/components/brain/RemoteAvatarBody';
 
 // Legacy SurfaceApartment was removed (non-wet-work artifact). The debug
@@ -2418,13 +2414,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {/* Real point-light "Sun" — placed off the galactic plane, casts on
             Earth and standard materials. No abstract sky dome, no painted
             sun: the planet is lit by an actual light source in the scene. */}
-        <pointLight
-          position={SUN_POSITION}
-          intensity={4500}
-          decay={2}
-          color={SUN_LIGHT_COLOR}
-          castShadow
-        />
+        <SunLight />
         {/* Soft hemisphere fill so the night side / underside isn't pitch black */}
         <hemisphereLight args={['hsl(210, 70%, 55%)', 'hsl(30, 30%, 25%)', 0.45]} />
         <ambientLight intensity={0.25} color="hsl(220, 40%, 60%)" />
