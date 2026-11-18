@@ -196,13 +196,18 @@ export class DualLearningFusion {
   readonly coreMemories = new CoreMemoryStore();
   private contentEventCount = 0;
   private lastFieldLogAt = 0;
+  /** Uniform [0, 1) source for the exploration and reflect rolls. Injected
+   * so callers (and tests) can make intent selection reproducible. */
+  private readonly random: () => number;
 
   constructor(
     patternLearner?: PatternLearner,
     languageLearner?: LanguageLearner,
+    random: () => number = Math.random,
   ) {
     this.patternLearner = patternLearner ?? new PatternLearner();
     this.languageLearner = languageLearner ?? new LanguageLearner();
+    this.random = random;
   }
 
   /**
@@ -339,8 +344,8 @@ export class DualLearningFusion {
       ? context.creativityActive
       : (context.creativityActive ? 1 : 0);
     // Low creativity biases toward reflect, but never refuses to generate.
-    if (creativity < 0.2 && Math.random() > creativity * 2) return 'reflect';
-    if (context.explorationForced || Math.random() < this.getExplorationRate()) return 'explore';
+    if (creativity < 0.2 && this.random() > creativity * 2) return 'reflect';
+    if (context.explorationForced || this.random() < this.getExplorationRate()) return 'explore';
     if (context.currentEnergy > 0.7) return 'create';
     if (context.currentEnergy > 0.4) return 'engage';
     return 'reflect';
@@ -457,7 +462,7 @@ export class DualLearningFusion {
     if (!this.isGenerationReady()) return null;
 
     const explorationRate = this.getExplorationRate();
-    const isExploration = context.explorationForced || Math.random() < explorationRate;
+    const isExploration = context.explorationForced || this.random() < explorationRate;
     const intent = this.selectIntent({
       ...context,
       explorationForced: isExploration,
