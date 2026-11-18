@@ -338,6 +338,8 @@ export class MediaCoinEngine {
   private sending = new Set<string>();
   /** Hand-offs already unpacked here (coinId + route), so a resend is ignored. */
   private passedRoutes = new Set<string>();
+  /** Hand-offs replaced by a newer one from the same peer; never revived. */
+  private supersededPasses = new Set<string>();
   private unpackListeners = new Set<(u: MediaCoinUnpacked) => void | Promise<void>>();
   private loopListeners = new Set<(l: MediaCoinLoopComplete) => void>();
 
@@ -1169,8 +1171,23 @@ export class MediaCoinEngine {
   }
 
   private passEntry(passId: string, coinId: string, from: string) {
+    // A superseded hand-off stays dead, even if a handler for it resumes late.
+    if (this.supersededPasses.has(passId)) return null;
     let entry = this.incoming.get(passId);
     if (!entry) {
+      // A new hand-off of the same coin from the same peer supersedes any
+      // earlier, incomplete one (a retry after a failed send).
+      for (const [id, other] of this.incoming) {
+        if (other.coinId === coinId && other.from === from) {
+          this.incoming.delete(id);
+          this.supersededPasses.add(id);
+        }
+      }
+      while (this.supersededPasses.size > SEEN_CAP) {
+        const first = this.supersededPasses.values().next().value;
+        if (!first) break;
+        this.supersededPasses.delete(first);
+      }
       entry = { coinId, from, pieces: new Map() };
       this.incoming.set(passId, entry);
     }
@@ -1185,6 +1202,7 @@ export class MediaCoinEngine {
     if (manifest.chunkHashes.length !== manifest.totalChunks) return;
     if ((await buildMerkleRoot(manifest.chunkHashes)) !== manifest.merkleRoot) return;
     const entry = this.passEntry(passId, msg.coinId, peerId);
+    if (!entry) return;
     entry.manifest = manifest;
     entry.route = route;
     await this.tryCompletePass(passId);
@@ -1194,6 +1212,7 @@ export class MediaCoinEngine {
     const { passId, chunk } = (msg.payload ?? {}) as { passId?: string; chunk?: MediaChunk };
     if (!passId || !chunk || chunk.index == null) return;
     const entry = this.passEntry(passId, msg.coinId, peerId);
+    if (!entry) return;
     entry.pieces.set(chunk.index, chunk);
     await this.tryCompletePass(passId);
   }

@@ -72,4 +72,26 @@ describe("mediaCoinRuntime", () => {
     spy.mockRestore();
     stopMediaCoinRuntime();
   });
+
+  it("keeps queued launches that fail and the ones behind them", async () => {
+    localStorage.setItem("media-coin-pending-launches", JSON.stringify([
+      { walletCoinId: "bad", file: { contentHash: "x", ref: "x" } },
+      { walletCoinId: "good", file: { contentHash: "file-b", ref: "file-b" } },
+    ]));
+    s("manifests").set("file-b", { fileId: "file-b", chunks: ["c"] });
+    s("manifests").set("x", { fileId: "x", chunks: ["c"] });
+    const real = MediaCoinEngine.prototype.mint;
+    const spy = vi.spyOn(MediaCoinEngine.prototype, "mint").mockImplementation(function (this: MediaCoinEngine, file, creator, opts) {
+      if (opts?.coinId === "bad") return Promise.reject(new Error("boom"));
+      return real.call(this, file, creator, opts);
+    });
+    const sent: Array<{ type: string; coinId: string }> = [];
+    startMediaCoinRuntime(transport(sent as unknown[]));
+    await vi.waitFor(() => expect(sent.some((m) => m.type === "coin-pass" && m.coinId === "good")).toBe(true));
+    await vi.waitFor(() => expect(JSON.parse(localStorage.getItem("media-coin-pending-launches") ?? "[]")).toEqual([
+      { walletCoinId: "bad", file: { contentHash: "x", ref: "x" } },
+    ]));
+    spy.mockRestore();
+    stopMediaCoinRuntime();
+  });
 });
