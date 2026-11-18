@@ -26,6 +26,7 @@ import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.sta
 import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone-archived";
 import { loadConnectionState } from "@/lib/p2p/connectionState";
 import { peerConnectUrl } from "@/lib/p2p/brainInvite";
+import { reachabilityStage, reachabilityWindowMs } from "@/lib/p2p/reachabilityWindow";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -305,27 +306,41 @@ export function P2PStatusIndicator() {
 
     const normalized = trimmed.startsWith('peer-') ? trimmed : `peer-${trimmed}`;
     const mode = loadConnectionState().mode;
-    const deadline = Date.now() + (mode === 'builder' ? 12_000 : 8_000);
+    const startedAt = Date.now();
+    const windowMs = reachabilityWindowMs(mode);
     const isUserCell = mode === 'builder';
+    // One toast slot per peer: "negotiating" is replaced by the final result.
+    const toastId = `reach-${normalized}`;
+    let negotiatingShown = false;
 
     const check = () => {
       const active = getActivePeerConnections().map((connection) => connection.peerId);
       const reached = active.some((peerId) => peerId === trimmed || peerId === normalized);
 
       if (reached) {
-        toast.success(`Connected to ${label}`);
+        toast.success(`Connected to ${label}`, { id: toastId });
         onDone?.();
         return;
       }
 
-      if (Date.now() >= deadline) {
+      const stage = reachabilityStage(Date.now() - startedAt, windowMs);
+      if (stage === 'expired') {
         toast.warning(`${label} not reached yet`, {
+          id: toastId,
           description: isUserCell
             ? 'Peer did not respond. Make sure both nodes are in the same User Cell and try again.'
             : 'Peer did not respond. They may be offline — retry or open the Node Dashboard.',
         });
         onDone?.();
         return;
+      }
+
+      if (stage === 'negotiating' && !negotiatingShown) {
+        negotiatingShown = true;
+        toast.loading(`Negotiating WebRTC handshake with ${label}…`, {
+          id: toastId,
+          description: 'NAT traversal can take up to 20 seconds on mobile networks.',
+        });
       }
 
       window.setTimeout(check, 900);

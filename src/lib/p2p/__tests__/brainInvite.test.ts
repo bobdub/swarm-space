@@ -82,16 +82,53 @@ describe('Brain invite rules', () => {
       vi.useRealTimers();
     }
   });
-  it('allows an explicit retry but not repeated automatic dials', async () => {
-    const { dialBrainInviteFirst, retryBrainInvite, getBrainInviteState } = await import('../brainInvite');
-    const dial = vi.fn(() => false);
-    const options = { pathname: '/brain/join', hash: '#peer-host', selfId: 'peer-self', isBlocked: () => false, dial };
-    dialBrainInviteFirst(options);
-    expect(getBrainInviteState().phase).toBe('unavailable');
-    dialBrainInviteFirst(options);
+  it('keeps a refused dial buffered while the node warms up, then allows an explicit retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const { dialBrainInviteFirst, retryBrainInvite, getBrainInviteState, REFUSED_GRACE_MS } = await import('../brainInvite');
+      retryBrainInvite();
+      const dial = vi.fn(() => false);
+      const options = { pathname: '/brain/join', hash: '#peer-host', selfId: 'peer-self', isBlocked: () => false, dial };
+      dialBrainInviteFirst(options);
+      // Still starting: the next readiness tick asks again instead of giving up.
+      expect(getBrainInviteState().phase).toBe('starting');
+      vi.advanceTimersByTime(1_000);
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(2);
+      // A sustained refusal becomes "unavailable" and stops automatic dials.
+      vi.advanceTimersByTime(REFUSED_GRACE_MS);
+      dialBrainInviteFirst(options);
+      expect(getBrainInviteState().phase).toBe('unavailable');
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(3);
+      retryBrainInvite();
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('finds invites inside hash-routed and query-string links', async () => {
+    const { parseBrainInvite, resolveInviteLocation, canonicalInviteHref } = await import('../brainInvite');
+    expect(parseBrainInvite('/', '#/connect#peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/', '#/connect/#peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/', '#/brain/join#peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/', '#/connect?peer=peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/connect', '', '?peer=peer-host')).toBe('peer-host');
+    expect(parseBrainInvite('/', '#/explore#peer-host')).toBeNull();
+    expect(parseBrainInvite('/', '#peer-host')).toBeNull();
+    expect(resolveInviteLocation('/', '#/connect#bad id')).toEqual({ path: '/connect', peerId: null });
+    expect(canonicalInviteHref('/', '#/connect#peer-host')).toBe('/connect#peer-host');
+    expect(canonicalInviteHref('/connect', '', '?peer=peer-host&ref=x')).toBe('/connect?ref=x#peer-host');
+    expect(canonicalInviteHref('/connect', '#peer-host')).toBeNull();
+    expect(canonicalInviteHref('/explore', '')).toBeNull();
+  });
+  it('dials a hash-routed invite', async () => {
+    const { dialBrainInviteFirst, retryBrainInvite } = await import('../brainInvite');
     retryBrainInvite();
-    dialBrainInviteFirst(options);
-    expect(dial).toHaveBeenCalledTimes(2);
+    const dial = vi.fn(() => true);
+    expect(dialBrainInviteFirst({ pathname: '/', hash: '#/connect#peer-wrapped', selfId: 'peer-self', isBlocked: () => false, dial })).toBe(true);
+    expect(dial).toHaveBeenCalledWith('peer-wrapped');
   });
   it('makes a plain /connect#peerID link that dials without the Brain', async () => {
     const { peerConnectUrl, parseBrainInvite, isInvitePath, dialBrainInviteFirst, retryBrainInvite } = await import('../brainInvite');

@@ -2,6 +2,16 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { getLoadingPriority } from "./lib/settings/loadingPriority";
+import { canonicalInviteHref } from "./lib/p2p/brainInvite";
+
+// Invite links wrapped by hash routers or share services (`/#/connect#peer-…`,
+// `/connect?peer=peer-…`) are rewritten to the canonical `/connect#peer-…`
+// before the router mounts, so routing, guest entry and the startup dial agree.
+try {
+  const canonical = canonicalInviteHref(window.location.pathname, window.location.hash, window.location.search);
+  if (canonical) window.history.replaceState(window.history.state, "", canonical);
+} catch { /* leave the URL as opened */ }
+
 // Render immediately — defer all background services to idle time
 createRoot(document.getElementById("root")!).render(<App />);
 
