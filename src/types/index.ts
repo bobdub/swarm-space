@@ -40,13 +40,15 @@ export interface Reaction {
 export interface Notification {
   id: string;
   userId: string;
-  type: "reaction" | "comment" | "mention" | "follow" | "entanglement";
+  type: "reaction" | "comment" | "mention" | "follow" | "entanglement" | "recovery_ready";
   triggeredBy: string;
   triggeredByName: string;
   postId?: string;
   commentId?: string;
   content?: string;
   emoji?: string;
+  /** In-app route for system notices (e.g. recovery_ready → /settings#security). */
+  link?: string;
   read: boolean;
   createdAt: string;
 }
