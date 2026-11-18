@@ -51,26 +51,8 @@ scheduleIdle(() => {
 // ── Recovery vault custody — hold verified, signed outer-shell envelopes
 // for peers and push our own vault to each newly connected peer.
 scheduleIdle(() => {
-  Promise.all([
-    import('./lib/backup/vaultCustody'),
-    import('./lib/p2p/swarmMesh.standalone'),
-    import('./lib/auth'),
-    import('./lib/preview/guestAccess'),
-  ])
-    .then(([custody, meshMod, auth, guest]) => {
-      const mesh = meshMod.getSwarmMeshStandalone();
-      custody.startVaultCustody({
-        transport: mesh,
-        getActiveUserId: () => {
-          const me = auth.getCurrentUser();
-          return me && !guest.isGuestUser(me) ? me.id : null;
-        },
-        getPeerName: (peerId) => {
-          const entry = mesh.getLibrary().find((p) => p.peerId === peerId);
-          return entry?.displayName || entry?.username || undefined;
-        },
-      });
-    })
+  import('./lib/backup/vaultCustodyMesh')
+    .then((m) => m.attachVaultCustodyToMesh())
     .catch((err) => console.warn('[main] vault custody failed', err));
 });
 

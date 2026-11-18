@@ -642,3 +642,40 @@ export async function importAccountBackup(backupJson: string): Promise<UserMeta>
   
   return userMeta;
 }
+
+/**
+ * Rehydrate an identity opened from the sovereign recovery vault.
+ * The raw key is re-wrapped under a NEW local password for this device;
+ * the outer-shell passphrase is never stored.
+ */
+export async function restoreAccountFromVault(
+  vaultPayload: { userId: string; privateKey: string; user: Omit<UserMeta, "wrappedKeyRef"> & { wrappedKeyRef?: string } },
+  newLocalPassword: string,
+): Promise<UserMeta> {
+  const password = newLocalPassword.trim();
+  if (password.length < 8) throw new Error("Choose a local password of at least 8 characters.");
+  const userId = await computeUserId(vaultPayload.user.publicKey);
+  if (userId !== vaultPayload.userId || userId !== vaultPayload.user.id) {
+    throw new Error("The recovered identity does not match its public key.");
+  }
+
+  const wrappedKeyRef = `meta:wrappedKey:${userId}`;
+  const existing = await get<UserMeta>("users", userId).catch(() => undefined);
+  const userMeta: UserMeta = {
+    ...(existing ?? {}),
+    id: userId,
+    username: vaultPayload.user.username,
+    displayName: vaultPayload.user.displayName ?? existing?.displayName,
+    publicKey: vaultPayload.user.publicKey,
+    wrappedKeyRef,
+    createdAt: vaultPayload.user.createdAt,
+    ...(vaultPayload.user.profile || existing?.profile ? { profile: { ...(existing?.profile ?? {}), ...(vaultPayload.user.profile ?? {}) } } : {}),
+  };
+
+  await put("meta", { k: wrappedKeyRef, v: await wrapPrivateKey(vaultPayload.privateKey, password) });
+  await put("users", userMeta);
+  await activateSession(userMeta, { announce: false });
+  await cacheUnlockedPrivateKey(vaultPayload.privateKey, userId);
+  window.dispatchEvent(new Event("user-login"));
+  return userMeta;
+}
