@@ -1,5 +1,6 @@
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
+import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -230,14 +231,7 @@ export interface AssetSyncStats {
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
 
-interface SwarmSignalingEndpoint {
-  id: string;
-  label: string;
-  host: string;
-  port: number;
-  secure: boolean;
-  path: string;
-}
+type SwarmSignalingEndpoint = SignalingEndpoint;
 
 type PhaseHandler = (phase: SwarmPhase) => void;
 type PeerHandler = (peers: SwarmPeer[]) => void;
@@ -354,16 +348,14 @@ const DEFAULT_ICE: RTCIceServer[] = [
   },
 ];
 
-const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = [
-  {
-    id: 'peerjs-cloud',
-    label: 'PeerJS Cloud',
-    host: '0.peerjs.com',
-    port: 443,
-    secure: true,
-    path: '/',
-  },
-];
+// Ordered failover list: configured servers (VITE_PEERJS_*) first, PeerJS
+// Cloud last. See signalingEndpoints.ts for why every node walks one order.
+const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = resolveSignalingEndpoints(
+  (import.meta.env ?? {}) as Record<string, string | boolean | undefined>,
+);
+
+/** How long a manual dial requested mid-connect waits for the mesh to come online. */
+const QUEUED_DIAL_TTL_MS = 60_000;
 
 const DEFAULT_TOGGLES: SwarmToggles = {
   autoConnect: true,
@@ -394,6 +386,9 @@ export class StandaloneSwarmMesh {
   // ── Reconnect ─────────────────────────────────────────────────────
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private signalingRotation = new SignalingEndpointRotation(DEFAULT_SIGNALING_ENDPOINTS);
+  /** Manual dials requested while signaling was still connecting (peerId → requestedAt). */
+  private queuedManualDials = new Map<string, number>();
 
   // ── Content Store ─────────────────────────────────────────────────
   private contentStore = new Map<string, ContentItem>();
@@ -1697,6 +1692,7 @@ export class StandaloneSwarmMesh {
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
     this.pendingDials.clear();
+    this.queuedManualDials.clear();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
     }
@@ -1755,9 +1751,9 @@ export class StandaloneSwarmMesh {
 
     try {
       const Peer = (await import('peerjs')).default;
-      const endpoint = DEFAULT_SIGNALING_ENDPOINTS[0];
+      const endpoint = this.signalingRotation.current();
 
-      console.log(`[SwarmMesh] 🔌 Creating PeerJS instance with ID: ${this.peerId}`);
+      console.log(`[SwarmMesh] 🔌 Creating PeerJS instance with ID: ${this.peerId} via ${endpoint.label}`);
 
       const peer = new Peer(this.peerId, {
         debug: 1,
@@ -1771,7 +1767,11 @@ export class StandaloneSwarmMesh {
       const initResult = await this.waitForOpen(peer);
 
       if (!initResult.success) {
-        console.warn(`[SwarmMesh] ❌ PeerJS init failed: ${initResult.error}`);
+        console.warn(`[SwarmMesh] ❌ PeerJS init failed on ${endpoint.label}: ${initResult.error}`);
+        // An ID still held by the same server is not the server's fault.
+        if (!initResult.idTaken && this.signalingRotation.reportFailure()) {
+          console.warn(`[SwarmMesh] 🔀 Signaling failover → ${this.signalingRotation.current().label}`);
+        }
         this.destroyPeerInstance(peer);
         this.initInProgress = false;
         this.scheduleReconnect();
@@ -1780,6 +1780,7 @@ export class StandaloneSwarmMesh {
 
       this.peer = peer;
       this.initInProgress = false;
+      this.signalingRotation.reportSuccess();
 
       this.setupPeerHandlers(peer);
       this.startIntervals();
@@ -1796,6 +1797,7 @@ export class StandaloneSwarmMesh {
         selfId: this.peerId, isBlocked: id => this.blockedPeers.has(id), dial: id => this.connectToPeer(id) });
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
+      this.flushQueuedManualDials();
 
       // Pre-load local public projects into the content store so they ride
       // the standard inventory-exchange handshake on every new peer connect.
@@ -1867,7 +1869,7 @@ export class StandaloneSwarmMesh {
     }
   }
 
-  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string }> {
+  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string; idTaken?: boolean }> {
     return new Promise(resolve => {
       let settled = false;
 
@@ -1894,7 +1896,7 @@ export class StandaloneSwarmMesh {
         const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
 
         if (idTaken) {
-          resolve({ success: false, error: `ID "${this.peerId}" still held by server — will retry` });
+          resolve({ success: false, idTaken: true, error: `ID "${this.peerId}" still held by server — will retry` });
         } else {
           resolve({ success: false, error: msg });
         }
@@ -2249,12 +2251,20 @@ export class StandaloneSwarmMesh {
       remotePeerId = `peer-${remotePeerId}`;
     }
 
+    if (remotePeerId === this.peerId) return false;
+
     if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
+      // Signaling is still opening (or re-opening): hold the dial and send it
+      // the moment the node is online instead of rejecting the user's intent.
+      const warmingUp = this.flags.enabled && (this.phase === 'connecting' || this.phase === 'reconnecting' || this.initInProgress);
+      if (warmingUp && !this.blockedPeers.has(remotePeerId)) {
+        this.queuedManualDials.set(remotePeerId, now());
+        this.emitAlert(`Mesh still connecting — will dial ${remotePeerId.slice(0, 16)}… when online`, 'info');
+        return true;
+      }
       this.emitAlert('Start Swarm Mesh first', 'warn');
       return false;
     }
-
-    if (remotePeerId === this.peerId) return false;
 
     if (this.blockedPeers.has(remotePeerId)) {
       this.emitAlert('That peer is blocked', 'warn');
@@ -2283,6 +2293,19 @@ export class StandaloneSwarmMesh {
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
     return true;
+  }
+
+  /** Send manual dials that were requested while signaling was still connecting. */
+  private flushQueuedManualDials(): void {
+    if (this.queuedManualDials.size === 0) return;
+    const queued = [...this.queuedManualDials.entries()];
+    this.queuedManualDials.clear();
+    const cutoff = now() - QUEUED_DIAL_TTL_MS;
+    for (const [peerId, requestedAt] of queued) {
+      if (requestedAt < cutoff || this.connections.has(peerId)) continue;
+      console.log(`[SwarmMesh] ▶️ Sending queued manual dial to ${peerId}`);
+      this.connectToPeer(peerId);
+    }
   }
 
   /**

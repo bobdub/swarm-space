@@ -227,11 +227,33 @@ class GlobalCell {
   private knockListeners = new Set<(callerPeerId: string) => void>();
   private seenKnocks = new Map<string, number>();
 
-  /** Ask a target peer to dial us back so both sides punch simultaneously. */
+  /** Knocks requested before Gun relays were ready (targetPeerId → requestedAt). */
+  private pendingKnocks = new Map<string, number>();
+
+  /**
+   * Ask a target peer to dial us back so both sides punch simultaneously.
+   * Invite links and early manual dials fire while Gun is still starting;
+   * those knocks are held (within the knock TTL) and sent once relays are up.
+   */
   sendInviteKnock(targetPeerId: string): boolean {
-    if (!this.localPeerId || !targetPeerId || targetPeerId === this.localPeerId || !this.gunAdapter) return false;
+    if (!targetPeerId || !targetPeerId.startsWith('peer-')) return false;
+    if (!this.localPeerId) this.localPeerId = getSwarmMeshStandalone().getPeerId();
+    if (targetPeerId === this.localPeerId) return false;
+    if (!this.localPeerId || !this.gunAdapter) {
+      this.pendingKnocks.set(targetPeerId, Date.now());
+      return false;
+    }
     const knock = { id: `${this.localPeerId}:${targetPeerId}:${Date.now()}`, from: this.localPeerId, to: targetPeerId, at: Date.now() };
     try { this.gunAdapter.broadcastToAll('invite-knock', knock); return true; } catch { return false; }
+  }
+
+  private flushPendingKnocks(): void {
+    const pending = [...this.pendingKnocks.entries()];
+    this.pendingKnocks.clear();
+    const nowTs = Date.now();
+    for (const [target, requestedAt] of pending) {
+      if (nowTs - requestedAt <= INVITE_KNOCK_TTL_MS) this.sendInviteKnock(target);
+    }
   }
 
   onInviteKnock(fn: (callerPeerId: string) => void): () => void {
@@ -499,6 +521,7 @@ class GlobalCell {
       });
 
       this.gunAdapter.onMessage('invite-knock', (_from: string, payload: unknown) => this.handleInviteKnock(payload));
+      this.flushPendingKnocks();
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
       this.announcePresence();
