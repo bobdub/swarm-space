@@ -1,9 +1,13 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router-dom";
-import { Compass, Loader2, MessageCircle, UserRound, Wifi, WifiOff } from "lucide-react";
+import { Check, Compass, Loader2, MessageCircle, UserRound, Wifi, WifiOff } from "lucide-react";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth";
+import { isGuestUser, setGuestName } from "@/lib/preview/guestMode";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { BRAIN_JOIN_PATH, getBrainInviteState, retryBrainInvite, subscribeBrainInvite } from "@/lib/p2p/brainInvite";
 
@@ -34,6 +38,61 @@ function useInviterProfile(peerId: string | null, connected: boolean): InviterPr
     return () => window.clearInterval(timer);
   }, [connected, inviter.username]);
   return inviter;
+}
+
+/** Lets a guest pick the name peers see, before heading anywhere else. */
+function GuestNameField() {
+  const { user } = useAuth();
+  const current = isGuestUser(user) ? user.guestName?.trim() ?? "" : "";
+  const [name, setName] = useState(current);
+  const [saved, setSaved] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setName(current); }, [current]);
+  if (!user || !isGuestUser(user)) return null;
+  const trimmed = name.trim();
+  const unchanged = trimmed.replace(/\s+/g, " ") === current;
+  const save = () => {
+    const ok = setGuestName(user.id, name);
+    setSaved(ok);
+    setFailed(!ok);
+  };
+  return (
+    <form
+      className="space-y-2"
+      onSubmit={event => {
+        event.preventDefault();
+        if (trimmed && !unchanged) save();
+      }}
+    >
+      <Label htmlFor="peer-connect-guest-name">Your display name</Label>
+      <div className="flex gap-2">
+        <Input
+          id="peer-connect-guest-name"
+          value={name}
+          maxLength={32}
+          autoComplete="off"
+          placeholder="How others will see you"
+          onChange={event => {
+            setName(event.target.value);
+            setSaved(false);
+            setFailed(false);
+          }}
+        />
+        <Button type="submit" variant="outline" disabled={!trimmed || unchanged}>
+          Save
+        </Button>
+      </div>
+      {saved && unchanged ? (
+        <p role="status" className="flex items-center gap-1 text-xs text-green-600">
+          <Check className="h-3 w-3" /> Saved. Your connections will see you as {current}.
+        </p>
+      ) : failed ? (
+        <p role="alert" className="text-xs text-destructive">Could not save your name. Please try again.</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">You're a guest. Pick a name so your connections know who joined.</p>
+      )}
+    </form>
+  );
 }
 
 /**
@@ -84,6 +143,7 @@ export default function PeerConnect() {
               {state.peerId}
             </code>
           )}
+          {connected && <GuestNameField />}
           {connected && (
             <nav aria-label="Next steps" className="space-y-2">
               <p className="text-sm font-medium">You're in! Where to next?</p>

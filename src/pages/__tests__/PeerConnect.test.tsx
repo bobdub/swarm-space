@@ -7,6 +7,13 @@ const mesh = vi.hoisted(() => ({
   active: [] as Array<{ peerId: string; profile?: { username?: string; displayName?: string } }>,
 }));
 
+const auth = vi.hoisted(() => ({ user: null as Record<string, unknown> | null }));
+const guest = vi.hoisted(() => ({ setGuestName: vi.fn(() => true) }));
+vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: auth.user, isLoading: false }) }));
+vi.mock('@/lib/preview/guestMode', () => ({
+  isGuestUser: (user: { _guest?: boolean } | null) => user?._guest === true,
+  setGuestName: guest.setGuestName,
+}));
 vi.mock('@/components/TopNavigationBar', () => ({ TopNavigationBar: () => null }));
 vi.mock('@/lib/p2p/brainInvite', () => ({
   BRAIN_JOIN_PATH: '/brain/join',
@@ -39,6 +46,8 @@ function renderPage() {
 afterEach(() => {
   cleanup();
   mesh.active = [];
+  auth.user = null;
+  guest.setGuestName.mockClear();
   invite.state = { peerId: 'peer-host', phase: 'connected', startedAt: 0, connectedAt: 1 };
 });
 
@@ -72,5 +81,22 @@ describe('PeerConnect next steps', () => {
     invite.state = { peerId: 'peer-host', phase: 'connecting', startedAt: 0, connectedAt: null };
     renderPage();
     expect(screen.queryByRole('button', { name: /start exploring/i })).toBeNull();
+  });
+
+  it('lets a guest set their display name', () => {
+    auth.user = { id: 'guest-1', _guest: true, guestName: '' };
+    renderPage();
+    const input = screen.getByLabelText(/your display name/i);
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save).toHaveProperty('disabled', true);
+    fireEvent.change(input, { target: { value: '  Sam  ' } });
+    fireEvent.click(save);
+    expect(guest.setGuestName).toHaveBeenCalledWith('guest-1', '  Sam  ');
+  });
+
+  it('shows no name field for signed-in members', () => {
+    auth.user = { id: 'member-1', username: 'ada' };
+    renderPage();
+    expect(screen.queryByLabelText(/your display name/i)).toBeNull();
   });
 });
