@@ -2,7 +2,7 @@
  * WorldDropsLayer — loose pieces on the ground after something is felled.
  *
  * A drop bobs on the surface until the player walks within reach, then it
- * flies to them and folds into the element bag via `recordHarvestForResource`
+ * flies to them and folds into the element bag via `collectDrop`
  * — which is exactly what the plain-words material totals read from, so
  * the Wood counter ticks up without a second source of truth.
  */
@@ -17,11 +17,10 @@ import {
 } from '@/lib/brain/earth';
 import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import {
   claimDrop,
+  collectDrop,
   listDrops,
-  removeDrop,
   subscribeDrops,
   type WorldDrop,
 } from '@/lib/world/worldDropsStore';
@@ -89,8 +88,7 @@ function DropPiece({ drop, selfId }: { drop: WorldDrop; selfId?: string }) {
       group.scale.setScalar(Math.max(0.05, 1 - e * 0.8));
       if (t >= 1 && !collectedRef.current) {
         collectedRef.current = true;
-        recordHarvestForResource(drop.kind, drop.qty);
-        removeDrop(drop.id);
+        collectDrop(drop.id);
       }
       return;
     }
