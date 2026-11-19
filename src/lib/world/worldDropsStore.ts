@@ -10,6 +10,7 @@
  * a ghost resource, so they simply expire.
  */
 import type { Vec3 } from '@/lib/brain/earth';
+import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 
 export type DropKind = 'wood' | 'stone' | 'fibre' | 'food';
 
@@ -61,6 +62,20 @@ export function claimDrop(id: string): boolean {
   const d = drops.get(id);
   if (!d || d.claimedAt) return false;
   drops.set(id, { ...d, claimedAt: Date.now() });
+  notify();
+  return true;
+}
+
+/**
+ * Bank a drop: credit the element bag and remove it, exactly once. A second
+ * call for the same id (a re-render, a remount, a duplicate frame) is a
+ * no-op, so a piece can never be counted twice.
+ */
+export function collectDrop(id: string): boolean {
+  const d = drops.get(id);
+  if (!d) return false;
+  drops.delete(id);
+  recordHarvestForResource(d.kind, d.qty);
   notify();
   return true;
 }

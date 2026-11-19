@@ -60,8 +60,6 @@ import {
 import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
-  sampleVolcanoElevation,
-  sampleTerrainDryMask,
 } from './volcanoOrgan';
 import {
   sunEarthRoundTrip,
@@ -71,14 +69,9 @@ import {
   type CausalState,
   type ProbeHistorySample,
 } from './lightspeed';
-import {
-  sampleLandMask,
-  sampleSurfaceLift,
-  WATER_WADE_DEPTH,
-  WATER_WALK_SCALE,
-} from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
+import { groundWalkScaleAt, supportElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -608,6 +601,14 @@ export class UqrcPhysics {
     handle.cells.length = 0;
   }
 
+  /** A support stamp depends on its rounded lattice centre, not sub-cell motion. */
+  moveSupportBasin(handle: SupportBasinHandle, previous: [number, number, number], next: [number, number, number], radiusM: number): SupportBasinHandle {
+    if (previous.every((value, axis) =>
+      Math.round(worldToLattice(value, this.field.N)) === Math.round(worldToLattice(next[axis], this.field.N)))) return handle;
+    this.unpinSupportBasin(handle);
+    return this.pinSupportBasin(next, radiusM, 0.6);
+  }
+
   private composeSupportCells(cells: Iterable<number>): void {
     const unique = new Set(cells);
     for (const flat of unique) {
@@ -989,22 +990,14 @@ export class UqrcPhysics {
           // basin so the player walks UP the slope instead of clipping
           // through it. Sampler is Earth-local so the volcano stays
           // glued to the planet under spin.
-          let elevation = 0;
-          if (isSurfaceHumanoid) {
-            const localN = worldPosToLocalNormal(b.pos, pose);
-            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            // Land lift + volcano cone are both real terrain. Subtract a
-            // wade depth when the foot is over open water so avatars
-            // stop walking ON the ocean and start walking IN it.
-            const landMask = sampleTerrainDryMask(organ, localN);
-            // Open water dips the feet by the wade depth so avatars
-            // walk IN the ocean, not on it.
-            const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-            elevation =
-              sampleVolcanoElevation(organ, localN)
-              + sampleSurfaceLift(localN)
-              - waterDip;
-          }
+          // The floor is the rendered terrain itself (groundElevationAt
+          // intersects the same displaced triangles the GPU draws), so the
+          // physics manifold and the render manifold commute. Out at sea
+          // the support is the sea floor, or the water itself once it is
+          // deep enough to swim (supportElevationAt).
+          const elevation = isSurfaceHumanoid
+            ? supportElevationAt(worldPosToLocalNormal(b.pos, pose))
+            : 0;
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
           fx += radialAcc * dxC * invR * mass;
@@ -1090,8 +1083,6 @@ export class UqrcPhysics {
             // Wading scales the tangential speed cap. Open water → 45%
             // of land walk speed; partial coast → linearly interpolated.
             const localNwalk = worldPosToLocalNormal(b.pos, pose);
-            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            const landMaskWalk = sampleTerrainDryMask(organ, localNwalk);
             // Sprint (lightning bolt) widens the tangential cap up to
             // 2× base — combined with the 3× base bump this caps the
             // bolt at 6× the original 20 mph baseline (≈ 120 mph ≈
@@ -1100,7 +1091,7 @@ export class UqrcPhysics {
             // collapses to 1× and the original land/water scale rules.
             const sprintScale = Math.min(2, Math.max(1, intentMag));
             const walkCap = SURFACE_WALK_SPEED * sprintScale *
-              (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
+              groundWalkScaleAt(localNwalk);
             if (tMag > walkCap) {
               const k = walkCap / tMag;
               b.vel[0] = vRad * ux + tx * k;
@@ -1119,15 +1110,7 @@ export class UqrcPhysics {
                 // on a volcano slope settles to the slope, not to the
                 // spherical baseline shell (which would phase the body
                 // through the visible cone).
-                const localN = worldPosToLocalNormal(b.pos, pose);
-                const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-                const landMask = sampleTerrainDryMask(organ, localN);
-                // Open water dips the feet by the wade depth.
-                const waterDip = (1 - landMask) * WATER_WADE_DEPTH;
-                const elevation =
-                  sampleVolcanoElevation(organ, localN)
-                  + sampleSurfaceLift(localN)
-                  - waterDip;
+                const elevation = supportElevationAt(worldPosToLocalNormal(b.pos, pose));
                 const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
               if (dr < 0 && Number.isFinite(targetShell)) {

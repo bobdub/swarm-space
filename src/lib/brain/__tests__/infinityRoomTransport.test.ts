@@ -9,7 +9,7 @@ describe('Infinity reply over room mesh transport', () => {
     startSignalingBridge({
       broadcast, send: async () => true, getPeerId: () => 'peer-a',
       getConnectedPeerIds: () => ['peer-b'],
-      onMessage: (_channel, handler) => { incoming = handler; return () => {}; },
+      onMessage: (channel, handler) => { if (channel === 'webrtc-signal') incoming = handler; return () => {}; },
     });
     sendRoomChatMessage('brain-room', 'infinity:q1\u0001Shared words', 'user-a', 'Alice', undefined, undefined, 'q1');
     const packet = broadcast.mock.calls[0]?.[1];
@@ -19,7 +19,7 @@ describe('Infinity reply over room mesh transport', () => {
     startSignalingBridge({
       broadcast: () => {}, send: async () => true, getPeerId: () => 'peer-b',
       getConnectedPeerIds: () => ['peer-a'],
-      onMessage: (_channel, handler) => { incoming = handler; return () => {}; },
+      onMessage: (channel, handler) => { if (channel === 'webrtc-signal') incoming = handler; return () => {}; },
     });
     const delivered: RoomChatMessage[] = [];
     const consent = new InfinityRoomConsent<RoomChatMessage>();

@@ -22,7 +22,7 @@ function makeMesh(id: string, connected: string[]) {
       sent.push({ to, payload: payload as Record<string, unknown> });
       return true;
     },
-    onMessage: (_c: string, h: (from: string, p: unknown) => void) => { handler = h; return () => { handler = null; }; },
+    onMessage: (c: string, h: (from: string, p: unknown) => void) => { if (c !== 'webrtc-signal') return () => {}; handler = h; return () => { handler = null; }; },
     getConnectedPeerIds: () => connected,
     getPeerId: () => id,
   };

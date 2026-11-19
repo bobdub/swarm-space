@@ -541,6 +541,13 @@ export async function loginUser(passphrase?: string): Promise<string | null> {
 
   const privateKey = await unwrapPrivateKey(wrapped, passphrase);
   await cacheUnlockedPrivateKey(privateKey, user.id);
+  // Accounts from before sovereign recovery get their genesis vault the first
+  // time the password is entered, as signup would have done. Never blocks.
+  if (!isGuestUser(user)) {
+    void import("./backup/vaultCustody")
+      .then((m) => m.ensureGenesisVault(privateKey, user, passphrase))
+      .catch((error) => console.warn("[auth] Genesis recovery vault deferred", error));
+  }
   return privateKey;
 }
 
@@ -643,85 +650,39 @@ export async function importAccountBackup(backupJson: string): Promise<UserMeta>
   return userMeta;
 }
 
-// Recovery: Import account from private key (Stage One)
-export async function recoverAccountFromPrivateKey(
-  privateKeyBase64: string,
-  passphrase: string
+/**
+ * Rehydrate an identity opened from the sovereign recovery vault.
+ * The raw key is re-wrapped under a NEW local password for this device;
+ * the outer-shell passphrase is never stored.
+ */
+export async function restoreAccountFromVault(
+  vaultPayload: { userId: string; privateKey: string; user: Omit<UserMeta, "wrappedKeyRef"> & { wrappedKeyRef?: string } },
+  newLocalPassword: string,
 ): Promise<UserMeta> {
-  const normalizedPassphrase = passphrase.trim();
-  if (!normalizedPassphrase) {
-    throw new Error("Passphrase is required to secure the recovered key");
+  const password = newLocalPassword.trim();
+  if (password.length < 8) throw new Error("Choose a local password of at least 8 characters.");
+  const userId = await computeUserId(vaultPayload.user.publicKey);
+  if (userId !== vaultPayload.userId || userId !== vaultPayload.user.id) {
+    throw new Error("The recovered identity does not match its public key.");
   }
 
-  const privateKeyBuffer = await crypto.subtle.importKey(
-    "pkcs8",
-    base64ToArrayBuffer(privateKeyBase64),
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"]
-  );
-
-  const publicKeyJwk = await crypto.subtle.exportKey("jwk", privateKeyBuffer);
-  
-  const publicKeyImported = await crypto.subtle.importKey(
-    "jwk",
-    {
-      kty: publicKeyJwk.kty,
-      crv: publicKeyJwk.crv,
-      x: publicKeyJwk.x,
-      y: publicKeyJwk.y,
-      key_ops: ["deriveBits"],
-      ext: true,
-    },
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    []
-  );
-
-  const publicKeyRaw = await crypto.subtle.exportKey("raw", publicKeyImported);
-  const publicKeyBase64 = arrayBufferToBase64(publicKeyRaw);
-
-  const userId = await computeUserId(publicKeyBase64);
-
-  const wrapped = await wrapPrivateKey(privateKeyBase64, normalizedPassphrase);
   const wrappedKeyRef = `meta:wrappedKey:${userId}`;
-
+  const existing = await get<UserMeta>("users", userId).catch(() => undefined);
   const userMeta: UserMeta = {
+    ...(existing ?? {}),
     id: userId,
-    username: `user_${userId.slice(0, 8)}`,
-    displayName: `Recovered User`,
-    publicKey: publicKeyBase64,
+    username: vaultPayload.user.username,
+    displayName: vaultPayload.user.displayName ?? existing?.displayName,
+    publicKey: vaultPayload.user.publicKey,
     wrappedKeyRef,
-    createdAt: new Date().toISOString(),
+    createdAt: vaultPayload.user.createdAt,
+    ...(vaultPayload.user.profile || existing?.profile ? { profile: { ...(existing?.profile ?? {}), ...(vaultPayload.user.profile ?? {}) } } : {}),
   };
 
-  await put("meta", { k: wrappedKeyRef, v: wrapped });
+  await put("meta", { k: wrappedKeyRef, v: await wrapPrivateKey(vaultPayload.privateKey, password) });
   await put("users", userMeta);
-  await awardGenesisCredits(userId);
-  await cacheUnlockedPrivateKey(privateKeyBase64, userId);
-  await activateSession(userMeta);
-
-
+  await activateSession(userMeta, { announce: false });
+  await cacheUnlockedPrivateKey(vaultPayload.privateKey, userId);
+  window.dispatchEvent(new Event("user-login"));
   return userMeta;
-}
-
-// Export private key for recovery
-export async function exportPrivateKey(passphrase: string): Promise<string> {
-  const user = getCurrentUser();
-  if (!user) throw new Error("No user logged in");
-
-  const wrappedData = await get<{ k: string; v: WrappedKey }>("meta", user.wrappedKeyRef);
-  if (!wrappedData) throw new Error("Key data not found");
-
-  const wrapped = wrappedData.v;
-
-  if (wrapped.rawStored) {
-    return wrapped.wrapped;
-  }
-
-  if (!passphrase) {
-    throw new Error("Passphrase required");
-  }
-
-  return await unwrapPrivateKey(wrapped, passphrase);
 }

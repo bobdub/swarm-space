@@ -3,19 +3,21 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
 import {
-  getSurfaceFrame,
   getEarthPose,
   HUMAN_HEIGHT,
-  quatRotate,
   worldDisplacementToEarthLocal,
+  earthLocalToWorld,
 } from '@/lib/brain/earth';
-import { feetRadiusAt } from '@/lib/brain/groundHeight';
+import { avatarLocalTarget, avatarTrackingAlpha } from '@/lib/brain/avatarTracking';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
-import { Billboard, Text } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import { Text } from './SafeText';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {
   position: [number, number, number];
+  /** Read self physics in the render frame, without React position updates. */
+  samplePose?: () => { position: [number, number, number]; pinned: boolean; movementDirection?: [number, number, number] } | undefined;
   trust: number;
   label?: string;
   avatarId?: string;
@@ -42,6 +44,7 @@ interface Props {
  */
 export function RemoteAvatarBody({
   position,
+  samplePose,
   trust,
   label,
   avatarId,
@@ -63,61 +66,15 @@ export function RemoteAvatarBody({
   // looks like teleport hops if applied directly; we lerp toward the latest
   // sample every frame so motion reads continuous.
   const groupRef = useRef<THREE.Group>(null);
-  const targetPos = useRef(new THREE.Vector3(position[0], position[1], position[2]));
-  const targetQuat = useRef(new THREE.Quaternion());
   const seeded = useRef(false);
-  /** Target and smoothed position kept RELATIVE to Earth's centre. Earth
-   *  translates along its orbit at ~2.6 m/s, so a world-space target
-   *  computed once per presence update would slide against the ground
-   *  every frame — the peer would appear to skate and bob. Everything is
-   *  smoothed Earth-relative and remapped through the frame pose. */
+  // Both translation AND rotation are removed from cached targets.
   const targetRel = useRef(new THREE.Vector3());
   const smoothRel = useRef(new THREE.Vector3());
-
-  // Refresh target whenever the prop changes.
   useMemo(() => {
-    const pose = getEarthPose();
-    if (pinned) {
-      // Seat lock: the stool transform is already exact in this scene.
-      targetPos.current.set(position[0], position[1], position[2]);
-    } else {
-      // Feet-first grounding (same for stale and current peers): take the
-      // broadcast direction, find the solid ground there, and put the FEET
-      // at ground + FOOT_CUSHION. A peer broadcasting higher (stool, floor)
-      // keeps that height; nobody is ever rendered below the ground.
-      const disp: [number, number, number] = [
-        position[0] - pose.center[0],
-        position[1] - pose.center[1],
-        position[2] - pose.center[2],
-      ];
-      const local = worldDisplacementToEarthLocal(disp, pose);
-      const len = Math.hypot(local[0], local[1], local[2]) || 1;
-      const n: [number, number, number] = [local[0] / len, local[1] / len, local[2] / len];
-      const feetR = feetRadiusAt(n);
-      const wLen = Math.hypot(disp[0], disp[1], disp[2]) || 1;
-      const broadcastFeet = wLen - HUMAN_HEIGHT / 2;
-      const raised = !isStale && broadcastFeet - feetR > 0.3 ? broadcastFeet : feetR;
-      const r = raised + HUMAN_HEIGHT / 2;
-      targetPos.current.set(
-        pose.center[0] + (disp[0] / wLen) * r,
-        pose.center[1] + (disp[1] / wLen) * r,
-        pose.center[2] + (disp[2] / wLen) * r,
-      );
-    }
-    const { up } = getSurfaceFrame(
-      [targetPos.current.x, targetPos.current.y, targetPos.current.z],
-      pose,
-    );
-    targetQuat.current.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(up[0], up[1], up[2]),
-    );
-    targetRel.current.set(
-      targetPos.current.x - pose.center[0],
-      targetPos.current.y - pose.center[1],
-      targetPos.current.z - pose.center[2],
-    );
-  }, [position, isStale, pinned]);
+    if (samplePose) return;
+    const local = avatarLocalTarget(position, getEarthPose(), !!pinned, isStale);
+    targetRel.current.set(...local);
+  }, [position, isStale, pinned, samplePose]);
 
   // Facing: derived from the smoothed Earth-relative track, so it works
   // identically for the local player and for peers whose positions arrive
@@ -127,7 +84,8 @@ export function RemoteAvatarBody({
   const prevTargetLocal = useRef<THREE.Vector3 | null>(null);
   const targetLocal = useRef(new THREE.Vector3());
   const facingQuat = useRef(new THREE.Quaternion());
-  const _up = useRef(new THREE.Vector3());
+  const localRotation = useRef(new THREE.Quaternion());
+  const rotationSeeded = useRef(false);
   const _localUp = useRef(new THREE.Vector3());
   const _fwd = useRef(new THREE.Vector3());
   const _right = useRef(new THREE.Vector3());
@@ -147,18 +105,17 @@ export function RemoteAvatarBody({
     });
   }, [intentDriven]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const body = bodyRef.current;
     if (body) {
       const t = (performance.now() - swingAt.current) / SWING_MS;
       if (swingAt.current > 0 && t >= 0 && t <= 1) {
-        // Wind up, drive down, settle back — a single smooth arc.
         const wind = Math.sin(Math.PI * Math.min(1, t * 1.35));
         const drive = Math.sin(Math.PI * t);
         body.rotation.x = -0.22 * wind + 0.62 * drive * drive;
         body.rotation.z = 0.16 * drive;
         body.position.y = FEET_DROP - 0.12 * drive;
-      } else if (body.rotation.x !== 0 || body.rotation.z !== 0) {
+      } else {
         body.rotation.x = 0;
         body.rotation.z = 0;
         body.position.y = FEET_DROP;
@@ -166,80 +123,60 @@ export function RemoteAvatarBody({
     }
     const g = groupRef.current;
     if (!g) return;
-    const center = getEarthPose().center;
-    if (!seeded.current || pinned) {
-      // Seat-locked peers snap: no intermediate standing pose is ever
-      // shown while the smoother catches up to the stool.
-      smoothRel.current.copy(targetRel.current);
-      g.quaternion.copy(targetQuat.current);
-      seeded.current = true;
-      const local = worldDisplacementToEarthLocal(
-        [targetRel.current.x, targetRel.current.y, targetRel.current.z],
-        getEarthPose(),
-      );
-      prevTargetLocal.current = new THREE.Vector3(local[0], local[1], local[2]);
-      headingRef.current.set(0, 0, 0);
-    } else {
-      if (intentDriven) smoothRel.current.copy(targetRel.current);
-      else smoothRel.current.lerp(targetRel.current, 0.18);
-
-      const up = _up.current.copy(smoothRel.current).normalize();
-
-      // Compare authoritative positions in Earth's CO-ROTATING frame.
-      // World-relative positions continue moving with the planet after the
-      // player stops, which previously looked like travel and turned every
-      // idle avatar toward the planet's spin direction.
-      const local = worldDisplacementToEarthLocal(
-        [targetRel.current.x, targetRel.current.y, targetRel.current.z],
-        getEarthPose(),
-      );
-      targetLocal.current.set(local[0], local[1], local[2]);
-      if (movementDirection) {
-        const localDirection = worldDisplacementToEarthLocal(movementDirection, getEarthPose());
-        const localUp = _localUp.current.copy(targetLocal.current).normalize();
-        const d = _fwd.current.set(localDirection[0], localDirection[1], localDirection[2]);
-        d.addScaledVector(localUp, -d.dot(localUp));
-        if (d.lengthSq() > 1e-8) headingRef.current.copy(d).normalize();
-      } else if (!intentDriven && prevTargetLocal.current) {
-        const localUp = _localUp.current.copy(targetLocal.current).normalize();
-        const d = _fwd.current.copy(targetLocal.current).sub(prevTargetLocal.current);
-        d.addScaledVector(localUp, -d.dot(localUp)); // ground-plane travel only
-        // ~2 cm of lateral travel before we accept a new heading: filters
-        // settle-spring jitter while idle.
-        if (d.lengthSq() > 4e-4) headingRef.current.copy(d).normalize();
-      }
-      (prevTargetLocal.current ??= new THREE.Vector3()).copy(targetLocal.current);
-
-      if (headingRef.current.lengthSq() > 0.5) {
-        // The retained direction is Earth-local; rotate it back into the
-        // live world frame so it remains attached to the same patch of soil.
-        const worldHeading = quatRotate(getEarthPose().spinQuat, [
-          headingRef.current.x,
-          headingRef.current.y,
-          headingRef.current.z,
-        ]);
-        const fwd = _fwd.current.set(worldHeading[0], worldHeading[1], worldHeading[2]);
-        fwd.addScaledVector(up, -fwd.dot(up));
-        if (fwd.lengthSq() > 1e-8) {
-          fwd.normalize();
-          const right = _right.current.crossVectors(up, fwd).normalize();
-          // Avatar meshes are authored facing local +Z (eyes/snout at +Z).
-          _m.current.makeBasis(right, up, fwd);
-          facingQuat.current.setFromRotationMatrix(_m.current);
-          g.quaternion.slerp(facingQuat.current, 0.18);
-        }
-        // No fallback once a heading exists: standing still keeps the pose.
-      } else {
-        g.quaternion.slerp(targetQuat.current, 0.18);
-      }
+    const pose = getEarthPose();
+    const live = samplePose?.();
+    if (samplePose && !live) { g.visible = false; return; }
+    g.visible = true;
+    const seatLocked = live?.pinned ?? !!pinned;
+    if (live) {
+      // Self already has physics grounding and interpolation; never re-solve it here.
+      const local = worldDisplacementToEarthLocal([
+        live.position[0] - pose.center[0], live.position[1] - pose.center[1], live.position[2] - pose.center[2],
+      ], pose);
+      targetRel.current.set(...local);
     }
-    g.position.set(
-      center[0] + smoothRel.current.x,
-      center[1] + smoothRel.current.y,
-      center[2] + smoothRel.current.z,
-    );
-  });
+    const alpha = avatarTrackingAlpha(delta, intentDriven || seatLocked);
+    if (!seeded.current) {
+      smoothRel.current.copy(targetRel.current);
+      seeded.current = true;
+    } else smoothRel.current.lerp(targetRel.current, alpha);
 
+    targetLocal.current.copy(targetRel.current);
+    const localUp = _localUp.current.copy(smoothRel.current).normalize();
+    const direction = live?.movementDirection ?? (samplePose ? undefined : movementDirection);
+    if (direction) {
+      const localDirection = worldDisplacementToEarthLocal(direction, pose);
+      const d = _fwd.current.set(...localDirection);
+      d.addScaledVector(localUp, -d.dot(localUp));
+      if (d.lengthSq() > 1e-8) headingRef.current.copy(d).normalize();
+    } else if (!intentDriven && !seatLocked && prevTargetLocal.current) {
+      const d = _fwd.current.copy(targetLocal.current).sub(prevTargetLocal.current);
+      d.addScaledVector(localUp, -d.dot(localUp));
+      if (d.lengthSq() > 4e-4) headingRef.current.copy(d).normalize();
+    }
+    (prevTargetLocal.current ??= new THREE.Vector3()).copy(targetLocal.current);
+    // Seed a deterministic Earth-local heading once; retain it while idle.
+    if (headingRef.current.lengthSq() < 0.5) {
+      headingRef.current.set(0, 0, 1);
+      if (Math.abs(headingRef.current.dot(localUp)) > 0.95) headingRef.current.set(1, 0, 0);
+    }
+    const fwd = _fwd.current.copy(headingRef.current);
+    fwd.addScaledVector(localUp, -fwd.dot(localUp)).normalize();
+    headingRef.current.copy(fwd);
+    const right = _right.current.crossVectors(localUp, fwd).normalize();
+    _m.current.makeBasis(right, localUp, fwd);
+    facingQuat.current.setFromRotationMatrix(_m.current);
+    // Smooth rotation in Earth-local coordinates too, then apply live spin once.
+    if (!rotationSeeded.current) {
+      localRotation.current.copy(facingQuat.current);
+      rotationSeeded.current = true;
+    } else localRotation.current.slerp(facingQuat.current, alpha);
+    const spin = pose.spinQuat;
+    g.quaternion.set(spin[0], spin[1], spin[2], spin[3]);
+    g.quaternion.multiply(localRotation.current);
+    const world = earthLocalToWorld([smoothRel.current.x, smoothRel.current.y, smoothRel.current.z], pose);
+    g.position.set(...world);
+  });
 
 
   // Spawn-coherence fix: physics anchors the body at its center of mass

@@ -1,5 +1,15 @@
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
+import {
+  isChunkUnsupported,
+  isManifestUnsupported,
+  isPostUnsupported,
+  listUnsupportedPosts,
+  subscribeUnsupportedPosts,
+  hydrateUnsupportedPosts,
+} from '@/lib/content/unsupportedPostsStore';
+import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
+import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -183,6 +193,8 @@ export interface MiningStats {
   pendingBlocks: number;
   /** Blocks without content activity (reduced reward) */
   hollowBlocks: number;
+  /** Hollow blocks that later reached consensus (paid at 50%) */
+  confirmedHollowBlocks: number;
   /** Timestamp of last consensus-confirmed block */
   lastConfirmedAt: number | null;
   /** Content activity multiplier (1.0 base, up to 2.0 for active seeders) */
@@ -230,14 +242,7 @@ export interface AssetSyncStats {
 
 type ConnectionSource = 'bootstrap' | 'library' | 'manual' | 'exchange';
 
-interface SwarmSignalingEndpoint {
-  id: string;
-  label: string;
-  host: string;
-  port: number;
-  secure: boolean;
-  path: string;
-}
+type SwarmSignalingEndpoint = SignalingEndpoint;
 
 type PhaseHandler = (phase: SwarmPhase) => void;
 type PeerHandler = (peers: SwarmPeer[]) => void;
@@ -292,6 +297,17 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
  * offline and will NOT be auto-dialed.
  */
 const CELL_FRESHNESS_WINDOW = 75_000;
+/**
+ * Saved contacts roll through the mesh in every library exchange while they
+ * were seen within this window. It matches the content fadeout window
+ * (FADEOUT_WINDOW_MS in contentLifecycle.ts): a user unseen for 15 days is
+ * treated as gone, so they stop being handed on.
+ */
+export const SAVED_CONTACT_SHARE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
+/** Upper bound on saved contacts sent in one exchange (newest first). */
+const MAX_SHARED_SAVED_CONTACTS = 200;
+/** Saved (manual/library) friends stay dialable this long after last presence. */
+export const SAVED_FRIEND_FRESHNESS_WINDOW = 10 * 60_000;
 
 /** Cooldown between auto-dials to the same peer via Global Cell (steady state) */
 const CELL_DIAL_COOLDOWN = 30_000;
@@ -309,8 +325,12 @@ const TARGET_MESH_CONNECTIONS = 20;
 /** Max dials per pass — enough to grow but avoid dial storms */
 const MAX_AUTO_DIALS_PER_PASS = 5;
 
-/** Expire stuck pending dials so the mesh can retry cleanly */
-const PENDING_DIAL_TIMEOUT_MS = 20_000;
+/**
+ * Expire stuck pending dials so the mesh can retry cleanly. Slow devices can
+ * take well over 20s to finish ICE; retrying sooner stacks a second offer on
+ * top of one that was still working.
+ */
+const PENDING_DIAL_TIMEOUT_MS = 45_000;
 
 function getExhaustedRetries(): Set<string> {
   try {
@@ -338,32 +358,16 @@ function clearRetryExhausted(manifestId: string): void {
   } catch { /* noop */ }
 }
 
-const DEFAULT_ICE: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  // Public community relays: fallback only, so carrier NAT (mobile) pairs
-  // that cannot hole-punch still connect. STUN stays first for direct paths.
-  {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
+const DEFAULT_ICE: RTCIceServer[] = DEFAULT_ICE_SERVERS;
 
-const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = [
-  {
-    id: 'peerjs-cloud',
-    label: 'PeerJS Cloud',
-    host: '0.peerjs.com',
-    port: 443,
-    secure: true,
-    path: '/',
-  },
-];
+// Ordered failover list: configured servers (VITE_PEERJS_*) first, PeerJS
+// Cloud last. See signalingEndpoints.ts for why every node walks one order.
+const DEFAULT_SIGNALING_ENDPOINTS: SwarmSignalingEndpoint[] = resolveSignalingEndpoints(
+  (import.meta.env ?? {}) as Record<string, string | boolean | undefined>,
+);
+
+/** How long a manual dial requested mid-connect waits for the mesh to come online. */
+const QUEUED_DIAL_TTL_MS = 60_000;
 
 const DEFAULT_TOGGLES: SwarmToggles = {
   autoConnect: true,
@@ -394,6 +398,9 @@ export class StandaloneSwarmMesh {
   // ── Reconnect ─────────────────────────────────────────────────────
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private signalingRotation = new SignalingEndpointRotation(DEFAULT_SIGNALING_ENDPOINTS);
+  /** Manual dials requested while signaling was still connecting (peerId → requestedAt). */
+  private queuedManualDials = new Map<string, number>();
 
   // ── Content Store ─────────────────────────────────────────────────
   private contentStore = new Map<string, ContentItem>();
@@ -493,18 +500,19 @@ export class StandaloneSwarmMesh {
 
   /**
    * Central freshness gate — used by ALL automatic dial paths.
-   * A peer is "fresh enough to dial" only if it was seen recently,
-   * either directly in the Global Cell or via an active connected peer.
-   * Manual dials bypass this check.
+   * Saved friends use a longer presence window, never disabled auto-connect.
+   * Ephemeral discovery still requires recent Cell or active-peer presence.
+   * Cooldowns and pending-dial limits remain enforced by automatic callers.
    */
 
   private isFreshEnoughToDial(peerId: string): boolean {
     const entry = this.library.get(peerId);
-    if (!entry) return false;
-
-    // Peer must have been seen within the cell freshness window
+    if (!entry || !entry.autoConnect) return false;
+    if (entry.lastSeenAt <= 0) return false;
     const age = now() - entry.lastSeenAt;
-    return entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW;
+    // Saved friends get a longer presence window; nobody is dialed forever.
+    const saved = entry.source === 'manual' || entry.source === 'library';
+    return age < (saved ? SAVED_FRIEND_FRESHNESS_WINDOW : CELL_FRESHNESS_WINDOW);
   }
 
   private prunePendingDials(): void {
@@ -795,6 +803,7 @@ export class StandaloneSwarmMesh {
     this.loadLibrary();
     this.loadBlockedPeers();
     this.setupVisibilityHandler();
+    this.watchUnsupportedPosts();
 
     this.saveLibrary();
 
@@ -852,6 +861,8 @@ export class StandaloneSwarmMesh {
 
   getNodeId(): string { return this.nodeId; }
   getPeerId(): string { return this.peerId; }
+  /** Signaling server the mesh is currently on (follows failover). */
+  getSignalingEndpoint(): SignalingEndpoint { return this.signalingRotation.current(); }
 
   // ═══════════════════════════════════════════════════════════════════
   // FLAGS
@@ -930,7 +941,7 @@ export class StandaloneSwarmMesh {
       blocksMinedTotal: 0, blocksRelayed: 0, peersDiscovered: 0,
       heartbeatsSent: 0, heartbeatsReceived: 0, chunksServed: 0,
       acksReceived: 0, lastBlockMinedAt: null, lastHeartbeatAt: null,
-      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0,
+      confirmedBlocks: 0, pendingBlocks: 0, hollowBlocks: 0, confirmedHollowBlocks: 0,
       lastConfirmedAt: null, contentMultiplier: 1.0, seedingActive: false,
       chunksServedSinceLastBlock: 0, blockHeight: 0, consensusFailures: 0,
       transactionsProcessed: 0, spaceHosted: 0,
@@ -947,6 +958,12 @@ export class StandaloneSwarmMesh {
             (result as Record<string, unknown>)[key] = p[key];
           }
         }
+        // Stats saved before confirmedHollowBlocks existed: estimate it with
+        // the mined hollow share so displays and rewards stay consistent.
+        if (typeof p.confirmedHollowBlocks !== 'number') {
+          const share = result.blocksMinedTotal > 0 ? Math.min(1, result.hollowBlocks / result.blocksMinedTotal) : 0;
+          result.confirmedHollowBlocks = Math.round(result.confirmedBlocks * share);
+        }
         return result;
       }
     } catch { /* ignore */ }
@@ -959,6 +976,9 @@ export class StandaloneSwarmMesh {
   }
 
   getMiningStats(): MiningStats { return { ...this.miningStats }; }
+
+  /** True while the block-production loop is actually running (toggle on, online, ≥1 peer). */
+  isMiningActive(): boolean { return this.miningTimer !== null; }
 
   private startMiningLoop(): void {
     this.stopMiningLoop();
@@ -978,6 +998,9 @@ export class StandaloneSwarmMesh {
       console.log('[SwarmMesh][Mining] ⛏️ START BLOCKED — no peers connected. Mining requires active peer connections.');
       return;
     }
+
+    // Let mining displays flip to "active" immediately (the timer is set below).
+    queueMicrotask(() => this.emitMining());
 
     console.log(
       `[SwarmMesh][Mining] ⛏️ STARTED — interval=${MINING_INTERVAL}ms, ` +
@@ -1138,6 +1161,7 @@ export class StandaloneSwarmMesh {
     this.pendingBlockVotes.delete(blockId);
     this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
     this.miningStats.confirmedBlocks++;
+    if (pending.isHollow) this.miningStats.confirmedHollowBlocks++;
     this.miningStats.blockHeight = pending.height;
     this.miningStats.lastConfirmedAt = now();
     this.saveMiningStats();
@@ -1152,6 +1176,7 @@ export class StandaloneSwarmMesh {
     if (this.miningTimer !== null) {
       clearInterval(this.miningTimer);
       this.miningTimer = null;
+      this.emitMining();
       // Clear pending block expiry timers
       for (const t of this.pendingBlockExpiry) clearTimeout(t);
       this.pendingBlockExpiry = [];
@@ -1224,6 +1249,10 @@ export class StandaloneSwarmMesh {
     if (existing) {
       existing.lastSeenAt = now();
       existing.nodeId = nodeId;
+      if (source === 'manual') {
+        existing.source = 'manual';
+        existing.autoConnect = true;
+      }
       // Preserve profile data from prior profile-exchange
       this.saveLibrary();
       return;
@@ -1507,18 +1536,20 @@ export class StandaloneSwarmMesh {
     if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
     let skipped = 0;
+    const dialBudget = this.getAutoDialBudget();
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
       if (this.connections.has(peerId)) continue;
       if (this.blockedPeers.has(peerId)) continue;
       if (peerId === this.peerId) continue;
-      // ── Freshness gate: never auto-dial stale/offline peers ──
+      // Saved friends need no fresh beacon; discovered peers do.
       if (!this.isFreshEnoughToDial(peerId)) { skipped++; continue; }
-      this.dialPeer(peerId, entry.source ?? 'library');
-      dialed++;
+      if (this.isPeerCoolingDown(peerId) || this.isDialPending(peerId)) continue;
+      if (dialed >= dialBudget) break;
+      if (this.dialPeer(peerId, entry.source ?? 'library')) dialed++;
     }
     if (dialed > 0 || skipped > 0) {
-      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} fresh peer(s) from library (${skipped} stale skipped)`);
+      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} eligible peer(s) from library (${skipped} stale discovered peers skipped)`);
     }
   }
 
@@ -1527,7 +1558,7 @@ export class StandaloneSwarmMesh {
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
 
-      // Only dial fresh peers — never stale/offline library entries
+      // Saved friends retry with backoff; ephemeral peers need fresh presence.
       const candidates = Array.from(this.library.entries())
         .filter(([peerId, entry]) =>
           entry.autoConnect &&
@@ -1535,6 +1566,7 @@ export class StandaloneSwarmMesh {
           !this.blockedPeers.has(peerId) &&
           peerId !== this.peerId &&
           !this.isPeerCoolingDown(peerId) &&
+          !this.isDialPending(peerId) &&
           this.isFreshEnoughToDial(peerId)
         )
         .sort(([, a], [, b]) => {
@@ -1550,7 +1582,7 @@ export class StandaloneSwarmMesh {
 
       if (selected.length > 0) {
         console.log(
-          `[SwarmMesh] 🔄 RECONNECT LOOP — ${selected.length}/${candidates.length} fresh candidates, ` +
+          `[SwarmMesh] 🔄 RECONNECT LOOP — ${selected.length}/${candidates.length} eligible candidates, ` +
           `top: ${selected[0][0].slice(0, 12)} trust=${(selected[0][1].trustScore ?? 0.3).toFixed(2)}`
         );
       }
@@ -1609,6 +1641,7 @@ export class StandaloneSwarmMesh {
       window.addEventListener('profile-updated', this._onProfileUpdated);
     }
 
+    await this.attachContentLifecycle();
     await this.loadPostsFromDB();
     await this.scanLocalSeeders();
     await this.connectSignaling();
@@ -1654,6 +1687,7 @@ export class StandaloneSwarmMesh {
         const fileId = m.fileId as string;
         if (!fileId) continue;
         if (m.seedingPaused === true) continue;
+        if (isManifestUnsupported(fileId)) continue;
         const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
         if (refs.length === 0) continue;
 
@@ -1696,6 +1730,7 @@ export class StandaloneSwarmMesh {
     this.clearPendingAssetRequests();
     this.clearAssetRetryTimers();
     this.pendingDials.clear();
+    this.queuedManualDials.clear();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
     }
@@ -1754,9 +1789,9 @@ export class StandaloneSwarmMesh {
 
     try {
       const Peer = (await import('peerjs')).default;
-      const endpoint = DEFAULT_SIGNALING_ENDPOINTS[0];
+      const endpoint = this.signalingRotation.current();
 
-      console.log(`[SwarmMesh] 🔌 Creating PeerJS instance with ID: ${this.peerId}`);
+      console.log(`[SwarmMesh] 🔌 Creating PeerJS instance with ID: ${this.peerId} via ${endpoint.label}`);
 
       const peer = new Peer(this.peerId, {
         debug: 1,
@@ -1770,7 +1805,11 @@ export class StandaloneSwarmMesh {
       const initResult = await this.waitForOpen(peer);
 
       if (!initResult.success) {
-        console.warn(`[SwarmMesh] ❌ PeerJS init failed: ${initResult.error}`);
+        console.warn(`[SwarmMesh] ❌ PeerJS init failed on ${endpoint.label}: ${initResult.error}`);
+        // An ID still held by the same server is not the server's fault.
+        if (!initResult.idTaken && this.signalingRotation.reportFailure()) {
+          console.warn(`[SwarmMesh] 🔀 Signaling failover → ${this.signalingRotation.current().label}`);
+        }
         this.destroyPeerInstance(peer);
         this.initInProgress = false;
         this.scheduleReconnect();
@@ -1779,6 +1818,7 @@ export class StandaloneSwarmMesh {
 
       this.peer = peer;
       this.initInProgress = false;
+      this.signalingRotation.reportSuccess();
 
       this.setupPeerHandlers(peer);
       this.startIntervals();
@@ -1795,6 +1835,7 @@ export class StandaloneSwarmMesh {
         selfId: this.peerId, isBlocked: id => this.blockedPeers.has(id), dial: id => this.connectToPeer(id) });
       this.emitAlert('Connected to P2P network', 'info');
       console.log(`[SwarmMesh] ✅ Online as ${this.peerId}`);
+      this.flushQueuedManualDials();
 
       // Pre-load local public projects into the content store so they ride
       // the standard inventory-exchange handshake on every new peer connect.
@@ -1866,7 +1907,7 @@ export class StandaloneSwarmMesh {
     }
   }
 
-  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string }> {
+  private waitForOpen(peer: import('peerjs').default): Promise<{ success: boolean; error?: string; idTaken?: boolean }> {
     return new Promise(resolve => {
       let settled = false;
 
@@ -1893,7 +1934,7 @@ export class StandaloneSwarmMesh {
         const idTaken = err?.type === 'unavailable-id' || /ID.*taken|unavailable/i.test(msg);
 
         if (idTaken) {
-          resolve({ success: false, error: `ID "${this.peerId}" still held by server — will retry` });
+          resolve({ success: false, idTaken: true, error: `ID "${this.peerId}" still held by server — will retry` });
         } else {
           resolve({ success: false, error: msg });
         }
@@ -1990,6 +2031,9 @@ export class StandaloneSwarmMesh {
       if (err?.type === 'peer-unavailable') {
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
+          // The server answered: the dial is over, so a retry need not wait
+          // out the pending-dial timeout.
+          this.clearPendingDial(match[1]);
           this.recordHandshakeFailure(match[1]);
           console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable`);
         }
@@ -2120,6 +2164,10 @@ export class StandaloneSwarmMesh {
         }).catch(() => { /* ignore */ });
       } catch { /* ignore */ }
 
+      // Presence hints and deletion tombstones go before the inventory so the
+      // peer drops dead content instead of offering it back to us.
+      this.sendLifecycleState(conn);
+
       // Exchange content inventories
       this.sendContentInventory(conn);
 
@@ -2244,15 +2292,24 @@ export class StandaloneSwarmMesh {
       remotePeerId = `peer-${remotePeerId}`;
     }
 
-    if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
-      this.emitAlert('Start Swarm Mesh first', 'warn');
-      return false;
-    }
-
     if (remotePeerId === this.peerId) return false;
-
     if (this.blockedPeers.has(remotePeerId)) {
       this.emitAlert('That peer is blocked', 'warn');
+      return false;
+    }
+    // Persist intent even while signaling warms up or the connection exists.
+    this.addToLibrary(remotePeerId, 'manual');
+
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
+      // Signaling is still opening (or re-opening): hold the dial and send it
+      // the moment the node is online instead of rejecting the user's intent.
+      const warmingUp = this.flags.enabled && (this.phase === 'connecting' || this.phase === 'reconnecting' || this.initInProgress);
+      if (warmingUp && !this.blockedPeers.has(remotePeerId)) {
+        this.queuedManualDials.set(remotePeerId, now());
+        this.emitAlert(`Mesh still connecting — will dial ${remotePeerId.slice(0, 16)}… when online`, 'info');
+        return true;
+      }
+      this.emitAlert('Start Swarm Mesh first', 'warn');
       return false;
     }
 
@@ -2261,16 +2318,18 @@ export class StandaloneSwarmMesh {
       return false;
     }
 
+    // A dial already in flight must finish (or time out) first: repeated
+    // invite/retry ticks would otherwise open stacked connections to the host.
+    if (this.isDialPending(remotePeerId)) return true;
+
     // Manual connections clear all cooldowns for that peer
     this.peerCooldowns.delete(remotePeerId);
     this.clearHandshakeFailures(remotePeerId);
-    this.clearPendingDial(remotePeerId);
 
     // Mirror the working library pattern: register the peer in the library
     // BEFORE dialing so the connection is durable and retryable, then pulse
     // our own presence so the remote side's Cell Bus sees us and can
     // arbitrate/accept instead of colliding with a simultaneous dial.
-    this.addToLibrary(remotePeerId, 'manual');
     this.pulseGlobalPresence('manual-dial');
     // Trip 1: knock so the target dials back at the same time (two-way punch).
     void import('./globalCell').then(({ getGlobalCell }) => getGlobalCell().sendInviteKnock(remotePeerId)).catch(() => {});
@@ -2278,6 +2337,19 @@ export class StandaloneSwarmMesh {
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
     return true;
+  }
+
+  /** Send manual dials that were requested while signaling was still connecting. */
+  private flushQueuedManualDials(): void {
+    if (this.queuedManualDials.size === 0) return;
+    const queued = [...this.queuedManualDials.entries()];
+    this.queuedManualDials.clear();
+    const cutoff = now() - QUEUED_DIAL_TTL_MS;
+    for (const [peerId, requestedAt] of queued) {
+      if (requestedAt < cutoff || this.connections.has(peerId)) continue;
+      console.log(`[SwarmMesh] ▶️ Sending queued manual dial to ${peerId}`);
+      this.connectToPeer(peerId);
+    }
   }
 
   /**
@@ -2288,14 +2360,17 @@ export class StandaloneSwarmMesh {
    * must never reset backoff or open a second connection to the same peer.
    * Manual dials remain the only path that overrides backoff (user intent).
    */
-  dialViaBus(remotePeerId: string): boolean {
-    if (!this.peer || this.peer.destroyed || this.phase !== 'online') return false;
+  dialViaBus(remotePeerId: string, source: 'exchange' | 'manual' = 'exchange'): boolean {
+    remotePeerId = remotePeerId.trim();
     if (!remotePeerId || remotePeerId === this.peerId) return false;
     if (this.blockedPeers.has(remotePeerId)) return false;
+    // Explicit room targets are durable, unlike arbitrary Cell discovery.
+    if (source === 'manual') this.addToLibrary(remotePeerId, 'manual');
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') return false;
     if (this.connections.has(remotePeerId)) return false;
     if (this.isPeerCoolingDown(remotePeerId) || this.isDialPending(remotePeerId)) return false;
 
-    const started = this.dialPeer(remotePeerId, 'exchange');
+    const started = this.dialPeer(remotePeerId, source);
     if (started) {
       this.globalCellDialCooldowns.set(remotePeerId, now());
     }
@@ -2353,9 +2428,48 @@ export class StandaloneSwarmMesh {
       });
   }
 
+  /**
+   * What a library exchange hands on: every live connection (`active: true`)
+   * plus saved contacts seen within the share window (`active: false`, with
+   * their real last-seen time). No node is a "host": whoever is the first
+   * contact passes on what it knows, and the receiver passes it on again, so
+   * libraries roll through the mesh until each contact ages out.
+   */
+  private getSharedLibraryPeers(): Array<ReturnType<StandaloneSwarmMesh['getActiveExchangePeers']>[number] & { active: boolean }> {
+    const active = this.getActiveExchangePeers().map(peer => ({ ...peer, active: true }));
+    const cutoff = now() - SAVED_CONTACT_SHARE_WINDOW_MS;
+    const saved = Array.from(this.library.values())
+      .filter(entry => entry.peerId !== this.peerId
+        && !this.blockedPeers.has(entry.peerId)
+        && !this.connections.has(entry.peerId)
+        && entry.lastSeenAt > 0
+        && entry.lastSeenAt >= cutoff)
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, MAX_SHARED_SAVED_CONTACTS)
+      .map(entry => {
+        const nodeId = entry.nodeId ?? entry.peerId.replace(/^peer-/, '');
+        return {
+          peerId: entry.peerId,
+          nodeId,
+          alias: entry.alias ?? `Node ${nodeId.slice(0, 6)}`,
+          lastSeenAt: entry.lastSeenAt,
+          trustScore: entry.trustScore ?? 0.3,
+          userId: entry.userId,
+          username: entry.username,
+          displayName: entry.displayName,
+          avatarRef: entry.avatarRef,
+          walletAddress: entry.walletAddress,
+          namespaceId: entry.namespaceId,
+          discriminator: entry.discriminator,
+          active: false,
+        };
+      });
+    return [...active, ...saved];
+  }
+
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const localTrust = this.getLocalTrustScore();
-    const shareable = this.getActiveExchangePeers();
+    const shareable = this.getSharedLibraryPeers();
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
@@ -2368,7 +2482,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; active?: boolean; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
@@ -2399,7 +2513,14 @@ export class StandaloneSwarmMesh {
     for (const rp of remote) {
       if (!rp || typeof rp.peerId !== 'string' || !rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
-      const activeLastSeen = currentTime;
+      // Live connections of the sender count as seen now. Relayed saved
+      // contacts keep their own last-seen time (never in the future), so a
+      // relay cannot keep a gone user alive past the share window.
+      const relayedActive = rp.active !== false;
+      const relayedSeenAt = typeof rp.lastSeenAt === 'number' && Number.isFinite(rp.lastSeenAt)
+        ? Math.min(rp.lastSeenAt, currentTime) : 0;
+      if (!relayedActive && (relayedSeenAt <= 0 || currentTime - relayedSeenAt > SAVED_CONTACT_SHARE_WINDOW_MS)) continue;
+      const activeLastSeen = relayedActive ? currentTime : relayedSeenAt;
       const nextNodeId = rp.nodeId ?? rp.peerId.replace(/^peer-/, '');
       const nextAlias = rp.alias ?? `Node ${nextNodeId.slice(0, 6)}`;
       const nextTrust = typeof rp.trustScore === 'number' ? rp.trustScore : undefined;
@@ -2408,24 +2529,31 @@ export class StandaloneSwarmMesh {
       if (this.connections.has(rp.peerId)) {
         const existing = this.library.get(rp.peerId);
         if (existing) {
-          existing.lastSeenAt = activeLastSeen;
+          existing.lastSeenAt = currentTime; // connected to us: live now
           if (nextTrust !== undefined) existing.trustScore = nextTrust;
         }
         this.restorePeerEligibility(rp.peerId);
         continue;
       }
 
+      // A relayed saved contact is an older observation than what we may
+      // already know: it may only fill gaps, never roll back identity or
+      // provenance learned from a newer sighting.
+      let hintIsNewer = true;
       const existing = this.library.get(rp.peerId);
       if (existing) {
         const prevLastSeen = existing.lastSeenAt;
+        hintIsNewer = relayedActive || relayedSeenAt > prevLastSeen;
         existing.nodeId = nextNodeId;
-        if (typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
+        if (hintIsNewer && typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
           if (existing.alias !== rp.alias) metadataChanged = true;
           existing.alias = rp.alias;
         }
         existing.lastSeenAt = Math.max(existing.lastSeenAt, activeLastSeen);
-        if (nextTrust !== undefined) existing.trustScore = nextTrust;
-        if (existing.source !== 'manual') existing.source = 'exchange';
+        if (hintIsNewer && nextTrust !== undefined) existing.trustScore = nextTrust;
+        // Saved 'library' friends keep their reconnect window when gossip
+        // repeats them; only a live sighting reclassifies the entry.
+        if (relayedActive && existing.source !== 'manual') existing.source = 'exchange';
         if (existing.lastSeenAt > prevLastSeen) refreshed++;
       } else {
         this.library.set(rp.peerId, {
@@ -2448,6 +2576,7 @@ export class StandaloneSwarmMesh {
       if (entry) {
         for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
+          if (!hintIsNewer && entry[key]) continue;
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             if (key === 'userId') this.clearNamespaceAnchor(entry);
             entry[key] = value;
@@ -2456,7 +2585,7 @@ export class StandaloneSwarmMesh {
         }
         // Relayed namespace coordinates are never copied: only a well-formed
         // wallet anchor is taken, and the #discriminator is derived locally.
-        if (entry.userId && isPublicWalletAddress(rp.walletAddress)
+        if (entry.userId && (hintIsNewer || !entry.walletAddress) && isPublicWalletAddress(rp.walletAddress)
           && entry.walletAddress?.toLowerCase() !== rp.walletAddress.toLowerCase()) {
           this.clearNamespaceAnchor(entry);
           entry.walletAddress = rp.walletAddress;
@@ -2470,7 +2599,9 @@ export class StandaloneSwarmMesh {
         }
       }
 
-      if (!this.isPeerCoolingDown(rp.peerId)) {
+      // Only peers live right now are dialed; saved contacts are remembered
+      // and reached later through the normal reconnect and discovery paths.
+      if (relayedActive && !this.isPeerCoolingDown(rp.peerId)) {
         this.restorePeerEligibility(rp.peerId);
         dialCandidates.set(rp.peerId, {
           peerId: rp.peerId,
@@ -2504,7 +2635,7 @@ export class StandaloneSwarmMesh {
    * A rebroadcasts to B so B discovers C and dials them.
    */
   private rebroadcastLibrary(excludePeerId?: string): void {
-    const shareable = this.getActiveExchangePeers();
+    const shareable = this.getSharedLibraryPeers();
 
     if (shareable.length === 0) return;
 
@@ -2719,6 +2850,123 @@ export class StandaloneSwarmMesh {
     console.log(`[SwarmMesh] 📬 Received mention-alert — creating notification`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // STOP SUPPORT — posts this node sovereignly opted out of
+  // (src/lib/content/unsupportedPostsStore.ts owns the list)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private unsupportedKnown = new Set<string>();
+
+  private watchUnsupportedPosts(): void {
+    this.unsupportedKnown = new Set(listUnsupportedPosts().map((e) => e.postId));
+    subscribeUnsupportedPosts(() => this.syncUnsupportedPosts());
+    void hydrateUnsupportedPosts();
+  }
+
+  /** Apply Stop Support / Resume Support to the live mesh state. */
+  private syncUnsupportedPosts(): void {
+    const current = listUnsupportedPosts();
+    const now = new Set(current.map((e) => e.postId));
+    let changed = false;
+    for (const entry of current) {
+      // Deregister from the local seed pool and drop the relay copy.
+      for (const manifestId of entry.manifestIds) {
+        this.fileSeeders.get(manifestId)?.delete(this.peerId);
+        this.clearAssetRetry(manifestId);
+      }
+      if (this.contentStore.delete(entry.postId)) changed = true;
+    }
+    for (const postId of this.unsupportedKnown) {
+      if (!now.has(postId)) void this.restoreSupportedPost(postId);
+    }
+    this.unsupportedKnown = now;
+    if (changed) this.emitContentChange();
+  }
+
+  /** Resume Support: serve the post again and re-register its media. */
+  private async restoreSupportedPost(postId: string): Promise<void> {
+    try {
+      const { get } = await import('../store');
+      const post = await get<Record<string, unknown>>('posts', postId);
+      if (!post || isPostUnsupported(postId)) return;
+      const createdAt = typeof post.createdAt === 'string' ? post.createdAt : undefined;
+      this.contentStore.set(postId, {
+        id: postId,
+        type: 'post',
+        data: post,
+        author: typeof post.author === 'string' ? post.author : 'unknown',
+        timestamp: createdAt ? new Date(createdAt).getTime() : Date.now(),
+        hash: `${postId}-${createdAt ?? Date.now()}`,
+      });
+      this.emitContentChange();
+      const manifestIds = Array.isArray(post.manifestIds)
+        ? post.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+      for (const manifestId of manifestIds) {
+        const { complete } = await this.ensureManifestAndChunks(manifestId);
+        if (complete) this.announceSeeding(manifestId);
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] Resume support failed for', postId, err);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // CONTENT LIFECYCLE — signed tombstones, author presence, fadeout
+  // (src/lib/p2p/contentLifecycle.ts owns the rules; this is transport)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private lifecycle: typeof import('./contentLifecycle') | null = null;
+  private lifecycleAttach: Promise<typeof import('./contentLifecycle') | null> | null = null;
+
+  private attachContentLifecycle(): Promise<typeof import('./contentLifecycle') | null> {
+    if (!this.lifecycleAttach) {
+      this.lifecycleAttach = import('./contentLifecycle')
+        .then(async (lc) => {
+          await lc.ensureLifecycleLoaded();
+          lc.registerTombstoneTransport((tombstones, excludePeerId) => {
+            const payload = JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId });
+            let reached = 0;
+            for (const [peerId, conn] of this.connections) {
+              if (peerId === excludePeerId || !conn.open) continue;
+              try { conn.send(payload); reached++; } catch { /* ignore */ }
+            }
+            return reached;
+          });
+          lc.onContentPurged((ids) => {
+            let n = 0;
+            for (const id of ids) if (this.contentStore.delete(id)) n++;
+            if (n > 0) this.emitContentChange();
+          });
+          this.lifecycle = lc;
+          return lc;
+        })
+        .catch((err) => {
+          console.warn('[SwarmMesh] Content lifecycle unavailable:', err);
+          this.lifecycleAttach = null;
+          return null;
+        });
+    }
+    return this.lifecycleAttach;
+  }
+
+  private sendLifecycleState(conn: import('peerjs').DataConnection): void {
+    const lc = this.lifecycle;
+    if (!lc) return;
+    try {
+      const hints = lc.getPresenceHints();
+      if (Object.keys(hints).length > 0) {
+        conn.send(JSON.stringify({ type: 'author-presence', hints, from: this.peerId }));
+      }
+      const tombstones = lc.getActiveTombstones();
+      if (tombstones.length > 0) {
+        conn.send(JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId }));
+      }
+    } catch { /* ignore */ }
+    // Deletions made while the identity key was locked go out once it can sign.
+    void lc.flushPendingTombstones().catch(() => { /* retried on the next connect or sweep */ });
+  }
+
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
     const ids = Array.from(this.contentStore.keys());
     try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
@@ -2777,6 +3025,12 @@ export class StandaloneSwarmMesh {
         case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
         case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
+        case 'content-tombstone':
+          void this.attachContentLifecycle()
+            .then((lc) => lc?.receiveTombstones(msg.tombstones, from))
+            .catch(() => { /* invalid tombstones are dropped */ });
+          break;
+        case 'author-presence': this.lifecycle?.receivePresenceHints(msg.hints); break;
         default: break;
       }
     } catch (e) {
@@ -2787,7 +3041,7 @@ export class StandaloneSwarmMesh {
   private handleInventory(from: string, msg: Record<string, unknown>): void {
     const ids = msg.ids as string[] | undefined;
     if (!Array.isArray(ids)) return;
-    const needed = ids.filter(id => !this.contentStore.has(id));
+    const needed = ids.filter(id => !this.contentStore.has(id) && !isPostUnsupported(id));
     if (!needed.length) return;
     const conn = this.connections.get(from);
     if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
@@ -2798,7 +3052,9 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
     if (!conn) return;
-    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
+    const items = ids
+      .map(id => this.contentStore.get(id))
+      .filter((i): i is ContentItem => !!i && !(i.type === 'post' && isPostUnsupported(i.id)));
     if (!items.length) return;
     try {
       conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
@@ -2811,8 +3067,22 @@ export class StandaloneSwarmMesh {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
     let n = 0;
+    const refused: Array<{ id?: string; author?: string }> = [];
     for (const item of items) {
       if (!item.id) continue;
+      // Stop Support: this node neither stores nor relays the post.
+      if (item.type === 'post' && isPostUnsupported(item.id)) continue;
+      // Anti-resurrection: never take back deleted content; tell the sender why.
+      const lc = this.lifecycle;
+      if (lc && (item.type === 'post' || item.type === 'comment')) {
+        const data = (item.data ?? {}) as { id?: unknown; author?: unknown };
+        const author = typeof data.author === 'string' ? data.author : item.author;
+        const postId = item.type === 'post' ? (typeof data.id === 'string' ? data.id : item.id) : undefined;
+        if (lc.isPostTombstoned(postId, author)) {
+          refused.push({ id: postId, author });
+          continue;
+        }
+      }
       const existing = this.contentStore.get(item.id);
       const incomingTimestamp = typeof item.timestamp === 'number' ? item.timestamp : now();
       const shouldReplace =
@@ -2831,6 +3101,13 @@ export class StandaloneSwarmMesh {
       if (item.type === 'comment' && item.data) this.writeCommentToDB(item.data as Record<string, unknown>);
       if (item.type === 'project' && item.data) void this.writeProjectToDB(item.data as Record<string, unknown>);
       for (const h of this.contentHandlers) { try { h(item); } catch { /* ignore */ } }
+    }
+    if (refused.length > 0 && this.lifecycle) {
+      const tombstones = this.lifecycle.tombstonesFor(refused);
+      const conn = this.connections.get(fromPeerId);
+      if (conn && tombstones.length > 0) {
+        try { conn.send(JSON.stringify({ type: 'content-tombstone', tombstones, from: this.peerId })); } catch { /* ignore */ }
+      }
     }
     if (n > 0) {
       console.log(`[SwarmMesh] 📦 ${n} new/updated item(s), total: ${this.contentStore.size}`);
@@ -3398,6 +3675,9 @@ export class StandaloneSwarmMesh {
 
     if (!userId && !username && !displayName) return;
 
+    // A live connection is the strongest sign an author is active (fadeout clock).
+    if (userId) this.lifecycle?.noteAuthorSeen(userId);
+
     const entry = this.library.get(fromPeerId);
     if (entry) {
       if (entry.userId !== userId) this.clearNamespaceAnchor(entry);
@@ -3561,6 +3841,7 @@ export class StandaloneSwarmMesh {
   }
 
   isFileBlocked(fileId: string): boolean {
+    if (isManifestUnsupported(fileId)) return true;
     const p = this.getFilePref(fileId);
     return p.paused || p.ignored;
   }
@@ -3967,7 +4248,7 @@ export class StandaloneSwarmMesh {
           const posts = req.result as Array<{ id: string; author?: string; createdAt?: string; [key: string]: unknown }>;
           let n = 0;
           for (const post of posts) {
-            if (!post.id || this.contentStore.has(post.id)) continue;
+            if (!post.id || this.contentStore.has(post.id) || isPostUnsupported(post.id)) continue;
             this.contentStore.set(post.id, {
               id: post.id, type: 'post', data: post,
               author: post.author ?? 'unknown',
@@ -4015,6 +4296,12 @@ export class StandaloneSwarmMesh {
   private async writePostToDB(postData: Record<string, unknown>, sourcePeerId?: string): Promise<void> {
     try {
       if (!postData.id) return;
+      // Tombstoned, or its author faded here and we did not favorite it: don't store.
+      const lc = await this.attachContentLifecycle();
+      if (lc && !(await lc.shouldAcceptIncomingPost(postData as { id?: string; author?: string }))) {
+        if (this.contentStore.delete(String(postData.id))) this.emitContentChange();
+        return;
+      }
       const normalizedPostData = this.normalizeBlogFlags(postData);
 
       const manifestIds = Array.isArray(normalizedPostData.manifestIds)
@@ -4077,6 +4364,12 @@ export class StandaloneSwarmMesh {
   private async writeCommentToDB(commentData: Record<string, unknown>): Promise<void> {
     try {
       if (!commentData.id) return;
+      // Comments on deleted posts or by deleted accounts stay deleted.
+      const lc = await this.attachContentLifecycle();
+      if (lc && !(await lc.shouldAcceptIncomingComment(commentData))) {
+        if (this.contentStore.delete(String(commentData.id))) this.emitContentChange();
+        return;
+      }
       const db = await this.openDB();
       if (!db.objectStoreNames.contains('comments')) { db.close(); return; }
       const tx = db.transaction('comments', 'readwrite');
@@ -4568,6 +4861,7 @@ export class StandaloneSwarmMesh {
    * that we can now seed it — enabling auto-seeding.
    */
   private announceSeeding(manifestId: string): void {
+    if (isManifestUnsupported(manifestId)) return;
     // Track ourselves as a seeder
     if (!this.fileSeeders.has(manifestId)) {
       this.fileSeeders.set(manifestId, new Set());
@@ -4659,7 +4953,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    const manifest = await this.getManifestFromDB(manifestId);
+    const manifest = isManifestUnsupported(manifestId) ? null : await this.getManifestFromDB(manifestId);
     const conn = this.connections.get(fromPeerId);
     if (!conn) {
       return;
@@ -4686,7 +4980,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    const chunk = await this.getChunkFromDB(chunkRef);
+    const chunk = isChunkUnsupported(chunkRef) ? null : await this.getChunkFromDB(chunkRef);
     const conn = this.connections.get(fromPeerId);
     if (!conn) {
       return;

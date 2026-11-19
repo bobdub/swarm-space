@@ -32,6 +32,7 @@ import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
 import { BrainSyncHost } from "@/components/brain/BrainSyncHost";
 import { BrainInviteConnection } from "@/components/brain/BrainInviteConnection";
 import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
+import { SwarmLinkInterceptor } from "@/components/routing/SwarmLinkInterceptor";
 
 import { MobileBottomBar } from "@/components/MobileBottomBar";
 import { NodeDashboardEventBridge } from "@/components/p2p/NodeDashboardEventBridge";
@@ -48,6 +49,7 @@ import { lazyWithRetry as lazy, clearChunkReloadFlag } from "@/lib/utils/lazyWit
 const Index = lazy(() => import("./pages/Index"));
 const PeerConnect = lazy(() => import("./pages/PeerConnect"));
 const Auth = lazy(() => import("./pages/Auth"));
+const Recover = lazy(() => import("./pages/Recover"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Explore = lazy(() => import("./pages/Explore"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -163,12 +165,15 @@ function AppContent() {
       <CoinEngravingService />
       <BrainChunkPreloader />
       <BrainInviteConnection />
+      {/* SWARM links navigate in-app so a Brain meeting keeps running. */}
+      <SwarmLinkInterceptor />
 
       <div className="pb-16 md:pb-0">
         <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" /></div>}>
           <Routes>
             {/* Public routes — no login required */}
             <Route path="/auth" element={<Auth />} />
+            <Route path="/recover" element={<Recover />} />
             <Route path="/preview" element={<Preview />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/whitepaper" element={<WhitepaperPage />} />

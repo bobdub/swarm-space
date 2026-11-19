@@ -39,6 +39,8 @@ import {
   getStoredAccounts,
   restoreLocalAccount,
   logoutUser,
+  getCachedPrivateKey,
+  loginUser,
   type UserMeta,
 } from "@/lib/auth";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -48,11 +50,13 @@ import { getBlockedUserIds, unblockUser } from "@/lib/connections";
 import { Avatar } from "@/components/Avatar";
 import type { User as NetworkUser } from "@/types";
 import { AccountExportModal } from "@/components/AccountExportModal";
-import { AccountRecoveryPanel } from "@/components/AccountRecoveryPanel";
+import { SovereignSecurityPanel } from "@/components/settings/SovereignSecurityPanel";
+import { ArchiveImportModal } from "@/components/settings/ArchiveImportModal";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
+import { TestConnectPanel } from "@/components/settings/TestConnectPanel";
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -81,11 +85,17 @@ const Settings = () => {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [deletePassphrase, setDeletePassphrase] = useState("");
+  const [needsDeletePassphrase, setNeedsDeletePassphrase] = useState(false);
+  const [deleteLocalOnly, setDeleteLocalOnly] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const initialTab = ["account", "security", "storage", "keys"].includes(tabParam ?? "")
-    ? (tabParam as string)
+  // `/settings#security` (custody notifications) and `?tab=security` both land on Security.
+  const hashTab = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+  const requestedTab = tabParam ?? hashTab;
+  const initialTab = ["account", "security", "storage", "keys"].includes(requestedTab)
+    ? requestedTab
     : "account";
 
   // Redirect to auth if not logged in
@@ -630,6 +640,7 @@ const Settings = () => {
 
               <LoadingChainEditor />
               <SessionHealthCard />
+              <TestConnectPanel />
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
@@ -656,16 +667,23 @@ const Settings = () => {
                     <span>P2P Ready</span>
                     <span className="font-medium text-accent">Yes</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>Three-Factor Recovery</span>
-                    <span className="font-medium text-green-500">Enabled</span>
-                  </div>
                 </div>
               </Card>
 
+              <SovereignSecurityPanel />
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-6">
+              <Card className="space-y-3 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+                <div>
+                  <h2 className="text-xl font-bold">Personal archive</h2>
+                  <p className="text-sm text-foreground/60">
+                    Take your posts, conversations and media with you as a .zip you can read offline, and restore it on any device.
+                  </p>
+                </div>
+                <AccountExportModal />
+                <ArchiveImportModal />
+              </Card>
               <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
               <PersonalServersPanel />
               <GroupWarePanel />
@@ -675,34 +693,10 @@ const Settings = () => {
               <Alert className="border-[hsla(174,59%,56%,0.4)] bg-[hsla(174,59%,56%,0.08)]">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
-                  Your account is protected by <strong>Three-Factor Recovery</strong>: a Recovery Key
-                  (<code className="text-xs">SWRM-XXXX</code>), a Recovery Phrase, and your Account
-                  Password. All three are required to restore your identity on a new device — intercepting
-                  any single one is useless.
+                  Account recovery now lives in <strong>Security</strong>: your Recovery Link, identity file and
+                  outer-shell Recovery Passphrase. Raw private keys are never exported.
                 </AlertDescription>
               </Alert>
-
-              <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-                <h2 className="mb-4 text-xl font-bold">Three-Factor Recovery</h2>
-                <div className="space-y-4">
-                  <p className="text-sm text-foreground/60">
-                    Your Recovery Key (a short <code className="text-xs">SWRM-XXXX</code> code) locates
-                    your encrypted backup on the mesh. Your Recovery Phrase salts the encryption.
-                    Your Account Password unlocks the payload. Keep all three safe — losing any one
-                    breaks recovery.
-                  </p>
-                  <div className="flex items-start gap-3 rounded-lg border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.5)] p-3">
-                    <Shield className="mt-0.5 h-5 w-5 shrink-0 text-[hsl(174,59%,56%)]" />
-                    <p className="text-xs leading-relaxed text-foreground/70">
-                      <strong className="text-foreground">Tip:</strong> Download your Recovery Key and
-                      write your Phrase down — store them separately from your password (a password
-                      manager plus a physical lockbox works well). Nothing is stored on the network
-                      in plaintext.
-                    </p>
-                  </div>
-                  <AccountRecoveryPanel />
-                </div>
-              </Card>
 
               <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <h2 className="mb-4 text-xl font-bold">Public Key</h2>
@@ -752,8 +746,8 @@ const Settings = () => {
                   <h2 className="text-lg font-bold text-destructive">Danger Zone</h2>
                   <p className="text-sm text-foreground/70">
                     Deleting your account wipes every local key, message, draft, and cached chunk
-                    on this device. Your peer-id will simply disappear from the mesh as other peers
-                    prune you. <strong>This cannot be undone</strong> — export a backup first if you
+                    on this device. Connected peers are sent a signed notice to remove your posts and
+                    pass it on; copies anywhere else fade out within 15 days. <strong>This cannot be undone</strong> — export a backup first if you
                     want to come back later.
                   </p>
                 </div>
@@ -782,11 +776,40 @@ const Settings = () => {
                     placeholder="DELETE"
                     autoComplete="off"
                   />
+                  {needsDeletePassphrase && (
+                    <div className="space-y-2">
+                      <Label htmlFor="delete-passphrase" className="text-sm">
+                        Enter your passphrase so connected peers can be told to remove your posts:
+                      </Label>
+                      <Input
+                        id="delete-passphrase"
+                        type="password"
+                        value={deletePassphrase}
+                        onChange={(e) => setDeletePassphrase(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={deleteLocalOnly}
+                      />
+                      <label className="flex items-center gap-2 text-xs text-foreground/70">
+                        <input
+                          type="checkbox"
+                          checked={deleteLocalOnly}
+                          onChange={(e) => setDeleteLocalOnly(e.target.checked)}
+                        />
+                        Delete on this device only. Copies on peers fade out within 15 days.
+                      </label>
+                    </div>
+                  )}
                   <div className="flex justify-end gap-2">
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => { setDeleteOpen(false); setDeleteConfirm(""); }}
+                      onClick={() => {
+                        setDeleteOpen(false);
+                        setDeleteConfirm("");
+                        setDeletePassphrase("");
+                        setNeedsDeletePassphrase(false);
+                        setDeleteLocalOnly(false);
+                      }}
                       disabled={deleting}
                     >
                       Cancel
@@ -798,6 +821,38 @@ const Settings = () => {
                       onClick={async () => {
                         setDeleting(true);
                         try {
+                          // 0. Sign an account tombstone with the identity key and send it to
+                          //    connected peers BEFORE the key is wiped, so they purge our posts
+                          //    and refuse them afterwards. Needs the key unlocked.
+                          if (!deleteLocalOnly) {
+                            let privateKey = await getCachedPrivateKey();
+                            if (!privateKey) {
+                              try {
+                                privateKey = await loginUser(deletePassphrase || undefined);
+                              } catch {
+                                privateKey = null;
+                              }
+                            }
+                            if (!privateKey) {
+                              setNeedsDeletePassphrase(true);
+                              toast.error(
+                                deletePassphrase
+                                  ? "That passphrase didn't unlock your key."
+                                  : "Enter your passphrase, or choose to delete on this device only.",
+                              );
+                              setDeleting(false);
+                              return;
+                            }
+                            const { issueAccountTombstone } = await import("@/lib/p2p/contentLifecycle");
+                            const sent = await issueAccountTombstone(privateKey);
+                            if (sent && sent.peersReached > 0) {
+                              toast.message(`Told ${sent.peersReached} connected peer(s) to remove your posts.`);
+                              // Give the data channels a moment to flush before the wipe.
+                              await new Promise((resolve) => setTimeout(resolve, 1500));
+                            } else {
+                              toast.message("No peers are online, so your posts on other devices will fade out within 15 days.");
+                            }
+                          }
                           // 1. Wipe localStorage + sessionStorage entirely.
                           try { localStorage.clear(); } catch { /* ignore */ }
                           try { sessionStorage.clear(); } catch { /* ignore */ }

@@ -8,6 +8,10 @@
  * Pure UI lens: toggles flip existing stores (`landOverlayStore`,
  * `builderCameraStore`, `spectatorCameraStore`) and the `useBrainBuilder`
  * seam. Nothing here writes to the lattice.
+ *
+ * Performance: Stacked (default, full fidelity) or Light (bypasses every
+ * user placement — meshes, colliders and HTML layers) for older devices.
+ * The choice is saved locally (`builderRenderModeStore`).
  */
 import { useEffect, useState } from 'react';
 import {
@@ -20,7 +24,14 @@ import {
   Camera,
   Bug,
   UserRound,
+  Layers,
+  Feather,
+  Gauge,
 } from 'lucide-react';
+import {
+  setBuilderRenderMode,
+  useBuilderRenderMode,
+} from '@/lib/brain/builderRenderModeStore';
 import {
   isOverheadView,
   isSeatDebugOn,
@@ -87,6 +98,7 @@ export function BuilderOptionsPanel({
     try { return loadHubPrefs().avatarId || DEFAULT_AVATAR_ID; } catch { return DEFAULT_AVATAR_ID; }
   });
   useEffect(() => subscribeAvatarChange(setAvatarId), []);
+  const renderMode = useBuilderRenderMode();
 
   return (
     <div className={`flex flex-col gap-2 ${className}`} data-testid="builder-options-panel">
@@ -120,6 +132,37 @@ export function BuilderOptionsPanel({
             );
           })}
         </div>
+      </div>
+
+      {/* Performance — Stacked (full) vs Light (no user placements) */}
+      <div className="rounded-lg border border-border/40 bg-muted/20 p-2" data-testid="builder-render-mode">
+        <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <Gauge className="h-3 w-3" aria-hidden="true" /> Performance
+        </div>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Builder render mode">
+          <Chip
+            testId="builder-mode-stacked"
+            icon={<Layers className="h-3 w-3" aria-hidden="true" />}
+            label="Stacked"
+            title="Stacked — full fidelity: every placement, wall, interactive item and billboard"
+            active={renderMode === 'stacked'}
+            onClick={() => setBuilderRenderMode('stacked')}
+          />
+          <Chip
+            testId="builder-mode-light"
+            icon={<Feather className="h-3 w-3" aria-hidden="true" />}
+            label="Light"
+            title="Light — skip all user placements (meshes, colliders, billboards) so terrain, ocean, sky and avatars stay smooth on older devices"
+            active={renderMode === 'light'}
+            tone="emerald"
+            onClick={() => setBuilderRenderMode('light')}
+          />
+        </div>
+        <p className="mt-1.5 text-[10px] leading-snug text-muted-foreground">
+          {renderMode === 'light'
+            ? 'Light: user placements are hidden on this device, yours included. Saved for next time.'
+            : 'Stacked: full detail. Switch to Light on older devices. Saved for next time.'}
+        </p>
       </div>
 
       {/* Camera + microphone — switch inputs mid-call */}

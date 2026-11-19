@@ -2,6 +2,7 @@ import { getAll, get, put } from "@/lib/store";
 import type { User } from "@/types";
 import type { Connection } from "@/lib/connections";
 import { swarmIdToEvmAddress } from "../gateway/addressMap";
+import { INFINITY_RECIPIENT, isInfinityRecipient } from "../infinity/vaults";
 
 /** Stable 20-byte receiving alias; not an externally controlled EVM account. */
 export function nativeWalletAddress(userId: string): Promise<string> {
@@ -28,6 +29,8 @@ export async function hydrateNativeWalletPeer(peer: {
 /** Resolve aliases to the existing account; never move balances to an alias. */
 export async function resolveNativeWalletRecipient(address: string): Promise<User> {
   const input = address.trim();
+  // Infinity (the system AI) receives into its community donations vault; it has no users row.
+  if (isInfinityRecipient(input)) return { ...INFINITY_RECIPIENT } as User;
   const id = input.startsWith("swarm:") ? input.slice(6) : input;
   const direct = await get<User>("users", id);
   if (direct) return direct;

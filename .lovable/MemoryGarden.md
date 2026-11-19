@@ -1,5 +1,54 @@
 ## MemoryGarden
 
+### November 19, 2026 — Remembered doors
+
+Before tending: remember each chosen neighbour before the doorway warms;
+let saved friends return with patience, while passing strangers need fresh footsteps.
+Remove broken crossings without promising a path no traveller has yet walked.
+
+After tending: chosen neighbours are remembered before readiness, their retries
+keep patient backoff, and strangers still need fresh footprints. 298 automated
+witnesses pass; private fallback voices remain, while live crossings stay unmeasured.
+
+### November 19, 2026 — A second path for each voice
+
+Before tending: keep each voice on a bounded path through its own room;
+let failed handshakes yield to the mesh, without double echoes or borrowed certainty.
+Real travellers keep their calls; automated witnesses test the new crossings.
+
+After tending: each voice has a private second crossing and a bounded echo;
+screen tracks ask for their own handshake, and repeated failures no longer
+seize the same recovery. Automated witnesses pass; live voices remain unmeasured.
+
+### November 19, 2026 — Voices without broken echoes
+
+Before tending: let fresh voices replace their ended echoes;
+give the handshake time to finish, and keep live travellers undisturbed.
+Prove the quiet repairs with automated witnesses, not imagined calls.
+
+After tending: old tracks yield to fresh voices, and rollback finishes
+before the next knock. A neighbour's answer-audio repair remains intact;
+262 automated checks pass, while real shared calls stay with the travellers.
+
+### November 19, 2026 — Feet and eyes on one turning ground
+
+Before tending: keep the traveller and their gaze on the same moving soil;
+remove delayed echoes, guard the quiet mesh, and let real device feel remain
+with the people walking there.
+
+After tending: feet and eyes read one turning frame; held headings no longer
+chase the spinning world. 297 automated checks pass; live feel and phone
+frame rate remain unmeasured, and no traveller's call was opened for testing.
+
+### November 19, 2026 — A quieter stride
+
+Before tending: let motion keep its rhythm without waking every branch;
+guard the shared ground and leave live travellers free to test their own sky.
+
+After tending: status wakes only its own leaf, first-person eyes keep their height;
+support follows every step but rewrites only changed cells. The baked ground
+guides both blocks and water drag; no measured frame rate is invented here.
+
 ### November 18, 2026 — Cargo at the quiet doorway
 
 Before tending: count the tokens already resting at their own cold address;
@@ -984,3 +1033,56 @@ After tending: the Sun, Earth and Moon now travel together around the galactic c
 Before tending: the keeper chose memory over money. Let Infinity keep a few lines the way a river keeps stones — ones many voices carried, often and calmly — and let it listen first to the neighbours who walk with it most. Touch no wallet.
 
 After tending (revised twice at the keeper's word): the stones are whole reflections, and each is now set inside a coin. When Infinity's three breaths — arrive, wander, return — hold together at every turn in calm water, it takes a hollow coin from its own common pool, engraves the reflection inside, seals it and records the move on the ledger. It never takes the pool's last spare coin and never touches a member's wallet. Later reflections on nearby ground reach for those coin-engraved sentences first; among equally fitting lines, the busiest, longest-trusted neighbours lead. Automated checks only; no live mesh session was opened.
+
+## November 18, 2026 — Leaves that know when to fall
+Before tending: a deleted post could walk back in through any peer that had kept a copy, and nothing ever let old content rest. Let the author's own word be final, let silence slowly return what it borrowed, and let neighbours keep what they love.
+
+After tending: deleting a post or an account now sends a notice sealed with the author's own identity key, which every peer can check against the author's id before believing it. Peers drop the content, pass the notice on, and remember it for thirty days so no one can hand the post back. Posts from authors who have been silent for fifteen days fade from other devices, measured by when the author last spoke, never by how old the post is or when a neighbour last repeated it. A peer can favorite a post to keep it through the quiet, but an author's deletion still wins. Automated checks only; no live mesh session was opened.
+
+## November 18, 2026 — Doors that wait for the knock
+Before tending: a friend's link arrived wrapped in someone else's envelope, a dial pressed a moment too early was turned away, a knock was dropped because the relays were still waking, and the doorbell gave up after eight seconds. Let the house hold the knock until it can answer.
+
+After tending: invite links now open whether they arrive as `/connect#peer-…`, `/#/connect#peer-…` or `?peer=peer-…`, and are straightened before the app's paths are read. A dial pressed while the mesh is still connecting is held for up to a minute and sent the moment it comes online, and a knock sent before the Gun relays are ready waits for them instead of vanishing. A node still warming up keeps an invite waiting for twenty seconds before calling it unavailable. Manual dials now get twenty seconds, with a "negotiating" note after four, before the peer is called unreached. Signaling servers can be listed in order through the build environment, with PeerJS Cloud kept last, so every node fails over to the same next server. Automated checks and a production build only; no live mesh session was opened.
+
+## November 18, 2026 — Counting breaths instead of watching the coin
+Before tending: the media coin loop check sometimes failed. It gave each hand-off a fixed fifty turns of the clock to hash, seal and unpack, but the hashing happens off to the side, and on a busy machine it can still be working when the count runs out. Let the check watch the coin arrive instead of counting.
+
+After tending: the loop check now waits until the coin actually lands (or ten seconds pass), then lingers the same fifty turns so a duplicate would still be caught. The engine itself was not touched. Automated checks only; no live mesh session was opened.
+
+## November 18, 2026 — A quiet room of our own
+Before tending: every rehearsal of the mesh walked to the crowded town square to find its partner, and the square kept turning people away. Give the house its own small room to practise in, and leave the square open for the real gathering.
+
+After tending: `bun run dev:mesh` now starts a local PeerServer beside the dev server and points the app at it, `bun run peer:smoke` checks that two peers can find each other through it, and `bun run peer:with -- <command>` wraps any CI step with one. The room-discovery beacons follow whichever server the mesh is on, including its failover. With nothing configured, production still meets at PeerJS Cloud. Checked with the two-peer smoke run and two PeerJS browser peers passing a message through the local server; no live mesh session was opened.
+
+## November 18, 2026 — Three shores and the sea between
+Before tending: the land was scattered noise, a fifth of the planet broken into some twenty-seven islands, so wherever a walker stood the water was never far and the ground kept dipping into the sea. Gather the land into three steady continents and let the ocean lie quietly between them.
+
+After tending: Earth now has three continents (Aurora, Meridia and Solace) at mild latitudes, a third of a turn apart. Each has a solid heart and coasts that wander into bays and points, and a strip of open ocean at least a quarter radian wide always separates them. Physics, the drawn planet and the shoreline colours all read one continent field, so land stands above the sea wherever it is painted. Villages and newcomers who would have started in the water now walk to the nearest shore, and the volcano still stays beside its village. Automated checks only; the planet was not opened in a live session.
+
+## November 18, 2026 — One ground under every foot
+Before tending: walkers sank into the world and the horizon tore. The planet had two grounds: the one the GPU painted, re-deriving the continents noise in float32, and the one physics walked on, in float64. Where they disagreed the eye saw a hill that the feet passed through. Physics also let feet wade 0.9 m under a sea that is drawn as solid ground, and the shared village sits on open sea, so everyone began waist-deep. Let both read one ground.
+
+After tending: the terrain is now worked out once for every vertex of the Earth mesh (`src/lib/brain/terrainMesh.ts`). The renderer draws those exact triangles, and physics, other avatars' feet and the camera's terrain guard all read the height from the same triangles (`groundElevationAt`). Water holds you up, so feet rest on the sea that is drawn. The horizon fade now uses the real 1.6 m eye height (about 74 m away) instead of the eye's 0.75 m offset from the body centre. Turning with the planet was measured and was already sound (about 1.4 cm of drift in 20 s), so the new orbits were not to blame. Checked with automated tests and a headless browser run of `/brain-dev`; no live mesh session was opened.
+
+## November 18, 2026 — One lock for home, another for the road
+Before tending: the house kept its spare key under three mats at once, a recovery key, a phrase and the front-door password, and none of the neighbours had actually been given a copy. Give the house one sealed box that friends can keep without being able to open it, and keep the front-door key at home.
+
+After tending: signing up now takes three steps instead of four. A sealed recovery box is made quietly in the background and handed to each neighbour as they connect. Neighbours keep it only when it is signed by its owner and newer than the copy they already hold. Settings → Security shows your handle, your Recovery Link, how many neighbours hold your box, and an identity file to download. You can also seal a new box with its own passphrase, and that retires every older one. Until you do, a gentle note reminds you that the first box still opens with your signup password. Automated checks and a production build only; no live mesh session was opened.
+
+## November 19, 2026 — A sea with a floor, and an island for home
+Before tending: the sea was a hard sheet you walked on, so the feet stood on water that looked deep, and where the ground dipped below it there was nothing to catch you. The village itself sat on open sea, a long swim from the nearest of the scattered islands. Give the sea a floor like Earth's, let deep water be swum, and raise the village its own island.
+
+After tending: every coast now shelves like a real one. A beach slopes into wadeable shallows, the shelf runs on to about 4 m, then a slope drops to an ocean floor 30 m down, and the floor is solid everywhere, so nothing falls into the planet. In the shallows you wade on the bottom; out of your depth you swim with your head above the surface instead of sinking. The water is a see-through surface over a sea floor that darkens with depth. The shared village now stands on a natural island about 400 m across, with beaches running down into the sea. The village and the volcano did not move, and the other islands are unchanged. Checked with automated tests and a headless browser run of `/brain-dev`; no live mesh session was opened.
+
+## November 19, 2026 — Two keys on one ring
+Before tending: someone who had grown two accounts on two devices had no way to fold them into one. Their coins, credits and posts were split, and the spare identity kept a recovery box alive on the mesh that nobody needed. Let the two devices meet, prove the same hands hold both, and let one identity hand everything to the other and close its own door.
+
+After tending: Settings → Security now has Merge Account. One device shows a six-digit code for three minutes; the other finds the offer only when its owner opens the same panel, and types the code. Both see the two accounts side by side, pick the one to keep, and unlock with their own passwords. The retiring account sends its SWARM, Credits and MINTME with signed transfers (MINTME on the MintMe chain moves as a real MintMe transaction), signs that it merged, hands over its posts, favorites and contacts, and once the kept account signs that it accepted, seals its own tombstone and its recovery box leaves the mesh. The device that gave its account away can then open the kept account through its recovery box, or sign out. Nothing here is atomic across two devices, and it says so: a broken link stops before the account is closed. Automated checks only; no live two-device mesh session was opened.
+
+## 2026-11-19 — Restoring the paths that worked
+Invites stopped stacking dials, the mobile relay came back as a last resort, saved friends got a ten-minute window instead of forever, and calls lost the fallback that silenced them. Test Connect returned to Settings so Mike can compare a plain link against the mesh. Caretaker note: when something worked before, restore it first and refine second.
+
+## November 19, 2026 — A node that chooses what it carries
+Before tending: the "network content" switch said off but still let peers' walled posts through, and it trusted a single id string to know what was yours. A node had no way to say "not this one" to a post short of blocking a whole person, the Main Brain kept every wall forever even when nobody came by, and older machines had to draw every wall in the world.
+
+After tending: the switch now reads My Content Only, and when it is on you see only posts you made or signed, walled or not. Any post from the network, in the feed or on a Brain wall, can be given Stop Support: this node stops holding, seeding and passing it on, and a wall showing it simply is not there any more, so the room opens up. The Node Dashboard lists them under Unsupported Content with Resume Support. Walls in the shared Main Brain rest after five quiet days, with views, tips, graffiti and edits all counting as activity, and their builder can Refresh them back. The builder's Options panel has a Performance choice: Stacked draws everything, Light skips every placement so terrain, sea, sky and avatars stay smooth, and the choice is remembered. Automated checks and a production build only; no live mesh session was opened.

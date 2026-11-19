@@ -12,11 +12,11 @@ import { Switch } from "@/components/ui/switch";
 import { Pickaxe, UserPlus, ShieldOff, ChevronDown, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { getMiningRewards } from "@/lib/blockchain/miningRewards";
+import { useMeshMining } from "@/hooks/useMeshMining";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getMyContentOnly, setMyContentOnly } from "@/lib/feed";
 import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 
 interface SwarmMeshModePanelProps {
@@ -37,7 +37,8 @@ export function SwarmMeshModePanel({
 
   const [isMining, setIsMining] = useState<boolean>(() => mesh.getToggles().mining);
   const [manualPeerId, setManualPeerId] = useState("");
-  const [miningStats, setMiningStats] = useState(() => mesh.getMiningStats());
+  const mining = useMeshMining();
+  const miningStats = mining.stats;
   const [blockUserModalOpen, setBlockUserModalOpen] = useState(false);
 
   // SwarmMesh state
@@ -46,7 +47,7 @@ export function SwarmMeshModePanel({
   const [library, setLibrary] = useState<LibraryPeer[]>([]);
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
-  const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+  const [myContentOnly, setMyContentOnlyState] = useState(() => getMyContentOnly());
   const [shyNode, setShyNode] = useState(() => getShyMode());
 
   useEffect(() => {
@@ -55,7 +56,6 @@ export function SwarmMeshModePanel({
       mesh.onPeersChange(setPeers),
       mesh.onLibraryChange(setLibrary),
       mesh.onToggleChange((toggles) => setIsMining(toggles.mining)),
-      mesh.onMiningChange(setMiningStats),
       mesh.onAlert((msg, level) => {
         setAlert({ msg, level });
         if (level === 'info') toast.success(msg);
@@ -65,12 +65,10 @@ export function SwarmMeshModePanel({
     ];
     setBlocked(mesh.getBlockedPeers());
     setIsMining(mesh.getToggles().mining);
-    setMiningStats(mesh.getMiningStats());
     return () => unsubs.forEach(u => u());
   }, [mesh]);
 
   const connectedIds = new Set(peers.map(p => p.peerId));
-  const rewards = getMiningRewards();
 
   const handleToggleMining = () => {
     const next = !isMining;
@@ -138,20 +136,22 @@ export function SwarmMeshModePanel({
           <CardContent className="pt-0">
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
               <div className="flex items-center gap-2 mb-2">
-                <Pickaxe className="h-3.5 w-3.5 text-primary animate-pulse" />
-                <span className="text-xs font-medium text-primary">CREATOR Mining Active</span>
+                <Pickaxe className={`h-3.5 w-3.5 ${mining.active ? "text-primary animate-pulse" : "text-muted-foreground"}`} />
+                <span className={`text-xs font-medium ${mining.active ? "text-primary" : "text-muted-foreground"}`}>
+                  {mining.active ? "CREATOR Mining Active" : "Waiting for a peer to mine with"}
+                </span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <div className="text-muted-foreground">Confirmed Blocks</div>
-                  <div className="font-bold">{miningStats.confirmedBlocks ?? 0}</div>
+                  <div className="font-bold">{miningStats?.confirmedBlocks ?? 0}</div>
                   <div className="text-primary">
-                    +{((miningStats.confirmedBlocks ?? 0) * rewards.TRANSACTION_PROCESSED * (1 - rewards.NETWORK_POOL_PERCENTAGE)).toFixed(2)} SWARM
+                    +{mining.earnings.net.toFixed(2)} SWARM earned
                   </div>
                 </div>
                 <div>
                   <div className="text-muted-foreground">Pending / Relayed</div>
-                  <div className="font-bold">{miningStats.pendingBlocks ?? 0} / {miningStats.blocksRelayed ?? 0}</div>
+                  <div className="font-bold">{miningStats?.pendingBlocks ?? 0} / {miningStats?.blocksRelayed ?? 0}</div>
                   <div className="text-muted-foreground">Awaiting consensus</div>
                 </div>
               </div>
@@ -160,25 +160,25 @@ export function SwarmMeshModePanel({
         )}
       </Card>
 
-      {/* Show Network Content toggle */}
+      {/* My Content Only toggle — ON (right) = only your own posts */}
       <Card className="border-foreground/10">
         <CardContent className="pt-5">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 pr-4">
-              <Label htmlFor="show-net-content-swarm" className="flex items-center gap-1.5">
+              <Label htmlFor="my-content-only-swarm" className="flex items-center gap-1.5">
                 <Eye className="h-3.5 w-3.5 text-primary" />
-                Show Network Content
+                My Content Only
               </Label>
               <p className="text-xs text-muted-foreground">
-                Display posts synced from peers in your feed. Off = only your own posts appear.
+                On = your feed shows only posts you made or signed. Off = posts synced from peers show too.
               </p>
             </div>
             <Switch
-              id="show-net-content-swarm"
-              checked={showNetContent}
+              id="my-content-only-swarm"
+              checked={myContentOnly}
               onCheckedChange={(v) => {
-                setShowNetContent(v);
-                setShowNetworkContent(v);
+                setMyContentOnlyState(v);
+                setMyContentOnly(v);
               }}
             />
           </div>

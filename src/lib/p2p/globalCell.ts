@@ -23,6 +23,7 @@
 
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 import { recordP2PDiagnostic } from './diagnostics';
+import { GUN_RELAYS } from './gunRelays';
 import { getSmoothness, getSmoothedRtt } from './synapseLayer';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
@@ -130,11 +131,6 @@ const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
-const DEFAULT_GUN_RELAY_PEERS = [
-  'https://gun.eco/gun',
-  'https://e2e.we-share.io/gun',
-  'https://relay.peer.ooo/gun',
-];
 
 /** Debounce window for event-driven Bus evaluation after a new beacon arrives. */
 const BUS_EVENT_DEBOUNCE_MS = 300;
@@ -192,6 +188,11 @@ type GatewayPeersListener = (peers: GatewayPeerInfo[]) => void;
 let instance: GlobalCell | null = null;
 
 export const INVITE_KNOCK_TTL_MS = 30_000;
+
+/** Registry slot for one caller→target knock, separate from the caller's presence slot. */
+export function inviteKnockSlot(fromPeerId: string, toPeerId: string): string {
+  return `${fromPeerId}~knock~${toPeerId}`;
+}
 /** Knocks are addressed, fresh (≤30s) and deduplicated so relays cannot replay them. */
 export function acceptInviteKnock(
   k: { id?: string; from?: string; to?: string; at?: number } | null | undefined,
@@ -227,11 +228,35 @@ class GlobalCell {
   private knockListeners = new Set<(callerPeerId: string) => void>();
   private seenKnocks = new Map<string, number>();
 
-  /** Ask a target peer to dial us back so both sides punch simultaneously. */
+  /** Knocks requested before Gun relays were ready (targetPeerId → requestedAt). */
+  private pendingKnocks = new Map<string, number>();
+
+  /**
+   * Ask a target peer to dial us back so both sides punch simultaneously.
+   * Invite links and early manual dials fire while Gun is still starting;
+   * those knocks are held (within the knock TTL) and sent once relays are up.
+   */
   sendInviteKnock(targetPeerId: string): boolean {
-    if (!this.localPeerId || !targetPeerId || targetPeerId === this.localPeerId || !this.gunAdapter) return false;
+    if (!targetPeerId || !targetPeerId.startsWith('peer-')) return false;
+    if (!this.localPeerId) this.localPeerId = getSwarmMeshStandalone().getPeerId();
+    if (targetPeerId === this.localPeerId) return false;
+    if (!this.localPeerId || !this.gunAdapter) {
+      this.pendingKnocks.set(targetPeerId, Date.now());
+      return false;
+    }
     const knock = { id: `${this.localPeerId}:${targetPeerId}:${Date.now()}`, from: this.localPeerId, to: targetPeerId, at: Date.now() };
-    try { this.gunAdapter.broadcastToAll('invite-knock', knock); return true; } catch { return false; }
+    // Each caller→target knock gets its own registry slot, so the next presence
+    // beacon (or another knock) cannot overwrite it before the relay syncs.
+    try { this.gunAdapter.broadcastToAll('invite-knock', knock, { slot: inviteKnockSlot(this.localPeerId, targetPeerId) }); return true; } catch { return false; }
+  }
+
+  private flushPendingKnocks(): void {
+    const pending = [...this.pendingKnocks.entries()];
+    this.pendingKnocks.clear();
+    const nowTs = Date.now();
+    for (const [target, requestedAt] of pending) {
+      if (nowTs - requestedAt <= INVITE_KNOCK_TTL_MS) this.sendInviteKnock(target);
+    }
   }
 
   onInviteKnock(fn: (callerPeerId: string) => void): () => void {
@@ -483,7 +508,7 @@ class GlobalCell {
     try {
       const { GunAdapter } = await import('./transports/gunAdapter');
       this.gunAdapter = new GunAdapter({
-        peers: DEFAULT_GUN_RELAY_PEERS,
+        peers: GUN_RELAYS,
         graphKey: GUN_GRAPH_KEY,
         channelName: 'global-cell-gun',
         registryMode: true,
@@ -499,6 +524,7 @@ class GlobalCell {
       });
 
       this.gunAdapter.onMessage('invite-knock', (_from: string, payload: unknown) => this.handleInviteKnock(payload));
+      this.flushPendingKnocks();
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
       this.announcePresence();

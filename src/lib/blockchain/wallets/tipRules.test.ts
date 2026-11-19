@@ -35,4 +35,14 @@ test("native tip signature binds sender, recipient, token and amount", async () 
   expect(await verifyWalletTip({ ...signed, to: "attacker" })).toBe(false);
   expect(await verifyWalletTip({ ...signed, tokenId: "another-token" })).toBe(false);
   expect(await verifyWalletTip({ ...signed, from: "another-user" })).toBe(false);
+});test("signed tips can pay Infinity's donations vault, and the vault id is bound by the signature", async () => {
+  const keys = await genIdentityKeyPair();
+  const from = await computeUserId(keys.publicKey);
+  const tx: SwarmTransaction = { id: "tip-infinity", type: "wallet_tip", from, to: "infinity:donations", amount: 2,
+    timestamp: "2026-11-18T21:19:00.000Z", signature: "", publicKey: keys.publicKey, nonce: 2, fee: 0,
+    meta: { assetId: "chain:SWARM", ticker: "SWARM" } };
+  const signed = await signWalletTip(tx, keys.privateKey);
+  expect(await verifyWalletTip(signed)).toBe(true);
+  expect(await verifyWalletTip({ ...signed, to: "aabbccddeeff0011" })).toBe(false);
+  expect(await verifyWalletTip(await signWalletTip({ ...tx, to: "infinity:market" }, keys.privateKey))).toBe(false);
 });

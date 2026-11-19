@@ -1,17 +1,17 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Text } from '@react-three/drei';
+import { Text } from './SafeText';
 import {
   EARTH_RADIUS,
-  EARTH_SPHERE_SEGMENTS,
   EARTH_SPHERE_RINGS,
+  EARTH_SPHERE_SEGMENTS,
   getEarthPose,
   MOON_RADIUS,
   WORLD_SCALE,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
-import { LAND_LIFT } from '@/lib/brain/surfaceProfile';
+import { buildTerrainGeometry } from '@/lib/brain/terrainGeometry';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 
@@ -24,69 +24,22 @@ const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
-  // Volcano organ uniforms — single descriptor shared with collision
-  // and mantle vent. Vertex displacement turns the cone INTO Earth
-  // geometry (no separate prop intersecting the sphere).
-  uniform vec3 uVolcCenter;     // Earth-local unit normal at volcano centre
-  uniform float uVolcBaseR;     // base radius (m, arc length)
-  uniform float uVolcHeight;    // peak height (m)
-  uniform float uVolcCraterR;   // crater radius (m)
-  uniform float uVolcCraterD;   // crater depth (m)
-  uniform float uEarthR;        // EARTH_RADIUS, world units
-  uniform float uLandLift;      // metres land sits above ocean baseline
-
-  // Cheap value noise mirroring src/lib/brain/surfaceProfile.ts so the
-  // shoreline pixels and the JS-sampled land mask agree exactly.
-  float vHash(vec3 p) {
-    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
-    p += dot(p, p.yzx + 19.19);
-    return fract((p.x + p.y) * p.z);
-  }
-  float vNoise(vec3 x) {
-    vec3 i = floor(x); vec3 f = fract(x);
-    vec3 u = f * f * (3.0 - 2.0 * f);
-    return mix(
-      mix(mix(vHash(i+vec3(0,0,0)), vHash(i+vec3(1,0,0)), u.x),
-          mix(vHash(i+vec3(0,1,0)), vHash(i+vec3(1,1,0)), u.x), u.y),
-      mix(mix(vHash(i+vec3(0,0,1)), vHash(i+vec3(1,0,1)), u.x),
-          mix(vHash(i+vec3(0,1,1)), vHash(i+vec3(1,1,1)), u.x), u.y),
-      u.z);
-  }
-  float vLandMask(vec3 nrm) {
-    float continents =
-      vNoise(nrm * 3.5) * 0.6 +
-      vNoise(nrm * 8.0) * 0.3 +
-      vNoise(nrm * 16.0) * 0.1;
-    return smoothstep(0.48, 0.55, continents);
-  }
-
-  float volcElevation(vec3 nrm) {
-    float d = clamp(dot(uVolcCenter, nrm), -1.0, 1.0);
-    float arc = acos(d) * uEarthR;
-    if (arc >= uVolcBaseR) return 0.0;
-    float u = arc / max(1e-6, uVolcBaseR);
-    float t = 1.0 - u;
-    float cone = t * t * (3.0 - 2.0 * t);
-    float h = uVolcHeight * cone;
-    if (arc < uVolcCraterR) {
-      float cu = arc / max(1e-6, uVolcCraterR);
-      float ct = 1.0 - cu;
-      float bowl = ct * ct * (3.0 - 2.0 * ct);
-      h -= uVolcCraterD * bowl;
-    }
-    return max(0.0, h);
-  }
+  varying float vContinents;
+  varying float vVolcano;
+  // Terrain is baked per vertex in JS (src/lib/brain/terrainMesh.ts): the
+  // position attribute is ALREADY displaced by land lift + volcano cone,
+  // and physics intersects these very triangles. The GPU no longer
+  // re-derives the noise in float32 — that second terrain disagreed with
+  // the physics floor around coastlines (you stood inside drawn hills).
+  attribute float aContinents;
+  attribute float aVolcano;
 
   void main() {
-    vec3 nrm = normalize(position);
-    vNormalLocal = nrm;
-    // Land sits LAND_LIFT m above the ocean baseline so coastlines are
-    // visible geometry, not just a colour boundary. Volcano lift adds on
-    // top of that.
-    float lift = volcElevation(nrm) + vLandMask(nrm) * uLandLift;
-    vec3 displaced = position + nrm * lift;
-    vLocalPos = displaced;
-    vec4 wp = modelMatrix * vec4(displaced, 1.0);
+    vNormalLocal = normalize(position);
+    vContinents = aContinents;
+    vVolcano = aVolcano;
+    vLocalPos = position;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
     vWorldPos = wp.xyz;
     gl_Position = projectionMatrix * viewMatrix * wp;
   }
@@ -96,6 +49,8 @@ const earthFragment = /* glsl */ `
   varying vec3 vNormalLocal;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
+  varying float vContinents;
+  varying float vVolcano;
   uniform float uTime;
   uniform vec3 uSunPos;
   // Observation-channel palette (Vector B). Physics classifies the
@@ -136,24 +91,20 @@ const earthFragment = /* glsl */ `
 
   void main() {
     vec3 n = normalize(vNormalLocal);
-    float continents = noise(n * 3.5) * 0.6 + noise(n * 8.0) * 0.3 + noise(n * 16.0) * 0.1;
+    // Land / volcano classification comes from the same baked values that
+    // displaced the vertices, so colour and height can never disagree.
+    float continents = vContinents;
     float landMask = smoothstep(0.48, 0.55, continents);
-    // Re-derive volcano elevation in fragment so volcLand classification
-    // is per-pixel, not vertex-interpolated. Mirrors volcElevation() in
-    // the vertex shader and sampleVolcanoElevation() in JS.
-    float vd = clamp(dot(uVolcCenter, n), -1.0, 1.0);
-    float varc = acos(vd) * uEarthR;
-    float volcLift = 0.0;
-    if (varc < uVolcBaseR) {
-      float vu = varc / max(1e-6, uVolcBaseR);
-      float vt = 1.0 - vu;
-      volcLift = uVolcHeight * vt * vt * (3.0 - 2.0 * vt);
-    }
+    float volcLift = vVolcano;
     // Shore band — landMask transition zone.
     float shoreMask = smoothstep(0.42, 0.50, continents) * (1.0 - smoothstep(0.50, 0.58, continents));
     // Mix ocean → shore → land, then overlay volcLand where uplift is
     // tall enough to count as dry surface. Polar ice last (latitude wins).
-    vec3 col = mix(uColOcean, uColShore, shoreMask);
+    // Sea floor colour by depth: sandy shallows fade to the deep ocean
+    // bed. The see-through water surface is drawn separately at sea level.
+    float seaDepth = max(0.0, uEarthR - length(vLocalPos));
+    vec3 seaFloor = mix(uColShore * 0.85, uColOcean * 0.55, smoothstep(0.6, 14.0, seaDepth));
+    vec3 col = mix(seaFloor, uColShore, shoreMask);
     col = mix(col, uColLand, landMask);
     float volcMask = smoothstep(2.0, 8.0, volcLift);
     col = mix(col, uColVolc, volcMask);
@@ -187,9 +138,10 @@ const earthFragment = /* glsl */ `
       vec3 groundCol = mix(grassDark, grassLight, micro);
       groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
       groundCol *= 0.85 + stripes * 0.3;
-      // Where the planet shader said "land", paint ground; over ocean, ripple.
-      vec3 oceanRipple = ocean * (0.85 + sin(vLocalPos.x * 2.0 + vLocalPos.z * 2.0) * 0.15);
-      vec3 surfaceCol = mix(oceanRipple, groundCol, max(landMask, volcMask));
+      // Where the planet shader said "land", paint ground. Out at sea the
+      // terrain is the sea floor under the see-through water surface.
+      vec3 seaBed = seaFloor * (0.75 + micro * 0.4);
+      vec3 surfaceCol = mix(seaBed, groundCol, max(landMask, volcMask));
       col = mix(col, surfaceCol, nearMix);
     }
 
@@ -221,6 +173,10 @@ export function EarthBody() {
   // Without this, EarthBody renders at world origin until useFrame's
   // first tick — which is the "spawn in space" flash.
   const initialPose = useMemo(() => getEarthPose(), []);
+  const terrainGeometry = useMemo(() => buildTerrainGeometry(), []);
+  useEffect(() => () => terrainGeometry.dispose(), [terrainGeometry]);
+  const seaGeometry = useMemo(() => new THREE.SphereGeometry(EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS), []);
+  useEffect(() => () => seaGeometry.dispose(), [seaGeometry]);
   // The Moon is placed from the shared-epoch pose (earth.ts), never from
   // local elapsed time, so every peer sees the same Moon in the same phase.
   const initialMoonPos = useMemo<[number, number, number]>(() => [
@@ -256,7 +212,6 @@ export function EarthBody() {
         uVolcCraterR: { value: organ.craterRadius },
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
-        uLandLift: { value: LAND_LIFT },
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
@@ -281,6 +236,12 @@ export function EarthBody() {
   );
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
+  // Sea surface uses the same blue as the ocean channel (ocean palette
+  // with a faint H₂O tint), so the water reads blue and matches orbit view.
+  const waterColor = useMemo(() => {
+    const o = uniforms.uColOcean.value as THREE.Vector3;
+    return new THREE.Color(o.x, o.y, o.z);
+  }, [uniforms]);
   const moonUniforms = useMemo(
     () => ({
       uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
@@ -336,13 +297,28 @@ export function EarthBody() {
             (which feeds BODY_SHELL_RADIUS) always matches the rendered
             chord deflection — no more "analytic ground sits 11 m below
             the visible ground" phasing. */}
-        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
+        <primitive object={terrainGeometry} attach="geometry" />
         <shaderMaterial
           ref={matRef}
           vertexShader={earthVertex}
           fragmentShader={earthFragment}
           uniforms={uniforms}
           side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Sea surface at sea level. Out at sea the terrain below is the sea
+          floor (shallows → shelf → deep ocean bed), seen through the water;
+          over land the terrain is higher and hides this sphere by depth. */}
+      <mesh renderOrder={1}>
+        <primitive object={seaGeometry} attach="geometry" />
+        <meshPhongMaterial
+          color={waterColor}
+          emissive={waterColor}
+          emissiveIntensity={0.25}
+          transparent
+          opacity={0.6}
+          shininess={80}
+          depthWrite={false}
         />
       </mesh>
       {/* Soft glow halo */}

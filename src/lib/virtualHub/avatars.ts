@@ -7,6 +7,7 @@ import type { InfinityChatMode } from '../brain/infinityChatSettings';
 import { rabbitAvatar } from "./avatars/rabbit";
 import { dragonAvatar } from "./avatars/dragon";
 import { catAvatar } from "./avatars/cat";
+import { ravenAvatar } from "./avatars/raven";
 
 export interface AvatarRenderProps {
   scale?: number;
@@ -28,6 +29,7 @@ export const AVATAR_REGISTRY: AvatarDefinition[] = [
   rabbitAvatar,
   catAvatar,
   dragonAvatar,
+  ravenAvatar,
   // Future avatars: { id: 'fox', ... }, { id: 'owl', ... }
 ];
 

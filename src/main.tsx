@@ -2,6 +2,19 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { getLoadingPriority } from "./lib/settings/loadingPriority";
+import { canonicalInviteHref } from "./lib/p2p/brainInvite";
+import { canonicalRecoverHref } from "./lib/backup/recoveryVault";
+
+// Invite links wrapped by hash routers or share services (`/#/connect#peer-…`,
+// `/connect?peer=peer-…`) are rewritten to the canonical `/connect#peer-…`
+// before the router mounts, so routing, guest entry and the startup dial agree.
+try {
+  const { pathname, hash, search } = window.location;
+  // Recovery links follow the same rule: `/#/recover?id=…` → `/recover?id=…`.
+  const canonical = canonicalInviteHref(pathname, hash, search) ?? canonicalRecoverHref(pathname, hash, search);
+  if (canonical) window.history.replaceState(window.history.state, "", canonical);
+} catch { /* leave the URL as opened */ }
+
 // Render immediately — defer all background services to idle time
 createRoot(document.getElementById("root")!).render(<App />);
 
@@ -24,6 +37,23 @@ scheduleIdle(() => {
   import('./lib/guardrails/chainRunner')
     .then((m) => m.startChain())
     .catch((err) => console.warn('[main] guardrails chain failed', err));
+});
+
+// ── Content lifecycle — expire old tombstones, fade out posts whose authors
+// have been silent for 15 days (favorites and own posts are kept), and send
+// deletions signed while the key was locked. Idle-time, every 6 hours.
+scheduleIdle(() => {
+  import('./lib/p2p/contentLifecycle')
+    .then((m) => m.startContentLifecycle())
+    .catch((err) => console.warn('[main] content lifecycle failed', err));
+});
+
+// ── Recovery vault custody — hold verified, signed outer-shell envelopes
+// for peers and push our own vault to each newly connected peer.
+scheduleIdle(() => {
+  import('./lib/backup/vaultCustodyMesh')
+    .then((m) => m.attachVaultCustodyToMesh())
+    .catch((err) => console.warn('[main] vault custody failed', err));
 });
 
 // ── Sync Vault ingest — observes MediaCustody events and writes verified

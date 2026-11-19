@@ -35,14 +35,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
-      - name: Compile capsule script
-        run: npx tsc --project tsconfig.capsule.json
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type-check capsule script
+        run: bunx tsc --project tsconfig.capsule.json --noEmit
 
       - name: Generate capsule
-        run: node dist/capsule/ops/scripts/publish-capsule.js
+        run: bun ops/scripts/publish-capsule.ts
         env:
           RENDEZVOUS_BEACONS: ${{ github.event.inputs.beacons }}
           RENDEZVOUS_COMMUNITY: ${{ github.event.inputs.community }}

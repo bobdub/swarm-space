@@ -1,12 +1,15 @@
 /**
- * Append-only viewer interactions on walls (Reinforce + Graffiti).
+ * Append-only viewer interactions on walls (Reinforce + Graffiti + View).
+ * Every kind counts as activity for the Main Brain 5-day gate
+ * (`placementActivity.ts`); a View is recorded at most once per viewer per
+ * wall every few hours so looking doesn't flood the mesh.
  * Kept separate from owner-gated placement records so visitors never mutate
  * the wall itself. Local cache + BroadcastChannel + mesh gossip.
  */
 export interface WallInteraction {
   id: string;
   placementId: string;
-  kind: 'reinforce' | 'graffiti';
+  kind: 'reinforce' | 'graffiti' | 'view';
   actorId: string;
   emoji?: string;
   at: number;
@@ -17,13 +20,22 @@ const CHANNEL = 'swarm:world:wall-interactions';
 const MAX = 5000;
 const items = new Map<string, WallInteraction>();
 const listeners = new Set<() => void>();
+/** Newest interaction time per placement, any actor, any kind. */
+const latestAt = new Map<string, number>();
+/** Minimum gap between recorded views of one wall by one viewer. */
+const VIEW_THROTTLE_MS = 6 * 60 * 60 * 1000;
+const lastViewSent = new Map<string, number>();
+
+function noteLatest(v: WallInteraction) {
+  if ((latestAt.get(v.placementId) ?? 0) < v.at) latestAt.set(v.placementId, v.at);
+}
 let bc: BroadcastChannel | null = null;
 let started = false;
 
 function valid(v: unknown): v is WallInteraction {
   const r = v as WallInteraction;
   return !!r && typeof r.id === 'string' && typeof r.placementId === 'string' &&
-    typeof r.actorId === 'string' && (r.kind === 'reinforce' || r.kind === 'graffiti') &&
+    typeof r.actorId === 'string' && (r.kind === 'reinforce' || r.kind === 'graffiti' || r.kind === 'view') &&
     typeof r.at === 'number' && (r.kind !== 'graffiti' || (typeof r.emoji === 'string' && r.emoji.length <= 8));
 }
 
@@ -36,7 +48,11 @@ function persist() {
 
 function accept(v: unknown): boolean {
   if (!valid(v) || items.has(v.id)) return false;
+  // Never accept a timestamp from the future: it would keep a wall
+  // "active" in the Main Brain long after anyone touched it.
+  if (v.at > Date.now() + 5 * 60 * 1000) return false;
   items.set(v.id, v);
+  noteLatest(v);
   persist();
   listeners.forEach((l) => l());
   return true;
@@ -45,7 +61,7 @@ function accept(v: unknown): boolean {
 function start() {
   if (started || typeof window === 'undefined') return;
   started = true;
-  try { (JSON.parse(localStorage.getItem(KEY) || '[]') as unknown[]).forEach((v) => valid(v) && items.set(v.id, v)); } catch { /* ignore */ }
+  try { (JSON.parse(localStorage.getItem(KEY) || '[]') as unknown[]).forEach((v) => { if (valid(v)) { items.set(v.id, v); noteLatest(v); } }); } catch { /* ignore */ }
   try { bc = new BroadcastChannel(CHANNEL); bc.onmessage = (e) => accept(e.data); } catch { /* ignore */ }
   void import('@/lib/p2p/swarmMesh.standalone').then(({ getSwarmMeshStandalone }) => {
     getSwarmMeshStandalone().onMessage('wall-interactions', (_p, payload) => {
@@ -65,6 +81,25 @@ export function recordWallInteraction(rec: Omit<WallInteraction, 'id' | 'at'>): 
   return full;
 }
 
+/**
+ * Record that this viewer looked at a wall (activity for the 5-day gate).
+ * Throttled per viewer and wall; returns null when throttled.
+ */
+export function recordWallView(placementId: string, actorId: string): WallInteraction | null {
+  if (!placementId || !actorId) return null;
+  const key = `${actorId}|${placementId}`;
+  const now = Date.now();
+  if (now - (lastViewSent.get(key) ?? 0) < VIEW_THROTTLE_MS) return null;
+  lastViewSent.set(key, now);
+  return recordWallInteraction({ placementId, kind: 'view', actorId });
+}
+
+/** Newest interaction time on a wall (any actor, any kind), or 0. */
+export function latestWallInteractionAt(placementId: string): number {
+  start();
+  return latestAt.get(placementId) ?? 0;
+}
+
 /** Interactions for a wall, excluding any made by the wall's owner. */
 export function listWallInteractions(placementId: string, ownerId: string): WallInteraction[] {
   start();
@@ -78,4 +113,4 @@ export function subscribeWallInteractions(fn: () => void): () => void {
 }
 
 export function _acceptWallInteractionForTest(v: unknown): boolean { return accept(v); }
-export function _resetWallInteractionsForTest() { items.clear(); }
+export function _resetWallInteractionsForTest() { items.clear(); latestAt.clear(); lastViewSent.clear(); }

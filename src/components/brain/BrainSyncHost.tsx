@@ -3,16 +3,28 @@
  * Brain itself, and shows the small "Brain synced" bar there, plus any
  * screen share running in the room.
  */
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import { useLocation } from 'react-router-dom';
 import { useBrainSyncRoom } from '@/lib/brain/brainSyncStore';
 import { useLiveRoomBinding } from '@/lib/streaming/spectatedLiveRoomStore';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { BrainSyncDock } from './BrainSyncDock';
 import { BrainSyncScreens, useBrainScreenShares } from './BrainSyncScreens';
 
 function BrainSyncBinding({ roomId }: { roomId: string }) {
-  const voice = useBrainVoice(true, roomId);
+  // Respect a listen-only entry: never grab the mic here unasked.
+  const micOn = useBrainMicChoice();
+  const voice = useBrainVoice(true, roomId, { audio: micOn });
+  const { toggleMute, enableMic } = voice;
+  const onMicButton = useCallback(() => {
+    if (micOn) { toggleMute(); return; }
+    void enableMic().then((ok) => {
+      if (ok) setBrainMic(true);
+      else toast.error("Couldn't turn on your mic. Check the browser's microphone permission.");
+    });
+  }, [micOn, toggleMute, enableMic]);
   const screens = useBrainScreenShares();
   const nameByPeerId = useMemo(() => {
     const map: Record<string, string> = {};
@@ -24,8 +36,9 @@ function BrainSyncBinding({ roomId }: { roomId: string }) {
       <BrainSyncDock
         roomId={roomId}
         peerCount={voice.participants.length}
-        isMuted={voice.isMuted}
-        toggleMute={voice.toggleMute}
+        isMuted={!micOn || voice.isMuted}
+        micOn={micOn}
+        toggleMute={onMicButton}
         isSharingScreen={!!screens.own}
         stopScreenShare={screens.stopOwn}
       />

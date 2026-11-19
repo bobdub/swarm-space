@@ -7,7 +7,7 @@ function bridgeAs(peerId: string, broadcast: (channel: string, payload: unknown)
   startSignalingBridge({
     broadcast, send: async () => true, getPeerId: () => peerId,
     getConnectedPeerIds: () => [],
-    onMessage: (_channel, handler) => { incoming = handler; return () => {}; },
+    onMessage: (channel, handler) => { if (channel === 'webrtc-signal') incoming = handler; return () => {}; },
   });
   return (peer: string, packet: unknown) => {
     if (!incoming) throw new Error('No mesh receiver');

@@ -15,6 +15,10 @@ import {
 } from './presenceTicket';
 import { getRendezvousSigner } from './rendezvousIdentity';
 
+// Tombstones are signed with the author's identity key, not the device-local
+// Ed25519 key below, so any peer can bind them to the authorId.
+export { signTombstone, verifyTombstone } from './contentLifecycle';
+
 export interface ReplicaRecord {
   manifestId: string;
   storedAt: number;

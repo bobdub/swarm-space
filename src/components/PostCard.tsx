@@ -1,4 +1,5 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star, Unplug } from "lucide-react";
+import { usePostFavorite } from "@/hooks/usePostFavorite";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ReactNode } from "react";
@@ -34,7 +35,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
-import { hidePostForUser } from "@/lib/hiddenPosts";
+import { hidePostForUser, useIsPostHiddenNow } from "@/lib/hiddenPosts";
+import { stopSupportingPost, useIsPostUnsupported } from "@/lib/content/unsupportedPostsStore";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -43,6 +45,7 @@ import { canViewWalledPost, extractWalledPostPayments } from "@/lib/blockchain/w
 import { WalledPostUnlockModal } from "@/components/WalledPostUnlockModal";
 import { extractYoutubeVideoIds, stripYoutubeLinks } from "@/lib/blogging/youtube";
 import { YouTubeFacade } from "@/components/blogging/YouTubeFacade";
+import { SwarmLink } from "@/components/routing/SwarmLink";
 
 
 const URL_REGEX = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -71,15 +74,13 @@ const renderContentWithLinks = (content: string, mentionCache?: Map<string, stri
       if (hideYoutube && extractYoutubeVideoIds(rawUrl).length > 0) { lastIndex = matchIndex + match[0].length; continue; }
       const href = normalizeUrl(rawUrl);
       nodes.push(
-        <a
+        <SwarmLink
           key={`link-${matchIndex}-${rawUrl}`}
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
           className="text-[hsl(174,59%,76%)] underline-offset-4 hover:underline"
         >
           {rawUrl}
-        </a>
+        </SwarmLink>
       );
     } else if (match[0].startsWith('@')) {
       // @mention match
@@ -137,7 +138,20 @@ interface DecryptedAttachment {
   decryptError?: boolean;
 }
 
+/**
+ * A post this node has stopped supporting, or that the user just hid,
+ * renders nothing, everywhere — the card vanishes the moment it's chosen.
+ */
 export function PostCard({ post }: PostCardProps) {
+  const unsupported = useIsPostUnsupported(post.id);
+  // Hide Post takes effect on every list at once (Explore never re-filters
+  // posts it already rendered).
+  const hidden = useIsPostHiddenNow(post.id);
+  if (unsupported || hidden) return null;
+  return <PostCardBody post={post} />;
+}
+
+function PostCardBody({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const editedTimeAgo = post.editedAt
     ? formatDistanceToNow(new Date(post.editedAt), { addSuffix: true })
@@ -169,6 +183,7 @@ export function PostCard({ post }: PostCardProps) {
   const [isUnlockModalOpen, setIsUnlockModalOpen] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
   const isAuthor = currentUser?.id === post.author;
+  const { favorited, busy: isFavoriteBusy, toggle: toggleFavorite } = usePostFavorite(post.id);
   const canView = canViewWalledPost(post, currentUser?.id);
   const isWalledHidden = Boolean(post.walled) && !canView && !post.walledCommunityUnlocked;
   const nsfwHidden = Boolean(post.nsfw) && !showNSFWContent && !isAuthor && !isEditing;
@@ -737,9 +752,16 @@ export function PostCard({ post }: PostCardProps) {
 
     setIsDeleting(true);
     try {
-      await removePost(post.id);
+      const result = await removePost(post.id);
       toast({
         title: "Post deleted",
+        description: result?.signed
+          ? result.peersReached > 0
+            ? `Connected peers were told to remove it (${result.peersReached}).`
+            : "Peers will be told to remove it when you next connect."
+          : result
+            ? "Unlock your key and peers will be told to remove it."
+            : undefined,
       });
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
@@ -819,9 +841,19 @@ export function PostCard({ post }: PostCardProps) {
     setIsHidingPost(true);
     try {
       await hidePostForUser(currentUser.id, post.id);
+      // Hiding also stops supporting it: this node stops holding, seeding
+      // and relaying the post. Resume Support (Node Dashboard) undoes both.
+      await stopSupportingPost({
+        postId: post.id,
+        source: "feed",
+        author: post.author,
+        authorName: post.authorName,
+        content: post.content,
+        manifestIds: post.manifestIds,
+      });
       toast({
         title: "Post hidden",
-        description: "We'll keep this out of your feeds.",
+        description: "It's out of your feeds and this node no longer supports it. Resume any time from the Node Dashboard.",
       });
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
@@ -836,7 +868,31 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleStopSupport = async () => {
+    try {
+      await stopSupportingPost({
+        postId: post.id,
+        source: "feed",
+        author: post.author,
+        authorName: post.authorName,
+        content: post.content,
+        manifestIds: post.manifestIds,
+      });
+      toast({
+        title: "Support stopped",
+        description: "This node no longer holds, seeds or relays this post. Resume it any time from the Node Dashboard.",
+      });
+    } catch (error) {
+      console.error("Failed to stop support:", error);
+      toast({ title: "Couldn't stop support", variant: "destructive" });
+    }
+  };
+
+  // Stop Support is a node-level choice for network content (not your own).
+  const canStopSupport = !isAuthor && post._origin !== "local";
   const canBlockUser = Boolean(currentUser) && !isAuthor;
+  // Favorites keep other authors' posts from fading here; our own never fade.
+  const canFavorite = Boolean(currentUser) && !isAuthor;
   const canHidePost = Boolean(currentUser) && !isAuthor;
 
   const [isDownloading, setIsDownloading] = useState(false);
@@ -1069,7 +1125,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost || hasDownloadableMedia) && (
+              {(isAuthor || canBlockUser || canHidePost || canStopSupport || canFavorite || hasDownloadableMedia) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1116,6 +1172,27 @@ export function PostCard({ post }: PostCardProps) {
                         </DropdownMenuItem>
                       </>
                     )}
+                    {canFavorite && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void toggleFavorite()
+                            .then((next) =>
+                              toast({
+                                title: next ? "Kept as a favorite" : "Removed from favorites",
+                                description: next
+                                  ? "This post stays on your device even if its author goes quiet."
+                                  : "It may fade out if its author is inactive for 15 days.",
+                              }),
+                            )
+                            .catch(() => toast({ title: "Couldn't update favorite", variant: "destructive" }));
+                        }}
+                        disabled={isFavoriteBusy}
+                      >
+                        <Star className={`mr-2 h-4 w-4 ${favorited ? "fill-current" : ""}`} />
+                        {favorited ? "Unfavorite" : "Favorite (keep)"}
+                      </DropdownMenuItem>
+                    )}
                     {canHidePost && (
                       <DropdownMenuItem
                         onSelect={(event) => {
@@ -1126,6 +1203,17 @@ export function PostCard({ post }: PostCardProps) {
                       >
                         <EyeOff className="mr-2 h-4 w-4" />
                         {isHidingPost ? "Hiding…" : "Hide Post"}
+                      </DropdownMenuItem>
+                    )}
+                    {canStopSupport && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleStopSupport();
+                        }}
+                      >
+                        <Unplug className="mr-2 h-4 w-4" />
+                        Stop Support
                       </DropdownMenuItem>
                     )}
                     {canBlockUser && (

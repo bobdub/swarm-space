@@ -63,3 +63,9 @@ test('peer hydration preserves existing account key, balances and profile', asyn
   expect(await hydrateNativeWalletPeer({ userId: recipient.id, username: 'changed' })).toEqual(account);
   expect(state.put).not.toHaveBeenCalled();
 });
+test.each(["Infinity", "@infinity", "imagination", "network-entity", "infinity:donations", "0x5C5A27B9F1C8AEABF65254971B910385D105D9AB"])(
+  "Infinity resolves to its donations vault from %s without writing a users row", async input => {
+  expect(await resolveNativeWalletRecipient(input)).toMatchObject({ id: "infinity:donations", username: "Infinity" });
+  expect(await nativeWalletAddress("infinity:donations")).toBe("0x5c5a27b9f1c8aeabf65254971b910385d105d9ab");
+  expect(state.put).not.toHaveBeenCalled();
+});

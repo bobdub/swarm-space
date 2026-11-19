@@ -17,6 +17,7 @@
     "ops/scripts/publish-capsule.ts",
     "src/lib/p2p/presenceTicket.ts",
     "src/lib/utils/canonicalJson.ts",
-    "src/lib/crypto.ts"
+    "src/lib/crypto.ts",
+    "src/lib/alerts/capsuleAlerts.ts"
   ]
 }

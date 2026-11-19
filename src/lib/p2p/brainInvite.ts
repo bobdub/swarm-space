@@ -12,10 +12,15 @@ let attemptedUrl = '';
 let attemptCount = 0;
 let lastAttemptAt = 0;
 // Cold private-tab joins need warm-up: guest key provisioning, signaling and
-// ICE can outlast a single dial. Knock a few times before giving up.
-const MAX_ATTEMPTS = 4;
-const REDIAL_INTERVAL_MS = 12_000;
-const UNAVAILABLE_AFTER_MS = 60_000;
+// ICE can outlast a single dial, and an older phone or laptop can take up to
+// two minutes to finish connecting. Knock patiently for about four minutes
+// before calling the invite unavailable.
+const MAX_ATTEMPTS = 8;
+const REDIAL_INTERVAL_MS = 20_000;
+const UNAVAILABLE_AFTER_MS = 120_000;
+/** How long a local node may refuse to dial (still starting) before the invite is "unavailable". */
+export const REFUSED_GRACE_MS = 20_000;
+let firstRefusedAt = 0;
 const listeners = new Set<() => void>();
 const publish = (next: BrainInviteState) => {
   state = next;
@@ -40,12 +45,54 @@ export function isInvitePath(pathname: string): boolean {
   return INVITE_PATHS.has(pathname.replace(/\/$/, ''));
 }
 
-export function parseBrainInvite(pathname: string, hash: string): string | null {
-  if (!isInvitePath(pathname)) return null;
+const PEER_ID_PATTERN = /^peer-[a-zA-Z0-9_-]{1,120}$/;
+
+function normalizePeerId(raw: string | null | undefined): string | null {
+  if (!raw) return null;
   try {
-    const id = decodeURIComponent(hash.replace(/^#/, '')).trim();
-    return /^peer-[a-zA-Z0-9_-]{1,120}$/.test(id) ? id : null;
+    const id = decodeURIComponent(raw.replace(/^#/, '')).trim();
+    return PEER_ID_PATTERN.test(id) ? id : null;
   } catch { return null; }
+}
+
+export type InviteLocation = { path: string; peerId: string | null };
+
+/**
+ * Find an invite in any URL shape a share service or preview may produce:
+ * - `/connect#peer-…` (canonical)
+ * - `/#/connect#peer-…` or `/#/connect/#peer-…` (hash routing wrappers)
+ * - `/connect?peer=peer-…` or `/#/connect?peer=peer-…` (query fallback)
+ * Returns null when the URL is not an invite route at all.
+ */
+export function resolveInviteLocation(pathname: string, hash: string, search = ''): InviteLocation | null {
+  if (isInvitePath(pathname)) {
+    const query = new URLSearchParams(search).get('peer');
+    return { path: pathname.replace(/\/$/, ''), peerId: normalizePeerId(hash) ?? normalizePeerId(query) };
+  }
+  // Hash routing: the route lives inside the fragment, e.g. `#/connect#peer-x`.
+  const routed = /^#!?(\/[^#?]*)(\?[^#]*)?(#.*)?$/.exec(hash);
+  if (!routed || !isInvitePath(routed[1])) return null;
+  const query = new URLSearchParams(routed[2] ?? '').get('peer') ?? new URLSearchParams(search).get('peer');
+  return { path: routed[1].replace(/\/$/, ''), peerId: normalizePeerId(routed[3]) ?? normalizePeerId(query) };
+}
+
+/**
+ * The canonical `path#peer` form for a non-canonical invite URL, or null when
+ * the URL is already canonical or not an invite. Rewriting before the router
+ * mounts lets every reader (router, startup dial, AuthGuard) see one shape.
+ */
+export function canonicalInviteHref(pathname: string, hash: string, search = ''): string | null {
+  const invite = resolveInviteLocation(pathname, hash, search);
+  if (!invite?.peerId) return null;
+  const params = new URLSearchParams(search);
+  params.delete('peer');
+  const rest = params.toString();
+  const canonical = `${invite.path}${rest ? `?${rest}` : ''}#${encodeURIComponent(invite.peerId)}`;
+  return canonical === `${pathname}${search}${hash}` ? null : canonical;
+}
+
+export function parseBrainInvite(pathname: string, hash: string, search = ''): string | null {
+  return resolveInviteLocation(pathname, hash, search)?.peerId ?? null;
 }
 
 export function brainInviteUrl(origin: string, peerId: string): string {
@@ -58,12 +105,13 @@ export function peerConnectUrl(origin: string, peerId: string): string {
 }
 
 export function prepareBrainInvite(pathname: string, hash: string) {
-  if (!isInvitePath(pathname)) return;
+  if (!resolveInviteLocation(pathname, hash)) return;
   const peerId = parseBrainInvite(pathname, hash);
   if (state.peerId === peerId && state.phase !== 'idle') return;
   attemptedUrl = '';
   attemptCount = 0;
   lastAttemptAt = 0;
+  firstRefusedAt = 0;
   publish({ peerId, phase: peerId ? 'starting' : 'invalid', startedAt: Date.now(), connectedAt: null });
 }
 
@@ -75,7 +123,7 @@ export function dialBrainInviteFirst(options: {
   isBlocked: (peerId: string) => boolean;
   dial: (peerId: string) => boolean;
 }): boolean {
-  if (!isInvitePath(options.pathname)) return false;
+  if (!resolveInviteLocation(options.pathname, options.hash)) return false;
   const key = options.pathname + options.hash;
   if (attemptedUrl === key) {
     // A dial request is not a handshake: while still connecting, knock again
@@ -102,9 +150,20 @@ export function dialBrainInviteFirst(options: {
   // Publish before dialing so synchronous connection callbacks cannot be overwritten.
   publish({ peerId, phase: 'connecting', startedAt: Date.now(), connectedAt: null });
   try {
-    if (options.dial(peerId)) return true;
+    if (options.dial(peerId)) { firstRefusedAt = 0; return true; }
   } catch { /* A refused request is not a connection. */ }
-  publish({ ...state, phase: 'unavailable' });
+  // A refused request usually means the local node is still warming up
+  // (signaling, guest keys). Keep the invite buffered and let the next
+  // readiness tick ask again; only a sustained refusal is "unavailable".
+  const nowTs = Date.now();
+  if (!firstRefusedAt) firstRefusedAt = nowTs;
+  if (nowTs - firstRefusedAt >= REFUSED_GRACE_MS) {
+    publish({ ...state, phase: 'unavailable' });
+    return false;
+  }
+  attemptedUrl = '';
+  attemptCount = Math.max(0, attemptCount - 1);
+  publish({ ...state, phase: 'starting' });
   return false;
 }
 
@@ -132,5 +191,6 @@ export function retryBrainInvite() {
   attemptedUrl = '';
   attemptCount = 0;
   lastAttemptAt = 0;
+  firstRefusedAt = 0;
   publish({ ...state, phase: 'starting', startedAt: Date.now(), connectedAt: null });
 }

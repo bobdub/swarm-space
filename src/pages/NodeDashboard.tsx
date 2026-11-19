@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
+import { UnsupportedContentPanel } from '@/components/p2p/dashboard/UnsupportedContentPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone-archived';
@@ -238,6 +239,9 @@ const NodeDashboard = () => {
 
         {/* Torrent Swarm Status — content distribution lives here */}
         {networkEnabled && <TorrentSwarmPanel />}
+
+        {/* Unsupported Content — posts this node opted out of (Resume Support) */}
+        <UnsupportedContentPanel />
 
         {/* Connection Library — unified peer inventory */}
         {networkEnabled && <ConnectedPeersPanel title="Connection Library" />}

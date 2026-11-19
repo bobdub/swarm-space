@@ -4,6 +4,7 @@ import { CreditTransaction, CreditBalance, User, Post } from "@/types";
 import { recordPostCredit } from "./postMetrics";
 import { getCurrentUser } from "./auth";
 import { z } from "zod";
+import { INFINITY_GIFT_VAULT, INFINITY_RECIPIENT } from "./blockchain/infinity/vaults";
 import type { AchievementEvent } from "./achievements";
 
 /**
@@ -722,6 +723,7 @@ interface TransferOptions {
 }
 
 async function ensureRecipientExists(userId: string): Promise<User> {
+  if (userId === INFINITY_GIFT_VAULT) return { ...INFINITY_RECIPIENT } as User;
   const recipient = await get<User>("users", userId);
   if (!recipient) {
     throw new Error("Recipient user not found");
@@ -748,9 +750,16 @@ async function executeCreditTransfer(
   amount: number,
   kind: "transfer" | "tip",
   options?: TransferOptions,
-): Promise<void> {
+  mode: "standard" | "account_merge" = "standard",
+): Promise<CreditTransaction> {
   try {
-    transferAmountSchema.parse(amount);
+    // An account merge sweeps the whole (possibly fractional) balance in one
+    // signed-off handover, so the per-transfer cap and rate limit do not apply.
+    if (mode === "account_merge") {
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Nothing to transfer");
+    } else {
+      transferAmountSchema.parse(amount);
+    }
     userIdSchema.parse(toUserId);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -770,7 +779,7 @@ async function executeCreditTransfer(
 
   await ensureRecipientExists(toUserId);
 
-  const rateLimitCheckpoint = prepareTransferRateLimit(user.id, amount);
+  const rateLimitCheckpoint = mode === "account_merge" ? null : prepareTransferRateLimit(user.id, amount);
 
   const message = sanitizeMessage(options?.message);
 
@@ -781,9 +790,10 @@ async function executeCreditTransfer(
     amount,
     type: kind,
     createdAt: new Date().toISOString(),
-    meta: message
+    meta: message || mode === "account_merge"
       ? {
-          description: message,
+          ...(message ? { description: message } : {}),
+          ...(mode === "account_merge" ? { reason: "account_merge" } : {}),
         }
       : undefined,
   };
@@ -828,6 +838,8 @@ async function executeCreditTransfer(
     createdAt: transaction.createdAt,
     message,
   });
+
+  return transaction;
 }
 
 /**
@@ -843,14 +855,11 @@ function broadcastCreditTransferToMesh(transaction: CreditTransaction): void {
     timestamp: Date.now(),
   };
 
-  // Broadcast through standalone P2P modes
+  // SWARM Mesh: gossip immediately to connected peers, relay multi-hop, and
+  // replay to peers that connect later — never dropped for being offline.
   try {
-    import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
-      const sm = getSwarmMeshStandalone();
-      if (sm.getPhase() === "online") {
-        sm.broadcast("credits", payload);
-        console.log("[credits] Broadcast transfer via SWARM Mesh");
-      }
+    import("@/lib/p2p/creditGossip").then(({ publishCreditTransfer }) => {
+      publishCreditTransfer(transaction);
     }).catch(() => {});
   } catch {}
 
@@ -877,6 +886,18 @@ export async function transferCredits(toUserId: string, amount: number, options?
   if (!user) throw new Error("User not authenticated");
 
   await executeCreditTransfer(user, toUserId, amount, "transfer", options);
+}
+
+/**
+ * Account merge: move the signed-in (retiring) account's entire credit
+ * balance to the master account in one transfer. Balance-checked like any
+ * transfer; the per-transfer cap and rate limit are skipped because this is
+ * a one-off handover authorised on both devices.
+ */
+export async function transferCreditsForAccountMerge(toUserId: string, amount: number, options?: TransferOptions): Promise<CreditTransaction> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error("User not authenticated");
+  return executeCreditTransfer(user, toUserId, amount, "transfer", options, "account_merge");
 }
 
 export async function tipUser(toUserId: string, amount: number, options?: TransferOptions): Promise<void> {

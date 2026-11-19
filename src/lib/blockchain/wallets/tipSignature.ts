@@ -2,6 +2,7 @@ import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "@/lib/c
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeTip } from "./nativeMintmeLedger";
 import { hasValidTipWeight } from "./tipWeight";
+import { INFINITY_GIFT_VAULT } from "../infinity/vaults";
 
 function payload(tx: SwarmTransaction): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(JSON.stringify({
@@ -28,7 +29,7 @@ export async function verifyWalletTip(tx: SwarmTransaction): Promise<boolean> {
     if (tx.meta?.assetId === "chain:SWARM" && tx.meta?.currency === "MINTME") return false;
     // The weight is inside the signed meta; format 2 must name a known tier and only SWARM carries one.
     if (!hasValidTipWeight(tx)) return false;
-    if (!/^[a-f0-9]{16}$/.test(tx.to) || !tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce)) return false;
+    if ((!/^[a-f0-9]{16}$/.test(tx.to) && tx.to !== INFINITY_GIFT_VAULT) || !tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce)) return false;
     if (!Number.isFinite(Date.parse(tx.timestamp))) return false;
     const key = await crypto.subtle.importKey("spki", base64ToArrayBuffer(tx.publicKey),
       { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);

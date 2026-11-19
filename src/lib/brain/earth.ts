@@ -19,7 +19,7 @@
  */
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
-import { sampleLandMask, snapToLand } from './surfaceProfile';
+import { setIslandProvider, snapToLand } from './surfaceProfile';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
@@ -615,6 +615,19 @@ function snapNormalToLand(seed: Vec3, threshold = 0.6): Vec3 {
     steps: 64,
   });
 }
+
+/** Anchor of the shared village, which stands on its own island. */
+export const SHARED_VILLAGE_ISLAND_ANCHOR = 'swarm-shared-village';
+/** Village island waterline radius (m): about 400 m across. */
+export const VILLAGE_ISLAND_RADIUS_M = 200;
+
+// The village island is centred on the village site. The site frame is
+// snapped with the BASE land mask, so the island never moves the village
+// (or the volcano, which is snapped the same way).
+setIslandProvider(
+  () => [{ center: getEarthLocalSiteFrame(SHARED_VILLAGE_ISLAND_ANCHOR).normal, radiusM: VILLAGE_ISLAND_RADIUS_M }],
+  EARTH_RADIUS,
+);
 
 export function getEarthLocalSiteFrame(anchorId: string): {
   normal: Vec3;

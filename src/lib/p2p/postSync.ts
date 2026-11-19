@@ -1,4 +1,5 @@
 import { getAll, get, put } from "../store";
+import { isPostUnsupported } from "../content/unsupportedPostsStore";
 import { getCurrentUser } from "../auth";
 import {
   getAchievementProgressRecord,
@@ -14,6 +15,16 @@ import type {
 import { signPost, verifyPostSignature } from "./replication";
 import { recordP2PDiagnostic } from "./diagnostics";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
+import {
+  ensureLifecycleLoaded,
+  flushPendingTombstones,
+  getActiveTombstones,
+  receiveTombstones,
+  registerTombstoneTransport,
+  shouldAcceptIncomingPost,
+  tombstonesFor,
+  type ContentTombstone,
+} from "./contentLifecycle";
 
 type PostSyncMessageType =
   | "posts_request"
@@ -21,13 +32,15 @@ type PostSyncMessageType =
   | "post_created"
   | "project_upsert"
   | "projects_request"
-  | "projects_sync";
+  | "projects_sync"
+  | "content_tombstones";
 
 export interface PostSyncMessage {
   type: PostSyncMessageType;
   posts?: Post[];
   post?: Post;
   projects?: Project[];
+  tombstones?: ContentTombstone[];
 }
 
 type SendMessageFn = (peerId: string, message: PostSyncMessage) => boolean;
@@ -41,7 +54,8 @@ export class PostSyncManager {
     "post_created",
     "project_upsert",
     "projects_request",
-    "projects_sync"
+    "projects_sync",
+    "content_tombstones"
   ]);
 
   // Offline queue — posts queued when no peers are connected
@@ -60,6 +74,15 @@ export class PostSyncManager {
     // Restore any queued posts from localStorage on construction
     this.restoreOfflineQueue();
     this.restoreOfflineProjectQueue();
+
+    registerTombstoneTransport((tombstones, excludePeerId) => {
+      let reached = 0;
+      for (const peerId of this.getConnectedPeers()) {
+        if (peerId === excludePeerId) continue;
+        if (this.sendMessage(peerId, { type: "content_tombstones", tombstones })) reached++;
+      }
+      return reached;
+    });
   }
 
   isPostSyncMessage(message: unknown): message is PostSyncMessage {
@@ -72,6 +95,15 @@ export class PostSyncManager {
   }
 
   async handlePeerConnected(peerId: string): Promise<void> {
+    // Deletions first, so the peer drops dead posts instead of offering them back.
+    try {
+      await ensureLifecycleLoaded();
+      const tombstones = getActiveTombstones();
+      if (tombstones.length > 0) this.sendMessage(peerId, { type: "content_tombstones", tombstones });
+      void flushPendingTombstones().catch(() => undefined);
+    } catch (error) {
+      console.warn("[PostSync] Failed to share tombstones", error);
+    }
     // Flush offline queue first — deliver any posts that were created while disconnected
     await this.flushOfflineProjectQueue();
     await this.flushOfflineQueue();
@@ -89,6 +121,9 @@ export class PostSyncManager {
     console.log(`[PostSync] 📨 Received ${message.type} message from ${peerId}`);
     
     switch (message.type) {
+      case "content_tombstones":
+        await receiveTombstones(message.tombstones, peerId);
+        break;
       case "posts_request":
         console.log(`[PostSync] Peer ${peerId} requested all posts`);
         await this.sendAllPostsToPeer(peerId);
@@ -100,7 +135,7 @@ export class PostSyncManager {
         }
 
         if (Array.isArray(message.posts) && message.posts.length > 0) {
-          const saved = await this.saveIncomingPosts(message.posts);
+          const saved = await this.saveIncomingPosts(message.posts, peerId);
           console.log(`[PostSync] 💾 Saved ${saved.length} new/updated posts from ${peerId}`);
           if (saved.length > 0) {
             await this.ensurePostAssets(saved, peerId);
@@ -113,7 +148,7 @@ export class PostSyncManager {
           if (Array.isArray(message.projects) && message.projects.length > 0) {
             await this.saveIncomingProjects(message.projects);
           }
-          const saved = await this.saveIncomingPosts([message.post]);
+          const saved = await this.saveIncomingPosts([message.post], peerId);
           console.log(`[PostSync] 💾 Saved ${saved.length} posts from post_created message`);
           if (saved.length > 0) {
             await this.ensurePostAssets(saved, peerId);
@@ -192,7 +227,8 @@ export class PostSyncManager {
       ]);
 
       // Filter out local-only posts — they should never leave this node
-      const posts = allPosts.filter(p => !p._localOnly);
+      // ...and posts this node stopped supporting are never relayed.
+      const posts = allPosts.filter(p => !p._localOnly && !isPostUnsupported(p.id));
 
       console.log(`[PostSync] 📤 Preparing to send ${posts.length} posts and ${projects.length} projects to peer ${peerId}`);
 
@@ -522,8 +558,9 @@ export class PostSyncManager {
     }
   }
 
-  private async saveIncomingPosts(posts: Post[]): Promise<Post[]> {
+  private async saveIncomingPosts(posts: Post[], sourcePeerId?: string): Promise<Post[]> {
     let updatedCount = 0;
+    const refused: Post[] = [];
     const updatedPosts: Post[] = [];
     const authorSnapshots = new Map<string, {
       name?: string;
@@ -536,6 +573,13 @@ export class PostSyncManager {
     for (const rawPost of posts) {
       try {
         const post = applyBlogIdentity(rawPost);
+
+        // Anti-resurrection + fadeout: refuse deleted posts and posts whose
+        // author has faded here (unless favorited).
+        if (!(await shouldAcceptIncomingPost(post))) {
+          refused.push(post);
+          continue;
+        }
 
         if (post.author) {
           const existingSnapshot = authorSnapshots.get(post.author) ?? {};
@@ -638,6 +682,11 @@ export class PostSyncManager {
         const postId = typeof rawPost?.id === "string" ? rawPost.id : "unknown";
         console.error(`[PostSync] Failed to store post ${postId}:`, error);
       }
+    }
+
+    if (refused.length > 0 && sourcePeerId) {
+      const tombstones = tombstonesFor(refused);
+      if (tombstones.length > 0) this.sendMessage(sourcePeerId, { type: "content_tombstones", tombstones });
     }
 
     if (authorSnapshots.size > 0) {

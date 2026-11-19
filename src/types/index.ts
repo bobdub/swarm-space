@@ -40,13 +40,15 @@ export interface Reaction {
 export interface Notification {
   id: string;
   userId: string;
-  type: "reaction" | "comment" | "mention" | "follow" | "entanglement";
+  type: "reaction" | "comment" | "mention" | "follow" | "entanglement" | "recovery_ready";
   triggeredBy: string;
   triggeredByName: string;
   postId?: string;
   commentId?: string;
   content?: string;
   emoji?: string;
+  /** In-app route for system notices (e.g. recovery_ready → /settings#security). */
+  link?: string;
   read: boolean;
   createdAt: string;
 }
@@ -130,6 +132,33 @@ export interface Post {
   walledCommunityUnlocked?: boolean;
   /** Optional link back to a placed wall this post decorates (in-world post). */
   wallPlacementId?: string;
+  /**
+   * Set when an account merge re-attributed this post to `author`: the
+   * retiring identity's signed `account_merged` attestation naming `author`
+   * as its master, so any peer can verify the hand-over.
+   */
+  mergedFrom?: AccountMergedAttestation;
+}
+
+/**
+ * Signed by the RETIRING identity key (P-256): "my account is merged into
+ * `masterId`". `computeUserId(signerPublicKey)` must equal `retiringId`.
+ */
+export interface AccountMergedAttestation {
+  type: "account_merged";
+  version: 1;
+  retiringId: string;
+  masterId: string;
+  timestamp: string;
+  /** Ledger hand-over the retiring key signed off on. */
+  transfers: {
+    swarm: number;
+    credits: number;
+    mintme: number;
+    txIds: string[];
+  };
+  signerPublicKey: string;
+  signature: string;
 }
 
 export interface PostMetrics {

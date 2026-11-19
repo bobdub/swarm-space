@@ -19,6 +19,7 @@ import {
   saveHubPrefs,
   DEFAULT_AVATAR_ID,
 } from "@/lib/virtualHub/avatars";
+import { completeBrainEntry } from "@/lib/brain/brainMicChoice";
 
 interface BrainEntryModalProps {
   open: boolean;
@@ -30,7 +31,9 @@ type Step = "avatar" | "devices";
 
 /**
  * Pre-spawn gate for the Brain. Mirrors VirtualHubModal: pick an avatar,
- * test mic + speakers, then enter. Persists to the shared
+ * optionally test mic + speakers, then enter. The mic is never required:
+ * "Enter without mic" joins listen-only, and the mic button inside the
+ * Brain turns it on later. Persists to the shared
  * `swarm-virtual-hub-prefs` key so the choice carries across virtual hubs.
  */
 export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryModalProps) {
@@ -55,7 +58,7 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
     }
   }, [open, user?.id]);
 
-  const handleEnter = () => {
+  const handleEnter = (hasMic: boolean) => {
     if (guest && (!user || !setGuestName(user.id, guestName))) return;
     saveHubPrefs({
       avatarId,
@@ -64,15 +67,8 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
       infinityVoice: loadHubPrefs().infinityVoice ?? true,
     });
     // Brain-specific completion flag — separate from virtual hub prefs so
-    // returning Hub visitors still see the Brain mic/avatar gate at least once.
-    try {
-      localStorage.setItem(
-        "brain-entry-complete",
-        JSON.stringify({ avatarId, audioInputId, hasMic: true, ts: Date.now() }),
-      );
-    } catch {
-      /* ignore quota / private-mode errors */
-    }
+    // returning Hub visitors still see the Brain avatar gate at least once.
+    completeBrainEntry({ avatarId, audioInputId, hasMic });
     onConfirm();
   };
 
@@ -81,12 +77,12 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {step === "avatar" ? "Choose your form" : "Test your voice"}
+            {step === "avatar" ? "Choose your form" : "Your microphone (optional)"}
           </DialogTitle>
           <DialogDescription>
             {step === "avatar"
               ? "Pick how you'll appear inside the Brain. Heavier avatars move with more weight."
-              : "Verify your microphone — voice chat with everyone in the Brain runs over P2P."}
+              : "Turn on your mic to talk with everyone in the Brain. You can skip this, still hear everyone, and turn the mic on later with the mic button."}
           </DialogDescription>
         </DialogHeader>
 
@@ -110,6 +106,7 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
               setAudioOutputId(p.audioOutputId);
             }}
             onPermissionGranted={setPermissionGranted}
+            micOptional
           />
         )}
 
@@ -127,9 +124,14 @@ export function BrainEntryModal({ open, onOpenChange, onConfirm }: BrainEntryMod
               Continue
             </Button>
           ) : (
-            <Button type="button" onClick={handleEnter} disabled={!permissionGranted}>
-              Enter the Brain
-            </Button>
+            <>
+              <Button type="button" variant="secondary" onClick={() => handleEnter(false)}>
+                Enter without mic
+              </Button>
+              <Button type="button" onClick={() => handleEnter(true)} disabled={!permissionGranted}>
+                Enter the Brain
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

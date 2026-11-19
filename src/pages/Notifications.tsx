@@ -1,7 +1,7 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Bell, Heart, MessageCircle, User as UserIcon, Check, AtSign, Users } from "lucide-react";
+import { Bell, Heart, MessageCircle, User as UserIcon, Check, AtSign, Users, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getNotifications, markAsRead, markAllAsRead } from "@/lib/notifications";
 import { Notification } from "@/types";
@@ -79,6 +79,8 @@ const Notifications = () => {
         return <UserIcon className="h-4 w-4 text-[hsl(326,71%,62%)]" />;
       case "entanglement":
         return <Users className="h-4 w-4 text-primary" />;
+      case "recovery_ready":
+        return <ShieldCheck className="h-4 w-4 text-green-500" />;
       default:
         return <Bell className="h-4 w-4 text-foreground/60" />;
     }
@@ -117,6 +119,13 @@ const Notifications = () => {
         return (
           <>
             <span className="font-semibold text-primary">{notif.triggeredByName}</span> {notif.content || "published new content"}
+          </>
+        );
+      case "recovery_ready":
+        return (
+          <>
+            <span className="font-semibold text-green-500">Recovery vault secured.</span>{" "}
+            {notif.content || "A peer is holding your encrypted recovery vault."}
           </>
         );
       default:
@@ -169,13 +178,23 @@ const Notifications = () => {
                 <Card
                   key={notif.id}
                   className={`rounded-3xl border transition-all duration-200 hover:border-[hsla(326,71%,62%,0.3)] ${
-                    notif.read
+                    notif.type === "recovery_ready"
+                      ? notif.read
+                        ? "border-green-500/20 bg-[hsla(150,60%,10%,0.35)]"
+                        : "border-green-500/45 bg-[hsla(150,60%,12%,0.45)] shadow-[0_0_24px_hsla(150,60%,45%,0.15)]"
+                      : notif.read
                       ? "border-[hsla(174,59%,56%,0.14)] bg-[hsla(245,70%,8%,0.45)]"
                       : "border-[hsla(326,71%,62%,0.35)] bg-[hsla(245,70%,12%,0.6)] shadow-[0_0_28px_hsla(326,71%,62%,0.2)]"
                   }`}
                 >
                   <div className="flex gap-4 p-4">
-                    <Avatar username={notif.triggeredByName} size="md" />
+                    {notif.type === "recovery_ready" ? (
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/15">
+                        <ShieldCheck className="h-5 w-5 text-green-500" />
+                      </div>
+                    ) : (
+                      <Avatar username={notif.triggeredByName} size="md" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-sm leading-relaxed text-foreground/90">
@@ -200,6 +219,15 @@ const Notifications = () => {
                           >
                             Mark as read
                           </Button>
+                        )}
+                        {notif.type === "recovery_ready" && (
+                          <Link
+                            to={notif.link || "/settings#security"}
+                            onClick={() => { if (!notif.read) void handleMarkAsRead(notif.id); }}
+                            className="text-xs text-green-500 transition-colors hover:text-[hsl(326,71%,62%)]"
+                          >
+                            View Recovery Link
+                          </Link>
                         )}
                         {notif.postId && (
                           <Link

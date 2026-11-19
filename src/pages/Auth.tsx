@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   getStoredAccounts,
   restoreLocalAccount,
-  recoverAccountFromPrivateKey,
   type UserMeta,
 } from "@/lib/auth";
 import { setFeatureFlag } from "@/config/featureFlags";
@@ -27,9 +24,6 @@ export default function Auth() {
   const [checkingAccounts, setCheckingAccounts] = useState(true);
   const [storedAccounts, setStoredAccounts] = useState<UserMeta[]>([]);
   const [signupOpen, setSignupOpen] = useState(() => new URLSearchParams(window.location.search).get('signup') === '1');
-
-  const [recoveryPrivateKey, setRecoveryPrivateKey] = useState("");
-  const [recoveryPassword, setRecoveryPassword] = useState("");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -129,32 +123,6 @@ export default function Auth() {
     navigate(redirectTo);
   };
 
-  const handleRecover = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!recoveryPrivateKey.trim()) {
-      toast.error("Private key is required");
-      return;
-    }
-    const normalizedPassword = recoveryPassword.trim();
-    if (!normalizedPassword || normalizedPassword.length < 8) {
-      toast.error("Password must be at least 8 characters");
-      return;
-    }
-    setIsLoading(true);
-    try {
-      await recoverAccountFromPrivateKey(recoveryPrivateKey.trim(), normalizedPassword);
-      toast.success("Account recovered successfully!");
-      setRecoveryPrivateKey("");
-      setRecoveryPassword("");
-      navigate(redirectTo);
-    } catch (error) {
-      console.error("Recovery error:", error);
-      toast.error("Failed to recover account. Check your private key.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-b from-background via-primary/5 to-background">
       <Card className="w-full max-w-md">
@@ -234,7 +202,7 @@ export default function Auth() {
             <TabsContent value="create">
               <div className="space-y-4 pt-2">
                 <p className="text-sm text-muted-foreground">
-                  Set up your encrypted identity with username, password, network preference, and a backup recovery phrase.
+                  Set up your encrypted identity with a username, password and network preference. Your encrypted recovery vault is sealed automatically.
                 </p>
                 <Button
                   onClick={() => setSignupOpen(true)}
@@ -250,55 +218,15 @@ export default function Auth() {
               <Alert className="mb-4">
                 <Shield className="h-4 w-4" />
                 <AlertDescription>
-                  <strong>Account Recovery:</strong> Recover your account using your backup passphrase or private key.
+                  <strong>Sovereign Recovery:</strong> open the Recovery Link from your
+                  <code className="mx-1 text-xs">swarm-identity-*.md</code> file. It reaches a peer holding your
+                  encrypted vault, and your Recovery Passphrase opens it on this device.
                 </AlertDescription>
               </Alert>
-
-              <form onSubmit={handleRecover} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="privateKey" className="flex items-center gap-2">
-                    <Key className="h-4 w-4" />
-                    Recovery Passphrase or Private Key *
-                  </Label>
-                  <Input
-                    id="privateKey"
-                    type="password"
-                    placeholder="Enter your backup passphrase or private key"
-                    value={recoveryPrivateKey}
-                    onChange={(e) => setRecoveryPrivateKey(e.target.value)}
-                    disabled={isLoading}
-                    required
-                    className="font-mono text-xs"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="recovery-password">New Password *</Label>
-                  <Input
-                    id="recovery-password"
-                    type="password"
-                    placeholder="Set a password to encrypt your key"
-                    value={recoveryPassword}
-                    onChange={(e) => setRecoveryPassword(e.target.value)}
-                    disabled={isLoading}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Min 8 characters. Encrypts your private key locally.
-                  </p>
-                </div>
-
-                <Button type="submit" className="w-full" disabled={isLoading || checkingAccounts}>
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Recovering…
-                    </>
-                  ) : (
-                    "Recover Account"
-                  )}
-                </Button>
-              </form>
+              <Button className="w-full gap-2" onClick={() => navigate("/recover")} disabled={checkingAccounts}>
+                <Key className="h-4 w-4" />
+                Recover with a Recovery Link
+              </Button>
             </TabsContent>
           </Tabs>
         </CardContent>

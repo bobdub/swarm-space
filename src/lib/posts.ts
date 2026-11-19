@@ -3,6 +3,7 @@ import type { Post } from "@/types";
 import { getCurrentUser } from "./auth";
 import { removePostFromProject } from "./projects";
 import { applyBlogIdentity } from "./blogging/awareness";
+import { tombstoneOwnPost, type TombstoneResult } from "./p2p/contentLifecycle";
 
 /**
  * Return posts whose `createdAt` is strictly newer than the supplied ISO
@@ -49,11 +50,16 @@ export async function updatePost(
 
 /**
  * Delete a post. Only the author may delete their post.
+ *
+ * A tombstone signed with the author's identity key is recorded and sent to
+ * connected peers before the local copy goes, so peers purge it and refuse to
+ * take it back. If the key is locked, the post is still removed here and the
+ * tombstone is signed and sent once the key is available again.
  */
-export async function deletePost(postId: string): Promise<void> {
+export async function deletePost(postId: string): Promise<TombstoneResult | null> {
   const post = await get<Post>("posts", postId);
   if (!post) {
-    return;
+    return null;
   }
 
   const currentUser = getCurrentUser();
@@ -61,9 +67,16 @@ export async function deletePost(postId: string): Promise<void> {
     throw new Error("Cannot delete another user's post");
   }
 
+  let result: TombstoneResult | null = null;
+  try {
+    result = await tombstoneOwnPost(post);
+  } catch (error) {
+    console.warn("[posts] Tombstone failed; deleting locally only", error);
+  }
   await remove("posts", postId);
 
   if (post.projectId) {
     await removePostFromProject(post.projectId, postId);
   }
+  return result;
 }

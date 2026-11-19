@@ -5,6 +5,7 @@ import { BRAIN_ROOM_ID, useBrainVoice } from '@/hooks/useBrainVoice';
 import { useAuth } from '@/hooks/useAuth';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
 import { isBrainScenePath, setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
+import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 
 /**
  * Global host for the network chat panel opened from the main menu.
@@ -32,6 +33,9 @@ function NetworkChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   // enabled=false: reuse the room chat send/subscribe without joining voice.
   const { sendChatLine, onChatLine } = useBrainVoice(false, BRAIN_ROOM_ID, { audio: false });
   const [lines, setLines] = useState<BrainChatLine[]>([]);
+  // Who else is in the chat, in the Brain or here from the menu; also tells
+  // them we are here so their list and count include us.
+  const chatPeers = useNetworkChatPeers(true, BRAIN_ROOM_ID);
 
   useEffect(() => {
     return onChatLine((remote) => {
@@ -81,6 +85,7 @@ function NetworkChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
       onSend={handleSend}
       onClose={onClose}
       roomId={BRAIN_ROOM_ID}
+      chatPeers={chatPeers}
       variant="modal"
     />
   );
