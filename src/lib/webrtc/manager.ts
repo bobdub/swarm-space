@@ -370,7 +370,7 @@ export class WebRTCManager {
       this.makingOffer.set(meshPeerId, false);
       this.negotiationLock.set(meshPeerId, false);
     }
-    const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote });
+    const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote, forAnswer: true });
 
     const isCurrentlyMakingOffer = this.makingOffer.get(meshPeerId) ?? false;
     const offerCollision = isCurrentlyMakingOffer || pc.signalingState !== 'stable';
@@ -401,6 +401,12 @@ export class WebRTCManager {
 
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     await this.flushPendingCandidates(meshPeerId, pc);
+    // Put our mic/camera on the transceivers this offer created, so the
+    // answer itself carries our audio. Otherwise the answering side (every
+    // newcomer, and the polite side after glare) stays silent until a
+    // second negotiation of its own succeeds: the "they can hear me but I
+    // can't hear them" split.
+    await this.adoptOfferedTransceivers(pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -853,11 +859,10 @@ export class WebRTCManager {
 
     if (!stillWanted()) return abort('call or camera state changed');
 
-    const slot = kind === 'audio' ? 0 : 1;
     const screenSenders = new Set(this.screenSenders.values());
     for (const [peerId, pc] of this.connections) {
       const sender =
-        pc.getTransceivers()[slot]?.sender ??
+        this.mediaTransceiver(pc, kind)?.sender ??
         pc.getSenders().find(s => s.track?.kind === kind && !screenSenders.has(s));
       if (!sender) continue;
       try {
@@ -1015,7 +1020,10 @@ export class WebRTCManager {
 
   getScreenStream(): MediaStream | null { return this.screenStream; }
 
-  async createPeerConnection(peerId: string, opts: { reuseFailed?: boolean } = {}): Promise<RTCPeerConnection> {
+  async createPeerConnection(
+    peerId: string,
+    opts: { reuseFailed?: boolean; forAnswer?: boolean } = {},
+  ): Promise<RTCPeerConnection> {
     // Reuse existing connection if it's still alive (or being ICE-restarted)
     const existing = this.connections.get(peerId);
     if (
@@ -1045,11 +1053,17 @@ export class WebRTCManager {
     // the asymmetric "I hear them but they can't hear me" bug that occurs
     // when an offer is sent with no `m=audio` section and the late-added
     // track never makes it into a renegotiation.
-    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+    //
+    // Not when the connection is created to answer an offer: browsers never
+    // reuse `addTransceiver` transceivers for a remote offer's m-lines, so
+    // our mic would sit on an extra, unnegotiated transceiver and the answer
+    // would go out receive-only. `adoptOfferedTransceivers` attaches our
+    // tracks to the offered ones instead.
+    const audioTransceiver = opts.forAnswer ? null : pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const videoTransceiver = opts.forAnswer ? null : pc.addTransceiver('video', { direction: 'sendrecv' });
 
     // Attach local camera/mic tracks if already available
-    if (this.localStream) {
+    if (this.localStream && audioTransceiver && videoTransceiver) {
       const audioTrack = this.localStream.getAudioTracks()[0];
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (audioTrack) {
@@ -1366,6 +1380,57 @@ export class WebRTCManager {
   }
 
   /**
+   * The camera or microphone transceiver of a connection: the first live
+   * one of that kind that is negotiated (has a mid), else the first
+   * unnegotiated one. Never the screen-share transceiver. Index-based
+   * lookup broke on the answering side, where the offer's transceivers
+   * come after any created locally.
+   */
+  private mediaTransceiver(pc: RTCPeerConnection, kind: 'audio' | 'video'): RTCRtpTransceiver | undefined {
+    const screenSenders = new Set(this.screenSenders.values());
+    const candidates = pc.getTransceivers().filter(t =>
+      !(t as RTCRtpTransceiver & { stopped?: boolean }).stopped &&
+      t.currentDirection !== 'stopped' &&
+      t.direction !== 'stopped' &&
+      t.receiver?.track?.kind === kind &&
+      !screenSenders.has(t.sender),
+    );
+    return candidates.find(t => t.mid !== null) ?? candidates[0];
+  }
+
+  /**
+   * After applying a remote offer: send our mic/camera on the transceivers
+   * it negotiated, and retire any unnegotiated local ones of the same kind
+   * (left over from glare rollback) so they cannot trigger a duplicate
+   * m-line later.
+   */
+  private async adoptOfferedTransceivers(pc: RTCPeerConnection): Promise<void> {
+    for (const kind of ['audio', 'video'] as const) {
+      const main = this.mediaTransceiver(pc, kind);
+      if (!main || main.mid === null) continue;
+      const local = (kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks())
+        ?.find(t => t.readyState === 'live') ?? null;
+      const screenSenders = new Set(this.screenSenders.values());
+      for (const t of pc.getTransceivers()) {
+        if (t === main || t.mid !== null || screenSenders.has(t.sender)) continue;
+        if (t.receiver?.track?.kind !== kind) continue;
+        try { await t.sender.replaceTrack(null); } catch { /* ignore */ }
+        try { t.stop(); } catch { /* ignore */ }
+      }
+      if (local && main.sender.track !== local) {
+        try { await main.sender.replaceTrack(local); } catch (err) {
+          console.warn(`[WebRTC] could not attach local ${kind} to offered transceiver`, err);
+        }
+      }
+      // Always be ready to send, even before the mic/camera exists, so a
+      // later replaceTrack needs no renegotiation.
+      if (main.direction !== 'sendrecv') {
+        try { main.direction = 'sendrecv'; } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /**
    * Slot a freshly-acquired local track into the upfront sendrecv
    * transceiver for the peer. Uses ordered lookup (index 0 = audio,
    * 1 = video) — these are created in `createPeerConnection` in that
@@ -1377,9 +1442,9 @@ export class WebRTCManager {
    * showing each user only their own video.
    */
   private async slotTrackIntoPeer(pc: RTCPeerConnection, track: MediaStreamTrack): Promise<boolean> {
-    const transceivers = pc.getTransceivers();
-    const slotIndex = track.kind === 'audio' ? 0 : track.kind === 'video' ? 1 : -1;
-    const upfront = slotIndex >= 0 ? transceivers[slotIndex] : undefined;
+    const upfront = track.kind === 'audio' || track.kind === 'video'
+      ? this.mediaTransceiver(pc, track.kind)
+      : undefined;
     if (upfront && upfront.sender) {
       const previous = upfront.sender.track;
       if (previous && previous !== track && previous.readyState === 'live' && previous.kind === track.kind) {
@@ -1657,17 +1722,27 @@ export class WebRTCManager {
           !!pc &&
           state === 'connected' &&
           pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
+        // Our live mic must be on a negotiated transceiver. A track parked
+        // on an unnegotiated one looks fine locally but never leaves.
+        const liveMic = this.localStream?.getAudioTracks().find(t => t.readyState === 'live');
+        const micTransceiver = pc ? this.mediaTransceiver(pc, 'audio') : undefined;
         const notSending =
           !!pc &&
           state === 'connected' &&
-          !!this.localStream?.getTracks().some(t => t.readyState === 'live') &&
-          pc.getSenders().every(s => !s.track || s.track.readyState === 'ended');
+          !!liveMic &&
+          (!micTransceiver || micTransceiver.mid === null || micTransceiver.sender.track !== liveMic ||
+            (micTransceiver.currentDirection !== 'sendrecv' && micTransceiver.currentDirection !== 'sendonly'));
 
         if (halfOpen || receivingNothing || notSending) {
           this.lastRepairAt.set(peerId, now);
           console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
           if (halfOpen) {
             void this.resyncPeer(peerId).catch(() => {});
+          } else if (notSending && liveMic && pc) {
+            void this.slotTrackIntoPeer(pc, liveMic)
+              .catch(() => false)
+              .then(() => this.ensureOfferToPeer(peerId))
+              .catch(() => {});
           } else {
             void this.ensureOfferToPeer(peerId).catch(() => {});
           }
