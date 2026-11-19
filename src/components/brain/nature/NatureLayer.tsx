@@ -7,6 +7,15 @@ import { beePoseAt, nearestFlowers, type V3 } from '@/lib/brain/nature/beeFlight
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import { hiveBuildProgress, rehomeHivesFrom, HUSK_MS } from '@/lib/brain/nature/hiveRehome';
+import {
+  flowerBloom,
+  fruitAt,
+  isFruitPicked,
+  syncNatureGrowth,
+  treeGrowth,
+  treeVigour,
+  SEED_FALL_MS,
+} from '@/lib/brain/nature/natureGrowth';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
 import { seedVolcanoes } from '@/lib/brain/nature/volcanoSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
@@ -52,7 +61,14 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
       if (evt.type === 'remove' && evt.block.kind === 'tree') rehomeHivesFrom(evt.block.bodyId);
       force((n) => (n + 1) & 0xfff);
     });
-    return unsub;
+    // Seedlings, new flowers and old trees dying back all follow the shared
+    // clock; check it every few seconds.
+    syncNatureGrowth(anchorPeerId);
+    const growTimer = window.setInterval(() => syncNatureGrowth(anchorPeerId), 5000);
+    return () => {
+      unsub();
+      window.clearInterval(growTimer);
+    };
   }, [anchorPeerId, engine]);
 
   // Only render biome-tagged blocks — leaves room for one-off pieces
@@ -84,8 +100,8 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
   switch (kind) {
     case 'water': return <Water color={color} />;
     case 'grass': return <Grass color={color} />;
-    case 'flower': return <Flower color={color} />;
-    case 'tree': return <Tree color={color} blockId={block.bodyId} />;
+    case 'flower': return <Flower color={color} block={block} />;
+    case 'tree': return <Tree color={color} block={block} />;
     case 'fish': return <Fish color={color} sex={(block.meta?.sex as string) ?? 'female'} />;
     // Keyed by host tree so a hive that moved house starts fresh.
     case 'hive': return <Hive key={String(block.meta?.treeId ?? '')} color={color} block={block} />;
@@ -126,9 +142,19 @@ function Grass({ color }: { color: string }) {
   );
 }
 
-function Flower({ color }: { color: string }) {
+function Flower({ color, block }: { color: string; block: BuilderBlock }) {
+  // Flowers that grew from a seed spot bud up, bloom and wilt on the
+  // shared clock; the starter flowers just bloom.
+  const groupRef = useRef<THREE.Group>(null);
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const b = flowerBloom(block, Date.now());
+    g.scale.set(Math.max(0.001, 0.3 + 0.7 * b), Math.max(0.001, b), Math.max(0.001, 0.3 + 0.7 * b));
+    g.visible = b > 0.001;
+  });
   return (
-    <group>
+    <group ref={groupRef}>
       <mesh position={[0, 0.2, 0]}>
         <cylinderGeometry args={[0.02, 0.02, 0.4, 6]} />
         <meshStandardMaterial color="#3a8a3a" roughness={0.85} />
@@ -141,53 +167,121 @@ function Flower({ color }: { color: string }) {
   );
 }
 
-function Tree({ color, blockId }: { color: string; blockId: string }) {
+/** Where a grown tree hangs its fruit, under the lower canopy. */
+const FRUIT_SPOTS: V3[] = [[1.05, 3.45, 0.35], [-0.6, 3.5, 0.9], [-0.3, 3.4, -1.0]];
+const FRUIT_UNRIPE = new THREE.Color('#7fae3a');
+const FRUIT_RIPE = new THREE.Color('#d8342b');
+
+function Tree({ color, block }: { color: string; block: BuilderBlock }) {
   // Smaller, varied tree silhouette so the catalog tree reads as part of
   // a forest rather than competing with SurfaceTree's hero piece.
   const TR = 0.28, TH = 3.0;
+  const blockId = block.bodyId;
   const groupRef = useRef<THREE.Group>(null);
+  const seedRef = useRef<THREE.Group>(null);
+  const fruitRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const fruitMats = useRef<(THREE.MeshStandardMaterial | null)[]>([]);
+  // A seedling's parent trunk, in this tree's local frame (+x is the site's left).
+  const parent = useMemo<V3 | null>(() => {
+    const r = block.meta?.parentRight;
+    const f = block.meta?.parentForward;
+    return typeof r === 'number' && typeof f === 'number' ? [-r, 0, f] : null;
+  }, [block]);
 
-  // Chopping is visible: each accepted cut shakes the trunk, and the
-  // felling hit tips the whole tree over before the stump fades out.
+  // Growth: a seed falls from the parent, sprouts and grows to a full
+  // tree; an old one withers at the end of its life. Chopping is visible:
+  // each accepted cut shakes the trunk, and the felling hit tips the whole
+  // tree over before the stump fades out.
   useFrame(() => {
     const g = groupRef.current;
     if (!g) return;
+    const now = Date.now();
+    const growth = treeGrowth(block, now);
+    const size = (0.08 + 0.92 * growth * growth * (3 - 2 * growth)) * treeVigour(block, now);
+    const sprouted = growth > 0;
+
+    const seed = seedRef.current;
+    if (seed) {
+      const start = (block.meta?.growth as { start?: number } | undefined)?.start;
+      seed.visible = !sprouted && typeof start === 'number';
+      if (seed.visible && typeof start === 'number') {
+        // Drop from the parent's canopy, tumbling, then lie in the grass.
+        const t = Math.min(1, Math.max(0, (now - start) / SEED_FALL_MS));
+        const from: V3 = parent ? [parent[0] * 0.7, 3.6, parent[2] * 0.7] : [0, 3.6, 0];
+        const e = t * t;
+        seed.position.set(from[0] * (1 - t), from[1] * (1 - e) + 0.05, from[2] * (1 - t));
+        seed.rotation.set(t * 9, t * 5, 0);
+      }
+    }
+
+    // Fruit on grown trees: swells green, ripens red, gone once picked.
+    const fruit = fruitAt(blockId, now);
+    const showFruit = growth >= 1 && !isFruitPicked(blockId, fruit.crop);
+    for (let i = 0; i < FRUIT_SPOTS.length; i++) {
+      const m = fruitRefs.current[i];
+      if (m) {
+        m.visible = showFruit;
+        m.scale.setScalar(Math.max(0.001, 0.25 + 0.75 * fruit.size));
+      }
+      const mat = fruitMats.current[i];
+      if (mat) mat.color.copy(fruit.ripe ? FRUIT_RIPE : FRUIT_UNRIPE);
+    }
+
     const state = getTreeChop(blockId);
     if (!state) {
       g.rotation.set(0, 0, 0);
-      g.scale.setScalar(1);
+      g.scale.setScalar(sprouted ? Math.max(0.001, size) : 0.001);
+      g.visible = sprouted && size > 0.002;
       return;
     }
-    const now = Date.now();
+    g.visible = true;
     if (state.toppledAt) {
       const t = Math.min(1, (now - state.toppledAt) / TOPPLE_MS);
       const e = t * t;
       g.rotation.set(0, 0, e * (Math.PI / 2) * 0.92);
       const fade = Math.max(0, 1 - Math.max(0, now - state.toppledAt - TOPPLE_MS) / STUMP_FADE_MS);
-      g.scale.setScalar(Math.max(0.001, fade));
+      g.scale.setScalar(Math.max(0.001, fade * size));
       return;
     }
     const since = now - state.lastHitAt;
     const shake = since < 420 ? Math.sin(since / 22) * 0.07 * (1 - since / 420) : 0;
     g.rotation.set(0, 0, shake);
-    g.scale.setScalar(1);
+    g.scale.setScalar(Math.max(0.001, size));
   });
 
   return (
-    <group ref={groupRef}>
-      <mesh position={[0, TH / 2, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[TR * 0.8, TR, TH, 10]} />
-        <meshStandardMaterial color="#6b4f2a" roughness={0.92} />
-      </mesh>
-      <mesh position={[0, TH + 0.8, 0]} castShadow>
-        <coneGeometry args={[1.6, 2.2, 12]} />
-        <meshStandardMaterial color={color} roughness={0.8} />
-      </mesh>
-      <mesh position={[0, TH + 2.0, 0]} castShadow>
-        <coneGeometry args={[1.1, 1.6, 12]} />
-        <meshStandardMaterial color={color} roughness={0.8} />
-      </mesh>
-    </group>
+    <>
+      <group ref={seedRef} visible={false}>
+        <mesh scale={[1, 0.7, 1.4]}>
+          <sphereGeometry args={[0.09, 8, 6]} />
+          <meshStandardMaterial color="#7a5230" roughness={0.8} />
+        </mesh>
+      </group>
+      <group ref={groupRef}>
+        <mesh position={[0, TH / 2, 0]} castShadow receiveShadow>
+          <cylinderGeometry args={[TR * 0.8, TR, TH, 10]} />
+          <meshStandardMaterial color="#6b4f2a" roughness={0.92} />
+        </mesh>
+        <mesh position={[0, TH + 0.8, 0]} castShadow>
+          <coneGeometry args={[1.6, 2.2, 12]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>
+        <mesh position={[0, TH + 2.0, 0]} castShadow>
+          <coneGeometry args={[1.1, 1.6, 12]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>
+        {FRUIT_SPOTS.map((p, i) => (
+          <mesh key={i} position={p} ref={(el) => { fruitRefs.current[i] = el; }} visible={false} castShadow>
+            <sphereGeometry args={[0.13, 10, 8]} />
+            <meshStandardMaterial
+              ref={(el) => { fruitMats.current[i] = el; }}
+              color={FRUIT_UNRIPE}
+              roughness={0.45}
+            />
+          </mesh>
+        ))}
+      </group>
+    </>
   );
 }
 
@@ -317,6 +411,13 @@ function Hive({ color, block }: { color: string; block: BuilderBlock }) {
         const tt = Math.min(1, since / TOPPLE_MS);
         branchTilt = tt * tt * (Math.PI / 2) * 0.92;
         branchScale = Math.max(0.001, 1 - Math.max(0, since - TOPPLE_MS) / STUMP_FADE_MS);
+      } else if (treeVigour(tree, Date.now()) < 1) {
+        // An old tree withering away: the branch shrinks with it and the
+        // hive drops to the grass.
+        const v = treeVigour(tree, Date.now());
+        const t = Math.min(1, (1 - v) * 3);
+        drop = restDrop * t * t;
+        branchScale = Math.max(0.001, v);
       } else if (chop) {
         const since = Date.now() - chop.lastHitAt;
         branchTilt = since < 420 ? Math.sin(since / 22) * 0.07 * (1 - since / 420) : 0;

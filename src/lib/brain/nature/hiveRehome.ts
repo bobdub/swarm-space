@@ -2,7 +2,7 @@
  * Hive rehoming — when a hive's host tree is felled, the colony moves.
  *
  * The hive falls with its tree (see `Hive` in NatureLayer). Once the
- * felled tree is cleared away, the bees abandon the broken comb on the
+ * felled tree is cleared away (or an old tree has died back), the bees abandon the broken comb on the
  * grass and build a new hive on a branch of the nearest standing tree.
  *
  * The new home is a pure function of the world: the standing trees, their
@@ -12,12 +12,16 @@
  */
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { isTreeFelled } from '@/lib/world/treeChopStore';
+import { isTreeGrown, treeLifeLeft } from '@/lib/brain/nature/natureGrowth';
 
 /** How far out along its branch the hive hangs from the trunk (m). */
 export const HIVE_REACH = 1.9;
 
 /** How long the bees take to build the new comb up to full size. */
 export const HIVE_BUILD_MS = 20_000;
+
+/** Bees only move into a grown tree with at least this long left to live. */
+export const MIN_HOST_LIFE_MS = 30 * 60_000;
 
 /** How long the abandoned comb lies on the grass before it crumbles away. */
 export const HUSK_MS = 30_000;
@@ -87,7 +91,8 @@ const huskTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Move every hive that hung from `felledTreeId` to a new tree. Called once
- * the felled tree's block has been removed. Leaves a broken comb where the
+ * the felled (or dead) tree's block has been removed. Only grown trees
+ * that are not about to die back are chosen. Leaves a broken comb where the
  * hive fell. Returns the ids of the hives that moved.
  */
 export function rehomeHivesFrom(felledTreeId: string, now = Date.now()): string[] {
@@ -112,7 +117,9 @@ function rehomeHive(hive: BuilderBlock, felledTreeId: string, now: number): bool
       b.kind === 'tree'
       && b.meta?.biome === BIOME_TAG
       && b.anchorPeerId === hive.anchorPeerId
-      && !isTreeFelled(b.bodyId))
+      && !isTreeFelled(b.bodyId)
+      && isTreeGrown(b, now)
+      && treeLifeLeft(b, now) >= MIN_HOST_LIFE_MS)
     .map((b) => ({ id: b.bodyId, x: b.rightOffset, z: b.forwardOffset }));
 
   const target = pickNewHiveTree({ x: hive.rightOffset, z: hive.forwardOffset }, trees, taken);
