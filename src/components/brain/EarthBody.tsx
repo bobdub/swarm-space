@@ -175,6 +175,8 @@ export function EarthBody() {
   const initialPose = useMemo(() => getEarthPose(), []);
   const terrainGeometry = useMemo(() => buildTerrainGeometry(), []);
   useEffect(() => () => terrainGeometry.dispose(), [terrainGeometry]);
+  const seaGeometry = useMemo(() => new THREE.SphereGeometry(EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS), []);
+  useEffect(() => () => seaGeometry.dispose(), [seaGeometry]);
   // The Moon is placed from the shared-epoch pose (earth.ts), never from
   // local elapsed time, so every peer sees the same Moon in the same phase.
   const initialMoonPos = useMemo<[number, number, number]>(() => [
@@ -308,7 +310,7 @@ export function EarthBody() {
           floor (shallows → shelf → deep ocean bed), seen through the water;
           over land the terrain is higher and hides this sphere by depth. */}
       <mesh renderOrder={1}>
-        <sphereGeometry args={[EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS]} />
+        <primitive object={seaGeometry} attach="geometry" />
         <meshPhongMaterial
           color={waterColor}
           emissive={waterColor}

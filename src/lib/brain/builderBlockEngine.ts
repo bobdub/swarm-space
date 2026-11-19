@@ -18,7 +18,7 @@ import {
   earthLocalToWorld,
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
+import { groundElevationAt } from '@/lib/brain/groundHeight';
 
 export interface BuilderBlockSpec {
   /** Stable id (engine prefixes with kind for the underlying body id). */
@@ -99,7 +99,7 @@ function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
     localPos[1] / EARTH_RADIUS,
     localPos[2] / EARTH_RADIUS,
   ];
-  const lift = sampleSurfaceLift(localUnit);
+  const lift = groundElevationAt(localUnit);
   const k = (FEET_SHELL_RADIUS + lift + spec.upOffset) / r;
   return [
     pose.center[0] + dx * k,
@@ -131,15 +131,14 @@ class BuilderBlockEngine {
       const newPos = computeWorldPos(block);
       const body = physics.getBody(block.bodyId);
       if (body) {
+        // Keep bodies co-moving every tick, but only rewrite field cells
+        // when the rounded lattice centre actually changes.
+        block.support = physics.moveSupportBasin(block.support, body.pos, newPos, block.basin);
         body.pos[0] = newPos[0];
         body.pos[1] = newPos[1];
         body.pos[2] = newPos[2];
         body.vel[0] = 0; body.vel[1] = 0; body.vel[2] = 0;
       }
-      // Volumetric basin co-moves with Earth — clear the previous stamp
-      // and write a fresh one centred on the live world position.
-      physics.unpinSupportBasin(block.support);
-      block.support = physics.pinSupportBasin(newPos, block.basin, 0.6);
     }
   }
 
@@ -157,9 +156,10 @@ class BuilderBlockEngine {
       meta: { ...(spec.meta ?? {}) },
     };
     const bodyId = `${filled.kind}:${filled.id}`;
-    if (this.blocks.has(bodyId)) {
+    const existing = this.blocks.get(bodyId);
+    if (existing) {
       // Idempotent re-place — return existing handle without touching physics.
-      return this.blocks.get(bodyId)!;
+      return existing;
     }
     const physics = getBrainPhysics();
     const worldPos = computeWorldPos(filled);

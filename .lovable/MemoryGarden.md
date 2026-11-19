@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 19, 2026 — A quieter stride
+
+Before tending: let motion keep its rhythm without waking every branch;
+guard the shared ground and leave live travellers free to test their own sky.
+
+After tending: status wakes only its own leaf, first-person eyes keep their height;
+support follows every step but rewrites only changed cells. The baked ground
+guides both blocks and water drag; no measured frame rate is invented here.
+
 ### November 18, 2026 — Cargo at the quiet doorway
 
 Before tending: count the tokens already resting at their own cold address;

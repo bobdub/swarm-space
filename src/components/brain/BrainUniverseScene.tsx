@@ -53,6 +53,8 @@ import {
   type BrainPortal,
 } from '@/lib/brain/brainPersistence';
 import { InfinityBody } from '@/components/brain/InfinityBody';
+import { BrainStatusReadout } from '@/components/brain/BrainStatusReadout';
+import { needsBoomClearance } from '@/lib/brain/cameraClearance';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
@@ -503,7 +505,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       + THIRD_PERSON_UP_M * thirdAmt
       + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
-    if (boomAmt > 0 || specAmt > 0 || thirdAmt > 0) {
+    if (needsBoomClearance(boomAmt, specAmt, thirdAmt)) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       // Strip the radial component so the boom pulls back along the ground.
       const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
@@ -526,7 +528,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Terrain pull-in: swinging the boom backwards over rising ground can
     // bury the eye. Keep it a clear margin above the local surface by
     // shortening the boom radially — never by moving the body.
-    {
+    if (needsBoomClearance(boomAmt, specAmt, thirdAmt)) {
       const ex = eyeX - pose.center[0];
       const ey = eyeY - pose.center[1];
       const ez = eyeZ - pose.center[2];
@@ -1106,7 +1108,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const physics = useMemo(() => getBrainPhysics(), []);
   const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
   const [selfId, setSelfId] = useState<string>('');
-  const [qScore, setQScore] = useState(0);
   const [chatOpen, setChatOpen] = useState(() => window.location.pathname === '/brain/join');
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
@@ -1693,15 +1694,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     };
   }, [guestCandidateId, physics, ready]);
 
-  // ── Q score subscription + periodic field snapshot save ───────────
+  // ── Periodic field snapshot save (no per-tick scene state) ─────────
   useEffect(() => {
-    const unsub = physics.subscribe(() => {
-      setQScore(physics.getQScore());
-    });
     const saveTimer = setInterval(() => {
       try { void saveBrainField(physics.snapshot(), universeKey); } catch { /* ignore */ }
     }, 5000);
-    return () => { unsub(); clearInterval(saveTimer); };
+    return () => clearInterval(saveTimer);
   }, [physics, universeKey]);
 
   // ── Scope user placements (walls, decorations, tools) to this universe ──
@@ -1950,7 +1948,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const fusion = getSharedNeuralEngine().getDualLearning();
       fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }
-  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
+  }, [physics, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
 
   // ── Drop a portal at the player's current position ────────────────
   // If `hitPoint` is provided (raycast cast from AssetCaster), the portal
@@ -2285,11 +2283,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
         <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
-          {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
-            const b = physics.getBody(selfId);
-            if (!b) return '—';
-            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS - BODY_CENTER_HEIGHT).toFixed(2) + 'm';
-          })()} · voice:{voicePeers.length + 1}
+          <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
           <Button
@@ -2473,7 +2467,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <NatureLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 7 — live NPC roster + deterministic resource clusters. */}
         <NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        <InfinityBody position={getInfinityPosition()} qScore={qScore} />
+        <InfinityBody position={getInfinityPosition()} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
 

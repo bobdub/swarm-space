@@ -29,6 +29,7 @@
 - [x] Add idle engraving tiers, backward-compatible seal metadata, and Labor manual sealing from 1 MB; automated tests cover bounds, settling, capacity, ownership, duplicates and concurrent appends. Live testing left to users.
 - [x] Wire exchanged peer identities into online wallet picks and native address resolution in SWARM and Builder; preserve existing accounts and signing checks. 169 wallet + 43 peer/dashboard automated checks pass; live transfers left to users.
 - [x] Define stable namespace anchors and local connection affinity without claiming hash uniqueness or measured UQRC consciousness.
+- [x] Isolate Brain status sampling, limit support rewrites to lattice crossings, memoize sea geometry and scope camera rescue to active booms; baked ground drives block placement/water drag. 289 Brain/building/pub automated checks pass; live movement and device frame rate left to users.
 - [ ] Sync imported MintMe token deposits with conserved custody receipts, manual checks and automatic two-minute polling; verify with automated tests only.
 - [x] Preserve duplicate handles in account skins and retain owner-scoped known connection time.
 - [x] Bind @tag selections/defaults to canonical identities through posts, comments, notifications and rendering; defer URL changes.

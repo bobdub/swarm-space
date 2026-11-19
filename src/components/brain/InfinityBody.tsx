@@ -1,17 +1,18 @@
 import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 
 interface Props {
   position: [number, number, number];
-  qScore: number;
 }
 
-export function InfinityBody({ position, qScore }: Props) {
+export function InfinityBody({ position }: Props) {
   const ref = useRef<THREE.Mesh>(null);
-  const scale = 1 + 0.4 * Math.min(2, Math.max(0, qScore));
   useFrame(({ clock }) => {
     if (!ref.current) return;
+    const score = getBrainPhysics().getQScore();
+    ref.current.scale.setScalar(1 + 0.4 * Math.min(2, Math.max(0, Number.isFinite(score) ? score : 0)));
     const t = clock.elapsedTime;
     ref.current.rotation.y = t * 0.4;
     ref.current.rotation.x = Math.sin(t * 0.3) * 0.2;
@@ -19,7 +20,7 @@ export function InfinityBody({ position, qScore }: Props) {
   });
   return (
     <group position={position}>
-      <mesh ref={ref} scale={scale}>
+      <mesh ref={ref}>
         <icosahedronGeometry args={[0.7, 1]} />
         <meshStandardMaterial
           color="hsl(265, 90%, 65%)"
