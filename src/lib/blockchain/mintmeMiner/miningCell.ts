@@ -59,7 +59,7 @@ export class MintMeMiningCell {
     const { GunAdapter } = await import("@/lib/p2p/transports/gunAdapter");
     if (generation !== this.generation) return;
     const adapter = new GunAdapter({
-      peers: ["https://gun.eco/gun", "https://e2e.we-share.io/gun", "https://relay.peer.ooo/gun"],
+      peers: ["https://gun.eco/gun", "https://e2e.we-share.io/gun"],
       graphKey: MINING_CELL_GRAPH, channelName: "mintme-mining-cell", registryMode: true,
     });
     this.adapter = adapter;

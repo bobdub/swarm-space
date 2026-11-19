@@ -131,10 +131,10 @@ describe('Brain call recovery', () => {
     expect(reconnectSignals).toHaveLength(0);
     expect(pc.offerOptions.filter(o => o?.iceRestart)).toHaveLength(1);
   });
-  it('uses the same STUN + TURN servers as the mesh', async () => {
+  it('uses the same configured ICE servers as the mesh without the dead default relay', async () => {
     const { pc } = await connectedManager();
     expect(pc.config.iceServers).toBe(DEFAULT_ICE_SERVERS);
-    expect(JSON.stringify(pc.config.iceServers)).toContain('turn:');
+    expect(JSON.stringify(pc.config.iceServers)).not.toContain('openrelay.metered.ca');
   });
 
   it('first recovers a failed connection with an ICE restart, keeping the call', async () => {

@@ -39,7 +39,7 @@ const MAX_MERGE_POSTS = 20_000;
 // ── Code + proofs ──────────────────────────────────────────────────────
 
 /** Cryptographically random 6-digit code (rejection sampling, no modulo bias). */
-export function generateMergeCode(random: (buf: Uint32Array) => Uint32Array = (b) => crypto.getRandomValues(b)): string {
+export function generateMergeCode(random: (buf: Uint32Array<ArrayBuffer>) => Uint32Array<ArrayBuffer> = (b) => crypto.getRandomValues(b)): string {
   const limit = Math.floor(0xffffffff / 1_000_000) * 1_000_000;
   const buf = new Uint32Array(1);
   for (;;) {

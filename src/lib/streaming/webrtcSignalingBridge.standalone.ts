@@ -101,7 +101,7 @@ interface MeshLike {
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
   getPeerId(): string;
-  dialViaBus?(peerId: string): boolean;
+  dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
 }
 
 import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
@@ -123,7 +123,7 @@ function dialRoomPeer(peerId: string): void {
   const last = roomDialAt.get(peerId);
   if (last !== undefined && Date.now() - last < 12000) return;
   roomDialAt.set(peerId, Date.now());
-  meshRef.dialViaBus?.(peerId);
+  meshRef.dialViaBus?.(peerId, 'manual');
 }
 let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
 let knownPeerSnapshot: Set<string> = new Set();

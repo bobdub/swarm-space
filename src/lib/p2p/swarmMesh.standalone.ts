@@ -477,14 +477,15 @@ export class StandaloneSwarmMesh {
 
   /**
    * Central freshness gate — used by ALL automatic dial paths.
-   * A peer is "fresh enough to dial" only if it was seen recently,
-   * either directly in the Global Cell or via an active connected peer.
-   * Manual dials bypass this check.
+   * Saved friends bypass presence age, but never disabled auto-connect.
+   * Ephemeral discovery still requires recent Cell or active-peer presence.
+   * Cooldowns and pending-dial limits remain enforced by automatic callers.
    */
 
   private isFreshEnoughToDial(peerId: string): boolean {
     const entry = this.library.get(peerId);
-    if (!entry) return false;
+    if (!entry || !entry.autoConnect) return false;
+    if (entry.source === 'manual' || entry.source === 'library') return true;
 
     // Peer must have been seen within the cell freshness window
     const age = now() - entry.lastSeenAt;
@@ -1224,6 +1225,10 @@ export class StandaloneSwarmMesh {
     if (existing) {
       existing.lastSeenAt = now();
       existing.nodeId = nodeId;
+      if (source === 'manual') {
+        existing.source = 'manual';
+        existing.autoConnect = true;
+      }
       // Preserve profile data from prior profile-exchange
       this.saveLibrary();
       return;
@@ -1507,18 +1512,20 @@ export class StandaloneSwarmMesh {
     if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     let dialed = 0;
     let skipped = 0;
+    const dialBudget = this.getAutoDialBudget();
     for (const [peerId, entry] of this.library) {
       if (!entry.autoConnect) continue;
       if (this.connections.has(peerId)) continue;
       if (this.blockedPeers.has(peerId)) continue;
       if (peerId === this.peerId) continue;
-      // ── Freshness gate: never auto-dial stale/offline peers ──
+      // Saved friends need no fresh beacon; discovered peers do.
       if (!this.isFreshEnoughToDial(peerId)) { skipped++; continue; }
-      this.dialPeer(peerId, entry.source ?? 'library');
-      dialed++;
+      if (this.isPeerCoolingDown(peerId) || this.isDialPending(peerId)) continue;
+      if (dialed >= dialBudget) break;
+      if (this.dialPeer(peerId, entry.source ?? 'library')) dialed++;
     }
     if (dialed > 0 || skipped > 0) {
-      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} fresh peer(s) from library (${skipped} stale skipped)`);
+      console.log(`[SwarmMesh] 📡 Auto-dialing ${dialed} eligible peer(s) from library (${skipped} stale discovered peers skipped)`);
     }
   }
 
@@ -1527,7 +1534,7 @@ export class StandaloneSwarmMesh {
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
 
-      // Only dial fresh peers — never stale/offline library entries
+      // Saved friends retry with backoff; ephemeral peers need fresh presence.
       const candidates = Array.from(this.library.entries())
         .filter(([peerId, entry]) =>
           entry.autoConnect &&
@@ -1535,6 +1542,7 @@ export class StandaloneSwarmMesh {
           !this.blockedPeers.has(peerId) &&
           peerId !== this.peerId &&
           !this.isPeerCoolingDown(peerId) &&
+          !this.isDialPending(peerId) &&
           this.isFreshEnoughToDial(peerId)
         )
         .sort(([, a], [, b]) => {
@@ -1550,7 +1558,7 @@ export class StandaloneSwarmMesh {
 
       if (selected.length > 0) {
         console.log(
-          `[SwarmMesh] 🔄 RECONNECT LOOP — ${selected.length}/${candidates.length} fresh candidates, ` +
+          `[SwarmMesh] 🔄 RECONNECT LOOP — ${selected.length}/${candidates.length} eligible candidates, ` +
           `top: ${selected[0][0].slice(0, 12)} trust=${(selected[0][1].trustScore ?? 0.3).toFixed(2)}`
         );
       }
@@ -2257,6 +2265,12 @@ export class StandaloneSwarmMesh {
     }
 
     if (remotePeerId === this.peerId) return false;
+    if (this.blockedPeers.has(remotePeerId)) {
+      this.emitAlert('That peer is blocked', 'warn');
+      return false;
+    }
+    // Persist intent even while signaling warms up or the connection exists.
+    this.addToLibrary(remotePeerId, 'manual');
 
     if (!this.peer || this.peer.destroyed || this.phase !== 'online') {
       // Signaling is still opening (or re-opening): hold the dial and send it
@@ -2268,11 +2282,6 @@ export class StandaloneSwarmMesh {
         return true;
       }
       this.emitAlert('Start Swarm Mesh first', 'warn');
-      return false;
-    }
-
-    if (this.blockedPeers.has(remotePeerId)) {
-      this.emitAlert('That peer is blocked', 'warn');
       return false;
     }
 
@@ -2290,7 +2299,6 @@ export class StandaloneSwarmMesh {
     // BEFORE dialing so the connection is durable and retryable, then pulse
     // our own presence so the remote side's Cell Bus sees us and can
     // arbitrate/accept instead of colliding with a simultaneous dial.
-    this.addToLibrary(remotePeerId, 'manual');
     this.pulseGlobalPresence('manual-dial');
     // Trip 1: knock so the target dials back at the same time (two-way punch).
     void import('./globalCell').then(({ getGlobalCell }) => getGlobalCell().sendInviteKnock(remotePeerId)).catch(() => {});
@@ -2321,14 +2329,17 @@ export class StandaloneSwarmMesh {
    * must never reset backoff or open a second connection to the same peer.
    * Manual dials remain the only path that overrides backoff (user intent).
    */
-  dialViaBus(remotePeerId: string): boolean {
-    if (!this.peer || this.peer.destroyed || this.phase !== 'online') return false;
+  dialViaBus(remotePeerId: string, source: 'exchange' | 'manual' = 'exchange'): boolean {
+    remotePeerId = remotePeerId.trim();
     if (!remotePeerId || remotePeerId === this.peerId) return false;
     if (this.blockedPeers.has(remotePeerId)) return false;
+    // Explicit room targets are durable, unlike arbitrary Cell discovery.
+    if (source === 'manual') this.addToLibrary(remotePeerId, 'manual');
+    if (!this.peer || this.peer.destroyed || this.phase !== 'online') return false;
     if (this.connections.has(remotePeerId)) return false;
     if (this.isPeerCoolingDown(remotePeerId) || this.isDialPending(remotePeerId)) return false;
 
-    const started = this.dialPeer(remotePeerId, 'exchange');
+    const started = this.dialPeer(remotePeerId, source);
     if (started) {
       this.globalCellDialCooldowns.set(remotePeerId, now());
     }

@@ -133,7 +133,6 @@ const BC_BEACON_CHANNEL = 'global-cell-beacon';
 const DEFAULT_GUN_RELAY_PEERS = [
   'https://gun.eco/gun',
   'https://e2e.we-share.io/gun',
-  'https://relay.peer.ooo/gun',
 ];
 
 /** Debounce window for event-driven Bus evaluation after a new beacon arrives. */

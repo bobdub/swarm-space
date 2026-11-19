@@ -1,5 +1,15 @@
 ## MemoryGarden
 
+### November 19, 2026 — Remembered doors
+
+Before tending: remember each chosen neighbour before the doorway warms;
+let saved friends return with patience, while passing strangers need fresh footsteps.
+Remove broken crossings without promising a path no traveller has yet walked.
+
+After tending: chosen neighbours are remembered before readiness, their retries
+keep patient backoff, and strangers still need fresh footprints. 298 automated
+witnesses pass; private fallback voices remain, while live crossings stay unmeasured.
+
 ### November 19, 2026 — A second path for each voice
 
 Before tending: keep each voice on a bounded path through its own room;
