@@ -6,12 +6,13 @@ import { blockOffsetInFrame } from '@/lib/brain/blockFrame';
 import { beePoseAt, nearestFlowers, type V3 } from '@/lib/brain/nature/beeFlight';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
-import { hiveBuildProgress, rehomeHivesFrom, HUSK_MS } from '@/lib/brain/nature/hiveRehome';
+import { hiveBuildProgress, HUSK_MS } from '@/lib/brain/nature/hiveRehome';
+import { syncNatureWorld } from '@/lib/brain/nature/natureWorld';
+import { subscribeNatureEvents } from '@/lib/world/natureEventsStore';
 import {
   flowerBloom,
   fruitAt,
   isFruitPicked,
-  syncNatureGrowth,
   treeGrowth,
   treeVigour,
   SEED_FALL_MS,
@@ -55,18 +56,16 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // letting that release leak into ground tremor.
     seedVolcanoes(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
-    const unsub = engine.subscribe((evt) => {
-      // A felled tree has been cleared away: any hive it held moves to a
-      // new tree, and the bees build a fresh comb there.
-      if (evt.type === 'remove' && evt.block.kind === 'tree') rehomeHivesFrom(evt.block.bodyId);
-      force((n) => (n + 1) & 0xfff);
-    });
-    // Seedlings, new flowers and old trees dying back all follow the shared
-    // clock; check it every few seconds.
-    syncNatureGrowth(anchorPeerId);
-    const growTimer = window.setInterval(() => syncNatureGrowth(anchorPeerId), 5000);
+    const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
+    // Seedlings, new flowers, old trees dying back, trees felled by anyone
+    // and where the hive hangs all follow the shared clock and the shared
+    // nature events; check every couple of seconds and on every new event.
+    syncNatureWorld(anchorPeerId);
+    const growTimer = window.setInterval(() => syncNatureWorld(anchorPeerId), 2000);
+    const unsubEvents = subscribeNatureEvents(() => syncNatureWorld(anchorPeerId));
     return () => {
       unsub();
+      unsubEvents();
       window.clearInterval(growTimer);
     };
   }, [anchorPeerId, engine]);

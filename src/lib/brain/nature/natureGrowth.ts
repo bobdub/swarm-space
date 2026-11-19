@@ -63,9 +63,18 @@ export interface GrowthSpot extends Spot {
   offset: number;
 }
 
+export interface StarterTree extends Spot {
+  /** Block body id of the starter tree, e.g. `tree:tree-3`. */
+  id: string;
+}
+
 export interface GrowthLayout {
   trees: GrowthSpot[];
   flowers: GrowthSpot[];
+  /** The starter trees. A felled one grows back from a seed at its spot. */
+  starters?: StarterTree[];
+  /** Body id of the starter tree the honey hive first hangs from. */
+  hiveHost?: string;
 }
 
 function hash32(s: string): number {
@@ -249,12 +258,118 @@ export function pickFruit(tree: Pick<BuilderBlock, 'bodyId' | 'meta'>, now: numb
   return { ok: true, count: FRUIT_PER_TREE };
 }
 
-// ── Keeping the world in step with the clock ────────────────────────────
+// ── Which trees stand when ───────────────────────────────────────────────
 
-/** Growth blocks this session has placed. One taken by a player is not put back. */
+/** How long after a starter tree is felled a seed falls at its spot. */
+export const STARTER_REGROW_MS = 5 * MIN;
+/** A regrown starter tree lives on; this stands in for "forever". */
+export const STARTER_LIFE_MS = 1e15;
+
+/** One life of a tree at one spot. */
+export interface TreeIncarnation {
+  /** Block body id, e.g. `tree:tree-3`, `tree:tree-3~1763600000000`, `tree:grown-tree-2-c4`. */
+  id: string;
+  x: number;
+  z: number;
+  /** When the seed falls (-Infinity for the starter trees). */
+  appearsAt: number;
+  /** When it is full grown. */
+  grownAt: number;
+  /** When it dies of old age (Infinity for starter lines). */
+  diesAt: number;
+  /** When a player felled it, if anyone did. */
+  felledAt?: number;
+  /** Where its seed fell from (growth spots only). */
+  parent?: Spot;
+  /** Growth spot index (growth spots only). */
+  spot?: number;
+}
+
+export type FellMap = ReadonlyMap<string, number>;
+
+/** The block id behind a body id (`tree:tree-3` → `tree-3`). */
+export function bareId(bodyId: string): string {
+  const i = bodyId.indexOf(':');
+  return i >= 0 ? bodyId.slice(i + 1) : bodyId;
+}
+
+/**
+ * Every life of a starter tree's spot: the starter itself, then — each
+ * time one is felled — a new seed STARTER_REGROW_MS later.
+ */
+export function starterLine(starter: StarterTree, fells: FellMap): TreeIncarnation[] {
+  const out: TreeIncarnation[] = [];
+  let inc: TreeIncarnation = {
+    id: starter.id, x: starter.x, z: starter.z,
+    appearsAt: -Infinity, grownAt: -Infinity, diesAt: Infinity,
+    felledAt: fells.get(starter.id),
+  };
+  for (let guard = 0; guard < 200; guard++) {
+    out.push(inc);
+    if (inc.felledAt === undefined) break;
+    const appearsAt = inc.felledAt + STARTER_REGROW_MS;
+    const id = `${starter.id}~${inc.felledAt}`;
+    inc = {
+      id, x: starter.x, z: starter.z,
+      appearsAt, grownAt: appearsAt + TREE_GROW_MS, diesAt: Infinity,
+      felledAt: fells.get(id),
+    };
+  }
+  return out;
+}
+
+/** The life of growth spot `i` that is under way at time `t`, if any. */
+export function growthTreeAt(layout: GrowthLayout, i: number, t: number, fells: FellMap): TreeIncarnation | null {
+  const spot = layout.trees[i];
+  if (!spot) return null;
+  const c = cycleAt(t, spot.offset, TREE_CYCLE_MS, TREE_LIFE_MS);
+  if (!c.alive) return null;
+  const id = `tree:grown-tree-${i}-c${c.cycle}`;
+  return {
+    id, x: spot.x, z: spot.z,
+    appearsAt: c.start, grownAt: c.start + TREE_GROW_MS, diesAt: c.start + TREE_LIFE_MS,
+    felledAt: fells.get(id), parent: spot.parent, spot: i,
+  };
+}
+
+/** Look up a tree's life by its body id. */
+export function incarnationOf(layout: GrowthLayout, bodyId: string, fells: FellMap): TreeIncarnation | null {
+  const m = /^tree:grown-tree-(\d+)-c(-?\d+)$/.exec(bodyId);
+  if (m) {
+    const i = Number(m[1]);
+    const spot = layout.trees[i];
+    if (!spot) return null;
+    const start = Number(m[2]) * TREE_CYCLE_MS - spot.offset;
+    return growthTreeAt(layout, i, start + 1, fells);
+  }
+  for (const s of layout.starters ?? []) {
+    if (bodyId !== s.id && !bodyId.startsWith(`${s.id}~`)) continue;
+    return starterLine(s, fells).find((inc) => inc.id === bodyId) ?? null;
+  }
+  return null;
+}
+
+/** Every tree life that exists (seed or grown, not yet cleared) at time `t`. */
+export function treesAt(layout: GrowthLayout, t: number, fells: FellMap, clearMs: number): TreeIncarnation[] {
+  const out: TreeIncarnation[] = [];
+  const present = (inc: TreeIncarnation) =>
+    inc.appearsAt <= t && t < inc.diesAt && (inc.felledAt === undefined || t < inc.felledAt + clearMs);
+  for (const s of layout.starters ?? []) {
+    for (const inc of starterLine(s, fells)) if (present(inc)) out.push(inc);
+  }
+  for (let i = 0; i < layout.trees.length; i++) {
+    const inc = growthTreeAt(layout, i, t, fells);
+    if (inc && present(inc)) out.push(inc);
+  }
+  return out;
+}
+
+// ── Keeping the flowers in step with the clock ──────────────────────────
+
+/** Flowers this session has placed. One picked by a player is not put back. */
 const placed = new Set<string>();
 
-function place(anchorPeerId: string, kind: 'tree' | 'flower', id: string, spot: GrowthSpot, meta: Record<string, unknown>) {
+function place(anchorPeerId: string, kind: 'flower', id: string, spot: GrowthSpot, meta: Record<string, unknown>) {
   const spec = NATURE_CATALOG[kind];
   return getBuilderBlockEngine().placeBlock({
     id,
@@ -269,32 +384,15 @@ function place(anchorPeerId: string, kind: 'tree' | 'flower', id: string, spot: 
 }
 
 /**
- * Bring the growing trees and flowers in line with the clock: plant what
- * should be there now, clear what has died back. Safe to call often.
+ * Bring the spreading flowers in line with the clock: plant what should
+ * bloom now, clear what has wilted. Safe to call often. (Trees are kept in
+ * step by `syncNatureWorld`, which also knows which trees were felled.)
  */
-export function syncNatureGrowth(anchorPeerId: string, now = Date.now()): void {
+export function syncFlowers(anchorPeerId: string, now = Date.now()): void {
   const layout = layouts.get(anchorPeerId);
   if (!layout) return;
   const engine = getBuilderBlockEngine();
   const want = new Set<string>();
-
-  layout.trees.forEach((spot, i) => {
-    const c = cycleAt(now, spot.offset, TREE_CYCLE_MS, TREE_LIFE_MS);
-    if (!c.alive) return;
-    const id = `grown-tree-${i}-c${c.cycle}`;
-    const bodyId = `tree:${id}`;
-    want.add(bodyId);
-    if (placed.has(bodyId)) return;
-    placed.add(bodyId);
-    place(anchorPeerId, 'tree', id, spot, {
-      stage: 'growing',
-      spot: i,
-      growth: { start: c.start, life: TREE_LIFE_MS, grow: TREE_GROW_MS },
-      // Parent trunk relative to this spot, for the falling seed.
-      parentRight: spot.parent.x - spot.x,
-      parentForward: spot.parent.z - spot.z,
-    });
-  });
 
   layout.flowers.forEach((spot, i) => {
     const c = cycleAt(now, spot.offset, FLOWER_CYCLE_MS, FLOWER_LIFE_MS);
@@ -311,9 +409,8 @@ export function syncNatureGrowth(anchorPeerId: string, now = Date.now()): void {
     });
   });
 
-  // Clear growth that has died back (or whose spot has started a new cycle).
   for (const b of engine.listBlocks((x) =>
-    x.anchorPeerId === anchorPeerId && typeof x.id === 'string' && x.id.startsWith('grown-'))) {
+    x.anchorPeerId === anchorPeerId && x.kind === 'flower' && typeof x.id === 'string' && x.id.startsWith('grown-'))) {
     if (!want.has(b.bodyId)) engine.removeBlock(b.bodyId);
   }
 }

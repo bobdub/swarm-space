@@ -18,6 +18,7 @@ import { spawnDrop } from '@/lib/world/worldDropsStore';
 import { isTreeGrown, pickFruit, fruitAt, isFruitPicked } from '@/lib/brain/nature/natureGrowth';
 import { hiveBuildProgress } from '@/lib/brain/nature/hiveRehome';
 import { canCollectHoney, collectHoney } from '@/lib/world/honeyStore';
+import { recordNatureEvent } from '@/lib/world/natureEventsStore';
 import {
   HITS_TO_BREAK,
   BREAK_MS,
@@ -401,6 +402,12 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return true;
   }
 
+  // Any tool but a bucket breaks the honey hive; the bees go and build a
+  // new one in another tree.
+  if (target.natureKind === 'hive') {
+    return chopHive(toolPrefabId, prefab.label, prefab.color, prefab.mass, target.blockId, selfId);
+  }
+
   // Trees take several cuts: each accepted swing shakes the trunk, and the
   // last one topples it and scatters wood on the ground.
   if (verb === 'chop' && target.natureKind === 'tree') {
@@ -497,6 +504,39 @@ function gatherFromLiving(
   emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
   recordHarvestForResource('food', honey);
   swingSuccess(toolPrefabId, toolLabel, `Collected honey · +${honey} Food.`);
+  return true;
+}
+
+function chopHive(
+  toolPrefabId: string,
+  toolLabel: string,
+  color: string,
+  mass: number,
+  blockId: string,
+  selfId?: string,
+): boolean {
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!block) {
+    clearTargetIfBlock(blockId);
+    return false;
+  }
+  const body = getBrainPhysics().getBody(blockId);
+  const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+  // Same land rule as any other strike: no breaking things on land you can't alter.
+  if (landBlocks(point, selfId)) return false;
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, color, mass);
+  const now = Date.now();
+  if (hiveBuildProgress(block.meta?.builtAt, now) < 1) {
+    emitTargetImpact(point, up, color, probe.intensity, 'building', false, 'flora');
+    swingProgress(toolPrefabId, toolLabel, 'The bees are still building this hive.');
+    return false;
+  }
+  emitTargetImpact(point, up, color, probe.intensity, 'break', true, 'flora');
+  // Shared with every peer: the comb falls and the colony moves house.
+  recordNatureEvent('hive-down', block.bodyId, block.anchorPeerId, block.rightOffset, block.forwardOffset, now);
+  clearTargetIfBlock(blockId);
+  swingSuccess(toolPrefabId, toolLabel, 'The hive breaks. The bees fly off to build a new one in another tree.');
   return true;
 }
 
@@ -599,7 +639,9 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
     return true;
   }
 
-  // Felled. Wood lands a moment later, once the trunk has come down.
+  // Felled. Tell every peer, so the tree comes down (and any hive in it
+  // moves) for everyone. Wood lands a moment later, once the trunk is down.
+  recordNatureEvent('fell', block.bodyId, block.anchorPeerId, block.rightOffset, block.forwardOffset, state.toppledAt ?? Date.now());
   clearTargetIfBlock(blockId);
   swingSuccess(toolPrefabId, 'Timber!', `The tree comes down · ${WOOD_PER_TREE} wood and ${FIBRE_PER_TREE} fibre to pick up.`);
   const treeDir = localDirFromWorld(point);

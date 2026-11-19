@@ -252,16 +252,20 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   // ── Growth: seed spots around the starter trees and flowers, where new
   // trees and flowers come and go on the shared clock (see natureGrowth).
   // Kept off the pond, the boulders and the village centre. ──
-  registerGrowthLayout(anchorPeerId, buildGrowthLayout(
-    anchorPeerId,
-    trees,
-    flowerSpots,
-    [
-      { c: { x: PCX, z: PCZ }, r: POND_R + 1.5 },
-      { c: { x: 0, z: 0 }, r: 8 },
-      ...stoneSpots.map((c) => ({ c, r: 1.8 })),
-    ],
-  ));
+  registerGrowthLayout(anchorPeerId, {
+    ...buildGrowthLayout(
+      anchorPeerId,
+      trees,
+      flowerSpots,
+      [
+        { c: { x: PCX, z: PCZ }, r: POND_R + 1.5 },
+        { c: { x: 0, z: 0 }, r: 8 },
+        ...stoneSpots.map((c) => ({ c, r: 1.8 })),
+      ],
+    ),
+    starters: trees.map((t) => ({ id: `tree:${t.id}`, x: t.x, z: t.z })),
+    hiveHost: `tree:${host.id}`,
+  });
 
   return { anchorPeerId, blockIds: ids };
 }

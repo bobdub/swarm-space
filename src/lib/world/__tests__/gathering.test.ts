@@ -41,7 +41,10 @@ vi.mock('@/lib/brain/earth', () => ({
   getEarthPose: () => ({ center: [0, 0, 0], spinQuat: [0, 0, 0, 1], invSpinQuat: [0, 0, 0, 1] }),
   quatRotate: (_q: unknown, v: number[]) => v,
 }));
-vi.mock('@/lib/world/landPermissions', () => ({ canBuildAtWorldPoint: () => ({ ok: true }) }));
+const land = vi.hoisted(() => ({ ok: true }));
+vi.mock('@/lib/world/landPermissions', () => ({
+  canBuildAtWorldPoint: () => (land.ok ? { ok: true } : { ok: false, reason: 'Not your land.' }),
+}));
 vi.mock('@/lib/brain/uqrcPhysics', () => ({
   getBrainPhysics: () => ({
     getBody: () => ({ pos: [0, 100, 0] }),
@@ -62,6 +65,7 @@ import { _resetSwingFeedbackForTest, swingResisted, swingSuccess, swingToastId, 
 import { getToolTarget, setToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { _resetHoneyForTest, HONEY_PER_DAY } from '@/lib/world/honeyStore';
+import { listNatureEvents, _resetNatureEventsForTest } from '@/lib/world/natureEventsStore';
 import { _resetNatureGrowthForTest, fruitAt, FRUIT_PER_TREE, TREE_GROW_MS, TREE_LIFE_MS } from '@/lib/brain/nature/natureGrowth';
 
 const AXE = 'tool_axe_stone';
@@ -88,6 +92,8 @@ beforeEach(() => {
   _resetSwingFeedbackForTest();
   _resetHoneyForTest();
   _resetNatureGrowthForTest();
+  _resetNatureEventsForTest();
+  land.ok = true;
   setToolTarget(null);
 });
 
@@ -203,6 +209,27 @@ describe('honey, fruit and young trees', () => {
     expect(await applyToolToTarget(BUCKET, tree)).toBe(false);
     expect(materialTotals().food).toBe(FRUIT_PER_TREE);
     expect(blocks.has('apple')).toBe(true);
+  });
+
+  it('felling a tree is shared with other peers', async () => {
+    const target = nature('tree-9', 'tree');
+    for (let i = 0; i < HITS_TO_FELL; i++) await applyToolToTarget(AXE, target);
+    expect(listNatureEvents().map((e) => [e.kind, e.blockId])).toEqual([['fell', 'tree-9']]);
+    vi.advanceTimersByTime(TOPPLE_MS + STUMP_FADE_MS + 1); // let its wood land
+  });
+
+  it('an axe breaks the hive itself, shared with other peers, and pays nothing', async () => {
+    const hive = nature('hive-0', 'hive');
+    expect(await applyToolToTarget(AXE, hive)).toBe(true);
+    expect(listNatureEvents().map((e) => [e.kind, e.blockId])).toEqual([['hive-down', 'hive-0']]);
+    expect(materialTotals().food).toBe(0);
+  });
+
+  it('cannot break a hive on land you may not alter', async () => {
+    land.ok = false;
+    const hive = nature('hive-0', 'hive');
+    expect(await applyToolToTarget(AXE, hive, 'me')).toBe(false);
+    expect(listNatureEvents()).toHaveLength(0);
   });
 
   it('a seedling cannot be chopped', async () => {
