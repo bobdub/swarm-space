@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { __resetSharedFieldEngineForTests } from '../../uqrc/fieldEngine';
+
+afterEach(() => __resetSharedFieldEngineForTests());
 
 // The pool-coin writer is tested in blockchain/__tests__/reflectionCoins; here
 // every engraving finds a coin so the brain-side index can be checked.

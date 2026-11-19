@@ -4011,6 +4011,7 @@ export class StandaloneSwarmMesh {
   async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
     const conn = this.connections.get(peerId);
     if (!conn) return false;
+    if (channel === 'mesh-voice' && (conn.dataChannel?.bufferedAmount ?? 0) > 32768) return false;
     try {
       conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
       return true;

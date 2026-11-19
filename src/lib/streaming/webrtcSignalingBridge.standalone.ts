@@ -15,6 +15,7 @@
  */
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
+import { startMeshVoiceTransport } from '@/lib/webrtc/meshVoiceTransport';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -100,6 +101,7 @@ interface MeshLike {
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
   getPeerId(): string;
+  dialViaBus?(peerId: string): boolean;
 }
 
 import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
@@ -112,6 +114,17 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
+let unsubVoice: (() => void) | null = null;
+const roomDialAt = new Map<string, number>();
+
+function dialRoomPeer(peerId: string): void {
+  if (!meshRef || peerId === meshRef.getPeerId() || meshRef.getConnectedPeerIds().includes(peerId)) return;
+  if (loadBlocklistFromStorage().some(entry => entry.peerId === peerId)) return;
+  const last = roomDialAt.get(peerId);
+  if (last !== undefined && Date.now() - last < 12000) return;
+  roomDialAt.set(peerId, Date.now());
+  meshRef.dialViaBus?.(peerId);
+}
 let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
 let knownPeerSnapshot: Set<string> = new Set();
 const signalHandlers = new Set<SignalHandler>();
@@ -417,6 +430,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       const room = joinedRooms.get(envelope.roomId);
       if (room && myPeerId) {
         room.add(envelope.from);
+        dialRoomPeer(envelope.from);
         console.log(`[WebRTC-Bridge] 👋 ${envelope.from} joined room ${envelope.roomId}`);
         
         // Send room-sync so joining peer knows who's here
@@ -445,6 +459,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         for (const p of participants) {
           if (p !== envelope.from && departedAt.has(roomKey(envelope.roomId, p))) continue;
           room.add(p);
+          dialRoomPeer(p);
           if (!lastHeardAt.has(roomKey(envelope.roomId, p))) lastHeardAt.set(roomKey(envelope.roomId, p), Date.now());
         }
         envelope.participants = participants.filter(
@@ -823,6 +838,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
+  unsubVoice = startMeshVoiceTransport(mesh);
   // Seed snapshot so the first poll diff doesn't fire for already-known peers.
   knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
   // Poll every 2s for newly opened mesh edges; replay our active rooms +
@@ -837,6 +853,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
       if (!knownPeerSnapshot.has(pid)) newPeers.push(pid);
     }
     knownPeerSnapshot = currentSet;
+    for (const members of joinedRooms.values()) for (const peer of members) dialRoomPeer(peer);
     if (newPeers.length === 0) return;
     for (const roomId of historyInterest.keys()) {
       sendChatHistoryRequest(roomId, newPeers.slice(0, HISTORY_FANOUT));
@@ -891,6 +908,9 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
 }
 
 export function stopSignalingBridge(): void {
+  unsubVoice?.();
+  unsubVoice = null;
+  roomDialAt.clear();
   if (unsubChannel) {
     unsubChannel();
     unsubChannel = null;

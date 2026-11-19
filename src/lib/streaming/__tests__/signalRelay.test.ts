@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { startSignalingBridge, stopSignalingBridge, announceJoinRoom, announceLeaveRoom } from '../webrtcSignalingBridge.standalone';
 
 type Sent = { to: string; payload: Record<string, unknown> };
@@ -13,7 +13,7 @@ function makeMesh(id: string, connected: string[]) {
       sent.push({ to, payload: payload as Record<string, unknown> });
       return true;
     },
-    onMessage: (_c: string, h: (from: string, p: unknown) => void) => { handler = h; return () => { handler = null; }; },
+    onMessage: (c: string, h: (from: string, p: unknown) => void) => { if (c !== 'webrtc-signal') return () => {}; handler = h; return () => { handler = null; }; },
     getConnectedPeerIds: () => connected,
     getPeerId: () => id,
   };
@@ -23,6 +23,15 @@ function makeMesh(id: string, connected: string[]) {
 afterEach(() => stopSignalingBridge());
 
 describe('room signal relay (A - B - C)', () => {
+  it('bus-dials missing room peers from a sync once, never the manual path', () => {
+    const b = makeMesh('B', ['A']);
+    const dialViaBus = vi.fn(() => true);
+    startSignalingBridge({ ...b.mesh, dialViaBus });
+    announceJoinRoom('r', 'uB', 'B');
+    b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'B', roomId: 'r', participants: ['A', 'B', 'C'], ts: 100 });
+    b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'B', roomId: 'r', participants: ['A', 'B', 'C'], ts: 101 });
+    expect(dialViaBus.mock.calls).toEqual([['C']]);
+  });
   it('B relays an offer addressed to C that came from A', async () => {
     const b = makeMesh('B', ['A', 'C']);
     startSignalingBridge(b.mesh as never);

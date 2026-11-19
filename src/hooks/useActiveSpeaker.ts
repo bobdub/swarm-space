@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getCallAudioContext } from "@/lib/webrtc/sharedAudioContext";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 
 /**
@@ -20,11 +21,9 @@ export function useActiveSpeaker(participants: VideoParticipant[]): string | nul
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      for (const entry of analysersRef.current.values()) entry.source.disconnect();
       analysersRef.current.clear();
-      if (sharedAudioCtxRef.current) {
-        sharedAudioCtxRef.current.close().catch(() => {});
-        sharedAudioCtxRef.current = null;
-      }
+      sharedAudioCtxRef.current = null;
     };
   }, []);
 
@@ -40,12 +39,13 @@ export function useActiveSpeaker(participants: VideoParticipant[]): string | nul
 
     if (!sharedAudioCtxRef.current || sharedAudioCtxRef.current.state === "closed") {
       try {
-        sharedAudioCtxRef.current = new AudioContext();
+        sharedAudioCtxRef.current = getCallAudioContext();
       } catch {
         return;
       }
     }
     const ctx = sharedAudioCtxRef.current;
+    if (!ctx) return;
 
     const currentPeerIds = new Set<string>();
     for (const p of participants) {

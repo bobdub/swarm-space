@@ -42,6 +42,8 @@ class FakePC {
   getSenders = vi.fn(() => [] as RTCRtpSender[]);
   getReceivers = vi.fn(() => [] as RTCRtpReceiver[]);
   getTransceivers = vi.fn(() => [] as RTCRtpTransceiver[]);
+  addTrack = vi.fn(() => ({ replaceTrack: async () => {} }));
+  removeTrack = vi.fn();
   close = vi.fn(() => { this.connectionState = 'closed'; });
   addIceCandidate = vi.fn(async () => {});
   constructor(config: RTCConfiguration) { this.config = config; }
@@ -101,6 +103,34 @@ async function connectedManager(peer = 'peer-B') {
 }
 
 describe('Brain call recovery', () => {
+  it('explicitly offers a screen track even when negotiationneeded never fires', async () => {
+    const { m, pc } = await connectedManager();
+    const screen = Object.assign(new EventTarget(), { kind: 'video', readyState: 'live', stop: vi.fn() }) as unknown as MediaStreamTrack;
+    await m.publishScreenStream(new FakeStream([screen]) as unknown as MediaStream);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.addTrack).toHaveBeenCalledWith(screen, m.getScreenStream());
+    expect(sentSignals.some(s => s.type === 'offer' && s.to === 'peer-B')).toBe(true);
+    m.stopScreenShare();
+    expect(pc.removeTrack).toHaveBeenCalledTimes(1);
+    await m.leaveRoom();
+  });
+  it('does not repeatedly renegotiate a connected peer with no incoming audio', async () => {
+    const { pc } = await connectedManager();
+    await vi.advanceTimersByTimeAsync(180_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(reconnectSignals).toHaveLength(0);
+  });
+
+  it('duplicate failed events cannot restart a recovery already in progress', async () => {
+    const { pc } = await connectedManager();
+    pc.setState('failed');
+    pc.setState('failed');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(reconnectSignals).toHaveLength(0);
+    expect(pc.offerOptions.filter(o => o?.iceRestart)).toHaveLength(1);
+  });
   it('uses the same STUN + TURN servers as the mesh', async () => {
     const { pc } = await connectedManager();
     expect(pc.config.iceServers).toBe(DEFAULT_ICE_SERVERS);

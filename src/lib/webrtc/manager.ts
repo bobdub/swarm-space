@@ -13,6 +13,7 @@ import {
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
 import { spikeHealth } from '@/lib/uqrc/withHealth';
+import { MeshVoice } from './meshVoice';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
@@ -59,6 +60,7 @@ function savePreferredInput(kind: 'audio' | 'video', deviceId: string): void {
 }
 
 export class WebRTCManager {
+  private readonly meshVoice = new MeshVoice(this, () => this.broadcastMessage({ type: 'peer-joined', roomId: this.currentRoomId ?? '' }));
   private rooms = new Map<string, VideoRoom>();
   private connections = new Map<string, RTCPeerConnection>();
   private participants = new Map<string, VideoParticipant>();
@@ -577,6 +579,7 @@ export class WebRTCManager {
     
     this.currentRoomId = roomId;
 
+    this.meshVoice.start(roomId);
     announceJoinRoom(roomId, this.userId, this.username);
 
     this.broadcastMessage({
@@ -600,6 +603,7 @@ export class WebRTCManager {
     // A screen share belongs to the room it was shared in. Leaving the room
     // (Disconnect, switching rooms, closing the tab) ends it for everyone,
     // announced while we still know the room so viewers drop the tile.
+    this.meshVoice.stop();
     this.stopScreenShare();
 
     const room = this.rooms.get(this.currentRoomId);
@@ -938,7 +942,7 @@ export class WebRTCManager {
       this.stopScreenShare();
     }
     const screenTrack = stream.getVideoTracks()[0] ?? null;
-    if (!screenTrack) {
+    if (!screenTrack || screenTrack.readyState === 'ended') {
       stream.getTracks().forEach(t => t.stop());
       throw new Error('Screen capture produced no video track');
     }
@@ -948,6 +952,7 @@ export class WebRTCManager {
     for (const [peerId, pc] of this.connections) {
       try {
         this.attachScreenTrack(peerId, pc, screenTrack, stream);
+        void this.ensureOfferToPeer(peerId).catch(() => {});
       } catch (error) {
         failures.push(error);
         console.warn(`[WebRTC] Failed to attach screen track for ${peerId}:`, error);
@@ -956,7 +961,7 @@ export class WebRTCManager {
 
     // Auto-stop when the user clicks the browser's own "Stop sharing" bar.
     screenTrack.addEventListener('ended', () => {
-      this.stopScreenShare();
+      if (this.screenStream === stream) this.stopScreenShare();
     });
 
     // Sharing to zero peers is still a success (they see it when they join);
@@ -1003,6 +1008,7 @@ export class WebRTCManager {
     for (const [peerId, sender] of this.screenSenders) {
       const pc = this.connections.get(peerId);
       try { pc?.removeTrack(sender); } catch { /* connection may be closed */ }
+      if (this.currentRoomId && pc) void this.ensureOfferToPeer(peerId).catch(() => {});
     }
     this.screenSenders.clear();
 
@@ -1265,6 +1271,7 @@ export class WebRTCManager {
 
   private attemptRecovery(peerId: string): void {
     if (!this.currentRoomId) return;
+    if (this.reconnectTimers.has(peerId)) return;
     this.clearReconnectTimer(peerId);
     const attempts = this.reconnectAttempts.get(peerId) ?? 0;
     if (attempts >= MAX_RECONNECT_ATTEMPTS) {
@@ -1678,6 +1685,20 @@ export class WebRTCManager {
     return Boolean(pc && pc.connectionState !== 'closed' && pc.connectionState !== 'failed');
   }
 
+  isMeshVoiceFallback(peerId: string): boolean { return this.meshVoice.hasPlayback(peerId); }
+
+  async getInboundAudioBytes(peerId: string): Promise<{ bytes: number; connected: boolean }> {
+    const pc = this.connections.get(peerId);
+    if (!pc || pc.connectionState !== 'connected' || typeof pc.getStats !== 'function') return { bytes: 0, connected: false };
+    const report = await pc.getStats();
+    if (this.connections.get(peerId) !== pc) return { bytes: 0, connected: false };
+    let bytes = 0;
+    report.forEach(stat => {
+      if (stat.type === 'inbound-rtp' && (stat.kind === 'audio' || stat.mediaType === 'audio')) bytes += stat.bytesReceived ?? 0;
+    });
+    return { bytes, connected: pc.connectionState === 'connected' };
+  }
+
   getLocalStream(): MediaStream | null { return this.localStream; }
   getParticipants(): VideoParticipant[] { return Array.from(this.participants.values()); }
   getRooms(): VideoRoom[] { return Array.from(this.rooms.values()); }
@@ -1733,10 +1754,8 @@ export class WebRTCManager {
   }
 
   /**
-   * Periodic two-way media check. A connection that is up but carrying no
-   * inbound media (or missing entirely) is re-offered once, with a cooldown
-   * so both sides cannot fight each other. This is the repair for the
-   * "I can hear them, they cannot hear me" split.
+   * Repair missing connections or an incorrectly bound local microphone.
+   * Missing inbound packets activate mesh voice, not endless SDP offers.
    */
   private startMediaHealthCheck(): void {
     this.stopMediaHealthCheck();
@@ -1758,11 +1777,6 @@ export class WebRTCManager {
         // 'disconnected' is usually a blip that heals by itself; the
         // grace timer started by onconnectionstatechange handles it.
         const halfOpen = !pc || state === 'failed' || state === 'closed';
-        const receivingNothing =
-          !!pc &&
-          state === 'connected' &&
-          this.participants.get(peerId)?.isMuted !== true &&
-          pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
         // Our live mic must be on a negotiated transceiver. A track parked
         // on an unnegotiated one looks fine locally but never leaves.
         const liveMic = this.localStream?.getAudioTracks().find(t => t.readyState === 'live');
@@ -1770,13 +1784,14 @@ export class WebRTCManager {
         const notSending =
           !!pc &&
           state === 'connected' &&
+          !this.selfMuted &&
           !!liveMic &&
           (!micTransceiver || micTransceiver.mid === null || micTransceiver.sender.track !== liveMic ||
             (micTransceiver.currentDirection !== 'sendrecv' && micTransceiver.currentDirection !== 'sendonly'));
 
-        if (halfOpen || receivingNothing || notSending) {
+        if (halfOpen || notSending) {
           this.lastRepairAt.set(peerId, now);
-          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
+          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, notSending });
           if (halfOpen) {
             this.attemptRecovery(peerId);
           } else if (notSending && liveMic && pc) {
@@ -1784,8 +1799,6 @@ export class WebRTCManager {
               .catch(() => false)
               .then(() => this.ensureOfferToPeer(peerId))
               .catch(() => {});
-          } else {
-            void this.ensureOfferToPeer(peerId).catch(() => {});
           }
         }
       }

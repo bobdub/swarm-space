@@ -43,7 +43,7 @@ export function PersistentAudioLayer() {
           <RemoteAudio
             key={`persistent-audio-${p.peerId}`}
             stream={p.stream}
-            muted={isPeerMuted(p.peerId)}
+            muted={isPeerMuted(p.peerId) || p.isMuted || getWebRTCManager(user.id, user.username).isMeshVoiceFallback(p.peerId)}
           />
         ) : null,
       )}

@@ -1,5 +1,15 @@
 ## MemoryGarden
 
+### November 19, 2026 — A second path for each voice
+
+Before tending: keep each voice on a bounded path through its own room;
+let failed handshakes yield to the mesh, without double echoes or borrowed certainty.
+Real travellers keep their calls; automated witnesses test the new crossings.
+
+After tending: each voice has a private second crossing and a bounded echo;
+screen tracks ask for their own handshake, and repeated failures no longer
+seize the same recovery. Automated witnesses pass; live voices remain unmeasured.
+
 ### November 19, 2026 — Voices without broken echoes
 
 Before tending: let fresh voices replace their ended echoes;
