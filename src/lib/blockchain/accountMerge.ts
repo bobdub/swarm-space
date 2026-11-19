@@ -85,7 +85,12 @@ export interface MergeIdentityRef {
   coldAddress?: string | null;
 }
 
-export const MAX_MERGE_POSTS = 2000;
+/** Above this many authored posts the merge is refused before anything moves. */
+export const MAX_MERGE_POSTS = 20_000;
+/** Signed transfer ids an attestation may list (this merge plus earlier attempts). */
+export const MAX_MERGE_TX_IDS = 64;
+const MERGE_MESSAGE_PREFIX = "Account merge into @";
+const MINTME_CONFIRMATIONS = 6;
 export const MAX_MERGE_CONTACTS = 1000;
 const ALIASES_KEY = (masterId: string) => `account:aliases:${masterId}`;
 const RETIRED_KEY = (userId: string) => `account-merge:retired:${userId}`;
@@ -175,7 +180,7 @@ export async function verifyMergeAttestation(value: unknown): Promise<boolean> {
   if (!isText(a.signerPublicKey) || !isText(a.signature)) return false;
   const t = a.transfers;
   if (!t || !isAmount(t.swarm) || !isAmount(t.credits) || !isAmount(t.mintme)) return false;
-  if (!Array.isArray(t.txIds) || t.txIds.length > 16 || t.txIds.some((id) => !isText(id, 256))) return false;
+  if (!Array.isArray(t.txIds) || t.txIds.length > MAX_MERGE_TX_IDS || t.txIds.some((id) => !isText(id, 256))) return false;
   try {
     if ((await computeUserId(a.signerPublicKey)) !== a.retiringId) return false;
     return await verifyBytes(a.signerPublicKey, a.signature, attestationPayload(a));
@@ -319,24 +324,44 @@ async function moveOnChainMintMe(retiringId: string, masterCold: string | null |
   const { getSwarmChain } = await import("./chain");
   const chain = getSwarmChain();
   await chain.whenReady();
-  const ledgerUnits = chain.getNativeMintMeBalanceUnits(retiringId);
-  if (ledgerUnits <= 0n) return { moved: null, left: 0 };
-  const [{ getColdKeyReceivingAddress, getColdKeyAuthority }, { mintMeReadProvider }, { mintMeAmount }, { MINTME_GAS_HOLD_UNITS, withdrawNativeMintMe }] = await Promise.all([
+  const [{ getColdKeyReceivingAddress, getColdKeyAuthority }, { mintMeReadProvider }, { mintMeAmount }, { MINTME_GAS_HOLD_UNITS, syncNativeMintMeDeposits, withdrawNativeMintMe }] = await Promise.all([
     import("./wallets/coldKey"),
     import("./wallets/nativeMintmeCustody"),
     import("./wallets/nativeMintmeLedger"),
     import("./wallets/nativeMintmeDirect"),
   ]);
+  // Read the chain whatever the ledger says: MINTME can sit at the cold
+  // address before (or without) being credited, and the key leaves with
+  // this account.
   const address = await getColdKeyReceivingAddress(retiringId);
   let held: bigint;
+  let confirmed: bigint;
   const provider = mintMeReadProvider();
   try {
-    held = await provider.getBalance(address);
+    const tip = await provider.getBlockNumber();
+    [held, confirmed] = await Promise.all([
+      provider.getBalance(address),
+      provider.getBalance(address, Math.max(0, tip - MINTME_CONFIRMATIONS)),
+    ]);
   } catch {
     throw new MergeBlockedError("Could not reach the MintMe network to check this account's MINTME. Nothing was moved. Try again in a moment.");
   } finally {
     provider.destroy();
   }
+  if (held <= MINTME_GAS_HOLD_UNITS) return { moved: null, left: mintMeAmount(held) };
+  if (held > confirmed) {
+    throw new MergeBlockedError(`MINTME arrived at this account's MintMe address and is still confirming (MintMe needs ${MINTME_CONFIRMATIONS} confirmations). Wait a few minutes and try again. Nothing was moved.`);
+  }
+  // Record any confirmed arrival the ledger has not credited yet, so the
+  // send below (which debits the ledger) can cover every coin at the address.
+  let ledgerUnits = chain.getNativeMintMeBalanceUnits(retiringId);
+  if (ledgerUnits < held) {
+    await syncNativeMintMeDeposits(retiringId).catch(() => 0);
+    ledgerUnits = chain.getNativeMintMeBalanceUnits(retiringId);
+  }
+  // A ledger below the on-chain amount after syncing means part of these
+  // coins was already given away as native MINTME tips (claims held by
+  // others); only this account's own share moves.
   const backed = held < ledgerUnits ? held : ledgerUnits;
   if (backed <= MINTME_GAS_HOLD_UNITS) return { moved: null, left: mintMeAmount(held) };
   if (!masterCold) {
@@ -350,6 +375,21 @@ async function moveOnChainMintMe(retiringId: string, masterCold: string | null |
   return { moved: { hash, amount }, left: Math.max(0, mintMeAmount(held) - amount) };
 }
 
+async function priorMergeTransfers(retiringId: string, masterId: string): Promise<SwarmTransaction[]> {
+  const { getSwarmChain } = await import("./chain");
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  const seen = new Set<string>();
+  const out: SwarmTransaction[] = [];
+  for (const tx of [...chain.getChain().flatMap((b) => b.transactions), ...chain.getPendingTransactions()]) {
+    if (tx.type !== "wallet_tip" || tx.from !== retiringId || tx.to !== masterId || seen.has(tx.id)) continue;
+    if (typeof tx.meta?.message !== "string" || !tx.meta.message.startsWith(MERGE_MESSAGE_PREFIX)) continue;
+    seen.add(tx.id);
+    out.push(tx);
+  }
+  return out;
+}
+
 /**
  * Move every spendable balance from the signed-in (retiring) account to
  * the master. Each leg is its own signed, verified ledger entry.
@@ -360,6 +400,11 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
   if (!user) throw new Error("Sign in first.");
   if (user.id === master.userId) throw new Error("An account cannot merge into itself.");
 
+  const authored = (await authoredPosts(user.id)).length;
+  if (authored > MAX_MERGE_POSTS) {
+    throw new MergeBlockedError(`This account has ${authored} posts; a merge supports up to ${MAX_MERGE_POSTS}. Nothing was moved.`);
+  }
+
   onStep?.("Checking MINTME on the MintMe network");
   const onChain = await moveOnChainMintMe(user.id, master.coldAddress);
 
@@ -368,8 +413,10 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
   await hydrateNativeWalletPeer({ userId: master.userId, username: master.username, displayName: master.displayName });
 
   const { getWalletTipAssets, sendWalletTip } = await import("./wallets/walletTips");
-  const message = `Account merge into @${master.username}`;
-  const txs: SwarmTransaction[] = [];
+  const message = `${MERGE_MESSAGE_PREFIX}${master.username}`;
+  // Transfers from an earlier, interrupted attempt ride along again, so the
+  // master must hold every one before it acknowledges.
+  const txs: SwarmTransaction[] = await priorMergeTransfers(user.id, master.userId);
   let swarm = 0;
   let mintme = 0;
   const assets = await getWalletTipAssets(user.id);
@@ -399,6 +446,7 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
     creditTxId = (await transferCreditsForAccountMerge(master.userId, creditBalance, { message })).id;
   }
 
+  if (txs.length > MAX_MERGE_TX_IDS - 1) throw new Error("Too many merge transfers to list in one attestation.");
   return {
     swarm,
     credits: creditBalance > 0 ? creditBalance : 0,
@@ -411,7 +459,8 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
 }
 
 export async function collectUnionData(retiringId: string): Promise<MergeUnionData> {
-  const posts = (await authoredPosts(retiringId)).slice(0, MAX_MERGE_POSTS);
+  const posts = await authoredPosts(retiringId);
+  if (posts.length > MAX_MERGE_POSTS) throw new MergeBlockedError(`This account has ${posts.length} posts; a merge supports up to ${MAX_MERGE_POSTS}.`);
   let favorites: string[] = [];
   try {
     const { FAVORITES_STORE } = await import("../p2p/contentLifecycle");
@@ -558,19 +607,27 @@ export async function acceptMergeOnMaster(input: {
   }
 
   // Ledger transfers: each is independently signature- and balance-checked.
+  // Every listed wallet transfer must be recorded here (or already be)
+  // before we acknowledge, because the ack lets the retiring key close for
+  // good. A rejection usually means this device has not synced the retiring
+  // account's ledger history yet: refuse, and the merge stays retryable.
   let txsAccepted = 0;
   const { receiveWalletTip } = await import("./wallets/walletTips");
-  for (const tx of (input.bundle.txs ?? []).slice(0, 8)) {
-    if (tx?.from !== attestation.retiringId || tx.to !== me.id) continue;
-    if (!attestation.transfers.txIds.includes(tx.id)) continue;
-    if (await receiveWalletTip(tx).catch(() => false)) txsAccepted++;
+  const listed = new Set(attestation.transfers.txIds);
+  for (const tx of (input.bundle.txs ?? []).slice(0, MAX_MERGE_TX_IDS)) {
+    if (!tx || !listed.has(tx.id)) continue;
+    if (tx.from !== attestation.retiringId || tx.to !== me.id || !(await receiveWalletTip(tx).catch(() => false))) {
+      throw new Error("This device could not record one of the retiring account's transfers yet (its ledger history has not synced here). Nothing was retired. Wait a minute with both devices connected and run the merge again.");
+    }
+    txsAccepted++;
   }
 
   // Posts: re-attributed under the master with the attestation as their link.
   const { signPost } = await import("../p2p/replication");
   const now = new Date().toISOString();
   const reattributed: Post[] = [];
-  for (const post of (input.bundle.posts ?? []).slice(0, MAX_MERGE_POSTS)) {
+  if ((input.bundle.posts ?? []).length > MAX_MERGE_POSTS) throw new Error("The retiring account sent more posts than a merge supports. Nothing was retired.");
+  for (const post of input.bundle.posts ?? []) {
     if (!post || typeof post.id !== "string" || post.author !== attestation.retiringId) continue;
     const existing = await get<Post>("posts", post.id).catch(() => undefined);
     if (existing && existing.author !== attestation.retiringId && existing.author !== me.id) continue;

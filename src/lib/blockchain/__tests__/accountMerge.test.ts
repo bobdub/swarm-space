@@ -7,9 +7,14 @@ vi.mock("@/lib/store", () => ({
   remove: vi.fn(async () => undefined),
 }));
 
+const m = vi.hoisted(() => ({ me: null as null | { id: string; username: string; publicKey: string }, accept: true }));
+vi.mock("@/lib/auth", () => ({ getCurrentUser: () => m.me }));
+vi.mock("@/lib/blockchain/wallets/walletTips", () => ({ receiveWalletTip: async () => m.accept }));
+
 import { genIdentityKeyPair, computeUserId } from "@/lib/crypto";
 import type { Post } from "@/types";
 import {
+  acceptMergeOnMaster,
   reattributePost,
   signMasterAck,
   signMergeAttestation,
@@ -73,5 +78,22 @@ describe("account merge attestations", () => {
     expect(moved.signature).toBeUndefined();
     expect(moved._syncedToMesh).toBeUndefined();
     expect(moved._origin).toBe("local");
+  });
+});
+
+describe("master acceptance", () => {
+  it("refuses to acknowledge while a listed transfer cannot be recorded, so the merge stays retryable", async () => {
+    const retiring = await identity();
+    const master = await identity();
+    m.me = { id: master.id, username: "DeviceA", publicKey: master.publicKey };
+    const attestation = await signMergeAttestation({ retiringId: retiring.id, masterId: master.id, transfers: { swarm: 3.2, credits: 0, mintme: 0, txIds: ["tx-swarm"] }, privateKey: retiring.privateKey, publicKey: retiring.publicKey });
+    const tx = { id: "tx-swarm", type: "wallet_tip", from: retiring.id, to: master.id, amount: 3.2 } as never;
+    const bundle = { attestation, txs: [tx], posts: [], favorites: [], connections: [], library: [], mintmeOnChain: null };
+    m.accept = false;
+    await expect(acceptMergeOnMaster({ bundle, privateKey: master.privateKey, retiring: { userId: retiring.id, username: "DeviceB" } })).rejects.toThrow(/Nothing was retired/);
+    m.accept = true;
+    const result = await acceptMergeOnMaster({ bundle, privateKey: master.privateKey, retiring: { userId: retiring.id, username: "DeviceB" } });
+    expect(result.txsAccepted).toBe(1);
+    expect(await verifyMasterAck(result.ack, attestation)).toBe(true);
   });
 });

@@ -33,6 +33,8 @@ export const MERGE_MAX_CODE_ATTEMPTS = 3;
 export const MERGE_SESSION_IDLE_MS = 15 * 60 * 1000;
 export const MERGE_ACK_TIMEOUT_MS = 90 * 1000;
 const UNION_PART_BYTES = 48 * 1024;
+/** Mirrors accountMerge.MAX_MERGE_POSTS: at most one post per part. */
+const MAX_MERGE_POSTS = 20_000;
 
 // ── Code + proofs ──────────────────────────────────────────────────────
 
@@ -653,7 +655,7 @@ export class MergeController {
         return;
       case "merge:union-part":
         if (s.phase !== "executing" || !this.isLocalMaster() || !Array.isArray(msg.posts)) return;
-        if (!Number.isSafeInteger(msg.index) || msg.index < 0 || msg.index >= 1000) return;
+        if (!Number.isSafeInteger(msg.index) || msg.index < 0 || msg.index >= MAX_MERGE_POSTS) return;
         this.unionParts.set(msg.index, msg.posts);
         return;
       case "merge:union": {
