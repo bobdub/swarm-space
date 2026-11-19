@@ -43,7 +43,14 @@ function truncateContent(data: unknown): string {
   return content || JSON.stringify(data).slice(0, 60);
 }
 
-export function TestModePanel() {
+export interface TestModePanelProps {
+  /** Runs before Test Mode opens its connection (e.g. pause the main mesh). */
+  onBeforeStart?: () => Promise<void> | void;
+  /** Runs after Test Mode stops (e.g. resume the main mesh). */
+  onAfterStop?: () => void;
+}
+
+export function TestModePanel({ onBeforeStart, onAfterStop }: TestModePanelProps = {}) {
   const [phase, setPhase] = useState<TestModePhase>('off');
   const [peers, setPeers] = useState<TestModePeer[]>([]);
   const [stats, setStats] = useState<TestModeStats | null>(null);
@@ -98,14 +105,14 @@ export function TestModePanel() {
   }, [tm]);
 
   const handleToggle = useCallback(async () => {
-    if (phase === 'connecting' || phase === 'reconnecting') {
+    if (phase === 'connecting' || phase === 'reconnecting' || phase === 'online') {
       tm.stop();
-    } else if (phase === 'online') {
-      tm.stop();
+      onAfterStop?.();
     } else {
+      await onBeforeStart?.();
       await tm.start();
     }
-  }, [phase, tm]);
+  }, [phase, tm, onBeforeStart, onAfterStop]);
 
   const handleConnect = useCallback(() => {
     const id = peerInput.trim();

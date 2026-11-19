@@ -289,6 +289,8 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
  * offline and will NOT be auto-dialed.
  */
 const CELL_FRESHNESS_WINDOW = 75_000;
+/** Saved (manual/library) friends stay dialable this long after last presence. */
+export const SAVED_FRIEND_FRESHNESS_WINDOW = 10 * 60_000;
 
 /** Cooldown between auto-dials to the same peer via Global Cell (steady state) */
 const CELL_DIAL_COOLDOWN = 30_000;
@@ -477,7 +479,7 @@ export class StandaloneSwarmMesh {
 
   /**
    * Central freshness gate — used by ALL automatic dial paths.
-   * Saved friends bypass presence age, but never disabled auto-connect.
+   * Saved friends use a longer presence window, never disabled auto-connect.
    * Ephemeral discovery still requires recent Cell or active-peer presence.
    * Cooldowns and pending-dial limits remain enforced by automatic callers.
    */
@@ -485,11 +487,11 @@ export class StandaloneSwarmMesh {
   private isFreshEnoughToDial(peerId: string): boolean {
     const entry = this.library.get(peerId);
     if (!entry || !entry.autoConnect) return false;
-    if (entry.source === 'manual' || entry.source === 'library') return true;
-
-    // Peer must have been seen within the cell freshness window
+    if (entry.lastSeenAt <= 0) return false;
     const age = now() - entry.lastSeenAt;
-    return entry.lastSeenAt > 0 && age < CELL_FRESHNESS_WINDOW;
+    // Saved friends get a longer presence window; nobody is dialed forever.
+    const saved = entry.source === 'manual' || entry.source === 'library';
+    return age < (saved ? SAVED_FRIEND_FRESHNESS_WINDOW : CELL_FRESHNESS_WINDOW);
   }
 
   private prunePendingDials(): void {
@@ -2290,10 +2292,13 @@ export class StandaloneSwarmMesh {
       return false;
     }
 
+    // A dial already in flight must finish (or time out) first: repeated
+    // invite/retry ticks would otherwise open stacked connections to the host.
+    if (this.isDialPending(remotePeerId)) return true;
+
     // Manual connections clear all cooldowns for that peer
     this.peerCooldowns.delete(remotePeerId);
     this.clearHandshakeFailures(remotePeerId);
-    this.clearPendingDial(remotePeerId);
 
     // Mirror the working library pattern: register the peer in the library
     // BEFORE dialing so the connection is durable and retryable, then pulse
@@ -4022,7 +4027,6 @@ export class StandaloneSwarmMesh {
   async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
     const conn = this.connections.get(peerId);
     if (!conn) return false;
-    if (channel === 'mesh-voice' && (conn.dataChannel?.bufferedAmount ?? 0) > 32768) return false;
     try {
       conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
       return true;

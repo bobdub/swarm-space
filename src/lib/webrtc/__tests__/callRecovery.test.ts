@@ -114,10 +114,12 @@ describe('Brain call recovery', () => {
     expect(pc.removeTrack).toHaveBeenCalledTimes(1);
     await m.leaveRoom();
   });
-  it('does not repeatedly renegotiate a connected peer with no incoming audio', async () => {
+  it('re-offers a connected peer with no incoming audio, at most once per 12s cooldown', async () => {
     const { pc } = await connectedManager();
     await vi.advanceTimersByTimeAsync(180_000);
-    expect(sentSignals).toHaveLength(0);
+    const offers = sentSignals.filter(sig => sig.type === 'offer' && sig.to === 'peer-B');
+    expect(offers.length).toBeGreaterThan(0);
+    expect(offers.length).toBeLessThanOrEqual(15);
     expect(pc.close).not.toHaveBeenCalled();
     expect(reconnectSignals).toHaveLength(0);
   });
@@ -131,10 +133,10 @@ describe('Brain call recovery', () => {
     expect(reconnectSignals).toHaveLength(0);
     expect(pc.offerOptions.filter(o => o?.iceRestart)).toHaveLength(1);
   });
-  it('uses the same configured ICE servers as the mesh without the dead default relay', async () => {
+  it('uses the same STUN + TURN servers as the mesh', async () => {
     const { pc } = await connectedManager();
     expect(pc.config.iceServers).toBe(DEFAULT_ICE_SERVERS);
-    expect(JSON.stringify(pc.config.iceServers)).not.toContain('openrelay.metered.ca');
+    expect(JSON.stringify(pc.config.iceServers)).toContain('turn:openrelay.metered.ca');
   });
 
   it('first recovers a failed connection with an ICE restart, keeping the call', async () => {

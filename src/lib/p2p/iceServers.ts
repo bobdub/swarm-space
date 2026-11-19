@@ -13,7 +13,18 @@
 const FALLBACK_ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  // Configure a working TURN service via VITE_PEERJS_ICE_SERVERS when needed.
+  // Public community relay: last-resort fallback so carrier NAT (mobile)
+  // pairs that cannot hole-punch still connect. STUN stays first. Override
+  // with a dedicated TURN service via VITE_PEERJS_ICE_SERVERS.
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
 ];
 
 function fromEnvironment(): RTCIceServer[] | null {

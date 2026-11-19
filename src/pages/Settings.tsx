@@ -56,6 +56,7 @@ import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
+import { TestConnectPanel } from "@/components/settings/TestConnectPanel";
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -639,6 +640,7 @@ const Settings = () => {
 
               <LoadingChainEditor />
               <SessionHealthCard />
+              <TestConnectPanel />
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">

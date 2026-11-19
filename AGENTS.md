@@ -13,7 +13,7 @@
 - Brain invites use the shared one-shot invite coordinator at signaling readiness before general discovery; already-running sessions use its guarded manual path, and chat status follows the named host connection rather than aggregate peer counts.
 - Gate placement changes by maker identity; scope drafts by owner and room. Wall DOM occlusion ignores invisible targets and respects solid avatars.
 - Read scoped subdirectory `AGENTS.md` before edits.
-- Targeted dials persist manual intent before readiness checks; Brain targets use the manual-source bus option without clearing backoff. Saved manual/library peers bypass discovery freshness, not cooldowns, pending-dial limits or disabled auto-connect, so friends survive stale presence without redial storms.
+- Targeted dials persist manual intent before readiness checks and never stack while a dial is in flight; room/Brain targets bus-dial as exchange without clearing backoff. Saved manual/library peers get a longer presence window (not unlimited), never bypassing cooldowns, pending-dial limits or disabled auto-connect, so friends survive brief gaps without redial storms against offline peers.
 - Contact identity travels through active-peer library exchange; subscriptions invalidate discovered-peer snapshots independently of media, connected peers' own profiles override relayed hints, and Swarm panel edits use the live library without dialing so storage cannot diverge.
 - Keep provider context identity in HMR data for Streaming, Onboarding, Walkthrough contexts.
 

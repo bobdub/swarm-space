@@ -30,7 +30,7 @@ describe('room signal relay (A - B - C)', () => {
     announceJoinRoom('r', 'uB', 'B');
     b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'B', roomId: 'r', participants: ['A', 'B', 'C'], ts: 100 });
     b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'B', roomId: 'r', participants: ['A', 'B', 'C'], ts: 101 });
-    expect(dialViaBus.mock.calls).toEqual([['C', 'manual']]);
+    expect(dialViaBus.mock.calls).toEqual([['C']]);
   });
   it('B relays an offer addressed to C that came from A', async () => {
     const b = makeMesh('B', ['A', 'C']);

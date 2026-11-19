@@ -15,7 +15,6 @@
  */
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
-import { startMeshVoiceTransport } from '@/lib/webrtc/meshVoiceTransport';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -114,7 +113,6 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
-let unsubVoice: (() => void) | null = null;
 const roomDialAt = new Map<string, number>();
 
 function dialRoomPeer(peerId: string): void {
@@ -123,7 +121,7 @@ function dialRoomPeer(peerId: string): void {
   const last = roomDialAt.get(peerId);
   if (last !== undefined && Date.now() - last < 12000) return;
   roomDialAt.set(peerId, Date.now());
-  meshRef.dialViaBus?.(peerId, 'manual');
+  meshRef.dialViaBus?.(peerId);
 }
 let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
 let knownPeerSnapshot: Set<string> = new Set();
@@ -838,7 +836,6 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
-  unsubVoice = startMeshVoiceTransport(mesh);
   // Seed snapshot so the first poll diff doesn't fire for already-known peers.
   knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
   // Poll every 2s for newly opened mesh edges; replay our active rooms +
@@ -908,8 +905,6 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
 }
 
 export function stopSignalingBridge(): void {
-  unsubVoice?.();
-  unsubVoice = null;
   roomDialAt.clear();
   if (unsubChannel) {
     unsubChannel();

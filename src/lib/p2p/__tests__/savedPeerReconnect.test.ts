@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { StandaloneSwarmMesh, type LibraryPeer } from '../swarmMesh.standalone';
+import { StandaloneSwarmMesh, SAVED_FRIEND_FRESHNESS_WINDOW, type LibraryPeer } from '../swarmMesh.standalone';
 import { DEFAULT_ICE_SERVERS } from '../iceServers';
 
 vi.mock('../globalCell', () => ({ getGlobalCell: () => ({ sendInviteKnock: vi.fn() }) }));
@@ -78,8 +78,24 @@ describe('durable targeted connections and bounded reconnection', () => {
     mesh.dialViaBus('peer-exchange');
     expect(mesh.getLibrary()[0].source).toBe('exchange');
   });
-  it.each(['initial', 'periodic'])('retries stale saved friends, not stale gossip, on %s pass', pass => {
-    const { h } = setup([contact('manual'), contact('library'), contact('exchange')]);
+  it('uses a 10-minute presence window for saved friends', () => {
+    expect(SAVED_FRIEND_FRESHNESS_WINDOW).toBe(600_000);
+  });
+  it.each(['initial', 'periodic'])('never redials saved friends absent beyond the window on %s pass', pass => {
+    const { h } = setup([contact('manual', 399_999), contact('library', 1)]);
+    if (pass === 'initial') h.autoConnectLibrary();
+    else { h.startLibraryReconnectLoop(); vi.advanceTimersByTime(60_000); h.stopLibraryReconnectLoop(); }
+    expect(h.dialPeer).not.toHaveBeenCalled();
+  });
+  it('does not stack a second dial while one to the same peer is in flight', () => {
+    const { mesh, h } = setup();
+    h.pendingDials.set('peer-host', 1_000_000);
+    expect(mesh.connectToPeer('host')).toBe(true);
+    expect(h.dialPeer).not.toHaveBeenCalled();
+    expect(h.pendingDials.get('peer-host')).toBe(1_000_000);
+  });
+  it.each(['initial', 'periodic'])('retries recently seen saved friends, not stale gossip, on %s pass', pass => {
+    const { h } = setup([contact('manual', 700_000), contact('library', 700_000), contact('exchange', 700_000)]);
     if (pass === 'initial') h.autoConnectLibrary();
     else { h.startLibraryReconnectLoop(); vi.advanceTimersByTime(60_000); h.stopLibraryReconnectLoop(); }
     const targets = h.dialPeer.mock.calls.map(call => call[0]);
@@ -93,7 +109,7 @@ describe('durable targeted connections and bounded reconnection', () => {
     fresh.h.autoConnectLibrary(); expect(fresh.h.dialPeer).toHaveBeenCalledWith('peer-exchange', 'exchange');
   });
   it.each(['initial', 'periodic'])('keeps cooldown, pending-dial and disabled-contact gates on %s pass', pass => {
-    const { h } = setup([contact('manual'), contact('library'), { ...contact('exchange', 1_000_000), autoConnect: false }]);
+    const { h } = setup([contact('manual', 900_000), contact('library', 900_000), { ...contact('exchange', 1_000_000), autoConnect: false }]);
     h.peerCooldowns.set('peer-manual', 2_000_000); h.pendingDials.set('peer-library', 1_000_000);
     if (pass === 'initial') h.autoConnectLibrary();
     else {
@@ -105,9 +121,9 @@ describe('durable targeted connections and bounded reconnection', () => {
     }
     expect(h.dialPeer).not.toHaveBeenCalled();
   });
-  it('removes the dead default TURN service without substituting a new public service', () => {
-    expect(DEFAULT_ICE_SERVERS.flatMap(s => typeof s.urls === 'string' ? [s.urls] : s.urls)).toEqual([
-      'stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302',
-    ]);
+  it('keeps STUN first and the community TURN relay as last-resort fallback', () => {
+    const urls = DEFAULT_ICE_SERVERS.flatMap(s => typeof s.urls === 'string' ? [s.urls] : s.urls);
+    expect(urls.slice(0, 2)).toEqual(['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302']);
+    expect(urls.slice(2).every(u => u.startsWith('turn:openrelay.metered.ca'))).toBe(true);
   });
 });
