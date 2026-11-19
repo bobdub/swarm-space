@@ -2522,17 +2522,24 @@ export class StandaloneSwarmMesh {
         continue;
       }
 
+      // A relayed saved contact is an older observation than what we may
+      // already know: it may only fill gaps, never roll back identity or
+      // provenance learned from a newer sighting.
+      let hintIsNewer = true;
       const existing = this.library.get(rp.peerId);
       if (existing) {
         const prevLastSeen = existing.lastSeenAt;
+        hintIsNewer = relayedActive || relayedSeenAt > prevLastSeen;
         existing.nodeId = nextNodeId;
-        if (typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
+        if (hintIsNewer && typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
           if (existing.alias !== rp.alias) metadataChanged = true;
           existing.alias = rp.alias;
         }
         existing.lastSeenAt = Math.max(existing.lastSeenAt, activeLastSeen);
-        if (nextTrust !== undefined) existing.trustScore = nextTrust;
-        if (existing.source !== 'manual') existing.source = 'exchange';
+        if (hintIsNewer && nextTrust !== undefined) existing.trustScore = nextTrust;
+        // Saved 'library' friends keep their reconnect window when gossip
+        // repeats them; only a live sighting reclassifies the entry.
+        if (relayedActive && existing.source !== 'manual') existing.source = 'exchange';
         if (existing.lastSeenAt > prevLastSeen) refreshed++;
       } else {
         this.library.set(rp.peerId, {
@@ -2555,6 +2562,7 @@ export class StandaloneSwarmMesh {
       if (entry) {
         for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
+          if (!hintIsNewer && entry[key]) continue;
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             if (key === 'userId') this.clearNamespaceAnchor(entry);
             entry[key] = value;
@@ -2563,7 +2571,7 @@ export class StandaloneSwarmMesh {
         }
         // Relayed namespace coordinates are never copied: only a well-formed
         // wallet anchor is taken, and the #discriminator is derived locally.
-        if (entry.userId && isPublicWalletAddress(rp.walletAddress)
+        if (entry.userId && (hintIsNewer || !entry.walletAddress) && isPublicWalletAddress(rp.walletAddress)
           && entry.walletAddress?.toLowerCase() !== rp.walletAddress.toLowerCase()) {
           this.clearNamespaceAnchor(entry);
           entry.walletAddress = rp.walletAddress;

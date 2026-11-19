@@ -87,4 +87,24 @@ describe('saved libraries roll through the mesh', () => {
     vi.setSystemTime(NOW + 14 * DAY);
     expect(b.harness.getSharedLibraryPeers().some(p => p.peerId === 'peer-friend')).toBe(false);
   });
+
+  it('an older relayed copy never rolls back newer identity or saved-friend provenance', () => {
+    const a = createMesh('a', [contact('peer-friend', NOW - 2 * 60_000, {
+      source: 'library', displayName: 'New Name', userId: 'u-new',
+    })]);
+    a.harness.handleLibraryExchange('peer-b', { peers: [
+      { peerId: 'peer-friend', active: false, lastSeenAt: NOW - DAY, displayName: 'Old Name', userId: 'u-old', alias: 'Old Name' },
+    ] });
+    expect(a.mesh.getLibrary().find(p => p.peerId === 'peer-friend')).toMatchObject({
+      source: 'library', displayName: 'New Name', userId: 'u-new', lastSeenAt: NOW - 2 * 60_000,
+    });
+  });
+
+  it('an older relayed copy still fills identity gaps', () => {
+    const a = createMesh('a', [contact('peer-friend', NOW - 60_000, { source: 'library' })]);
+    a.harness.handleLibraryExchange('peer-b', { peers: [
+      { peerId: 'peer-friend', active: false, lastSeenAt: NOW - DAY, displayName: 'Friend', userId: 'u-friend' },
+    ] });
+    expect(a.mesh.getLibrary().find(p => p.peerId === 'peer-friend')).toMatchObject({ displayName: 'Friend', userId: 'u-friend', source: 'library' });
+  });
 });
