@@ -43,6 +43,7 @@ import type { Post } from '@/types';
 import { useActiveSpeaker } from '@/hooks/useActiveSpeaker';
 import type { VideoParticipant } from '@/lib/webrtc/types';
 import type { BrainVoicePeer } from '@/hooks/useBrainVoice';
+import type { NetworkChatMember } from '@/hooks/useNetworkChatPeers';
 import type { BrainVariantCapabilities } from '@/lib/brain/variants';
 import {
   getRoomChatMessages,
@@ -103,6 +104,8 @@ interface Props {
   voicePeers?: BrainVoicePeer[];
   /** Raw WebRTC participants — drives mic/camera/active-speaker indicators. */
   rtcParticipants?: VideoParticipant[];
+  /** Everyone else in the shared network chat (Brain and main menu), for the users rail. */
+  chatPeers?: NetworkChatMember[];
   /** True when the local mic is unmuted. Drives the "Voice on" pill. */
   voiceOn?: boolean;
   /** Active room id this panel is bound to (for promote-to-feed match). */
@@ -142,6 +145,7 @@ export function BrainChatPanel({
   onClose,
   voicePeers = [],
   rtcParticipants = [],
+  chatPeers = [],
   voiceOn = false,
   roomId,
   variant = 'floating',
@@ -575,6 +579,16 @@ export function BrainChatPanel({
   };
   const railUsers: RailUser[] = useMemo(() => {
     const byId = new Map<string, RailUser>();
+    // Chat-only members first: voice data below overrides them for the same peer.
+    for (const p of chatPeers) {
+      byId.set(p.peerId, {
+        peerId: p.peerId,
+        username: p.username,
+        micOn: false,
+        cameraOn: false,
+        isSpeaking: false,
+      });
+    }
     for (const p of voicePeers) {
       byId.set(p.peerId, {
         peerId: p.peerId,
@@ -598,7 +612,7 @@ export function BrainChatPanel({
       byId.set(p.peerId, merged);
     }
     return [...byId.values()];
-  }, [voicePeers, rtcParticipants, activeSpeaker]);
+  }, [chatPeers, voicePeers, rtcParticipants, activeSpeaker]);
 
   // ── Layout sizing ────────────────────────────────────────────────
   // Fullscreen keeps the same translucent glass treatment as the floating

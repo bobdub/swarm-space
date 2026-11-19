@@ -10,7 +10,8 @@ import {
 } from '@/lib/brain/earth';
 import { avatarLocalTarget, avatarTrackingAlpha } from '@/lib/brain/avatarTracking';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
-import { Billboard, Text } from '@react-three/drei';
+import { Billboard } from '@react-three/drei';
+import { Text } from './SafeText';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
 interface Props {

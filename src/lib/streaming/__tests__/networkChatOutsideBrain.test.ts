@@ -91,4 +91,43 @@ describe('network chat outside the Brain', () => {
     // Nothing from the live room leaks into the network chat.
     expect(getRoomChatMessages(BRAIN_ROOM_ID)).toHaveLength(0);
   });
+
+  it('lists who has the network chat open from the menu, and forgets them when they close it', () => {
+    const b = makeMesh('B', ['A']);
+    startSignalingBridge(b.mesh as never);
+    announceJoinRoom(BRAIN_ROOM_ID, 'uB', 'B');
+    b.deliver('A', { msgType: 'chat-here', from: 'A', roomId: BRAIN_ROOM_ID, userId: 'uA', username: 'Eve', data: { open: true }, ts: 1 });
+    expect(bridge.getNetworkChatPeers().map((p) => p.username)).toEqual(['Eve']);
+    // Only the shared chat has a member list; live rooms keep theirs private.
+    b.deliver('C', { msgType: 'chat-here', from: 'C', roomId: 'live-1', username: 'Lurker', data: { open: true }, ts: 2 });
+    expect(bridge.getNetworkChatPeers().map((p) => p.username)).toEqual(['Eve']);
+    b.deliver('A', { msgType: 'chat-here', from: 'A', roomId: BRAIN_ROOM_ID, data: { open: false }, ts: 3 });
+    expect(bridge.getNetworkChatPeers()).toHaveLength(0);
+  });
+
+  it('drops a menu chatter who stops announcing', () => {
+    const b = makeMesh('B', ['A']);
+    startSignalingBridge(b.mesh as never);
+    b.deliver('A', { msgType: 'chat-here', from: 'A', roomId: BRAIN_ROOM_ID, username: 'Eve', data: { open: true }, ts: 1 });
+    expect(bridge.getNetworkChatPeers(Date.now() + bridge.CHAT_HERE_TTL_MS + 1)).toHaveLength(0);
+  });
+
+  it('announces the open chat to connected peers', () => {
+    const e = makeMesh('E', ['B']);
+    startSignalingBridge(e.mesh as never);
+    bridge.announceNetworkChatHere(BRAIN_ROOM_ID, 'uE', 'Eve');
+    expect(e.sent.some((s) => s.to === 'B' && s.payload.msgType === 'chat-here' && s.payload.username === 'Eve')).toBe(true);
+  });
+
+  it('stops listing a Brain peer who went quiet, even when this device never joined the Brain', () => {
+    const e = makeMesh('E', ['B']);
+    startSignalingBridge(e.mesh as never);
+    e.deliver('B', { msgType: 'presence', from: 'B', roomId: BRAIN_ROOM_ID, username: 'Bee', data: {}, ts: 1 });
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID).map((p) => p.username)).toEqual(['Bee']);
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID, Date.now() + bridge.CHAT_HERE_TTL_MS + 1)).toHaveLength(0);
+    // A heartbeat keeps them listed.
+    e.deliver('B', { msgType: 'room-heartbeat', from: 'B', roomId: BRAIN_ROOM_ID, ts: 2 });
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID)).toHaveLength(1);
+  });
 });
+

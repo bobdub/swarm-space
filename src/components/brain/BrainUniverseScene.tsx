@@ -161,6 +161,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
@@ -1270,6 +1271,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     onChatLine,
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
+  // People chatting from the main menu share this room's chat (lobby only);
+  // list them beside the people in the Brain.
+  const chatPeers = useNetworkChatPeers(ready, roomId);
 
   // Muted peers vanish from the scene entirely on this device — no avatar,
   // no camera tile, no audio (audio is muted in PersistentAudioLayer).
@@ -2499,6 +2503,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onClose={() => setChatOpen(false)}
           voicePeers={voicePeers}
           rtcParticipants={rtcParticipants}
+          chatPeers={chatPeers}
           voiceOn={!isMuted}
           roomId={roomId}
           variantCapabilities={capabilities}
