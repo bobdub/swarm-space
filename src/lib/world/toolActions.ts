@@ -15,6 +15,10 @@ import {
   isTreeFelled,
 } from '@/lib/world/treeChopStore';
 import { spawnDrop } from '@/lib/world/worldDropsStore';
+import { isTreeGrown, pickFruit, fruitAt, isFruitPicked } from '@/lib/brain/nature/natureGrowth';
+import { hiveBuildProgress } from '@/lib/brain/nature/hiveRehome';
+import { canCollectHoney, collectHoney } from '@/lib/world/honeyStore';
+import { recordNatureEvent } from '@/lib/world/natureEventsStore';
 import {
   HITS_TO_BREAK,
   BREAK_MS,
@@ -268,6 +272,19 @@ const GATHER_LABEL: Record<'water' | 'food' | 'fibre', string> = {
   fibre: 'Fibre',
 };
 
+/** Is there fruit or honey to take? Other gatherables are always ready. */
+function gatherReady(block: { kind: string; bodyId: string; id: string; meta: Record<string, unknown> }): boolean {
+  const now = Date.now();
+  if (block.kind === 'tree') {
+    const f = fruitAt(block.bodyId, now);
+    return f.ripe && !isFruitPicked(block.bodyId, f.crop);
+  }
+  if (block.kind === 'hive') {
+    return hiveBuildProgress(block.meta?.builtAt, now) >= 1 && canCollectHoney(block.id, now);
+  }
+  return true;
+}
+
 function clearTargetIfBlock(blockId: string): void {
   const cur = getToolTarget();
   if (cur && cur.kind === 'nature' && cur.blockId === blockId) setToolTarget(null);
@@ -277,7 +294,9 @@ function clearTargetIfBlock(blockId: string): void {
 const AUTO_REACH: Record<ToolVerb, Record<string, number>> = {
   chop: { tree: 4.2 },
   mine: { stone: 3.4, mountain: 14, volcano: 18 },
-  gather: { flower: 2.8, grass: 2.8, fish: 3.2, water: 3.2 },
+  // Trees (for fruit) and the hive (for honey) are only offered when there
+  // is something to take — see `gatherReady`.
+  gather: { flower: 2.8, grass: 2.8, fish: 3.2, water: 3.2, tree: 4.2, hive: 3.6 },
   whittle: {},
   dig: {},
   sharpen: {},
@@ -300,6 +319,9 @@ export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): Tool
   let best: { block: ReturnType<ReturnType<typeof getBuilderBlockEngine>['listBlocks']>[number]; score: number } | null = null;
   for (const block of getBuilderBlockEngine().listBlocks((b) => b.kind in reachTable)) {
     if (block.kind === 'tree' && isTreeFelled(block.bodyId)) continue;
+    // Seedlings are too young to chop or to bear fruit.
+    if (block.kind === 'tree' && !isTreeGrown(block, Date.now())) continue;
+    if (verbFor(toolPrefabId) === 'gather' && !gatherReady(block)) continue;
     if (block.kind === 'stone' && isStoneBroken(block.bodyId)) continue;
     const body = physics.getBody(block.bodyId);
     if (!body) continue;
@@ -351,6 +373,12 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
 
 
 
+  // Fruit from a grown tree, honey from the hive. Neither is used up: the
+  // tree ripens a new crop and the hive refills by tomorrow.
+  if (verb === 'gather' && (target.natureKind === 'tree' || target.natureKind === 'hive')) {
+    return gatherFromLiving(toolPrefabId, prefab.label, prefab.color, prefab.mass, target.natureKind, target.blockId);
+  }
+
   const gathered = verb === 'gather' ? GATHER_YIELD[target.natureKind] : undefined;
   if (gathered) {
     // A stale target (already collected) must not pay out a second time.
@@ -372,6 +400,12 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
       `Collected ${labelForKind(target.natureKind).toLowerCase()} · +1 ${GATHER_LABEL[gathered]}.`,
     );
     return true;
+  }
+
+  // Any tool but a bucket breaks the honey hive; the bees go and build a
+  // new one in another tree.
+  if (target.natureKind === 'hive') {
+    return chopHive(toolPrefabId, prefab.label, prefab.color, prefab.mass, target.blockId, selfId);
   }
 
   // Trees take several cuts: each accepted swing shakes the trunk, and the
@@ -419,6 +453,93 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   });
 }
 
+function gatherFromLiving(
+  toolPrefabId: string,
+  toolLabel: string,
+  color: string,
+  mass: number,
+  kind: 'tree' | 'hive',
+  blockId: string,
+): boolean {
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!block) {
+    clearTargetIfBlock(blockId);
+    return false;
+  }
+  const body = getBrainPhysics().getBody(blockId);
+  const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, color, mass);
+  const now = Date.now();
+
+  if (kind === 'tree') {
+    const pick = pickFruit(block, now);
+    if (!pick.ok) {
+      emitTargetImpact(point, up, color, probe.intensity, 'no fruit', false, 'flora');
+      const why = pick.reason === 'young'
+        ? 'This tree is too young to bear fruit.'
+        : pick.reason === 'picked'
+          ? 'You picked this tree already. More fruit will grow.'
+          : 'The fruit is still green. Come back when it is red.';
+      swingProgress(toolPrefabId, toolLabel, why);
+      return false;
+    }
+    emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
+    recordHarvestForResource('food', pick.count);
+    swingSuccess(toolPrefabId, toolLabel, `Picked ${pick.count} fruit · +${pick.count} Food.`);
+    return true;
+  }
+
+  if (hiveBuildProgress(block.meta?.builtAt, now) < 1) {
+    emitTargetImpact(point, up, color, probe.intensity, 'building', false, 'flora');
+    swingProgress(toolPrefabId, toolLabel, 'The bees are still building this hive. No honey yet.');
+    return false;
+  }
+  const honey = collectHoney(block.id, now);
+  if (honey <= 0) {
+    emitTargetImpact(point, up, color, probe.intensity, 'empty', false, 'flora');
+    swingProgress(toolPrefabId, toolLabel, 'You took honey today already. The bees will have more tomorrow.');
+    return false;
+  }
+  emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
+  recordHarvestForResource('food', honey);
+  swingSuccess(toolPrefabId, toolLabel, `Collected honey · +${honey} Food.`);
+  return true;
+}
+
+function chopHive(
+  toolPrefabId: string,
+  toolLabel: string,
+  color: string,
+  mass: number,
+  blockId: string,
+  selfId?: string,
+): boolean {
+  const block = getBuilderBlockEngine().getBlock(blockId);
+  if (!block) {
+    clearTargetIfBlock(blockId);
+    return false;
+  }
+  const body = getBrainPhysics().getBody(blockId);
+  const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+  // Same land rule as any other strike: no breaking things on land you can't alter.
+  if (landBlocks(point, selfId)) return false;
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, color, mass);
+  const now = Date.now();
+  if (hiveBuildProgress(block.meta?.builtAt, now) < 1) {
+    emitTargetImpact(point, up, color, probe.intensity, 'building', false, 'flora');
+    swingProgress(toolPrefabId, toolLabel, 'The bees are still building this hive.');
+    return false;
+  }
+  emitTargetImpact(point, up, color, probe.intensity, 'break', true, 'flora');
+  // Shared with every peer: the comb falls and the colony moves house.
+  recordNatureEvent('hive-down', block.bodyId, block.anchorPeerId, block.rightOffset, block.forwardOffset, now);
+  clearTargetIfBlock(blockId);
+  swingSuccess(toolPrefabId, toolLabel, 'The hive breaks. The bees fly off to build a new one in another tree.');
+  return true;
+}
+
 /** Earth-local unit direction of a world-space point. */
 function localDirFromWorld(point: Vec3): Vec3 {
   const pose = getEarthPose();
@@ -450,6 +571,8 @@ function offsetLocalDir(dir: Vec3, ax: number, az: number): Vec3 {
 
 /** Wood pieces a felled tree scatters; each is worth exactly 1 Wood. */
 export const WOOD_PER_TREE = 3;
+/** Fibre (bark and leaves) a felled tree scatters; each is worth 1 Fibre. */
+export const FIBRE_PER_TREE = 2;
 
 /**
  * Chop a tree. Every swing still runs the shared `applyImpact` predicate,
@@ -465,6 +588,10 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
   // Already falling: its wood is on the way, further swings do nothing.
   if (isTreeFelled(blockId)) {
     clearTargetIfBlock(blockId);
+    return false;
+  }
+  if (!isTreeGrown(block, Date.now())) {
+    swingProgress(toolPrefabId, toolPrefab.label, 'This tree is still growing. Let it grow up first.');
     return false;
   }
 
@@ -512,9 +639,11 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
     return true;
   }
 
-  // Felled. Wood lands a moment later, once the trunk has come down.
+  // Felled. Tell every peer, so the tree comes down (and any hive in it
+  // moves) for everyone. Wood lands a moment later, once the trunk is down.
+  recordNatureEvent('fell', block.bodyId, block.anchorPeerId, block.rightOffset, block.forwardOffset, state.toppledAt ?? Date.now());
   clearTargetIfBlock(blockId);
-  swingSuccess(toolPrefabId, 'Timber!', `The tree comes down · ${WOOD_PER_TREE} wood to pick up.`);
+  swingSuccess(toolPrefabId, 'Timber!', `The tree comes down · ${WOOD_PER_TREE} wood and ${FIBRE_PER_TREE} fibre to pick up.`);
   const treeDir = localDirFromWorld(point);
   window.setTimeout(() => {
     for (let i = 0; i < WOOD_PER_TREE; i++) {
@@ -523,6 +652,16 @@ async function chopTree(toolPrefabId: string, blockId: string, selfId?: string):
         kind: 'wood',
         qty: 1,
         localDir: offsetLocalDir(treeDir, Math.cos(angle) * 1.4, Math.sin(angle) * 1.4),
+        upOffset: 0,
+      });
+    }
+    // Bark and leaves fall along the trunk, a little further out.
+    for (let i = 0; i < FIBRE_PER_TREE; i++) {
+      const angle = ((i + 0.5) / FIBRE_PER_TREE) * Math.PI * 2;
+      spawnDrop({
+        kind: 'fibre',
+        qty: 1,
+        localDir: offsetLocalDir(treeDir, Math.cos(angle) * 2.3, Math.sin(angle) * 2.3),
         upOffset: 0,
       });
     }

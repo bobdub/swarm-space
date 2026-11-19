@@ -15,6 +15,7 @@
  */
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
+import { isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -35,7 +36,8 @@ interface SignalEnvelope {
     | 'presence'
     | 'room-hello'
     | 'chat-history-request'
-    | 'chat-history';
+    | 'chat-history'
+    | 'chat-here';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -100,6 +102,7 @@ interface MeshLike {
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
   getPeerId(): string;
+  dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
 }
 
 import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
@@ -112,6 +115,16 @@ const SIGNAL_CHANNEL = 'webrtc-signal';
 
 let meshRef: MeshLike | null = null;
 let unsubChannel: (() => void) | null = null;
+const roomDialAt = new Map<string, number>();
+
+function dialRoomPeer(peerId: string): void {
+  if (!meshRef || peerId === meshRef.getPeerId() || meshRef.getConnectedPeerIds().includes(peerId)) return;
+  if (loadBlocklistFromStorage().some(entry => entry.peerId === peerId)) return;
+  const last = roomDialAt.get(peerId);
+  if (last !== undefined && Date.now() - last < 12000) return;
+  roomDialAt.set(peerId, Date.now());
+  meshRef.dialViaBus?.(peerId);
+}
 let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
 let knownPeerSnapshot: Set<string> = new Set();
 const signalHandlers = new Set<SignalHandler>();
@@ -149,10 +162,15 @@ let historySeq = 0;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
 const joinedRooms = new Map<string, Set<string>>();
+/** The room the local call layer is in, kept across bridge restarts. */
+let activeJoin: { roomId: string; userId: string; username: string } | null = null;
 
 // ── Departed / silent peer tracking ────────────────────────────────────
 /** `${roomId}|${peerId}` -> time the peer left. Stale echoes never revive them. */
 const departedAt = new Map<string, number>();
+/** `${roomId}|${peerId}` -> time a peer was evicted for going quiet. Unlike a
+ *  real departure, anything we hear from them afterwards brings them back. */
+const silentAt = new Map<string, number>();
 /** `${roomId}|${peerId}` -> last time we heard anything from the peer. */
 const lastHeardAt = new Map<string, number>();
 const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void>();
@@ -172,12 +190,18 @@ function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'
   joinedRooms.get(roomId)?.delete(peerId);
   roomPresenceLog.get(roomId)?.delete(peerId);
   lastHeardAt.delete(roomKey(roomId, peerId));
-  departedAt.set(roomKey(roomId, peerId), Date.now());
   if (reason === 'silent') {
+    // Quiet is not gone: a mesh edge hiccup or a throttled background tab
+    // stops heartbeats while the call itself is fine. Remember it softly
+    // so the next packet from them revives the membership.
+    silentAt.set(roomKey(roomId, peerId), Date.now());
     console.log(`[WebRTC-Bridge] 💤 ${peerId} silent in ${roomId} — removing`);
     for (const h of signalHandlers) {
-      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now() }); } catch { /* ignore */ }
+      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason: 'silent' } }); } catch { /* ignore */ }
     }
+  } else {
+    silentAt.delete(roomKey(roomId, peerId));
+    departedAt.set(roomKey(roomId, peerId), Date.now());
   }
   for (const h of presenceRemovedHandlers) {
     try { h(roomId, peerId); } catch { /* ignore */ }
@@ -199,6 +223,24 @@ export function sweepSilentRoomPeers(now: number = Date.now()): void {
   for (const [k, t] of departedAt) {
     if (now - t > 5 * 60_000) departedAt.delete(k);
   }
+  for (const [k, t] of silentAt) {
+    if (now - t > 5 * 60_000) silentAt.delete(k);
+  }
+}
+
+/**
+ * True while `peerId` is a live member of a room we are in: announced, not
+ * departed, and heard from recently. The call layer uses it to keep trying
+ * to reach a peer that is clearly still there instead of giving up.
+ */
+export function isRoomPeerPresent(roomId: string, peerId: string, now: number = Date.now()): boolean {
+  const members = joinedRooms.get(roomId);
+  if (!members) return false;
+  const key = roomKey(roomId, peerId);
+  if (departedAt.has(key) || silentAt.has(key)) return false;
+  const heard = lastHeardAt.get(key);
+  if (heard !== undefined) return now - heard <= ROOM_PEER_SILENCE_MS;
+  return members.has(peerId);
 }
 
 function heartbeatRooms(): void {
@@ -238,6 +280,7 @@ const seenOrder: string[] = [];
 const MAX_SEEN_SIGNALS = 2000;
 const RELAYED_ANNOUNCEMENTS = new Set<SignalEnvelope['msgType']>([
   'join-room', 'leave-room', 'presence', 'media-state', 'screen-share-state', 'room-heartbeat', 'chat-message',
+  'room-hello', 'chat-here',
 ]);
 
 /** Test/internal: identity of an envelope for dedup. */
@@ -264,12 +307,48 @@ function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
   void meshRef.send(SIGNAL_CHANNEL, envelope.to, { ...envelope, hops: hops + 1 }).catch(() => undefined);
 }
 
+/**
+ * Deliver a directed envelope to `to`, even without a direct mesh edge.
+ * `mesh.send` resolves `false` (it does not throw) when we have no edge to
+ * the target, so the old `.catch` fallback never ran and the signal was
+ * silently dropped. In a sparse mesh (A linked to B and C, but B and C not
+ * linked) that meant B and C never formed a call: A heard both of them, they
+ * never heard each other. Broadcasting lets a neighbour that does reach the
+ * target relay it (see relayDirected); dedup keys stop double delivery.
+ */
+function sendDirected(envelope: SignalEnvelope & { to: string }): void {
+  const mesh = meshRef;
+  if (!mesh) return;
+  const fallback = () => {
+    if (meshRef !== mesh) return;
+    for (const peerId of mesh.getConnectedPeerIds()) {
+      if (peerId === envelope.to) continue;
+      void mesh.send(SIGNAL_CHANNEL, peerId, envelope).catch(() => undefined);
+    }
+  };
+  if (!mesh.getConnectedPeerIds().includes(envelope.to)) {
+    fallback();
+    return;
+  }
+  void Promise.resolve(mesh.send(SIGNAL_CHANNEL, envelope.to, envelope))
+    .then((ok) => { if (ok === false) fallback(); })
+    .catch(fallback);
+}
+
 function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): void {
   if (!meshRef || !RELAYED_ANNOUNCEMENTS.has(envelope.msgType)) return;
-  // Only members of the room forward its announcements.
-  if (!joinedRooms.has(envelope.roomId)) return;
   const hops = envelope.hops ?? 0;
   if (hops >= MAX_SIGNAL_HOPS) return;
+  // Members forward a room's announcements across the hop budget. A node
+  // outside the room forwards only first-hop ones: a newcomer whose only
+  // mesh link is a non-member (common right after joining, while direct
+  // links are still being dialled) was otherwise unreachable, and the room
+  // only heard them once a direct link formed, often minutes later.
+  // The shared network chat is open to everyone connected, inside the Brain
+  // or not, so every node carries its lines across the full hop budget.
+  const openChat = (envelope.msgType === 'chat-message' || envelope.msgType === 'chat-here')
+    && isNetworkChatRoom(envelope.roomId);
+  if (!openChat && !joinedRooms.has(envelope.roomId) && hops > 0) return;
   const next = { ...envelope, hops: hops + 1 };
   for (const peerId of meshRef.getConnectedPeerIds()) {
     if (peerId === fromPeerId || peerId === envelope.from) continue;
@@ -299,6 +378,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     return;
   }
   relayRoomAnnouncement(fromPeerId, envelope);
+  noteNetworkRoomTraffic(envelope);
 
   const fromKey = roomKey(envelope.roomId, envelope.from);
   if (envelope.msgType === 'join-room' || envelope.msgType === 'room-hello') {
@@ -310,6 +390,9 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     // the call may still be reading the room's chat.
     && envelope.msgType !== 'chat-history-request'
     && envelope.msgType !== 'chat-history'
+    // The shared network chat does not depend on being in the Brain: someone
+    // who walked out of the Brain to Explore keeps chatting with it.
+    && !((envelope.msgType === 'chat-message' || envelope.msgType === 'chat-here') && isNetworkChatRoom(envelope.roomId))
   ) {
     const left = departedAt.get(fromKey);
     if (left !== undefined && (envelope.ts ?? 0) <= left + 1_000) return;
@@ -318,6 +401,32 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
   }
   if (envelope.msgType !== 'leave-room' && joinedRooms.has(envelope.roomId)) {
     lastHeardAt.set(fromKey, Date.now());
+  }
+
+  // A peer we evicted for going quiet is talking again: they never left.
+  // Restore membership and tell the call layer, so it reconnects (or keeps)
+  // their audio right away instead of waiting for them to re-join.
+  if (envelope.msgType !== 'leave-room' && silentAt.has(fromKey)) {
+    silentAt.delete(fromKey);
+    const room = joinedRooms.get(envelope.roomId);
+    if (room && myPeerId && room.has(myPeerId)) {
+      room.add(envelope.from);
+      console.log(`[WebRTC-Bridge] 🔔 ${envelope.from} is back in ${envelope.roomId}`);
+      if (envelope.msgType !== 'join-room') {
+        for (const h of signalHandlers) {
+          try {
+            h({
+              msgType: 'join-room',
+              from: envelope.from,
+              roomId: envelope.roomId,
+              userId: envelope.userId,
+              username: envelope.username,
+              ts: envelope.ts,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   switch (envelope.msgType) {
@@ -329,17 +438,19 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       const room = joinedRooms.get(envelope.roomId);
       if (room && myPeerId) {
         room.add(envelope.from);
+        dialRoomPeer(envelope.from);
         console.log(`[WebRTC-Bridge] 👋 ${envelope.from} joined room ${envelope.roomId}`);
         
         // Send room-sync so joining peer knows who's here
-        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+        sendDirected({
           msgType: 'room-sync',
           from: myPeerId,
+          to: envelope.from,
           roomId: envelope.roomId,
           participants: Array.from(room),
           userId: envelope.userId,
           ts: Date.now(),
-        } satisfies SignalEnvelope);
+        });
       }
       // Forward to handlers (WebRTCManager will create offer)
       for (const h of signalHandlers) {
@@ -356,6 +467,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         for (const p of participants) {
           if (p !== envelope.from && departedAt.has(roomKey(envelope.roomId, p))) continue;
           room.add(p);
+          dialRoomPeer(p);
           if (!lastHeardAt.has(roomKey(envelope.roomId, p))) lastHeardAt.set(roomKey(envelope.roomId, p), Date.now());
         }
         envelope.participants = participants.filter(
@@ -412,6 +524,23 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
+      break;
+    }
+
+    case 'chat-here': {
+      if (!isNetworkChatRoom(envelope.roomId)) return;
+      const open = (envelope.data as { open?: unknown } | undefined)?.open !== false;
+      if (open) {
+        chatHerePeers.set(envelope.from, {
+          peerId: envelope.from,
+          userId: typeof envelope.userId === 'string' ? envelope.userId.slice(0, 200) : undefined,
+          username: typeof envelope.username === 'string' ? envelope.username.slice(0, 80) : undefined,
+          seenAt: Date.now(),
+        });
+      } else {
+        chatHerePeers.delete(envelope.from);
+      }
+      emitChatHere();
       break;
     }
 
@@ -494,18 +623,18 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       if (room && myPeerId && room.has(myPeerId)) {
         const alreadyKnown = room.has(envelope.from);
         room.add(envelope.from);
-        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+        sendDirected({
           msgType: 'room-sync',
           from: myPeerId,
           to: envelope.from,
           roomId: envelope.roomId,
           participants: Array.from(room),
           ts: Date.now(),
-        } satisfies SignalEnvelope).catch(() => undefined);
+        });
         // Replay our latest presence directly so their UI hydrates immediately.
         const mine = myLastPresence.get(envelope.roomId);
         if (mine) {
-          meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+          sendDirected({
             msgType: 'presence',
             from: myPeerId,
             to: envelope.from,
@@ -519,7 +648,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
               pv: mine.pv,
             },
             ts: Date.now(),
-          } satisfies SignalEnvelope).catch(() => undefined);
+          });
         }
         // Also surface to local handlers as a synthetic peer-joined hint.
         // Only do this when this is a genuinely new room member for this
@@ -748,6 +877,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
       if (!knownPeerSnapshot.has(pid)) newPeers.push(pid);
     }
     knownPeerSnapshot = currentSet;
+    for (const members of joinedRooms.values()) for (const peer of members) dialRoomPeer(peer);
     if (newPeers.length === 0) return;
     for (const roomId of historyInterest.keys()) {
       sendChatHistoryRequest(roomId, newPeers.slice(0, HISTORY_FANOUT));
@@ -790,11 +920,19 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   for (const roomId of historyInterest.keys()) {
     sendChatHistoryRequest(roomId, knownPeerSnapshot.size ? Array.from(knownPeerSnapshot).slice(0, HISTORY_FANOUT) : []);
   }
+  // Announce a room joined before the bridge (re)started, then ask who is
+  // already there, so the call forms now rather than on the next edge churn.
+  if (activeJoin) {
+    const { roomId, userId, username } = activeJoin;
+    announceJoinRoom(roomId, userId, username);
+    helloRoom(roomId);
+  }
   console.log('[WebRTC-Bridge] ✅ Signaling bridge started');
   return () => stopSignalingBridge();
 }
 
 export function stopSignalingBridge(): void {
+  roomDialAt.clear();
   if (unsubChannel) {
     unsubChannel();
     unsubChannel = null;
@@ -809,6 +947,8 @@ export function stopSignalingBridge(): void {
   joinedRooms.clear();
   roomChatLog.clear();
   roomPresenceLog.clear();
+  chatHerePeers.clear();
+  networkRoomHeardAt.clear();
   lastHelloAt.clear();
   historyRepliedAt.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
@@ -835,11 +975,8 @@ export function sendSignalViaMesh(
     data,
     ts: Date.now(),
   };
-  // Send directly to target peer
-  meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
-    // Fallback: broadcast (peer will filter by `to` field)
-    meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
-  });
+  // Direct when we have an edge to them, otherwise through a neighbour.
+  sendDirected(envelope as SignalEnvelope & { to: string });
 }
 
 /**
@@ -861,9 +998,7 @@ export function sendReconnectRequest(
     roomId,
     ts: Date.now(),
   };
-  meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
-    meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
-  });
+  sendDirected(envelope as SignalEnvelope & { to: string });
 }
 
 /**
@@ -910,6 +1045,10 @@ export function sendMediaState(
  * Announce joining a room — existing participants will respond with offers.
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
+  // Remember the room even before the mesh is up: the call layer only joins
+  // once, so a join made during the cold start used to be lost and the
+  // other users only found us minutes later, when some mesh edge churned.
+  activeJoin = { roomId, userId, username };
   if (!meshRef) return;
   ensureSweep();
 
@@ -938,6 +1077,7 @@ export function announceJoinRoom(roomId: string, userId: string, username: strin
  * Announce leaving a room.
  */
 export function announceLeaveRoom(roomId: string): void {
+  if (activeJoin?.roomId === roomId) activeJoin = null;
   if (!meshRef) return;
   
   meshRef.broadcast(SIGNAL_CHANNEL, {
@@ -1143,4 +1283,78 @@ export function getLocalMeshPeerId(): string | null {
  */
 export function isBridgeActive(): boolean {
   return meshRef !== null;
+}
+
+
+// ── Network chat presence ──────────────────────────────────────────────
+// Who has the shared network chat open, wherever they are in the app. People
+// inside the Brain also show up through room presence; this covers everyone
+// chatting from the main menu, so both sides can list who is in the chat.
+
+export interface NetworkChatPeer {
+  peerId: string;
+  userId?: string;
+  username?: string;
+  seenAt: number;
+}
+
+/** A chatter we have not heard from in this long has left the chat. */
+export const CHAT_HERE_TTL_MS = 35_000;
+const chatHerePeers = new Map<string, NetworkChatPeer>();
+const chatHereHandlers = new Set<() => void>();
+
+function emitChatHere(): void {
+  for (const h of chatHereHandlers) {
+    try { h(); } catch { /* ignore */ }
+  }
+}
+
+/** Tell connected peers we have the network chat open (`open: false` when it closes). */
+export function announceNetworkChatHere(roomId: string, userId: string | undefined, username: string | undefined, open = true): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'chat-here',
+    from: meshRef.getPeerId(),
+    roomId,
+    userId,
+    username,
+    data: { open },
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
+}
+
+/** peerId -> last time anything reached us from them on the shared chat room. */
+const networkRoomHeardAt = new Map<string, number>();
+
+/**
+ * Liveness for the shared room that does not need membership: someone
+ * chatting from the menu never joins it, so the room sweep never evicts a
+ * Brain peer who vanished without saying goodbye. Heartbeats, presence and
+ * chat all count as signs of life.
+ */
+function noteNetworkRoomTraffic(envelope: SignalEnvelope): void {
+  if (!isNetworkChatRoom(envelope.roomId)) return;
+  if (envelope.msgType === 'leave-room') networkRoomHeardAt.delete(envelope.from);
+  else networkRoomHeardAt.set(envelope.from, Date.now());
+}
+
+/** Room presences in the shared chat room from peers heard from recently. */
+export function getLiveNetworkRoomPresences(roomId: string, now: number = Date.now()): RoomPresence[] {
+  return getRoomPresences(roomId).filter((p) => {
+    const heard = networkRoomHeardAt.get(p.peerId);
+    return heard !== undefined && now - heard <= CHAT_HERE_TTL_MS;
+  });
+}
+
+/** Peers that announced the network chat recently (never ourselves). */
+export function getNetworkChatPeers(now: number = Date.now()): NetworkChatPeer[] {
+  for (const [peerId, p] of chatHerePeers) {
+    if (now - p.seenAt > CHAT_HERE_TTL_MS) chatHerePeers.delete(peerId);
+  }
+  return Array.from(chatHerePeers.values());
+}
+
+export function onNetworkChatPeers(handler: () => void): () => void {
+  chatHereHandlers.add(handler);
+  return () => { chatHereHandlers.delete(handler); };
 }

@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, Copy, Download, Info, KeyRound, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Copy, Download, Info, KeyRound, Link2, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { getCachedPrivateKey, getCurrentUser, loginUser, type UserMeta, type WrappedKey } from "@/lib/auth";
 import { unwrapPrivateKey, wrapPrivateKey } from "@/lib/crypto";
@@ -38,6 +38,7 @@ import {
   type OwnVaultRecord,
 } from "@/lib/backup/vaultCustody";
 import { buildIdentityCredentialMarkdown, credentialFileName } from "@/lib/backup/identityCredentialFile";
+import { AccountMergeWizard } from "./AccountMergeWizard";
 
 const MIN_RECOVERY_PASSPHRASE = 12;
 const card = "rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6";
@@ -96,6 +97,7 @@ export function SovereignSecurityPanel() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
 
   const userId = user?.id ?? "";
 
@@ -392,6 +394,20 @@ export function SovereignSecurityPanel() {
             Update password
           </Button>
         </Card>
+
+        <Card className={card}>
+          <h2 className="mb-1 text-xl font-bold">Merge Account</h2>
+          <p className="mb-4 text-sm text-foreground/60">
+            Fold a second account into this one (or this one into it). Both devices must be connected; balances move
+            with signed ledger transfers and the retiring identity signs its own tombstone.
+          </p>
+          <Button variant="outline" className="gap-2" onClick={() => setMergeOpen(true)}>
+            <Link2 className="h-4 w-4" />
+            Merge Account
+          </Button>
+        </Card>
+
+        <AccountMergeWizard open={mergeOpen} onOpenChange={setMergeOpen} />
 
         <Dialog open={rotateOpen} onOpenChange={(open) => (open ? setRotateOpen(true) : closeRotate())}>
           <DialogContent className="max-w-md">

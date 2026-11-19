@@ -45,6 +45,13 @@ import {
   acceptPeerDrink,
   type DrinkEvent,
 } from '@/lib/pub/drinks';
+import {
+  attachNatureEventGossip,
+  acceptPeerNatureEvent,
+  listNatureEvents,
+  mergeNatureEvents,
+  type NatureEvent,
+} from '@/lib/world/natureEventsStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -59,6 +66,11 @@ const PUBTABLE_INTENT_CHANNEL = 'pub:table:intent';
 const PUBTABLE_SYNC_REQUEST = 'pub:table:sync-request';
 const PUBTABLE_SYNC_RESPONSE = 'pub:table:sync-response';
 const PUBDRINK_CHANNEL = 'pub:drink';
+const NATURE_CHANNEL = 'nature:event';
+const NATURE_SYNC_REQUEST = 'nature:events:sync-request';
+const NATURE_SYNC_RESPONSE = 'nature:events:sync-response';
+/** How often every connected peer is asked again for its nature events. */
+const NATURE_RESYNC_MS = 2 * 60_000;
 /** How often we look for peers we haven't backfilled from yet. */
 const PEER_POLL_MS = 10_000;
 
@@ -130,6 +142,10 @@ export function bootPlacementGossipBridge(): void {
     });
     attachDrinkGossip((evt: DrinkEvent) => {
       try { mesh!.broadcast(PUBDRINK_CHANNEL, evt); } catch { /* noop */ }
+    });
+    // Nature: felled trees and chopped hives, so every peer sees the same forest.
+    attachNatureEventGossip((evt: NatureEvent) => {
+      try { mesh!.broadcast(NATURE_CHANNEL, evt); } catch { /* noop */ }
     });
 
 
@@ -204,6 +220,21 @@ export function bootPlacementGossipBridge(): void {
       try { acceptPeerDrink(payload); } catch { /* noop */ }
     });
 
+    // ── Nature events: live gossip + newcomer backfill ──────────────
+    mesh.onMessage(NATURE_CHANNEL, (_peerId, payload) => {
+      try { acceptPeerNatureEvent(payload); } catch { /* noop */ }
+    });
+    mesh.onMessage(NATURE_SYNC_REQUEST, (peerId) => {
+      try {
+        const list = listNatureEvents();
+        if (list.length === 0) return;
+        void mesh!.send(NATURE_SYNC_RESPONSE, peerId, list);
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(NATURE_SYNC_RESPONSE, (_peerId, payload) => {
+      try { mergeNatureEvents(payload); } catch { /* noop */ }
+    });
+
     // ── Backfill: main-Brain lobby placements only ──────────────────
     mesh.onMessage(SYNC_REQUEST_CHANNEL, (peerId) => {
       try {
@@ -245,11 +276,21 @@ export function bootPlacementGossipBridge(): void {
           void mesh!.send(SYNC_REQUEST_CHANNEL, id, {});
           void mesh!.send(BARLIGHTS_SYNC_REQUEST, id, {});
           void mesh!.send(PUBTABLE_SYNC_REQUEST, id, {});
+          void mesh!.send(NATURE_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
     pollPeers();
     setInterval(pollPeers, PEER_POLL_MS);
+
+    // Nature events: also re-ask every connected peer now and then, so a
+    // missed relay (a dropped message, a peer that was mid-reconnect)
+    // still converges. Only new events are kept, so this is cheap.
+    setInterval(() => {
+      try {
+        for (const id of mesh!.getConnectedPeerIds()) void mesh!.send(NATURE_SYNC_REQUEST, id, {});
+      } catch { /* noop */ }
+    }, NATURE_RESYNC_MS);
 
     console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables)');
   })();

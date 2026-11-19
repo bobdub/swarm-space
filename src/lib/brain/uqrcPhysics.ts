@@ -60,7 +60,6 @@ import {
 import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
-  sampleTerrainDryMask,
 } from './volcanoOrgan';
 import {
   sunEarthRoundTrip,
@@ -70,10 +69,9 @@ import {
   type CausalState,
   type ProbeHistorySample,
 } from './lightspeed';
-import { WATER_WALK_SCALE } from './surfaceProfile';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
-import { supportElevationAt } from './groundHeight';
+import { groundWalkScaleAt, supportElevationAt } from './groundHeight';
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -603,6 +601,14 @@ export class UqrcPhysics {
     handle.cells.length = 0;
   }
 
+  /** A support stamp depends on its rounded lattice centre, not sub-cell motion. */
+  moveSupportBasin(handle: SupportBasinHandle, previous: [number, number, number], next: [number, number, number], radiusM: number): SupportBasinHandle {
+    if (previous.every((value, axis) =>
+      Math.round(worldToLattice(value, this.field.N)) === Math.round(worldToLattice(next[axis], this.field.N)))) return handle;
+    this.unpinSupportBasin(handle);
+    return this.pinSupportBasin(next, radiusM, 0.6);
+  }
+
   private composeSupportCells(cells: Iterable<number>): void {
     const unique = new Set(cells);
     for (const flat of unique) {
@@ -1077,8 +1083,6 @@ export class UqrcPhysics {
             // Wading scales the tangential speed cap. Open water → 45%
             // of land walk speed; partial coast → linearly interpolated.
             const localNwalk = worldPosToLocalNormal(b.pos, pose);
-            const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-            const landMaskWalk = sampleTerrainDryMask(organ, localNwalk);
             // Sprint (lightning bolt) widens the tangential cap up to
             // 2× base — combined with the 3× base bump this caps the
             // bolt at 6× the original 20 mph baseline (≈ 120 mph ≈
@@ -1087,7 +1091,7 @@ export class UqrcPhysics {
             // collapses to 1× and the original land/water scale rules.
             const sprintScale = Math.min(2, Math.max(1, intentMag));
             const walkCap = SURFACE_WALK_SPEED * sprintScale *
-              (WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * landMaskWalk);
+              groundWalkScaleAt(localNwalk);
             if (tMag > walkCap) {
               const k = walkCap / tMag;
               b.vel[0] = vRad * ux + tx * k;

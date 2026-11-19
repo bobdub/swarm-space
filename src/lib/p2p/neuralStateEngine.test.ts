@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { __resetSharedFieldEngineForTests } from '../uqrc/fieldEngine';
+
+afterEach(() => __resetSharedFieldEngineForTests());
 
 import { NeuralStateEngine } from './neuralStateEngine';
 

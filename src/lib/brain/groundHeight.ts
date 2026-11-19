@@ -1,5 +1,13 @@
 import { BODY_CENTER_HEIGHT, FEET_SHELL_RADIUS, FOOT_CUSHION } from './earth';
 import { sampleTerrainLift } from './terrainMesh';
+import { WATER_WADE_DEPTH, WATER_WALK_SCALE } from './surfaceProfile';
+
+/** Water drag follows the same baked ground as the walker and renderer. */
+export function groundWalkScaleAt(localN: [number, number, number]): number {
+  const t = Math.min(1, Math.max(0, (groundElevationAt(localN) - 0.05) / (WATER_WADE_DEPTH - 0.05)));
+  const dry = t * t * (3 - 2 * t);
+  return WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * dry;
+}
 
 /**
  * Metres above sea level (EARTH_RADIUS) of the solid ground at an

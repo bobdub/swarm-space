@@ -4,6 +4,7 @@
  */
 
 import { get, put, type Chunk, type Manifest } from '../store';
+import { isChunkUnsupported, isManifestUnsupported } from '../content/unsupportedPostsStore';
 import { getProviderForStore } from '../storage/providers';
 import { sha256 } from '../crypto';
 
@@ -276,8 +277,11 @@ export class ChunkProtocol {
     console.log(`[ChunkProtocol] Handling chunk request for ${message.hash}`);
 
     try {
-      // Get chunk from local storage
-      const chunk = await getProviderForStore('chunks').get<Chunk>('chunks', message.hash);
+      // Get chunk from local storage (never serve chunks of a post this
+      // node stopped supporting — answer "not found" instead).
+      const chunk = isChunkUnsupported(message.hash)
+        ? null
+        : await getProviderForStore('chunks').get<Chunk>('chunks', message.hash);
 
       if (chunk) {
         this.sendMessage(peerId, {
@@ -470,7 +474,9 @@ export class ChunkProtocol {
     console.log(`[ChunkProtocol] Handling manifest request for ${message.hash}`);
 
     try {
-      const manifest = await getProviderForStore('manifests').get<Manifest>('manifests', message.hash);
+      const manifest = isManifestUnsupported(message.hash)
+        ? null
+        : await getProviderForStore('manifests').get<Manifest>('manifests', message.hash);
 
       if (manifest) {
         let outgoingManifest = manifest;

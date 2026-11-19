@@ -11,10 +11,13 @@
  *   - 30 grass blades
  *   - 10 tree seeds (rendered as mature trees in Phase 2)
  *   - 10 fish (7 ♀ + 3 ♂) clustered inside the pond
- *   - 1 hive + 1 queen + 6 worker bees clustered around hive
+ *   - 1 hive hanging from a branch of the tree nearest the meadow's
+ *     north-east corner, + 1 queen + 8 worker bees that forage the flowers
  *   - 8 granite boulders (gatherable stone), kept off the pond and hive
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
+import { hiveSpotOnTree } from '@/lib/brain/nature/hiveRehome';
+import { buildGrowthLayout, registerGrowthLayout, type Spot } from '@/lib/brain/nature/natureGrowth';
 import { NATURE_CATALOG, type NatureKind } from './natureCatalog';
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -110,6 +113,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   }
 
   // ── Flowers: 18 around the meadow, kept off the pond ──
+  const flowerSpots: Spot[] = [];
   let placedFlowers = 0;
   for (let i = 0; placedFlowers < 18 && i < 200; i++) {
     const a = r() * Math.PI * 2;
@@ -127,9 +131,11 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       meta: { compound: ['carotenoid', 'anthocyanin', 'chlorophyll'][placedFlowers % 3] },
     });
     ids.push(id);
+    flowerSpots.push({ x, z });
     placedFlowers++;
   }
 
+  const trees: { id: string; x: number; z: number }[] = [];
   // ── Trees: 10 in a wide ring (the tile-pinned `tree-01` legacy id is
   // also already placed by SurfaceTree; we skip that one to avoid id collision). ──
   for (let i = 0; i < 10; i++) {
@@ -144,6 +150,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       forwardOffset: Math.sin(a) * rr,
       meta: { stage: 'mature' },
     });
+    trees.push({ id, x: Math.cos(a) * rr, z: Math.sin(a) * rr });
     ids.push(id);
   }
 
@@ -163,15 +170,30 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
     ids.push(id);
   }
 
-  // ── Hive + bees: hive ~22 m forward + 8 m right; queen + 6 workers ──
-  const HX = 8, HZ = 22;
+  // ── Hive + bees: wild hives hang from a branch, not sit on the grass.
+  // Pick the tree closest to the hive's old meadow spot and hang the hive
+  // HIVE_REACH metres out along a branch, on the side facing the village so
+  // it is in view. The renderer draws the branch back to the trunk. ──
+  const OLD_HX = 8, OLD_HZ = 22;
+  const host = trees.reduce((best, t) =>
+    Math.hypot(t.x - OLD_HX, t.z - OLD_HZ) < Math.hypot(best.x - OLD_HX, best.z - OLD_HZ) ? t : best);
+  const spot = hiveSpotOnTree(host);
+  const HX = spot.x;
+  const HZ = spot.z;
   place({
     anchorPeerId,
     kind: 'hive',
     id: 'hive-0',
     rightOffset: HX,
     forwardOffset: HZ,
-    meta: { honey: 0, workerCap: 8 },
+    meta: {
+      honey: 0,
+      workerCap: WORKER_BEES,
+      treeId: `tree:${host.id}`,
+      // Trunk position relative to the hive, in the hive's right/forward frame.
+      trunkRight: spot.trunkRight,
+      trunkForward: spot.trunkForward,
+    },
   });
   ids.push('hive-0');
 
@@ -179,14 +201,14 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
     anchorPeerId,
     kind: 'queen_bee',
     id: 'queen-0',
-    rightOffset: HX + 0.2,
-    forwardOffset: HZ + 0.2,
+    rightOffset: HX,
+    forwardOffset: HZ,
     meta: { hiveId: 'hive-0' },
   });
   ids.push('queen-0');
 
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
+  for (let i = 0; i < WORKER_BEES; i++) {
+    const a = (i / WORKER_BEES) * Math.PI * 2;
     const id = `bee-${i}`;
     place({
       anchorPeerId,
@@ -194,7 +216,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       id,
       rightOffset: HX + Math.cos(a) * 1.4,
       forwardOffset: HZ + Math.sin(a) * 1.4,
-      meta: { hiveId: 'hive-0', state: 'idle' },
+      meta: { hiveId: 'hive-0', state: 'foraging', worker: i },
     });
     ids.push(id);
   }
@@ -202,6 +224,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   // ── Stone: granite boulders scattered round the meadow. Each carries a
   // size + shape seed so the renderer can build a unique procedural rock
   // (no imported model). Placed last so earlier species keep their layout.
+  const stoneSpots: Spot[] = [];
   let placedStones = 0;
   for (let i = 0; placedStones < STONE_COUNT && i < 200; i++) {
     const a = r() * Math.PI * 2;
@@ -222,11 +245,36 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       meta: { size, shapeSeed },
     });
     ids.push(id);
+    stoneSpots.push({ x, z });
     placedStones++;
   }
 
+  // ── Growth: seed spots around the starter trees and flowers, where new
+  // trees and flowers come and go on the shared clock (see natureGrowth).
+  // Kept off the pond, the boulders and the village centre. ──
+  registerGrowthLayout(anchorPeerId, {
+    ...buildGrowthLayout(
+      anchorPeerId,
+      trees,
+      flowerSpots,
+      [
+        { c: { x: PCX, z: PCZ }, r: POND_R + 1.5 },
+        { c: { x: 0, z: 0 }, r: 8 },
+        ...stoneSpots.map((c) => ({ c, r: 1.8 })),
+      ],
+    ),
+    starters: trees.map((t) => ({ id: `tree:${t.id}`, x: t.x, z: t.z })),
+    hiveHost: `tree:${host.id}`,
+  });
+
   return { anchorPeerId, blockIds: ids };
 }
+
+/** How far out along its branch the hive hangs from the trunk (m). */
+export { HIVE_REACH } from '@/lib/brain/nature/hiveRehome';
+
+/** Worker bees that forage from the hive. */
+export const WORKER_BEES = 8;
 
 /** How many gatherable boulders the starter biome scatters. */
 export const STONE_COUNT = 8;

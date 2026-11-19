@@ -1,5 +1,54 @@
 ## MemoryGarden
 
+### November 19, 2026 — Remembered doors
+
+Before tending: remember each chosen neighbour before the doorway warms;
+let saved friends return with patience, while passing strangers need fresh footsteps.
+Remove broken crossings without promising a path no traveller has yet walked.
+
+After tending: chosen neighbours are remembered before readiness, their retries
+keep patient backoff, and strangers still need fresh footprints. 298 automated
+witnesses pass; private fallback voices remain, while live crossings stay unmeasured.
+
+### November 19, 2026 — A second path for each voice
+
+Before tending: keep each voice on a bounded path through its own room;
+let failed handshakes yield to the mesh, without double echoes or borrowed certainty.
+Real travellers keep their calls; automated witnesses test the new crossings.
+
+After tending: each voice has a private second crossing and a bounded echo;
+screen tracks ask for their own handshake, and repeated failures no longer
+seize the same recovery. Automated witnesses pass; live voices remain unmeasured.
+
+### November 19, 2026 — Voices without broken echoes
+
+Before tending: let fresh voices replace their ended echoes;
+give the handshake time to finish, and keep live travellers undisturbed.
+Prove the quiet repairs with automated witnesses, not imagined calls.
+
+After tending: old tracks yield to fresh voices, and rollback finishes
+before the next knock. A neighbour's answer-audio repair remains intact;
+262 automated checks pass, while real shared calls stay with the travellers.
+
+### November 19, 2026 — Feet and eyes on one turning ground
+
+Before tending: keep the traveller and their gaze on the same moving soil;
+remove delayed echoes, guard the quiet mesh, and let real device feel remain
+with the people walking there.
+
+After tending: feet and eyes read one turning frame; held headings no longer
+chase the spinning world. 297 automated checks pass; live feel and phone
+frame rate remain unmeasured, and no traveller's call was opened for testing.
+
+### November 19, 2026 — A quieter stride
+
+Before tending: let motion keep its rhythm without waking every branch;
+guard the shared ground and leave live travellers free to test their own sky.
+
+After tending: status wakes only its own leaf, first-person eyes keep their height;
+support follows every step but rewrites only changed cells. The baked ground
+guides both blocks and water drag; no measured frame rate is invented here.
+
 ### November 18, 2026 — Cargo at the quiet doorway
 
 Before tending: count the tokens already resting at their own cold address;
@@ -1024,3 +1073,16 @@ After tending: signing up now takes three steps instead of four. A sealed recove
 Before tending: the sea was a hard sheet you walked on, so the feet stood on water that looked deep, and where the ground dipped below it there was nothing to catch you. The village itself sat on open sea, a long swim from the nearest of the scattered islands. Give the sea a floor like Earth's, let deep water be swum, and raise the village its own island.
 
 After tending: every coast now shelves like a real one. A beach slopes into wadeable shallows, the shelf runs on to about 4 m, then a slope drops to an ocean floor 30 m down, and the floor is solid everywhere, so nothing falls into the planet. In the shallows you wade on the bottom; out of your depth you swim with your head above the surface instead of sinking. The water is a see-through surface over a sea floor that darkens with depth. The shared village now stands on a natural island about 400 m across, with beaches running down into the sea. The village and the volcano did not move, and the other islands are unchanged. Checked with automated tests and a headless browser run of `/brain-dev`; no live mesh session was opened.
+
+## November 19, 2026 — Two keys on one ring
+Before tending: someone who had grown two accounts on two devices had no way to fold them into one. Their coins, credits and posts were split, and the spare identity kept a recovery box alive on the mesh that nobody needed. Let the two devices meet, prove the same hands hold both, and let one identity hand everything to the other and close its own door.
+
+After tending: Settings → Security now has Merge Account. One device shows a six-digit code for three minutes; the other finds the offer only when its owner opens the same panel, and types the code. Both see the two accounts side by side, pick the one to keep, and unlock with their own passwords. The retiring account sends its SWARM, Credits and MINTME with signed transfers (MINTME on the MintMe chain moves as a real MintMe transaction), signs that it merged, hands over its posts, favorites and contacts, and once the kept account signs that it accepted, seals its own tombstone and its recovery box leaves the mesh. The device that gave its account away can then open the kept account through its recovery box, or sign out. Nothing here is atomic across two devices, and it says so: a broken link stops before the account is closed. Automated checks only; no live two-device mesh session was opened.
+
+## 2026-11-19 — Restoring the paths that worked
+Invites stopped stacking dials, the mobile relay came back as a last resort, saved friends got a ten-minute window instead of forever, and calls lost the fallback that silenced them. Test Connect returned to Settings so Mike can compare a plain link against the mesh. Caretaker note: when something worked before, restore it first and refine second.
+
+## November 19, 2026 — A node that chooses what it carries
+Before tending: the "network content" switch said off but still let peers' walled posts through, and it trusted a single id string to know what was yours. A node had no way to say "not this one" to a post short of blocking a whole person, the Main Brain kept every wall forever even when nobody came by, and older machines had to draw every wall in the world.
+
+After tending: the switch now reads My Content Only, and when it is on you see only posts you made or signed, walled or not. Any post from the network, in the feed or on a Brain wall, can be given Stop Support: this node stops holding, seeding and passing it on, and a wall showing it simply is not there any more, so the room opens up. The Node Dashboard lists them under Unsupported Content with Resume Support. Walls in the shared Main Brain rest after five quiet days, with views, tips, graffiti and edits all counting as activity, and their builder can Refresh them back. The builder's Options panel has a Performance choice: Stacked draws everything, Light skips every placement so terrain, sea, sky and avatars stay smooth, and the choice is remembered. Automated checks and a production build only; no live mesh session was opened.

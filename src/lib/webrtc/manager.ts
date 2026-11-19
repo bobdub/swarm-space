@@ -9,23 +9,35 @@ import {
   onSignal,
   getLocalMeshPeerId,
   isBridgeActive,
+  isRoomPeerPresent,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
 import { spikeHealth } from '@/lib/uqrc/withHealth';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
 const DISCONNECT_GRACE_MS = 10_000;
 const RECONNECT_TIMEOUT_MS = 15_000;
-const MAX_NEGOTIATION_RETRIES = 5;
+const NEGOTIATION_WAIT_MS = 30_000;
 /** How often to verify each connection is really carrying media both ways. */
 const MEDIA_HEALTH_INTERVAL_MS = 8_000;
 /** Minimum gap between repairs of the same peer. */
 const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
+/** After every recovery attempt failed, wait this long and start over while
+ *  the peer is still in the room, instead of dropping their audio for good. */
+const RECOVERY_BACKOFF_MS = 20_000;
 
 /** Dispatched on the local MediaStream after a camera or mic switch. */
 export const LOCAL_INPUT_SWITCHED_EVENT = 'swarm-input-switched';
 
 /** Shared with the pre-join modal, which writes the same key. */
 const PREFERRED_DEVICES_KEY = 'swarm-preferred-devices';
+
+/** DTLS fingerprint of an SDP. It changes only when the remote side built a
+ *  brand-new RTCPeerConnection, so it tells a restart apart from a rejoin. */
+export function sdpFingerprint(sdp: string | undefined | null): string | null {
+  const match = sdp?.match(/a=fingerprint:(\S+ \S+)/i);
+  return match ? match[1].toLowerCase() : null;
+}
 
 function loadPreferredInput(kind: 'audio' | 'video'): string | undefined {
   try {
@@ -69,8 +81,11 @@ export class WebRTCManager {
   private negotiationNeeded = new Map<string, boolean>();
   /** true = we are "polite" toward this peer (will rollback on glare) */
   private makingOffer = new Map<string, boolean>();
-  /** Consecutive deferred-offer retries per peer; resets on successful send. */
-  private negotiationRetryCount = new Map<string, number>();
+  /** One deadline per connection, not a retry loop competing with signaling. */
+  private negotiationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private queuedIceRestarts = new Set<string>();
+  private ignoredOffers = new Set<string>();
+  private applyingRemoteOffer = new Set<string>();
 
   // ── Local media state (remembered across stream re-acquisition) ──
   /** Desired microphone state. Applied to every acquired/replaced audio track. */
@@ -169,6 +184,17 @@ export class WebRTCManager {
         }
 
         case 'leave-room': {
+          // The bridge evicts a peer whose room heartbeats went quiet for a
+          // while (a mesh edge hiccup, a throttled background tab). If our
+          // call with them is still carrying media, they did not leave:
+          // keep talking. A real departure still closes the call, and a
+          // connection that later fails goes through normal recovery.
+          const reason = (envelope.data as { reason?: unknown } | undefined)?.reason;
+          const livePc = this.connections.get(meshPeerId);
+          if (reason === 'silent' && livePc?.connectionState === 'connected') {
+            console.log(`[WebRTC] Peer ${meshPeerId} went quiet on the mesh but the call is live — keeping it`);
+            break;
+          }
           console.log(`[WebRTC] Peer ${meshPeerId} left`);
           this.cleanupPeer(meshPeerId);
           this.broadcastMessage({
@@ -235,7 +261,9 @@ export class WebRTCManager {
 
         case 'reconnect-request': {
           console.log(`[WebRTC] 🔄 Reconnect request from ${meshPeerId}`);
-          // Tear down stale connection and let them re-offer
+          // Tear down stale connection and let them re-offer. Their offer is
+          // on its way, so the health sweep must not "repair" the gap.
+          this.lastRepairAt.set(meshPeerId, Date.now());
           this.removePeer(meshPeerId);
           this.ensureParticipant(meshPeerId, envelope.username);
           // Send ack via mesh
@@ -258,78 +286,97 @@ export class WebRTCManager {
 
   // ── WebRTC Negotiation ─────────────────────────────────────────────
 
-  private async createOfferForPeer(meshPeerId: string): Promise<void> {
-    if (!this.currentRoomId) return;
+  private clearNegotiationTimer(peerId: string): void {
+    const timer = this.negotiationTimers.get(peerId);
+    if (timer) clearTimeout(timer);
+    this.negotiationTimers.delete(peerId);
+  }
 
-    // Prevent parallel negotiations with the same peer
-    if (this.negotiationLock.get(meshPeerId)) {
+  private waitForNegotiation(peerId: string, pc: RTCPeerConnection): void {
+    if (this.negotiationTimers.has(peerId)) return;
+    const timer = setTimeout(() => {
+      this.negotiationTimers.delete(peerId);
+      if (!this.currentRoomId || this.connections.get(peerId) !== pc) return;
+      // Slow mesh delivery is not a failed call. Only a genuinely stalled
+      // initial connection is recovered; an established call stays intact.
+      if (pc.connectionState !== 'connected' &&
+          !this.disconnectTimers.has(peerId) && !this.reconnectTimers.has(peerId)) {
+        this.attemptRecovery(peerId);
+      }
+    }, NEGOTIATION_WAIT_MS);
+    this.negotiationTimers.set(peerId, timer);
+  }
+
+  private drainNegotiation(peerId: string, pc: RTCPeerConnection): void {
+    if (this.connections.get(peerId) !== pc || pc.signalingState !== 'stable') return;
+    this.clearNegotiationTimer(peerId);
+    if (this.negotiationLock.get(peerId) || this.applyingRemoteOffer.has(peerId) ||
+        !this.negotiationNeeded.get(peerId)) return;
+    this.negotiationNeeded.delete(peerId);
+    void this.createOfferForPeer(peerId, { iceRestart: this.queuedIceRestarts.has(peerId) })
+      .catch(error => console.warn('[WebRTC] Deferred offer failed:', error));
+  }
+
+  private async createOfferForPeer(meshPeerId: string, options: { iceRestart?: boolean } = {}): Promise<void> {
+    const roomId = this.currentRoomId;
+    if (!roomId) return;
+    if (options.iceRestart) this.queuedIceRestarts.add(meshPeerId);
+    if (this.negotiationLock.get(meshPeerId) || this.applyingRemoteOffer.has(meshPeerId)) {
       this.negotiationNeeded.set(meshPeerId, true);
-      console.log(`[WebRTC] Queued negotiation for ${meshPeerId}`);
-      // Watchdog: if the lock stays held for >1.5s without an offer being
-      // sent (e.g. a previous attempt aborted before finally ran), clear
-      // it and retry. Prevents the "stuck negotiationLock after recovery"
-      // state that silently drops late-added mic/camera tracks.
-      setTimeout(() => {
-        if (this.negotiationLock.get(meshPeerId)) {
-          console.warn(`[WebRTC] ⏰ Stale negotiation lock for ${meshPeerId} — clearing`);
-          this.negotiationLock.set(meshPeerId, false);
-          this.makingOffer.set(meshPeerId, false);
-          if (this.negotiationNeeded.get(meshPeerId)) {
-            this.negotiationNeeded.delete(meshPeerId);
-            void this.createOfferForPeer(meshPeerId);
-          }
-        }
-      }, 1500);
       return;
     }
 
     this.negotiationLock.set(meshPeerId, true);
     this.makingOffer.set(meshPeerId, true);
-
+    let pc: RTCPeerConnection | undefined;
     try {
-      const pc = await this.createPeerConnection(meshPeerId);
-
+      pc = await this.createPeerConnection(meshPeerId, { reuseFailed: this.queuedIceRestarts.has(meshPeerId) });
+      const isCurrent = () => this.currentRoomId === roomId && this.connections.get(meshPeerId) === pc;
+      if (!isCurrent()) return;
       if (pc.signalingState !== 'stable') {
-        console.log(`[WebRTC] Deferring offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
         this.negotiationNeeded.set(meshPeerId, true);
+        this.waitForNegotiation(meshPeerId, pc);
         return;
       }
-
-      const offer = await pc.createOffer();
+      const restart = this.queuedIceRestarts.has(meshPeerId);
+      const offer = await pc.createOffer(restart ? { iceRestart: true } : undefined);
+      if (!isCurrent() || pc.signalingState !== 'stable') return;
       await pc.setLocalDescription(offer);
-
-      sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
-      console.log(`[WebRTC] 📤 Sent offer to ${meshPeerId}`);
-      this.negotiationRetryCount.delete(meshPeerId);
+      if (!isCurrent()) return;
+      this.queuedIceRestarts.delete(meshPeerId);
+      sendSignalViaMesh(meshPeerId, roomId, 'offer', pc.localDescription ?? offer);
+      this.waitForNegotiation(meshPeerId, pc);
     } finally {
-      this.makingOffer.set(meshPeerId, false);
-      this.negotiationLock.set(meshPeerId, false);
-
-      // Drain pending renegotiation. Keep retrying with backoff until the
-      // late track actually gets advertised — silently dropping here is the
-      // root cause of asymmetric one-way audio.
-      if (this.negotiationNeeded.get(meshPeerId)) {
-        this.negotiationNeeded.delete(meshPeerId);
-        const retries = (this.negotiationRetryCount.get(meshPeerId) ?? 0) + 1;
-        if (retries > MAX_NEGOTIATION_RETRIES) {
-          console.warn(
-            `[WebRTC] ⚠️ Negotiation retry cap (${MAX_NEGOTIATION_RETRIES}) hit for ${meshPeerId} — escalating to recovery`,
-          );
-          this.negotiationRetryCount.delete(meshPeerId);
-          this.attemptRecovery(meshPeerId);
-        } else {
-          this.negotiationRetryCount.set(meshPeerId, retries);
-          setTimeout(() => {
-            void this.createOfferForPeer(meshPeerId);
-          }, 300);
-        }
+      // An obsolete async offer must never release a replacement PC's lock.
+      if (!pc || this.connections.get(meshPeerId) === pc) {
+        this.makingOffer.set(meshPeerId, false);
+        this.negotiationLock.set(meshPeerId, false);
+        if (pc) this.drainNegotiation(meshPeerId, pc);
       }
     }
   }
 
   private async handleRemoteOffer(meshPeerId: string, offer: RTCSessionDescriptionInit): Promise<void> {
+    const roomId = this.currentRoomId;
+    if (!roomId) return;
     console.log(`[WebRTC] 📥 Received offer from ${meshPeerId}`);
-    const pc = await this.createPeerConnection(meshPeerId);
+    // Same DTLS fingerprint = same remote connection (a renegotiation or an
+    // ICE restart, which may revive a failed one). A new fingerprint means
+    // they rebuilt their side (rejoin, refresh, recovery): applying that to
+    // our old connection fails, which left the pair silent until the next
+    // timeout. Start a fresh connection for it instead.
+    const existing = this.connections.get(meshPeerId);
+    const incoming = sdpFingerprint(offer.sdp);
+    const known = sdpFingerprint(existing?.remoteDescription?.sdp);
+    const sameRemote = !!existing && !!incoming && !!known && incoming === known;
+    if (existing && known && incoming && !sameRemote) {
+      console.log(`[WebRTC] ${meshPeerId} rebuilt their connection — starting a fresh one`);
+      this.removePeer(meshPeerId);
+      this.makingOffer.set(meshPeerId, false);
+      this.negotiationLock.set(meshPeerId, false);
+    }
+    const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote, forAnswer: true });
+    if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
 
     const isCurrentlyMakingOffer = this.makingOffer.get(meshPeerId) ?? false;
     const offerCollision = isCurrentlyMakingOffer || pc.signalingState !== 'stable';
@@ -337,34 +384,35 @@ export class WebRTCManager {
     if (offerCollision) {
       const polite = this.isPolite(meshPeerId);
       if (!polite) {
-          // Impolite peer ignores the incoming offer during glare. Mark
-          // renegotiation needed; the finally-drain in createOfferForPeer
-          // will re-issue once the in-flight offer settles. This avoids
-          // the previous one-shot 500ms retry being silently eaten by a
-          // still-held lock.
-          console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — ignoring (impolite); will re-offer via drain`);
-          this.negotiationNeeded.set(meshPeerId, true);
-          // Kick the drain in case no offer is currently in-flight.
-          setTimeout(() => {
-            if (!this.negotiationLock.get(meshPeerId) && this.negotiationNeeded.get(meshPeerId)) {
-              this.negotiationNeeded.delete(meshPeerId);
-              void this.createOfferForPeer(meshPeerId).catch(() => undefined);
-            }
-          }, 400);
-          return;
+        // Our outstanding offer wins. Wait for its answer instead of
+        // hammering a second offer into the polite peer's rollback.
+        this.ignoredOffers.add(meshPeerId);
+        return;
       }
-      // Polite peer rolls back
-      console.log(`[WebRTC] ⚡ Glare detected with ${meshPeerId} — rolling back (polite)`);
-      await pc.setLocalDescription({ type: 'rollback' });
     }
 
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    await this.flushPendingCandidates(meshPeerId, pc);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    sendSignalViaMesh(meshPeerId, this.currentRoomId!, 'answer', answer);
-    console.log(`[WebRTC] 📤 Sent answer to ${meshPeerId}`);
+    this.applyingRemoteOffer.add(meshPeerId);
+    try {
+      // Keep queued offers out of the brief stable state during rollback.
+      if (offerCollision && pc.signalingState !== 'stable') {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
+      this.ignoredOffers.delete(meshPeerId);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await this.flushPendingCandidates(meshPeerId, pc);
+      // Preserve the incoming fix: the answer sends on the offered slots.
+      await this.adoptOfferedTransceivers(meshPeerId, pc);
+      const answer = await pc.createAnswer();
+      if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
+      await pc.setLocalDescription(answer);
+      if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
+      sendSignalViaMesh(meshPeerId, roomId, 'answer', pc.localDescription ?? answer);
+    } finally {
+      if (this.connections.get(meshPeerId) === pc) {
+        this.applyingRemoteOffer.delete(meshPeerId);
+        this.drainNegotiation(meshPeerId, pc);
+      }
+    }
   }
 
   private async handleRemoteAnswer(meshPeerId: string, answer: RTCSessionDescriptionInit): Promise<void> {
@@ -381,15 +429,29 @@ export class WebRTCManager {
       );
       return;
     }
+    // Our renegotiation reached a peer that had rebuilt their side, so they
+    // answered from a brand-new connection. Ours cannot take it: rebuild and
+    // offer again instead of sitting on a broken pair.
+    const known = sdpFingerprint(pc.remoteDescription?.sdp);
+    const incoming = sdpFingerprint(answer.sdp);
+    if (known && incoming && known !== incoming) {
+      console.log(`[WebRTC] ${meshPeerId} answered from a new connection — rebuilding`);
+      this.removePeer(meshPeerId);
+      void this.createOfferForPeer(meshPeerId).catch(() => undefined);
+      return;
+    }
     try {
+      this.ignoredOffers.delete(meshPeerId);
       await pc.setRemoteDescription(new RTCSessionDescription(answer));
       await this.flushPendingCandidates(meshPeerId, pc);
+      this.drainNegotiation(meshPeerId, pc);
     } catch (err) {
       console.warn('[WebRTC] setRemoteDescription(answer) failed:', err);
     }
   }
 
   private async handleRemoteCandidate(meshPeerId: string, candidate: RTCIceCandidateInit): Promise<void> {
+    if (this.ignoredOffers.has(meshPeerId)) return;
     const pc = this.connections.get(meshPeerId);
     if (pc?.remoteDescription) {
       await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
@@ -609,8 +671,7 @@ export class WebRTCManager {
             for (const [peerId, pc] of this.connections) {
               const renegotiate = await this.slotTrackIntoPeer(pc, newTrack);
               if (renegotiate && this.currentRoomId) {
-                // Reset retry cap so a prior recovery loop cannot eat this offer.
-                this.negotiationRetryCount.delete(peerId);
+                // Queue late media behind any outstanding mesh exchange.
                 void this.createOfferForPeer(peerId).catch((error) => {
                   console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
                 });
@@ -651,7 +712,6 @@ export class WebRTCManager {
         }
 
         if (addedTrack && this.currentRoomId) {
-          this.negotiationRetryCount.delete(peerId);
           void this.createOfferForPeer(peerId).catch((error) => {
             console.warn(`[WebRTC] Failed renegotiation with ${peerId}:`, error);
           });
@@ -800,11 +860,10 @@ export class WebRTCManager {
 
     if (!stillWanted()) return abort('call or camera state changed');
 
-    const slot = kind === 'audio' ? 0 : 1;
     const screenSenders = new Set(this.screenSenders.values());
     for (const [peerId, pc] of this.connections) {
       const sender =
-        pc.getTransceivers()[slot]?.sender ??
+        this.mediaTransceiver(pc, kind)?.sender ??
         pc.getSenders().find(s => s.track?.kind === kind && !screenSenders.has(s));
       if (!sender) continue;
       try {
@@ -823,7 +882,6 @@ export class WebRTCManager {
         // track the normal way and renegotiate with this peer.
         await this.slotTrackIntoPeer(pc, newTrack).catch(() => false);
         if (this.currentRoomId) {
-          this.negotiationRetryCount.delete(peerId);
           void this.createOfferForPeer(peerId).catch(() => {});
         }
       }
@@ -880,7 +938,7 @@ export class WebRTCManager {
       this.stopScreenShare();
     }
     const screenTrack = stream.getVideoTracks()[0] ?? null;
-    if (!screenTrack) {
+    if (!screenTrack || screenTrack.readyState === 'ended') {
       stream.getTracks().forEach(t => t.stop());
       throw new Error('Screen capture produced no video track');
     }
@@ -890,6 +948,7 @@ export class WebRTCManager {
     for (const [peerId, pc] of this.connections) {
       try {
         this.attachScreenTrack(peerId, pc, screenTrack, stream);
+        void this.ensureOfferToPeer(peerId).catch(() => {});
       } catch (error) {
         failures.push(error);
         console.warn(`[WebRTC] Failed to attach screen track for ${peerId}:`, error);
@@ -898,7 +957,7 @@ export class WebRTCManager {
 
     // Auto-stop when the user clicks the browser's own "Stop sharing" bar.
     screenTrack.addEventListener('ended', () => {
-      this.stopScreenShare();
+      if (this.screenStream === stream) this.stopScreenShare();
     });
 
     // Sharing to zero peers is still a success (they see it when they join);
@@ -945,6 +1004,7 @@ export class WebRTCManager {
     for (const [peerId, sender] of this.screenSenders) {
       const pc = this.connections.get(peerId);
       try { pc?.removeTrack(sender); } catch { /* connection may be closed */ }
+      if (this.currentRoomId && pc) void this.ensureOfferToPeer(peerId).catch(() => {});
     }
     this.screenSenders.clear();
 
@@ -962,23 +1022,31 @@ export class WebRTCManager {
 
   getScreenStream(): MediaStream | null { return this.screenStream; }
 
-  async createPeerConnection(peerId: string): Promise<RTCPeerConnection> {
-    // Reuse existing connection if it's still alive
+  async createPeerConnection(
+    peerId: string,
+    opts: { reuseFailed?: boolean; forAnswer?: boolean } = {},
+  ): Promise<RTCPeerConnection> {
+    // Reuse existing connection if it's still alive (or being ICE-restarted)
     const existing = this.connections.get(peerId);
-    if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') {
+    if (
+      existing &&
+      existing.connectionState !== 'closed' &&
+      (existing.connectionState !== 'failed' || opts.reuseFailed)
+    ) {
       return existing;
     }
+    // Clear obsolete tracks and handlers along with the replaced connection.
+    if (existing) this.removePeer(peerId);
 
+    // Same STUN + TURN list as the data mesh: a pair that only reaches
+    // each other through a relay must be able to relay audio too.
     const config: RTCConfiguration = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-      ],
+      iceServers: DEFAULT_ICE_SERVERS,
     };
 
     const pc = new RTCPeerConnection(config);
     this.connections.set(peerId, pc);
+    pc.onsignalingstatechange = () => this.drainNegotiation(peerId, pc);
 
     // Always create audio + video transceivers up front in `sendrecv`.
     // This guarantees the SDP advertises receive directions on BOTH sides
@@ -986,11 +1054,17 @@ export class WebRTCManager {
     // the asymmetric "I hear them but they can't hear me" bug that occurs
     // when an offer is sent with no `m=audio` section and the late-added
     // track never makes it into a renegotiation.
-    const audioTransceiver = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    const videoTransceiver = pc.addTransceiver('video', { direction: 'sendrecv' });
+    //
+    // Not when the connection is created to answer an offer: browsers never
+    // reuse `addTransceiver` transceivers for a remote offer's m-lines, so
+    // our mic would sit on an extra, unnegotiated transceiver and the answer
+    // would go out receive-only. `adoptOfferedTransceivers` attaches our
+    // tracks to the offered ones instead.
+    const audioTransceiver = opts.forAnswer ? null : pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const videoTransceiver = opts.forAnswer ? null : pc.addTransceiver('video', { direction: 'sendrecv' });
 
     // Attach local camera/mic tracks if already available
-    if (this.localStream) {
+    if (this.localStream && audioTransceiver && videoTransceiver) {
       const audioTrack = this.localStream.getAudioTracks()[0];
       const videoTrack = this.localStream.getVideoTracks()[0];
       if (audioTrack) {
@@ -1003,13 +1077,17 @@ export class WebRTCManager {
 
     // Attach the screen track (if already sharing) so late joiners see it.
     // It travels as its own MediaStream, exactly like any second video source.
+    // When answering, wait until the offer's camera slot is adopted: an
+    // addTrack() transceiver created now could be taken for the offer's
+    // camera m-line, leaving no slot for the camera.
     const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
-    if (screenTrack && this.screenStream) {
+    if (screenTrack && this.screenStream && !opts.forAnswer) {
       this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream);
     }
 
     // Handle incoming remote tracks
     pc.ontrack = (event) => {
+      if (this.connections.get(peerId) !== pc) return;
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
       const participant = this.ensureParticipant(peerId);
 
@@ -1042,15 +1120,11 @@ export class WebRTCManager {
           }
         });
       } else {
-        // Camera / mic — always merge into the single participant stream.
-        if (!participant.stream) {
-          participant.stream = new MediaStream();
-        }
-        const existingTrack = participant.stream.getTracks().find(t => t.id === event.track.id);
-        if (!existingTrack) {
-          participant.stream.addTrack(event.track);
-          console.log(`[WebRTC] ➕ Merged ${event.track.kind} track into participant stream for ${peerId}`);
-        }
+        // One current track per kind. A new stream identity makes audio/video
+        // elements rebind even on browsers where script addTrack emits no event.
+        const retained = participant.stream?.getTracks().filter(track =>
+          track.readyState === 'live' && track.kind !== event.track.kind) ?? [];
+        participant.stream = new MediaStream([...retained, event.track]);
         // An empty, reserved video slot arrives muted — that is not a camera.
         if (event.track.kind === 'video' && event.track.muted) {
           participant.isVideoEnabled = false;
@@ -1061,9 +1135,12 @@ export class WebRTCManager {
 
       // Drop dead tracks instead of holding silent references.
       event.track.onended = () => {
+        if (this.connections.get(peerId) !== pc) return;
+        if (!isScreenTrack && !participant.stream?.getTracks().includes(event.track)) return;
         console.log(`[WebRTC] 🛑 Remote ${event.track.kind} track ended for ${peerId}`);
         if (participant.stream && participant.stream.getTracks().includes(event.track)) {
-          participant.stream.removeTrack(event.track);
+          participant.stream = new MediaStream(participant.stream.getTracks().filter(track =>
+            track !== event.track && track.readyState === 'live'));
         }
         if (isScreenTrack) {
           participant.screenStream = null;
@@ -1077,6 +1154,8 @@ export class WebRTCManager {
       };
 
       event.track.onmute = () => {
+        if (this.connections.get(peerId) !== pc) return;
+        if (!isScreenTrack && !participant.stream?.getTracks().includes(event.track)) return;
         if (isCameraTrack) {
           participant.isVideoEnabled = false;
           this.broadcastMessage({
@@ -1089,6 +1168,8 @@ export class WebRTCManager {
       };
 
       event.track.onunmute = () => {
+        if (this.connections.get(peerId) !== pc) return;
+        if (!isScreenTrack && !participant.stream?.getTracks().includes(event.track)) return;
         if (isCameraTrack) participant.isVideoEnabled = true;
         this.broadcastMessage({
           type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
@@ -1115,6 +1196,7 @@ export class WebRTCManager {
 
     // ── Connection state: recovery instead of immediate removal ──
     pc.onconnectionstatechange = () => {
+      if (this.connections.get(peerId) !== pc) return;
       console.log('[WebRTC] Connection state with', peerId, ':', pc.connectionState);
 
       if (pc.connectionState === 'connected') {
@@ -1123,6 +1205,7 @@ export class WebRTCManager {
         this.clearDisconnectTimer(peerId);
         this.clearReconnectTimer(peerId);
         this.reconnectAttempts.delete(peerId);
+        this.clearNegotiationTimer(peerId);
       }
 
       if (pc.connectionState === 'disconnected') {
@@ -1183,8 +1266,28 @@ export class WebRTCManager {
   }
 
   private attemptRecovery(peerId: string): void {
+    if (!this.currentRoomId) return;
+    // One recovery step per timer window: its timer retries on expiry, so
+    // duplicate failure events cannot escalate straight to a teardown.
+    if (this.reconnectTimers.has(peerId)) return;
+    this.clearReconnectTimer(peerId);
     const attempts = this.reconnectAttempts.get(peerId) ?? 0;
     if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.reconnectAttempts.delete(peerId);
+      this.removePeer(peerId);
+      // Still in the room (heartbeats arriving over the mesh)? Then the
+      // network is just being difficult: keep them listed and start over
+      // after a pause. Dropping them here left the two users unable to
+      // hear each other until somebody re-joined.
+      if (isRoomPeerPresent(this.currentRoomId, peerId)) {
+        console.log(`[WebRTC] ⏸ Recovery attempts exhausted for ${peerId}; retrying in ${RECOVERY_BACKOFF_MS / 1000}s`);
+        const timer = setTimeout(() => {
+          this.reconnectTimers.delete(peerId);
+          if (this.participants.has(peerId)) this.attemptRecovery(peerId);
+        }, RECOVERY_BACKOFF_MS);
+        this.reconnectTimers.set(peerId, timer);
+        return;
+      }
       console.log(`[WebRTC] ❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached for ${peerId} — removing`);
       this.cleanupPeer(peerId);
       this.broadcastMessage({
@@ -1196,21 +1299,28 @@ export class WebRTCManager {
     }
 
     this.reconnectAttempts.set(peerId, attempts + 1);
+    this.lastRepairAt.set(peerId, Date.now());
     console.log(`[WebRTC] 🔄 Recovery attempt ${attempts + 1}/${MAX_RECONNECT_ATTEMPTS} for ${peerId}`);
 
-    // Tear down stale connection
-    this.removePeer(peerId);
-
-    // Send reconnect-request via mesh signaling bridge
-    if (this.currentRoomId) {
+    const pc = this.connections.get(peerId);
+    if (attempts === 0 && pc && pc.connectionState !== 'closed') {
+      // First try an ICE restart on the same connection: new candidates
+      // (including TURN relays) without tearing down the call, so a brief
+      // network change does not cut audio for both sides.
+      console.log(`[WebRTC] ❄️ ICE restart for ${peerId}`);
+      void this.createOfferForPeer(peerId, { iceRestart: true }).catch(err =>
+        console.warn(`[WebRTC] ICE restart offer failed for ${peerId}:`, err));
+    } else {
+      // Tear down stale connection and ask the peer for a fresh one.
+      this.removePeer(peerId);
       sendReconnectRequest(peerId, this.currentRoomId, 'reconnect-request');
     }
 
-    // If no ack within timeout, try again or give up
+    // If not connected within the timeout, escalate (or eventually back off).
     const timer = setTimeout(() => {
       this.reconnectTimers.delete(peerId);
-      const pc = this.connections.get(peerId);
-      if (!pc || pc.connectionState !== 'connected') {
+      const current = this.connections.get(peerId);
+      if (!current || current.connectionState !== 'connected') {
         this.attemptRecovery(peerId);
       }
     }, RECONNECT_TIMEOUT_MS);
@@ -1229,10 +1339,30 @@ export class WebRTCManager {
 
   /** Remove connection without clearing participant (used during recovery) */
   private removePeer(peerId: string): void {
+    this.clearNegotiationTimer(peerId);
+    this.negotiationLock.delete(peerId);
+    this.negotiationNeeded.delete(peerId);
+    this.makingOffer.delete(peerId);
+    this.queuedIceRestarts.delete(peerId);
+    this.ignoredOffers.delete(peerId);
+    this.applyingRemoteOffer.delete(peerId);
+    this.screenSenders.delete(peerId);
     const pc = this.connections.get(peerId);
+    this.connections.delete(peerId);
     if (pc) {
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
+      pc.onicecandidate = null;
+      pc.onnegotiationneeded = null;
+      pc.onsignalingstatechange = null;
       pc.close();
-      this.connections.delete(peerId);
+    }
+    const participant = this.participants.get(peerId);
+    if (participant) {
+      participant.stream = null;
+      participant.screenStream = null;
+      participant.isVideoEnabled = false;
     }
     this.pendingCandidates.delete(peerId);
   }
@@ -1247,7 +1377,6 @@ export class WebRTCManager {
     this.negotiationLock.delete(peerId);
     this.negotiationNeeded.delete(peerId);
     this.makingOffer.delete(peerId);
-    this.negotiationRetryCount.delete(peerId);
     this.remoteScreenStreamIds.delete(peerId);
     this.screenSenders.delete(peerId);
   }
@@ -1270,15 +1399,71 @@ export class WebRTCManager {
   }
 
   /**
-   * Public, retry-cap-free wrapper. Use when a caller (e.g. the live-room
-   * hook reacting to `peer-joined`) needs to guarantee an offer reaches a
-   * specific peer regardless of prior recovery-loop state.
+   * Public offer request that preserves the lock and queues behind an
+   * in-flight exchange, rather than starting competing negotiations.
    */
   async ensureOfferToPeer(peerId: string): Promise<void> {
-    this.negotiationRetryCount.delete(peerId);
-    this.negotiationLock.set(peerId, false);
-    this.makingOffer.set(peerId, false);
     await this.createOfferForPeer(peerId);
+  }
+
+  /**
+   * The camera or microphone transceiver of a connection: the first live
+   * one of that kind that is negotiated (has a mid), else the first
+   * unnegotiated one. Never the screen-share transceiver. Index-based
+   * lookup broke on the answering side, where the offer's transceivers
+   * come after any created locally.
+   */
+  private mediaTransceiver(pc: RTCPeerConnection, kind: 'audio' | 'video'): RTCRtpTransceiver | undefined {
+    const screenSenders = new Set(this.screenSenders.values());
+    const candidates = pc.getTransceivers().filter(t =>
+      !(t as RTCRtpTransceiver & { stopped?: boolean }).stopped &&
+      t.currentDirection !== 'stopped' &&
+      t.direction !== 'stopped' &&
+      t.receiver?.track?.kind === kind &&
+      !screenSenders.has(t.sender),
+    );
+    return candidates.find(t => t.mid !== null) ?? candidates[0];
+  }
+
+  /**
+   * After applying a remote offer: send our mic/camera on the transceivers
+   * it negotiated, and retire any unnegotiated local ones of the same kind
+   * (left over from glare rollback) so they cannot trigger a duplicate
+   * m-line later.
+   */
+  private async adoptOfferedTransceivers(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    for (const kind of ['audio', 'video'] as const) {
+      const main = this.mediaTransceiver(pc, kind);
+      if (!main || main.mid === null) continue;
+      const local = (kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks())
+        ?.find(t => t.readyState === 'live') ?? null;
+      const screenSenders = new Set(this.screenSenders.values());
+      for (const t of pc.getTransceivers()) {
+        if (t === main || t.mid !== null || screenSenders.has(t.sender)) continue;
+        if (t.receiver?.track?.kind !== kind) continue;
+        try { await t.sender.replaceTrack(null); } catch { /* ignore */ }
+        try { t.stop(); } catch { /* ignore */ }
+      }
+      if (local && main.sender.track !== local) {
+        try { await main.sender.replaceTrack(local); } catch (err) {
+          console.warn(`[WebRTC] could not attach local ${kind} to offered transceiver`, err);
+        }
+      }
+      // Always be ready to send, even before the mic/camera exists, so a
+      // later replaceTrack needs no renegotiation.
+      if (main.direction !== 'sendrecv') {
+        try { main.direction = 'sendrecv'; } catch { /* ignore */ }
+      }
+    }
+    // Sharing our screen: add it now as its own stream. It needs a new
+    // m-line, so the browser raises negotiationneeded and we offer it once
+    // this answer settles.
+    const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
+    if (screenTrack && this.screenStream && !this.screenSenders.has(peerId)) {
+      try { this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream); } catch (err) {
+        console.warn(`[WebRTC] could not attach screen share for ${peerId}`, err);
+      }
+    }
   }
 
   /**
@@ -1293,9 +1478,9 @@ export class WebRTCManager {
    * showing each user only their own video.
    */
   private async slotTrackIntoPeer(pc: RTCPeerConnection, track: MediaStreamTrack): Promise<boolean> {
-    const transceivers = pc.getTransceivers();
-    const slotIndex = track.kind === 'audio' ? 0 : track.kind === 'video' ? 1 : -1;
-    const upfront = slotIndex >= 0 ? transceivers[slotIndex] : undefined;
+    const upfront = track.kind === 'audio' || track.kind === 'video'
+      ? this.mediaTransceiver(pc, track.kind)
+      : undefined;
     if (upfront && upfront.sender) {
       const previous = upfront.sender.track;
       if (previous && previous !== track && previous.readyState === 'live' && previous.kind === track.kind) {
@@ -1335,6 +1520,7 @@ export class WebRTCManager {
   async resyncPeer(peerId: string): Promise<void> {
     if (!this.currentRoomId) return;
     console.log(`[WebRTC] 🔁 Manual resync for ${peerId}`);
+    this.lastRepairAt.set(peerId, Date.now());
     this.reconnectAttempts.set(peerId, 0);
     this.clearReconnectTimer(peerId);
     this.removePeer(peerId);
@@ -1378,10 +1564,14 @@ export class WebRTCManager {
     if (!this.currentRoomId) return;
     for (const peerId of this.participants.keys()) {
       const pc = this.connections.get(peerId);
-      const state = pc?.connectionState;
-      if (!pc || state === 'failed' || state === 'disconnected' || state === 'closed') {
-        console.log(`[WebRTC] 🩺 sweep — repairing ${peerId} (state=${state ?? 'none'})`);
-        this.resyncPeer(peerId).catch(() => {});
+      if (this.disconnectTimers.has(peerId) || this.reconnectTimers.has(peerId) ||
+          this.negotiationLock.get(peerId) || this.applyingRemoteOffer.has(peerId) ||
+          (pc && pc.signalingState !== 'stable')) continue;
+      const last = this.lastRepairAt.get(peerId);
+      if (last !== undefined && Date.now() - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+      if (pc?.connectionState === 'disconnected') this.startDisconnectGrace(peerId);
+      else if (!pc || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        this.attemptRecovery(peerId);
       }
     }
   }
@@ -1426,15 +1616,18 @@ export class WebRTCManager {
       this.clearDisconnectTimer(peerId);
       this.clearReconnectTimer(peerId);
     }
-    this.connections.forEach(pc => pc.close());
-    this.connections.clear();
+    for (const peerId of Array.from(this.connections.keys())) this.removePeer(peerId);
+    this.negotiationTimers.forEach(timer => clearTimeout(timer));
+    this.negotiationTimers.clear();
+    this.queuedIceRestarts.clear();
+    this.ignoredOffers.clear();
+    this.applyingRemoteOffer.clear();
     this.pendingCandidates.clear();
     this.participants.clear();
     this.reconnectAttempts.clear();
     this.negotiationLock.clear();
     this.negotiationNeeded.clear();
     this.makingOffer.clear();
-    this.negotiationRetryCount.clear();
   }
 
   /**
@@ -1557,26 +1750,46 @@ export class WebRTCManager {
       const now = Date.now();
       for (const peerId of this.participants.keys()) {
         const pc = this.connections.get(peerId);
-        const last = this.lastRepairAt.get(peerId) ?? 0;
-        if (now - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+        const last = this.lastRepairAt.get(peerId);
+        if (last !== undefined && now - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+        if (this.negotiationLock.get(peerId) || this.applyingRemoteOffer.has(peerId) ||
+            (pc && pc.signalingState !== 'stable')) continue;
+        // A disconnect grace or recovery already owns this peer. Repairing
+        // on top of it tore down the connection the recovery was building,
+        // and the two sides kept resetting each other.
+        if (this.disconnectTimers.has(peerId) || this.reconnectTimers.has(peerId)) continue;
 
         const state = pc?.connectionState;
-        const halfOpen = !pc || state === 'failed' || state === 'disconnected' || state === 'closed';
+        // 'disconnected' is usually a blip that heals by itself; the
+        // grace timer started by onconnectionstatechange handles it.
+        const halfOpen = !pc || state === 'failed' || state === 'closed';
         const receivingNothing =
           !!pc &&
           state === 'connected' &&
+          this.participants.get(peerId)?.isMuted !== true &&
           pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
+        // Our live mic must be on a negotiated transceiver. A track parked
+        // on an unnegotiated one looks fine locally but never leaves.
+        const liveMic = this.localStream?.getAudioTracks().find(t => t.readyState === 'live');
+        const micTransceiver = pc ? this.mediaTransceiver(pc, 'audio') : undefined;
         const notSending =
           !!pc &&
           state === 'connected' &&
-          !!this.localStream?.getTracks().some(t => t.readyState === 'live') &&
-          pc.getSenders().every(s => !s.track || s.track.readyState === 'ended');
+          !this.selfMuted &&
+          !!liveMic &&
+          (!micTransceiver || micTransceiver.mid === null || micTransceiver.sender.track !== liveMic ||
+            (micTransceiver.currentDirection !== 'sendrecv' && micTransceiver.currentDirection !== 'sendonly'));
 
         if (halfOpen || receivingNothing || notSending) {
           this.lastRepairAt.set(peerId, now);
           console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
           if (halfOpen) {
-            void this.resyncPeer(peerId).catch(() => {});
+            this.attemptRecovery(peerId);
+          } else if (notSending && liveMic && pc) {
+            void this.slotTrackIntoPeer(pc, liveMic)
+              .catch(() => false)
+              .then(() => this.ensureOfferToPeer(peerId))
+              .catch(() => {});
           } else {
             void this.ensureOfferToPeer(peerId).catch(() => {});
           }

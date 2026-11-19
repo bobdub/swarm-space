@@ -235,3 +235,39 @@ describe("vault custody follow-ups", () => {
     stop();
   });
 });
+
+describe("vault retirement", () => {
+  it("drops a held vault, refuses new holds and never serves a retired identity", async () => {
+    const me = await identity();
+    const t = fakeTransport();
+    const stop = custody.startVaultCustody({ transport: t.transport, getActiveUserId: () => null });
+    const v1 = await sealRecoveryVault({ ...me, version: 1, passphrase: "p" });
+    await custody.handleVaultMessage("peer-owner", { kind: "store", envelope: v1 });
+    expect((await custody.getHeldVault(me.user.id))?.version).toBe(1);
+
+    const retired = new Set<string>([me.user.id]);
+    custody.setVaultRetirementCheck((id) => retired.has(id));
+    expect(await custody.retireHeldVault(me.user.id)).toBe(true);
+    expect(await custody.getHeldVault(me.user.id)).toBeNull();
+
+    const v2 = await sealRecoveryVault({ ...me, version: 2, passphrase: "p" });
+    expect(await custody.holdVault(v2, "peer-owner")).toBe(false);
+    expect(await custody.getHeldVault(me.user.id)).toBeNull();
+
+    t.sent.length = 0;
+    await custody.handleVaultMessage("peer-x", { kind: "query", userId: me.user.id, requestId: "r1" });
+    expect(t.sent.at(-1)?.payload).toEqual({ kind: "response", requestId: "r1", envelope: null });
+
+    custody.setVaultRetirementCheck(() => false);
+    stop();
+  });
+
+  it("removes the retiring device's own vault and acks", async () => {
+    const me = await identity();
+    await custody.sealGenesisVault(me.privateKey, me.user, "signup-pass");
+    expect(await custody.getOwnVault(me.user.id)).not.toBeNull();
+    await custody.retireOwnVault(me.user.id);
+    expect(await custody.getOwnVault(me.user.id)).toBeNull();
+    expect((await custody.getCustodyAcks(me.user.id)).version).toBe(0);
+  });
+});

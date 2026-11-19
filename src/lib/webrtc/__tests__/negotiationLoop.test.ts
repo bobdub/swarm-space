@@ -14,6 +14,7 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
   onSignal: () => () => {},
   getLocalMeshPeerId: () => 'local-peer',
   isBridgeActive: () => true,
+  isRoomPeerPresent: () => false,
 }));
 
 import { WebRTCManager } from '../manager';
@@ -29,6 +30,7 @@ class FakePC {
   onconnectionstatechange: (() => void) | null = null;
   oniceconnectionstatechange: (() => void) | null = null;
   onnegotiationneeded: (() => void) | null = null;
+  onsignalingstatechange: (() => void) | null = null;
   addTrack = vi.fn();
   addTransceiver = vi.fn();
   getSenders = vi.fn(() => [] as RTCRtpSender[]);
@@ -37,8 +39,16 @@ class FakePC {
   addIceCandidate = vi.fn(async () => {});
   async createOffer() { return { type: 'offer' as RTCSdpType, sdp: 'fake-offer' }; }
   async createAnswer() { return { type: 'answer' as RTCSdpType, sdp: 'fake-answer' }; }
-  async setLocalDescription(d: RTCSessionDescriptionInit) { this.localDescription = d as RTCSessionDescription; }
-  async setRemoteDescription(d: RTCSessionDescriptionInit) { this.remoteDescription = d as RTCSessionDescription; }
+  async setLocalDescription(d: RTCSessionDescriptionInit) {
+    this.localDescription = d as RTCSessionDescription;
+    this.signalingState = d.type === 'offer' ? 'have-local-offer' : 'stable';
+    this.onsignalingstatechange?.();
+  }
+  async setRemoteDescription(d: RTCSessionDescriptionInit) {
+    this.remoteDescription = d as RTCSessionDescription;
+    this.signalingState = d.type === 'offer' ? 'have-remote-offer' : 'stable';
+    this.onsignalingstatechange?.();
+  }
 }
 
 const created: FakePC[] = [];
@@ -90,7 +100,7 @@ describe('WebRTC negotiation loop — theoretical edge cases', () => {
     expect(vi.getTimerCount()).toBeGreaterThan(0);
   });
 
-  it('escalates to recovery after MAX_NEGOTIATION_RETRIES consecutive deferrals', async () => {
+  it('keeps the same call while a mesh answer takes longer than the old retry cap', async () => {
     const m = makeManager();
     // @ts-expect-error – private
     await m.createOfferForPeer('peer-C');
@@ -101,7 +111,12 @@ describe('WebRTC negotiation loop — theoretical edge cases', () => {
       await m.createOfferForPeer('peer-C');
       await vi.advanceTimersByTimeAsync(320);
     }
-    expect(reconnectSignals.some((s) => s.kind === 'reconnect-request' && s.to === 'peer-C')).toBe(true);
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(reconnectSignals).toHaveLength(0);
+    expect(created[0].close).not.toHaveBeenCalled();
+    expect(sentSignals).toHaveLength(0);
+    await m.handleSignal({ type: 'answer', from: 'peer-C', to: 'local-peer', data: { type: 'answer', sdp: 'answer' } });
+    expect(sentSignals.filter(s => s.type === 'offer')).toHaveLength(1);
   });
 
   it('clears negotiation state on full peer cleanup', async () => {
@@ -113,12 +128,12 @@ describe('WebRTC negotiation loop — theoretical edge cases', () => {
     // @ts-expect-error – private
     expect(m.negotiationNeeded.has('peer-D')).toBe(false);
     // @ts-expect-error – private
-    expect(m.negotiationRetryCount.has('peer-D')).toBe(false);
+    expect(m.negotiationTimers.has('peer-D')).toBe(false);
     // @ts-expect-error – private
     expect(m.negotiationLock.has('peer-D')).toBe(false);
   });
 
-  it('impolite peer schedules a follow-up offer instead of answering during glare', async () => {
+  it('impolite glare waits for the winning offer instead of hammering another offer', async () => {
     const m = makeManager();
     const remote = 'aaa-impolite-target'; // < 'local-peer' → local is impolite
     // @ts-expect-error – private
@@ -129,6 +144,47 @@ describe('WebRTC negotiation loop — theoretical edge cases', () => {
     // @ts-expect-error – private
     await m.handleRemoteOffer(remote, { type: 'offer', sdp: 'remote' });
     expect(sentSignals.find((s) => s.type === 'answer')).toBeFalsy();
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(reconnectSignals).toHaveLength(0);
+  });
+
+  it('does not force-unlock a concurrent offer through the public ensure path', async () => {
+    const m = makeManager();
+    const pc = await m.createPeerConnection('peer-E');
+    let resolveOffer: ((offer: RTCSessionDescriptionInit) => void) | undefined;
+    vi.spyOn(pc, 'createOffer').mockImplementation(() => new Promise(resolve => { resolveOffer = resolve; }));
+    const first = m.createOffer('peer-E');
+    await vi.advanceTimersByTimeAsync(0);
+    await m.ensureOfferToPeer('peer-E');
+    expect(pc.createOffer).toHaveBeenCalledTimes(1);
+    resolveOffer?.({ type: 'offer', sdp: 'delayed' });
+    await first;
+    expect(sentSignals.filter(s => s.type === 'offer')).toHaveLength(1);
+  });
+
+  it('never sends a queued offer after a peer leaves', async () => {
+    const m = makeManager();
+    await m.createOffer('peer-F');
+    await m.createOffer('peer-F');
+    // @ts-expect-error – private cleanup under test
+    m.cleanupPeer('peer-F');
+    sentSignals.length = 0;
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(created).toHaveLength(1);
+  });
+
+  it('polite rollback answers first, then drains queued local media exactly once', async () => {
+    const m = makeManager();
+    const remote = 'zzz-polite-target';
+    await m.createOffer(remote);
+    await m.createOffer(remote);
+    sentSignals.length = 0;
+    await m.handleSignal({ type: 'offer', from: remote, to: 'local-peer', data: { type: 'offer', sdp: 'remote' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentSignals.map(s => s.type)).toEqual(['answer', 'offer']);
+    expect(created).toHaveLength(1);
+    expect(created[0].close).not.toHaveBeenCalled();
   });
 });

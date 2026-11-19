@@ -23,6 +23,7 @@
 
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 import { recordP2PDiagnostic } from './diagnostics';
+import { GUN_RELAYS } from './gunRelays';
 import { getSmoothness, getSmoothedRtt } from './synapseLayer';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
@@ -130,11 +131,6 @@ const ONLINE_READINESS_POLL_MS = 500;
 const GUN_GRAPH_KEY = 'swarm-space/presence';
 const BC_EMIT_CHANNEL = 'global-cell-peers';
 const BC_BEACON_CHANNEL = 'global-cell-beacon';
-const DEFAULT_GUN_RELAY_PEERS = [
-  'https://gun.eco/gun',
-  'https://e2e.we-share.io/gun',
-  'https://relay.peer.ooo/gun',
-];
 
 /** Debounce window for event-driven Bus evaluation after a new beacon arrives. */
 const BUS_EVENT_DEBOUNCE_MS = 300;
@@ -512,7 +508,7 @@ class GlobalCell {
     try {
       const { GunAdapter } = await import('./transports/gunAdapter');
       this.gunAdapter = new GunAdapter({
-        peers: DEFAULT_GUN_RELAY_PEERS,
+        peers: GUN_RELAYS,
         graphKey: GUN_GRAPH_KEY,
         channelName: 'global-cell-gun',
         registryMode: true,

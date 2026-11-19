@@ -53,6 +53,8 @@ import {
   type BrainPortal,
 } from '@/lib/brain/brainPersistence';
 import { InfinityBody } from '@/components/brain/InfinityBody';
+import { BrainStatusReadout } from '@/components/brain/BrainStatusReadout';
+import { needsBoomClearance } from '@/lib/brain/cameraClearance';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
@@ -159,6 +161,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
@@ -282,10 +285,6 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // camera, so the next frame doesn't wipe them with lookAt().
   const yawRef = useRef(0);
   const pitchRef = useRef(0);
-  // Smoothed basis "up" — re-derived from the body each frame but lerped
-  // toward the live up so micro jitter doesn't roll the horizon.
-  const smoothUp = useRef<[number, number, number] | null>(null);
-  const smoothFwd = useRef<[number, number, number] | null>(null);
   /** Scratch buffer for the interpolated body position (no per-frame alloc). */
   const renderPos = useRef<[number, number, number]>([0, 0, 0]);
 
@@ -435,34 +434,10 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     ];
     const fwdLen = Math.hypot(liveFwd[0], liveFwd[1], liveFwd[2]) || 1;
     liveFwd = [liveFwd[0] / fwdLen, liveFwd[1] / fwdLen, liveFwd[2] / fwdLen];
-    const frame = { up: liveUp, forward: liveFwd, right: siteLive.right };
-
-    // Lerp the basis toward the live frame (slow) so micro jitter in the
-    // body position doesn't snap the horizon. On the very first frame,
-    // seed straight from the live frame so the camera starts level.
-    const lerp = 0.15;
-    if (!smoothUp.current) smoothUp.current = [frame.up[0], frame.up[1], frame.up[2]];
-    if (!smoothFwd.current) smoothFwd.current = [frame.forward[0], frame.forward[1], frame.forward[2]];
-    for (let k = 0; k < 3; k++) {
-      smoothUp.current[k] += (frame.up[k] - smoothUp.current[k]) * lerp;
-      smoothFwd.current[k] += (frame.forward[k] - smoothFwd.current[k]) * lerp;
-    }
-    // Re-orthonormalize the smoothed basis.
-    const upN = (() => {
-      const v = smoothUp.current!;
-      const n = Math.hypot(v[0], v[1], v[2]) || 1;
-      return [v[0] / n, v[1] / n, v[2] / n] as [number, number, number];
-    })();
-    // forward = (smoothFwd projected to plane ⟂ upN), then normalized.
-    const fRaw = smoothFwd.current!;
-    const dot = fRaw[0] * upN[0] + fRaw[1] * upN[1] + fRaw[2] * upN[2];
-    let fwdN: [number, number, number] = [
-      fRaw[0] - upN[0] * dot,
-      fRaw[1] - upN[1] * dot,
-      fRaw[2] - upN[2] * dot,
-    ];
-    const fn = Math.hypot(fwdN[0], fwdN[1], fwdN[2]) || 1;
-    fwdN = [fwdN[0] / fn, fwdN[1] / fn, fwdN[2] / fn];
+    // The interpolated body and frozen village frame already provide smooth
+    // motion. World-space damping here trails Earth's spin and drags the eye.
+    const upN = liveUp;
+    const fwdN = liveFwd;
     // right = forward × up
     // Using up × forward creates a reflected basis (determinant < 0), which
     // makes the camera quaternion solve against an invalid frame and can roll
@@ -503,7 +478,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       + THIRD_PERSON_UP_M * thirdAmt
       + seatLift.current;
     let boomX = 0, boomY = 0, boomZ = 0;
-    if (boomAmt > 0 || specAmt > 0 || thirdAmt > 0) {
+    if (needsBoomClearance(boomAmt, specAmt, thirdAmt)) {
       const viewFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       // Strip the radial component so the boom pulls back along the ground.
       const vdot = viewFwd.x * upN[0] + viewFwd.y * upN[1] + viewFwd.z * upN[2];
@@ -526,7 +501,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     // Terrain pull-in: swinging the boom backwards over rising ground can
     // bury the eye. Keep it a clear margin above the local surface by
     // shortening the boom radially — never by moving the body.
-    {
+    if (needsBoomClearance(boomAmt, specAmt, thirdAmt)) {
       const ex = eyeX - pose.center[0];
       const ey = eyeY - pose.center[1];
       const ez = eyeZ - pose.center[2];
@@ -580,7 +555,7 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       yaw: yawRef.current,
       basis: { up: upN, forward: fwdN, right: rightN },
     });
-  });
+  }, -1); // Read the shared frame before avatar render callbacks.
 
   return null;
 }
@@ -604,7 +579,7 @@ function EarthPoseTicker() {
     } catch {
       /* best-effort */
     }
-  });
+  }, -2); // Pin the clock before any camera, ground or avatar reads it.
   return null;
 }
 
@@ -742,13 +717,9 @@ function BodyLayer({
  */
 function SelfAvatarBody({ selfId, username }: { selfId: string; username: string }) {
   const physics = getBrainPhysics();
-  const [, force] = useState(0);
   const [view, setView] = useState<CameraView>(() => getCameraView());
   useEffect(() => subscribeCameraView(setView), []);
-  useEffect(() => {
-    const id = window.setInterval(() => force((n) => (n + 1) & 0xfff), 100);
-    return () => window.clearInterval(id);
-  }, []);
+  const renderPos = useRef<[number, number, number]>([0, 0, 0]);
   // Live avatar id — follows runtime switches made in the builder Options
   // tab, so your form changes in-place without re-entering the Brain.
   const [avatarId, setAvatarId] = useState<string | undefined>(() => {
@@ -762,40 +733,43 @@ function SelfAvatarBody({ selfId, username }: { selfId: string; username: string
   }, [avatarId, physics, selfId]);
 
 
+  const samplePose = useCallback(() => {
+    const body = physics.getBody(selfId);
+    const intent = physics.getIntent(selfId);
+    const seat = seatedTransform(selfId);
+    if (!body && !seat) return undefined;
+    const pos = seat ?? physics.getBodyRenderPos(selfId, performance.now(), renderPos.current);
+    if (!pos) return undefined;
+    let movementDirection: [number, number, number] | undefined;
+    if (!seat && intent && intent.basis && Math.hypot(intent.fwd, intent.right) > 0.05) {
+      const { forward, right } = intent.basis;
+      const cy = Math.cos(intent.yaw);
+      const sy = Math.sin(intent.yaw);
+      const pushForward: [number, number, number] = [
+        cy * forward[0] - sy * right[0],
+        cy * forward[1] - sy * right[1],
+        cy * forward[2] - sy * right[2],
+      ];
+      const pushRight: [number, number, number] = [
+        cy * right[0] + sy * forward[0],
+        cy * right[1] + sy * forward[1],
+        cy * right[2] + sy * forward[2],
+      ];
+      movementDirection = [
+        pushForward[0] * intent.fwd + pushRight[0] * intent.right,
+        pushForward[1] * intent.fwd + pushRight[1] * intent.right,
+        pushForward[2] * intent.fwd + pushRight[2] * intent.right,
+      ];
+    }
+    return { position: pos, pinned: !!seat, movementDirection };
+  }, [physics, selfId]);
   if (view === 'first') return null;
-  const body = physics.getBody(selfId);
-  const intent = physics.getIntent(selfId);
-  const seat = seatedTransform(selfId);
-  if (!body && !seat) return null;
-  const pos: [number, number, number] = seat ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
-  let movementDirection: [number, number, number] | undefined;
-  if (!seat && intent && intent.basis && Math.hypot(intent.fwd, intent.right) > 0.05) {
-    const { forward, right } = intent.basis;
-    const cy = Math.cos(intent.yaw);
-    const sy = Math.sin(intent.yaw);
-    const pushForward: [number, number, number] = [
-      cy * forward[0] - sy * right[0],
-      cy * forward[1] - sy * right[1],
-      cy * forward[2] - sy * right[2],
-    ];
-    const pushRight: [number, number, number] = [
-      cy * right[0] + sy * forward[0],
-      cy * right[1] + sy * forward[1],
-      cy * right[2] + sy * forward[2],
-    ];
-    movementDirection = [
-      pushForward[0] * intent.fwd + pushRight[0] * intent.right,
-      pushForward[1] * intent.fwd + pushRight[1] * intent.right,
-      pushForward[2] * intent.fwd + pushRight[2] * intent.right,
-    ];
-  }
   return (
     <RemoteAvatarBody
-      position={pos}
-      pinned={!!seat}
+      position={renderPos.current}
+      samplePose={samplePose}
       intentDriven
-      movementDirection={movementDirection}
-      trust={body?.trust ?? 0.6}
+      trust={0.6}
       label={username}
       avatarId={avatarId}
       peerPv={BRAIN_PHYSICS_VERSION}
@@ -830,8 +804,8 @@ function RemoteAvatarLayer({ peers }: { peers: { peerId: string; username: strin
         // state says this peer holds a stool, render them exactly on it.
         const seat = seatedTransform(p.peerId) ?? seatedTransform(id);
         if (!body && !seat) return null;
-        const pos: [number, number, number] = seat
-          ?? [body!.pos[0], body!.pos[1], body!.pos[2]];
+        const pos = seat ?? physics.getBodyRenderPos(id);
+        if (!pos) return null;
         return (
           <RemoteAvatarBody
             key={id}
@@ -1106,7 +1080,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const physics = useMemo(() => getBrainPhysics(), []);
   const guestCandidateId = useMemo(() => `guest-${Math.random().toString(36).slice(2, 8)}`, []);
   const [selfId, setSelfId] = useState<string>('');
-  const [qScore, setQScore] = useState(0);
   const [chatOpen, setChatOpen] = useState(() => window.location.pathname === '/brain/join');
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
@@ -1298,6 +1271,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     onChatLine,
     broadcastSelfPosition,
   } = useBrainVoice(ready, roomId);
+  // People chatting from the main menu share this room's chat (lobby only);
+  // list them beside the people in the Brain.
+  const chatPeers = useNetworkChatPeers(ready, roomId);
 
   // Muted peers vanish from the scene entirely on this device — no avatar,
   // no camera tile, no audio (audio is muted in PersistentAudioLayer).
@@ -1693,15 +1669,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     };
   }, [guestCandidateId, physics, ready]);
 
-  // ── Q score subscription + periodic field snapshot save ───────────
+  // ── Periodic field snapshot save (no per-tick scene state) ─────────
   useEffect(() => {
-    const unsub = physics.subscribe(() => {
-      setQScore(physics.getQScore());
-    });
     const saveTimer = setInterval(() => {
       try { void saveBrainField(physics.snapshot(), universeKey); } catch { /* ignore */ }
     }, 5000);
-    return () => { unsub(); clearInterval(saveTimer); };
+    return () => clearInterval(saveTimer);
   }, [physics, universeKey]);
 
   // ── Scope user placements (walls, decorations, tools) to this universe ──
@@ -1950,7 +1923,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const fusion = getSharedNeuralEngine().getDualLearning();
       fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }
-  }, [physics, qScore, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
+  }, [physics, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
 
   // ── Drop a portal at the player's current position ────────────────
   // If `hitPoint` is provided (raycast cast from AssetCaster), the portal
@@ -2285,11 +2258,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
         <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
-          {title ? `${title} · ` : ''}|Ψ_Brain⟩ q={qScore.toFixed(4)} · alt={(() => {
-            const b = physics.getBody(selfId);
-            if (!b) return '—';
-            return (radiusFromEarth(b.pos, getEarthPose()) - EARTH_RADIUS - BODY_CENTER_HEIGHT).toFixed(2) + 'm';
-          })()} · voice:{voicePeers.length + 1}
+          <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
         </div>
         <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
           <Button
@@ -2395,7 +2364,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* 3-D scene */}
       {ready && <Canvas
-        shadows
+        dpr={[1, 1.5]}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
         onCreated={handleCanvasCreated}
@@ -2473,7 +2442,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <NatureLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
         {/* Phase 7 — live NPC roster + deterministic resource clusters. */}
         <NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        <InfinityBody position={getInfinityPosition()} qScore={qScore} />
+        <InfinityBody position={getInfinityPosition()} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
 
@@ -2534,6 +2503,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onClose={() => setChatOpen(false)}
           voicePeers={voicePeers}
           rtcParticipants={rtcParticipants}
+          chatPeers={chatPeers}
           voiceOn={!isMuted}
           roomId={roomId}
           variantCapabilities={capabilities}
