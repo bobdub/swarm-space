@@ -36,7 +36,8 @@ interface SignalEnvelope {
     | 'presence'
     | 'room-hello'
     | 'chat-history-request'
-    | 'chat-history';
+    | 'chat-history'
+    | 'chat-here';
   from: string;       // mesh peerId (peer-xxx)
   to?: string;        // target mesh peerId (for directed signals)
   roomId: string;
@@ -279,7 +280,7 @@ const seenOrder: string[] = [];
 const MAX_SEEN_SIGNALS = 2000;
 const RELAYED_ANNOUNCEMENTS = new Set<SignalEnvelope['msgType']>([
   'join-room', 'leave-room', 'presence', 'media-state', 'screen-share-state', 'room-heartbeat', 'chat-message',
-  'room-hello',
+  'room-hello', 'chat-here',
 ]);
 
 /** Test/internal: identity of an envelope for dedup. */
@@ -345,7 +346,8 @@ function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): vo
   // only heard them once a direct link formed, often minutes later.
   // The shared network chat is open to everyone connected, inside the Brain
   // or not, so every node carries its lines across the full hop budget.
-  const openChat = envelope.msgType === 'chat-message' && isNetworkChatRoom(envelope.roomId);
+  const openChat = (envelope.msgType === 'chat-message' || envelope.msgType === 'chat-here')
+    && isNetworkChatRoom(envelope.roomId);
   if (!openChat && !joinedRooms.has(envelope.roomId) && hops > 0) return;
   const next = { ...envelope, hops: hops + 1 };
   for (const peerId of meshRef.getConnectedPeerIds()) {
@@ -389,7 +391,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     && envelope.msgType !== 'chat-history'
     // The shared network chat does not depend on being in the Brain: someone
     // who walked out of the Brain to Explore keeps chatting with it.
-    && !(envelope.msgType === 'chat-message' && isNetworkChatRoom(envelope.roomId))
+    && !((envelope.msgType === 'chat-message' || envelope.msgType === 'chat-here') && isNetworkChatRoom(envelope.roomId))
   ) {
     const left = departedAt.get(fromKey);
     if (left !== undefined && (envelope.ts ?? 0) <= left + 1_000) return;
@@ -521,6 +523,23 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
+      break;
+    }
+
+    case 'chat-here': {
+      if (!isNetworkChatRoom(envelope.roomId)) return;
+      const open = (envelope.data as { open?: unknown } | undefined)?.open !== false;
+      if (open) {
+        chatHerePeers.set(envelope.from, {
+          peerId: envelope.from,
+          userId: typeof envelope.userId === 'string' ? envelope.userId.slice(0, 200) : undefined,
+          username: typeof envelope.username === 'string' ? envelope.username.slice(0, 80) : undefined,
+          seenAt: Date.now(),
+        });
+      } else {
+        chatHerePeers.delete(envelope.from);
+      }
+      emitChatHere();
       break;
     }
 
@@ -927,6 +946,7 @@ export function stopSignalingBridge(): void {
   joinedRooms.clear();
   roomChatLog.clear();
   roomPresenceLog.clear();
+  chatHerePeers.clear();
   lastHelloAt.clear();
   historyRepliedAt.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
@@ -1261,4 +1281,55 @@ export function getLocalMeshPeerId(): string | null {
  */
 export function isBridgeActive(): boolean {
   return meshRef !== null;
+}
+
+
+// ── Network chat presence ──────────────────────────────────────────────
+// Who has the shared network chat open, wherever they are in the app. People
+// inside the Brain also show up through room presence; this covers everyone
+// chatting from the main menu, so both sides can list who is in the chat.
+
+export interface NetworkChatPeer {
+  peerId: string;
+  userId?: string;
+  username?: string;
+  seenAt: number;
+}
+
+/** A chatter we have not heard from in this long has left the chat. */
+export const CHAT_HERE_TTL_MS = 35_000;
+const chatHerePeers = new Map<string, NetworkChatPeer>();
+const chatHereHandlers = new Set<() => void>();
+
+function emitChatHere(): void {
+  for (const h of chatHereHandlers) {
+    try { h(); } catch { /* ignore */ }
+  }
+}
+
+/** Tell connected peers we have the network chat open (`open: false` when it closes). */
+export function announceNetworkChatHere(roomId: string, userId: string | undefined, username: string | undefined, open = true): void {
+  if (!meshRef) return;
+  meshRef.broadcast(SIGNAL_CHANNEL, {
+    msgType: 'chat-here',
+    from: meshRef.getPeerId(),
+    roomId,
+    userId,
+    username,
+    data: { open },
+    ts: Date.now(),
+  } satisfies SignalEnvelope);
+}
+
+/** Peers that announced the network chat recently (never ourselves). */
+export function getNetworkChatPeers(now: number = Date.now()): NetworkChatPeer[] {
+  for (const [peerId, p] of chatHerePeers) {
+    if (now - p.seenAt > CHAT_HERE_TTL_MS) chatHerePeers.delete(peerId);
+  }
+  return Array.from(chatHerePeers.values());
+}
+
+export function onNetworkChatPeers(handler: () => void): () => void {
+  chatHereHandlers.add(handler);
+  return () => { chatHereHandlers.delete(handler); };
 }
