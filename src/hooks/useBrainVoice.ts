@@ -44,6 +44,8 @@ export interface BrainVoicePeer {
  * the same way streaming rooms do — `BRAIN_ROOM_ID` is just another room.
  * Audio rendering is handled by `<PersistentAudioLayer roomId={BRAIN_ROOM_ID} />`.
  */
+let pendingLeave: ReturnType<typeof setTimeout> | null = null;
+
 export function useBrainVoice(
   enabled: boolean,
   roomId: string = BRAIN_ROOM_ID,
@@ -120,6 +122,7 @@ export function useBrainVoice(
       }
     } catch { /* ignore */ }
 
+    if (pendingLeave) { clearTimeout(pendingLeave); pendingLeave = null; }
     void (async () => {
       try {
         const ok = await manager.joinRoom(roomId);
@@ -169,8 +172,15 @@ export function useBrainVoice(
         joinedRef.current = false;
         // A Brain-synced room stays joined when the page changes; the
         // sync host (or the Brain page) picks it up. Only Disconnect ends it.
+        // Defer the leave: an identity/guest re-render re-runs this effect
+        // for the same room immediately, and leaving would close every
+        // peer's call (invite joins used to drop everyone this way).
         if (!isBrainSynced(roomId)) {
-          try { void manager.leaveRoom(); } catch { /* ignore */ }
+          pendingLeave = setTimeout(() => {
+            pendingLeave = null;
+            if (isBrainSynced(roomId)) return;
+            try { void manager.leaveRoom(); } catch { /* ignore */ }
+          }, 1500);
         }
         // Do NOT stop the local stream here. The audio effect below owns
         // mic enable/disable so that toggling `audio` does not re-join the
@@ -180,7 +190,7 @@ export function useBrainVoice(
       setRawParticipants([]);
       setPresenceById({});
     };
-  }, [enabled, user, roomId]);
+  }, [enabled, user?.id, roomId]);
 
   // Mic acquisition is independent of join lifecycle. Toggling `audio`
   // (e.g. a spectator opening the dock as a participant) must NOT tear
