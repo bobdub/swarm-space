@@ -289,6 +289,15 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
  * offline and will NOT be auto-dialed.
  */
 const CELL_FRESHNESS_WINDOW = 75_000;
+/**
+ * Saved contacts roll through the mesh in every library exchange while they
+ * were seen within this window. It matches the content fadeout window
+ * (FADEOUT_WINDOW_MS in contentLifecycle.ts): a user unseen for 15 days is
+ * treated as gone, so they stop being handed on.
+ */
+export const SAVED_CONTACT_SHARE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
+/** Upper bound on saved contacts sent in one exchange (newest first). */
+const MAX_SHARED_SAVED_CONTACTS = 200;
 /** Saved (manual/library) friends stay dialable this long after last presence. */
 export const SAVED_FRIEND_FRESHNESS_WINDOW = 10 * 60_000;
 
@@ -2405,9 +2414,48 @@ export class StandaloneSwarmMesh {
       });
   }
 
+  /**
+   * What a library exchange hands on: every live connection (`active: true`)
+   * plus saved contacts seen within the share window (`active: false`, with
+   * their real last-seen time). No node is a "host": whoever is the first
+   * contact passes on what it knows, and the receiver passes it on again, so
+   * libraries roll through the mesh until each contact ages out.
+   */
+  private getSharedLibraryPeers(): Array<ReturnType<StandaloneSwarmMesh['getActiveExchangePeers']>[number] & { active: boolean }> {
+    const active = this.getActiveExchangePeers().map(peer => ({ ...peer, active: true }));
+    const cutoff = now() - SAVED_CONTACT_SHARE_WINDOW_MS;
+    const saved = Array.from(this.library.values())
+      .filter(entry => entry.peerId !== this.peerId
+        && !this.blockedPeers.has(entry.peerId)
+        && !this.connections.has(entry.peerId)
+        && entry.lastSeenAt > 0
+        && entry.lastSeenAt >= cutoff)
+      .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
+      .slice(0, MAX_SHARED_SAVED_CONTACTS)
+      .map(entry => {
+        const nodeId = entry.nodeId ?? entry.peerId.replace(/^peer-/, '');
+        return {
+          peerId: entry.peerId,
+          nodeId,
+          alias: entry.alias ?? `Node ${nodeId.slice(0, 6)}`,
+          lastSeenAt: entry.lastSeenAt,
+          trustScore: entry.trustScore ?? 0.3,
+          userId: entry.userId,
+          username: entry.username,
+          displayName: entry.displayName,
+          avatarRef: entry.avatarRef,
+          walletAddress: entry.walletAddress,
+          namespaceId: entry.namespaceId,
+          discriminator: entry.discriminator,
+          active: false,
+        };
+      });
+    return [...active, ...saved];
+  }
+
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
     const localTrust = this.getLocalTrustScore();
-    const shareable = this.getActiveExchangePeers();
+    const shareable = this.getSharedLibraryPeers();
     try {
      conn.send(JSON.stringify({
         type: 'library-exchange',
@@ -2420,7 +2468,7 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
-    const remote = msg.peers as Array<{ peerId: string; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
+    const remote = msg.peers as Array<{ peerId: string; active?: boolean; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
     if (!Array.isArray(remote)) return;
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
@@ -2451,7 +2499,14 @@ export class StandaloneSwarmMesh {
     for (const rp of remote) {
       if (!rp || typeof rp.peerId !== 'string' || !rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
-      const activeLastSeen = currentTime;
+      // Live connections of the sender count as seen now. Relayed saved
+      // contacts keep their own last-seen time (never in the future), so a
+      // relay cannot keep a gone user alive past the share window.
+      const relayedActive = rp.active !== false;
+      const relayedSeenAt = typeof rp.lastSeenAt === 'number' && Number.isFinite(rp.lastSeenAt)
+        ? Math.min(rp.lastSeenAt, currentTime) : 0;
+      if (!relayedActive && (relayedSeenAt <= 0 || currentTime - relayedSeenAt > SAVED_CONTACT_SHARE_WINDOW_MS)) continue;
+      const activeLastSeen = relayedActive ? currentTime : relayedSeenAt;
       const nextNodeId = rp.nodeId ?? rp.peerId.replace(/^peer-/, '');
       const nextAlias = rp.alias ?? `Node ${nextNodeId.slice(0, 6)}`;
       const nextTrust = typeof rp.trustScore === 'number' ? rp.trustScore : undefined;
@@ -2460,24 +2515,31 @@ export class StandaloneSwarmMesh {
       if (this.connections.has(rp.peerId)) {
         const existing = this.library.get(rp.peerId);
         if (existing) {
-          existing.lastSeenAt = activeLastSeen;
+          existing.lastSeenAt = currentTime; // connected to us: live now
           if (nextTrust !== undefined) existing.trustScore = nextTrust;
         }
         this.restorePeerEligibility(rp.peerId);
         continue;
       }
 
+      // A relayed saved contact is an older observation than what we may
+      // already know: it may only fill gaps, never roll back identity or
+      // provenance learned from a newer sighting.
+      let hintIsNewer = true;
       const existing = this.library.get(rp.peerId);
       if (existing) {
         const prevLastSeen = existing.lastSeenAt;
+        hintIsNewer = relayedActive || relayedSeenAt > prevLastSeen;
         existing.nodeId = nextNodeId;
-        if (typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
+        if (hintIsNewer && typeof rp.alias === 'string' && rp.alias.trim() && !rp.alias.startsWith('Node ')) {
           if (existing.alias !== rp.alias) metadataChanged = true;
           existing.alias = rp.alias;
         }
         existing.lastSeenAt = Math.max(existing.lastSeenAt, activeLastSeen);
-        if (nextTrust !== undefined) existing.trustScore = nextTrust;
-        if (existing.source !== 'manual') existing.source = 'exchange';
+        if (hintIsNewer && nextTrust !== undefined) existing.trustScore = nextTrust;
+        // Saved 'library' friends keep their reconnect window when gossip
+        // repeats them; only a live sighting reclassifies the entry.
+        if (relayedActive && existing.source !== 'manual') existing.source = 'exchange';
         if (existing.lastSeenAt > prevLastSeen) refreshed++;
       } else {
         this.library.set(rp.peerId, {
@@ -2500,6 +2562,7 @@ export class StandaloneSwarmMesh {
       if (entry) {
         for (const key of ['userId', 'username', 'displayName', 'avatarRef'] as const) {
           const value = rp[key];
+          if (!hintIsNewer && entry[key]) continue;
           if (typeof value === 'string' && value.trim() && entry[key] !== value) {
             if (key === 'userId') this.clearNamespaceAnchor(entry);
             entry[key] = value;
@@ -2508,7 +2571,7 @@ export class StandaloneSwarmMesh {
         }
         // Relayed namespace coordinates are never copied: only a well-formed
         // wallet anchor is taken, and the #discriminator is derived locally.
-        if (entry.userId && isPublicWalletAddress(rp.walletAddress)
+        if (entry.userId && (hintIsNewer || !entry.walletAddress) && isPublicWalletAddress(rp.walletAddress)
           && entry.walletAddress?.toLowerCase() !== rp.walletAddress.toLowerCase()) {
           this.clearNamespaceAnchor(entry);
           entry.walletAddress = rp.walletAddress;
@@ -2522,7 +2585,9 @@ export class StandaloneSwarmMesh {
         }
       }
 
-      if (!this.isPeerCoolingDown(rp.peerId)) {
+      // Only peers live right now are dialed; saved contacts are remembered
+      // and reached later through the normal reconnect and discovery paths.
+      if (relayedActive && !this.isPeerCoolingDown(rp.peerId)) {
         this.restorePeerEligibility(rp.peerId);
         dialCandidates.set(rp.peerId, {
           peerId: rp.peerId,
@@ -2556,7 +2621,7 @@ export class StandaloneSwarmMesh {
    * A rebroadcasts to B so B discovers C and dials them.
    */
   private rebroadcastLibrary(excludePeerId?: string): void {
-    const shareable = this.getActiveExchangePeers();
+    const shareable = this.getSharedLibraryPeers();
 
     if (shareable.length === 0) return;
 
