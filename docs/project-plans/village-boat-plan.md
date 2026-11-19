@@ -8,7 +8,7 @@ Decided with bobdub: every player gets their own boat (the dock refills);
 anyone can board any boat, only the owner takes the wheel; the boat obeys UQRC
 physics (wind from the weather field, buoyancy, hull basins); players walk
 around the deck, jump into the sea, swim and climb back aboard. Keyboard: A/D
-wheel, W/S sail, Space jump. Touch: the joystick turns the wheel, press and hold
+wheel, W/S sail, Space jump. Low wind: oars, and rowing burns the rower's Food. Touch: the joystick turns the wheel, press and hold
 the mast to raise or lower the sail, a jump button beside the run bolt.
 
 Goal: a boat, built natively in code (no imported model), moored at the edge of
@@ -117,6 +117,21 @@ Waves: heave/roll amplitude from `weatherCurvatureBoost` and raining clouds;
 the deck surface heaves with them. Sail coupling is tuned in Phase 3 from
 measured sea wind, target 6–9 m/s in a normal wind.
 
+### 4b. Oars and food
+
+- A rowing bench midships with a pair of oars. Anyone aboard holds "Take the
+  oars" (held on the bench like a stool); joystick / W-S row ahead or back
+  water, left-right / A-D pull one oar harder to turn. A solo owner can row
+  instead of steering.
+- Each stroke is a force on the `vessel` along its heading at `INTENT_COUPLING`
+  (walker strength): ≈ 2 m/s for one rower in a calm. Oar difference gives yaw.
+  Wind, keel, drag and the sea floor act as when sailing.
+- Food: 1 Food per 60 m of the rower's own push (≈ 30 s steady rowing), spent
+  with `spendMaterials({ food: 1 })` (`materials.ts`; Food = N atoms in
+  `harvestedInventory.ts`) on the rower's device. A small Food meter beside the
+  oars. At 0 Food the oars stop pushing: "Out of food: gather fruit, fish or
+  honey." Fish can be gathered from the deck with a bucket.
+
 ### 5. Controls (`src/components/brain/sea/ShipWheel.tsx`, new)
 
 | Action | Touch | Mouse | Keyboard |
@@ -126,6 +141,7 @@ measured sea wind, target 6–9 m/s in a normal wind.
 | Turn the wheel (at helm) | joystick left/right | drag joystick | A / D |
 | Release | eases to centre ≈ 0.5 s | same | same |
 | Sail (owner) | hold the mast | hold the mast | W up, S down |
+| Row (at the oars) | joystick fwd/back, left/right turns | mouse joystick | W/S row, A/D turn |
 
 At the helm `ShipWheel` replaces `MobileJoystick` / `DesktopJoystick` in place;
 `moveInput.right` → wheel −1..1 (1.5 turns), forward/back unused. The mast has
@@ -136,6 +152,9 @@ an enlarged r3f hit area driving the hold ring, usable from anywhere aboard.
 - Owner's presence: `vessel` = position, velocity, heading, yaw rate, wheel,
   sail, load, `getEarthPoseTime()`; on change, ≤ 4 Hz moving, 1 Hz at anchor.
 - Anyone on a deck: `deck` = `{ boatId, x, z, yaw }` in deck coordinates, ≤ 4 Hz.
+- Rower: `row` = `{ boatId, stroke, turn }`, ≤ 4 Hz; the owner's game applies
+  it as a force on the boat and drops it after 1 s silent. Food is spent on the
+  rower's own device (inventory is never mirrored).
 - Viewers add other owners' boats as mass-0 bodies, dead-reckoned on the shared
   clock with 0.5 s easing, and stamp the same hull basins and deck surface so
   their own avatar can stand on and bump into them.
@@ -158,7 +177,8 @@ swimming; run: board, walk, jump, swim to ladder, climb aboard.
 **Phase 3: sailing.** Boat wind equals cloud wind at the same point; no sail →
 no push; head to wind → no push; zero speed → no turn; aground at draft depth;
 measured wind and tuned coupling recorded in the PR; touch and desktop sail to
-the nearest island and back.
+the nearest island and back. Oars: ≈ 2 m/s for one rower in a calm, oar
+difference turns, 1 Food per 60 m, oars stop at 0 Food with the note shown.
 
 **Phase 4: multiplayer.** `vessel` / `deck` round-trip; 1 s dead reckoning
 within 0.5 m; two windows: B walks A's deck while A sails and both see each
@@ -167,7 +187,6 @@ other, B jumps and swims, dock refills.
 **Phase 5: polish and docs.** Weather waves and wake, sail fill, `MiniMapHUD`
 marker, `docs/features/boats.md`, `AGENTS.md` line, MemoryGarden entry.
 
-## Open question
+## Open questions
 
-- In a calm the boat barely moves. Add oars (joystick forward at walking
-  strength), or keep calms as part of the game?
+None. Ready to build on go-ahead.
