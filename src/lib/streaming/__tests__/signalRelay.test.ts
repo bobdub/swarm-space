@@ -48,3 +48,38 @@ describe('room signal relay (A - B - C)', () => {
     expect(b.sent.filter((s) => s.payload.msgType === 'join-room' && s.payload.from === 'X')).toHaveLength(0);
   });
 });
+
+describe('directed signals without a direct mesh edge', () => {
+  it('B sends its offer for C through A when B and C share no edge', async () => {
+    const { sendSignalViaMesh } = await import('../webrtcSignalingBridge.standalone');
+    const b = makeMesh('B', ['A']); // B is linked to A only
+    startSignalingBridge(b.mesh as never);
+    sendSignalViaMesh('C', 'r', 'offer', { type: 'offer', sdp: 'x' });
+    await Promise.resolve();
+    await Promise.resolve();
+    const viaA = b.sent.filter((s) => s.to === 'A' && s.payload.msgType === 'offer' && s.payload.to === 'C');
+    expect(viaA).toHaveLength(1);
+  });
+
+  it('falls back to neighbours when the direct send reports failure', async () => {
+    const { sendReconnectRequest } = await import('../webrtcSignalingBridge.standalone');
+    const b = makeMesh('B', ['A', 'C']);
+    b.mesh.send = async (_c: string, to: string, payload: unknown) => {
+      if (to === 'C') return false; // edge just dropped
+      b.sent.push({ to, payload: payload as Record<string, unknown> });
+      return true;
+    };
+    startSignalingBridge(b.mesh as never);
+    sendReconnectRequest('C', 'r', 'reconnect-request');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(b.sent.some((s) => s.to === 'A' && s.payload.msgType === 'reconnect-request')).toBe(true);
+  });
+
+  it('A relays B\'s offer to C, and C acts on it once', async () => {
+    const a = makeMesh('A', ['B', 'C']);
+    startSignalingBridge(a.mesh as never);
+    a.deliver('B', { msgType: 'offer', from: 'B', to: 'C', roomId: 'r', data: {}, ts: 9 });
+    await Promise.resolve();
+    expect(a.sent.filter((s) => s.to === 'C' && s.payload.msgType === 'offer')).toHaveLength(1);
+  });
+});
