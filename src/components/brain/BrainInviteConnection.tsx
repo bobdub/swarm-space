@@ -5,6 +5,8 @@ import { useP2PContext } from '@/contexts/P2PContext';
 import { dialBrainInviteFirst, resolveInviteLocation, getBrainInviteState, markBrainInviteSynced, prepareBrainInvite, subscribeBrainInvite, updateBrainInviteConnection } from '@/lib/p2p/brainInvite';
 import { isGuestUser } from '@/lib/preview/guestAccess';
 
+let guestBrainAutoStarted = false;
+
 /** Handles navigation into invites when signaling was already initialized. */
 export function BrainInviteConnection() {
   const { pathname, hash } = useLocation();
@@ -17,9 +19,12 @@ export function BrainInviteConnection() {
   // point at a peer that is offline. Bring their node online in the Brain.
   const isGuest = isGuestUser(user);
   const inBrain = pathname === '/brain' || pathname.startsWith('/brain/');
+  // Only once per page load: if the guest later turns networking off, that
+  // choice stands until they reload.
   useEffect(() => {
-    if (!isReady || !isGuest || !inBrain || isEnabled || isConnecting) return;
-    void enable().catch(() => { /* the next render retries */ });
+    if (guestBrainAutoStarted || !isReady || !isGuest || !inBrain || isEnabled || isConnecting) return;
+    guestBrainAutoStarted = true;
+    void enable().catch(() => { guestBrainAutoStarted = false; });
   }, [isReady, isGuest, inBrain, isEnabled, isConnecting, enable]);
   useEffect(() => {
     // Until auth/guest identity resolves, the invite stays buffered in its
