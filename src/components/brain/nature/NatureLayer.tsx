@@ -259,7 +259,8 @@ function Hive({ color, block }: { color: string; block: BuilderBlock }) {
   const wax = useMemo(() => new THREE.Color('#d39a2c').lerp(new THREE.Color(color), 0.18), [color]);
   const band = useMemo(() => wax.clone().multiplyScalar(0.72), [wax]);
   const geometry = useMemo(
-    () => new THREE.LatheGeometry(HIVE_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)), 18),
+    // Lathe points must run bottom → top for outward-facing walls.
+    () => new THREE.LatheGeometry(HIVE_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 18),
     [],
   );
   useEffect(() => () => geometry.dispose(), [geometry]);
