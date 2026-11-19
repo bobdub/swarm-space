@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { startSignalingBridge, stopSignalingBridge, announceJoinRoom } from '../webrtcSignalingBridge.standalone';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { startSignalingBridge, stopSignalingBridge, announceJoinRoom, announceLeaveRoom } from '../webrtcSignalingBridge.standalone';
 
 type Sent = { to: string; payload: Record<string, unknown> };
 
@@ -81,5 +81,26 @@ describe('directed signals without a direct mesh edge', () => {
     a.deliver('B', { msgType: 'offer', from: 'B', to: 'C', roomId: 'r', data: {}, ts: 9 });
     await Promise.resolve();
     expect(a.sent.filter((s) => s.to === 'C' && s.payload.msgType === 'offer')).toHaveLength(1);
+  });
+});
+
+describe('newcomer reachable only through a node outside the room', () => {
+  beforeEach(() => announceLeaveRoom('r')); // forget rooms joined by earlier tests
+  it('a non-member forwards a first-hop join-room and room-hello', async () => {
+    const x = makeMesh('X', ['A', 'C']); // X never joins the room
+    startSignalingBridge(x.mesh as never);
+    x.deliver('C', { msgType: 'join-room', from: 'C', roomId: 'r', ts: 20 });
+    x.deliver('C', { msgType: 'room-hello', from: 'C', roomId: 'r', ts: 21 });
+    await Promise.resolve();
+    expect(x.sent.filter((s) => s.to === 'A' && s.payload.from === 'C').map((s) => s.payload.msgType).sort())
+      .toEqual(['join-room', 'room-hello']);
+  });
+
+  it('a non-member does not forward announcements that already hopped', async () => {
+    const x = makeMesh('X', ['A', 'C']);
+    startSignalingBridge(x.mesh as never);
+    x.deliver('C', { msgType: 'presence', from: 'Q', roomId: 'r', ts: 22, hops: 1, data: {} });
+    await Promise.resolve();
+    expect(x.sent.filter((s) => s.to === 'A')).toHaveLength(0);
   });
 });
