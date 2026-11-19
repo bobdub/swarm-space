@@ -261,7 +261,7 @@ export function pickFruit(tree: Pick<BuilderBlock, 'bodyId' | 'meta'>, now: numb
 // ── Which trees stand when ───────────────────────────────────────────────
 
 /** How long after a starter tree is felled a seed falls at its spot. */
-export const STARTER_REGROW_MS = 15 * MIN;
+export const STARTER_REGROW_MS = 5 * MIN;
 /** A regrown starter tree lives on; this stands in for "forever". */
 export const STARTER_LIFE_MS = 1e15;
 
