@@ -841,9 +841,19 @@ function PostCardBody({ post }: PostCardProps) {
     setIsHidingPost(true);
     try {
       await hidePostForUser(currentUser.id, post.id);
+      // Hiding also stops supporting it: this node stops holding, seeding
+      // and relaying the post. Resume Support (Node Dashboard) undoes both.
+      await stopSupportingPost({
+        postId: post.id,
+        source: "feed",
+        author: post.author,
+        authorName: post.authorName,
+        content: post.content,
+        manifestIds: post.manifestIds,
+      });
       toast({
         title: "Post hidden",
-        description: "We'll keep this out of your feeds.",
+        description: "It's out of your feeds and this node no longer supports it. Resume any time from the Node Dashboard.",
       });
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {

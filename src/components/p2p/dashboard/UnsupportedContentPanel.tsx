@@ -15,6 +15,8 @@ import {
   resumeSupportingPost,
   useUnsupportedPosts,
 } from '@/lib/content/unsupportedPostsStore';
+import { unhidePostForUser } from '@/lib/hiddenPosts';
+import { getCurrentUser } from '@/lib/auth';
 
 export function UnsupportedContentPanel() {
   const entries = useUnsupportedPosts();
@@ -25,6 +27,9 @@ export function UnsupportedContentPanel() {
     setBusy(postId);
     try {
       await resumeSupportingPost(postId);
+      // Hide Post also stops support, so resuming un-hides it too.
+      const userId = getCurrentUser()?.id;
+      if (userId) await unhidePostForUser(userId, postId);
       toast.success('Support resumed · this node holds and seeds the post again');
     } catch {
       toast.error("Couldn't resume support");
@@ -48,7 +53,7 @@ export function UnsupportedContentPanel() {
       <CardContent className="space-y-2">
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nothing here. Use Stop Support on a post or a Brain wall to opt out of carrying it.
+            Nothing here. Use Hide Post or Stop Support on a post, or Stop Support on a Brain wall, to opt out of carrying it.
           </p>
         ) : (
           entries.map((entry) => (
