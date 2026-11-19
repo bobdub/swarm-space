@@ -62,6 +62,7 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
+import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
@@ -2420,6 +2421,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
         <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Village jetty + moored boat (procedural, Earth-local). The
+            planks register as a deck surface, so they are walkable. */}
+        <DockLayer />
         <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay
