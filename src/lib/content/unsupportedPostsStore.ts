@@ -23,7 +23,12 @@
 import { useSyncExternalStore } from 'react';
 
 export interface UnsupportedPostEntry {
+  /** Post id — or `placement:<placementId>` for a Brain wall/item entry. */
   postId: string;
+  /** 'post' (default) or 'placement' — a Brain item with no pinned post. */
+  kind?: 'post' | 'placement';
+  /** Set for placement entries. */
+  placementId?: string;
   /** Author id, when known — shown on the dashboard. */
   author?: string;
   authorName?: string;
@@ -51,6 +56,8 @@ type Listener = () => void;
 let entries = new Map<string, UnsupportedPostEntry>();
 let manifestIndex = new Set<string>();
 let chunkIndex = new Set<string>();
+let placementIndex = new Set<string>();
+const PLACEMENT_PREFIX = 'placement:';
 let snapshot: UnsupportedPostEntry[] = [];
 const listeners = new Set<Listener>();
 let hydrated: Promise<void> | null = null;
@@ -64,8 +71,11 @@ function strList(value: unknown): string[] {
 function normalize(raw: unknown): UnsupportedPostEntry | null {
   const r = raw as Partial<UnsupportedPostEntry> | null;
   if (!r || typeof r !== 'object' || typeof r.postId !== 'string' || !r.postId) return null;
+  const placementId = typeof r.placementId === 'string' && r.placementId ? r.placementId : undefined;
   return {
     postId: r.postId,
+    kind: r.kind === 'placement' && placementId ? 'placement' : 'post',
+    placementId,
     author: typeof r.author === 'string' ? r.author : undefined,
     authorName: typeof r.authorName === 'string' ? r.authorName : undefined,
     preview: typeof r.preview === 'string' ? r.preview.slice(0, 280) : undefined,
@@ -79,7 +89,9 @@ function normalize(raw: unknown): UnsupportedPostEntry | null {
 function rebuildIndexes(): void {
   manifestIndex = new Set();
   chunkIndex = new Set();
+  placementIndex = new Set();
   for (const e of entries.values()) {
+    if (e.kind === 'placement' && e.placementId) placementIndex.add(e.placementId);
     e.manifestIds.forEach((id) => manifestIndex.add(id));
     e.chunkRefs.forEach((ref) => chunkIndex.add(ref));
   }
@@ -210,6 +222,11 @@ export function isPostUnsupported(postId: string | null | undefined): boolean {
   return Boolean(postId) && entries.has(postId as string);
 }
 
+/** A Brain placement (wall or item) this node stopped supporting directly. */
+export function isPlacementUnsupported(placementId: string | null | undefined): boolean {
+  return Boolean(placementId) && placementIndex.has(placementId as string);
+}
+
 export function isManifestUnsupported(manifestId: string | null | undefined): boolean {
   return Boolean(manifestId) && manifestIndex.has(manifestId as string);
 }
@@ -295,7 +312,39 @@ export async function stopSupportingPost(input: StopSupportInput): Promise<Unsup
   return entry;
 }
 
-/** Resume support: the post shows, seeds and relays again. */
+/**
+ * Stop supporting a Brain placement that pins no post (a bare wall or
+ * item): this node stops drawing it (no mesh, collider or billboard) and
+ * stops passing it on in lobby backfill. Resume with `resumeSupportingPost`
+ * on the returned entry's `postId`.
+ */
+export async function stopSupportingPlacement(input: {
+  placementId: string;
+  ownerId?: string;
+  label?: string;
+}): Promise<UnsupportedPostEntry | null> {
+  if (!input.placementId) return null;
+  const entry: UnsupportedPostEntry = {
+    postId: `${PLACEMENT_PREFIX}${input.placementId}`,
+    kind: 'placement',
+    placementId: input.placementId,
+    author: input.ownerId,
+    preview: input.label ?? 'Brain wall',
+    manifestIds: [],
+    chunkRefs: [],
+    source: 'brain',
+    unsupportedAt: Date.now(),
+  };
+  entries.set(entry.postId, entry);
+  rebuildIndexes();
+  writeMirror();
+  emit();
+  await dbWrite((s) => s.put(entry));
+  try { chan()?.postMessage({ changed: entry.postId }); } catch { /* noop */ }
+  return entry;
+}
+
+/** Resume support: the post (or placement) shows, seeds and relays again. */
 export async function resumeSupportingPost(postId: string): Promise<void> {
   if (!entries.delete(postId)) return;
   rebuildIndexes();

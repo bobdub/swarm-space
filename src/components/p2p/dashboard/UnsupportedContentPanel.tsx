@@ -15,6 +15,8 @@ import {
   resumeSupportingPost,
   useUnsupportedPosts,
 } from '@/lib/content/unsupportedPostsStore';
+import { unhidePostForUser } from '@/lib/hiddenPosts';
+import { getCurrentUser } from '@/lib/auth';
 
 export function UnsupportedContentPanel() {
   const entries = useUnsupportedPosts();
@@ -25,6 +27,9 @@ export function UnsupportedContentPanel() {
     setBusy(postId);
     try {
       await resumeSupportingPost(postId);
+      // Hide Post also stops support, so resuming un-hides it too.
+      const userId = getCurrentUser()?.id;
+      if (userId) await unhidePostForUser(userId, postId);
       toast.success('Support resumed · this node holds and seeds the post again');
     } catch {
       toast.error("Couldn't resume support");
@@ -42,13 +47,13 @@ export function UnsupportedContentPanel() {
           <Badge variant="outline" className="ml-auto text-xs">{entries.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Posts this node stopped supporting. They are hidden here, not seeded and not relayed, and Brain walls showing them are removed on this device.
+          Posts and Brain walls this node stopped supporting. They are hidden here, not seeded and not relayed, and Brain walls showing them are removed on this device.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
         {entries.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nothing here. Use Stop Support on a post or a Brain wall to opt out of carrying it.
+            Nothing here. Use Hide Post or Stop Support on a post, or Stop Support on a Brain wall, to opt out of carrying it.
           </p>
         ) : (
           entries.map((entry) => (
@@ -61,9 +66,9 @@ export function UnsupportedContentPanel() {
                   {entry.preview || <span className="italic text-muted-foreground">No preview</span>}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {entry.authorName || (entry.author ? `${entry.author.slice(0, 10)}…` : 'Unknown author')}
+                  {entry.authorName || (entry.author ? `${entry.author.slice(0, 10)}…` : 'Unknown builder')}
                   {' · '}
-                  {entry.source === 'brain' ? 'from a Brain wall' : 'from the feed'}
+                  {entry.kind === 'placement' ? 'Brain wall' : entry.source === 'brain' ? 'post from a Brain wall' : 'from the feed'}
                   {' · '}
                   {formatDistanceToNow(new Date(entry.unsupportedAt), { addSuffix: true })}
                   {entry.manifestIds.length > 0 && ` · ${entry.manifestIds.length} file${entry.manifestIds.length === 1 ? '' : 's'}`}

@@ -4,7 +4,7 @@ import { GRAFFITI_PALETTE, graffitiHoldMs, REINFORCE_CREDITS, REINFORCE_SWARM } 
 import { recordWallInteraction } from '@/lib/world/wallInteractionsStore';
 import { reinforceWall } from '@/lib/world/wallReinforce';
 import { addReaction } from '@/lib/interactions';
-import { stopSupportingPost } from '@/lib/content/unsupportedPostsStore';
+import { stopSupportingPlacement, stopSupportingPost } from '@/lib/content/unsupportedPostsStore';
 
 interface Props {
   placementId: string;
@@ -17,8 +17,8 @@ interface Props {
 
 /**
  * Visitor-only chip: Reinforce (fixed tip), Graffiti (hold an emoji to
- * stamp) and, for walls pinning a post, Stop Support — this node stops
- * holding that post and the wall vanishes here entirely.
+ * stamp) and Stop Support — this node stops carrying the wall (or the
+ * post pinned on it) and the wall vanishes here entirely.
  */
 export function WallViewerControls({ placementId, ownerId, selfId, postId, priorStamps, onClose }: Props) {
   const [mode, setMode] = useState<'menu' | 'graffiti'>('menu');
@@ -68,9 +68,11 @@ export function WallViewerControls({ placementId, ownerId, selfId, postId, prior
   };
 
   const stopSupport = async () => {
-    if (!postId) return;
     try {
-      await stopSupportingPost({ postId, source: 'brain' });
+      // A wall pinning a post stops supporting that post (it vanishes
+      // everywhere it appears); a bare wall stops being supported itself.
+      if (postId) await stopSupportingPost({ postId, source: 'brain' });
+      else await stopSupportingPlacement({ placementId, ownerId, label: 'Brain wall' });
       toast.success('Support stopped · resume it any time from the Node Dashboard');
       onClose();
     } catch {
@@ -88,12 +90,12 @@ export function WallViewerControls({ placementId, ownerId, selfId, postId, prior
             {busy ? 'Tipping…' : 'Reinforce'}
           </button>
           <button type="button" onClick={() => setMode('graffiti')} style={{ ...btn, color: '#7dd3fc' }}>Graffiti</button>
-          {postId && (
-            <button type="button" onClick={() => void stopSupport()} style={{ ...btn, color: '#fda4af' }}
-              title="Stop holding, seeding and relaying this wall's post on this node. The wall disappears here.">
-              Stop Support
-            </button>
-          )}
+          <button type="button" onClick={() => void stopSupport()} style={{ ...btn, color: '#fda4af' }}
+            title={postId
+              ? "Stop holding, seeding and relaying this wall's post on this node. The wall disappears here."
+              : 'Stop carrying this wall on this node. It disappears here and is no longer passed on.'}>
+            Stop Support
+          </button>
           <button type="button" onClick={onClose} style={btn} aria-label="Close">✕</button>
         </>
       ) : (
