@@ -65,19 +65,22 @@ describe('Brain invite rules', () => {
       // Immediate repeat calls are ignored.
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(1);
-      // After the re-dial interval, the invite knocks again on its own.
+      // Slow devices: a knock only every 20s, not every 12s.
       vi.advanceTimersByTime(12_000);
+      dialBrainInviteFirst(options);
+      expect(dial).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(8_000);
       dialBrainInviteFirst(options);
       expect(dial).toHaveBeenCalledTimes(2);
-      vi.advanceTimersByTime(12_000);
+      for (let i = 0; i < 6; i++) {
+        vi.advanceTimersByTime(20_000);
+        dialBrainInviteFirst(options);
+      }
+      expect(dial).toHaveBeenCalledTimes(8);
+      // Cap reached after about two and a half minutes of knocking.
+      vi.advanceTimersByTime(20_000);
       dialBrainInviteFirst(options);
-      vi.advanceTimersByTime(12_000);
-      dialBrainInviteFirst(options);
-      expect(dial).toHaveBeenCalledTimes(4);
-      // Cap reached — no further automatic dials.
-      vi.advanceTimersByTime(12_000);
-      dialBrainInviteFirst(options);
-      expect(dial).toHaveBeenCalledTimes(4);
+      expect(dial).toHaveBeenCalledTimes(8);
     } finally {
       vi.useRealTimers();
     }
