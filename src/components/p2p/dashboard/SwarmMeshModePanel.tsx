@@ -18,8 +18,6 @@ import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPe
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
 import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
-import { getMintMeMinerEnabled, setMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
-import { MintMeConnectionDetails } from "./MintMeConnectionDetails";
 
 interface SwarmMeshModePanelProps {
   meshStats?: unknown;
@@ -50,8 +48,6 @@ export function SwarmMeshModePanel({
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
   const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
   const [shyNode, setShyNode] = useState(() => getShyMode());
-  const [mintmeEnabled, setMintmeEnabled] = useState(() => getMintMeMinerEnabled());
-  useEffect(() => onMintMeMinerEnabledChange(setMintmeEnabled), []);
 
   useEffect(() => {
     const unsubs = [
@@ -162,32 +158,6 @@ export function SwarmMeshModePanel({
             </div>
           </CardContent>
         )}
-      </Card>
-
-      {/* MintMe miner master switch */}
-      <Card className="border-foreground/10">
-        <CardContent className="pt-5">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5 pr-4">
-              <Label htmlFor="mintme-miner-switch" className="flex items-center gap-1.5">
-                <Pickaxe className="h-3.5 w-3.5 text-primary" />
-                MintMe Miner
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                When off, the MintMe miner never starts. Your choice is saved on this device.
-              </p>
-            </div>
-            <Switch
-              id="mintme-miner-switch"
-              checked={mintmeEnabled}
-              onCheckedChange={(v) => {
-                setMintmeEnabled(v);
-                setMintMeMinerEnabled(v);
-              }}
-            />
-          </div>
-          <MintMeConnectionDetails />
-        </CardContent>
       </Card>
 
       {/* Show Network Content toggle */}

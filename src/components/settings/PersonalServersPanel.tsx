@@ -13,6 +13,7 @@ import {
 } from '@/lib/storage/providers/personalServerStore';
 import { probePersonalServer } from '@/lib/storage/providers/personalServerProvider';
 import { AddPersonalServerWizard } from './AddPersonalServerWizard';
+import { MintMeMinerServerSection } from './MintMeMinerServerSection';
 import { getCurrentUser } from '@/lib/auth';
 import { friendlySyncError } from './personalServerSyncError';
 import { hasPersonalServerCredentials } from '@/lib/storage/providers/personalServerSecrets';
@@ -284,6 +285,8 @@ export function PersonalServersPanel() {
           ))}
         </div>
       )}
+
+      {servers.length > 0 ? <MintMeMinerServerSection servers={servers} /> : null}
 
       <AddPersonalServerWizard
         key={relinkServer?.id ?? 'new'}

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MintMeMiner } from "../miner";
 import { getMintMeCommunityVaultAddress } from "../communityCustody";
-import { setStratumProxyUrl } from "../stratum";
+import { upsertPersonalServer } from "@/lib/storage/providers/personalServerStore";
 import { setMintMeMinerEnabled } from "@/lib/mining/mintmeMinerPreference";
 
 const vault = "0x1111111111111111111111111111111111111111";
@@ -31,7 +31,7 @@ beforeEach(() => {
   localStorage.clear(); workers.length = 0; sockets.length = 0;
   vi.stubEnv("VITE_MINTME_COMMUNITY_VAULT_ADDRESS", vault);
   vi.stubGlobal("Worker", WorkerStub); vi.stubGlobal("WebSocket", SocketStub);
-  setMintMeMinerEnabled(true); setStratumProxyUrl("wss://pool.example");
+  setMintMeMinerEnabled(true); upsertPersonalServer({ id: "srv", name: "srv", kind: "https-blob", url: "https://pool.example", scope: "private", capBytes: 1, usedBytes: 0, paused: false, createdAt: 0 });
   miner = new MintMeMiner();
 });
 afterEach(() => { miner.dispose(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
