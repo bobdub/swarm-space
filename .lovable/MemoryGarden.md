@@ -1,5 +1,11 @@
 ## MemoryGarden
 
+### November 19, 2026 — Voices without broken echoes
+
+Before tending: let fresh voices replace their ended echoes;
+give the handshake time to finish, and keep live travellers undisturbed.
+Prove the quiet repairs with automated witnesses, not imagined calls.
+
 ### November 19, 2026 — Feet and eyes on one turning ground
 
 Before tending: keep the traveller and their gaze on the same moving soil;
