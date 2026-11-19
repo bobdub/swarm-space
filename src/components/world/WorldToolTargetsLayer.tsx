@@ -30,6 +30,9 @@ function colliderFor(kind: string): [number, number, number] {
       return [8, 14, 8];
     case 'stone':
       return [2.2, 1.6, 2.2];
+    case 'hive':
+      // Hangs from a branch about 1.5–2.6 m up.
+      return [1.4, 3, 1.4];
     default:
       return [1.8, 1.8, 1.8];
   }
@@ -50,7 +53,7 @@ export function WorldToolTargetsLayer() {
   useEffect(() => engine.subscribe(() => force((n) => (n + 1) & 0xfff)), [engine]);
 
   const blocks = useMemo(
-    () => engine.listBlocks((block) => !String(block.id).startsWith('place:')),
+    () => engine.listBlocks((block) => !String(block.id).startsWith('place:') && block.kind !== 'hive_husk'),
     [engine, version],
   );
 

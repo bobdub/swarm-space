@@ -17,6 +17,7 @@
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { hiveSpotOnTree } from '@/lib/brain/nature/hiveRehome';
+import { buildGrowthLayout, registerGrowthLayout, type Spot } from '@/lib/brain/nature/natureGrowth';
 import { NATURE_CATALOG, type NatureKind } from './natureCatalog';
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -112,6 +113,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   }
 
   // ── Flowers: 18 around the meadow, kept off the pond ──
+  const flowerSpots: Spot[] = [];
   let placedFlowers = 0;
   for (let i = 0; placedFlowers < 18 && i < 200; i++) {
     const a = r() * Math.PI * 2;
@@ -129,6 +131,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       meta: { compound: ['carotenoid', 'anthocyanin', 'chlorophyll'][placedFlowers % 3] },
     });
     ids.push(id);
+    flowerSpots.push({ x, z });
     placedFlowers++;
   }
 
@@ -221,6 +224,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   // ── Stone: granite boulders scattered round the meadow. Each carries a
   // size + shape seed so the renderer can build a unique procedural rock
   // (no imported model). Placed last so earlier species keep their layout.
+  const stoneSpots: Spot[] = [];
   let placedStones = 0;
   for (let i = 0; placedStones < STONE_COUNT && i < 200; i++) {
     const a = r() * Math.PI * 2;
@@ -241,8 +245,23 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       meta: { size, shapeSeed },
     });
     ids.push(id);
+    stoneSpots.push({ x, z });
     placedStones++;
   }
+
+  // ── Growth: seed spots around the starter trees and flowers, where new
+  // trees and flowers come and go on the shared clock (see natureGrowth).
+  // Kept off the pond, the boulders and the village centre. ──
+  registerGrowthLayout(anchorPeerId, buildGrowthLayout(
+    anchorPeerId,
+    trees,
+    flowerSpots,
+    [
+      { c: { x: PCX, z: PCZ }, r: POND_R + 1.5 },
+      { c: { x: 0, z: 0 }, r: 8 },
+      ...stoneSpots.map((c) => ({ c, r: 1.8 })),
+    ],
+  ));
 
   return { anchorPeerId, blockIds: ids };
 }
