@@ -57,6 +57,17 @@ export function registerTreeHit(blockId: string): TreeChopState {
   return next;
 }
 
+/**
+ * Another player felled this tree at `at`: show it falling (or already
+ * down) here too. No-op if it is already falling.
+ */
+export function markTreeFelled(blockId: string, at: number): void {
+  const cur = states.get(blockId);
+  if (cur?.toppledAt) return;
+  states.set(blockId, { blockId, hits: HITS_TO_FELL, lastHitAt: at, toppledAt: at });
+  notify();
+}
+
 /** True once the tree has started to fall (until its stump is cleared). */
 export function isTreeFelled(blockId: string): boolean {
   return Boolean(states.get(blockId)?.toppledAt);

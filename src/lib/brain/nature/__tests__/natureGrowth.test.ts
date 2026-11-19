@@ -48,7 +48,6 @@ vi.mock('@/lib/brain/builderBlockEngine', () => ({
 
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import {
-  syncNatureGrowth,
   getGrowthLayout,
   treeGrowth,
   isTreeGrown,
@@ -68,7 +67,9 @@ import {
   FRUIT_PER_TREE,
   _resetNatureGrowthForTest,
 } from '@/lib/brain/nature/natureGrowth';
-import { rehomeHivesFrom } from '@/lib/brain/nature/hiveRehome';
+import { syncNatureWorld, HIVE_BODY_ID } from '@/lib/brain/nature/natureWorld';
+import { TREE_CLEAR_MS } from '@/lib/brain/nature/hiveRehome';
+import { recordNatureEvent, _resetNatureEventsForTest } from '@/lib/world/natureEventsStore';
 import { _resetTreeChopForTest } from '@/lib/world/treeChopStore';
 import { collectHoney, canCollectHoney, HONEY_PER_DAY, _resetHoneyForTest } from '@/lib/world/honeyStore';
 
@@ -78,8 +79,9 @@ const grown = (kind: string) => [...engineState.blocks.values()].filter((b) => b
 function snapshot(now: number) {
   engineState.blocks.clear();
   _resetNatureGrowthForTest();
+  _resetNatureEventsForTest();
   seedDefaultBiome(ANCHOR);
-  syncNatureGrowth(ANCHOR, now);
+  syncNatureWorld(ANCHOR, now);
   return [...engineState.blocks.values()]
     .filter((b) => b.id.startsWith('grown-'))
     .map((b) => [b.bodyId, b.rightOffset, b.forwardOffset])
@@ -90,6 +92,7 @@ describe('trees seed and grow, flowers spread', () => {
   beforeEach(() => {
     engineState.blocks.clear();
     _resetNatureGrowthForTest();
+    _resetNatureEventsForTest();
     _resetTreeChopForTest();
   });
 
@@ -120,7 +123,7 @@ describe('trees seed and grow, flowers spread', () => {
     const c0 = cycleAt(Date.UTC(2026, 10, 20), spot.offset, TREE_CYCLE_MS, TREE_LIFE_MS);
     const birth = c0.start + TREE_CYCLE_MS;
 
-    syncNatureGrowth(ANCHOR, birth + 1000);
+    syncNatureWorld(ANCHOR, birth + 1000);
     const tree = engineState.blocks.get(`tree:grown-tree-0-c${c0.cycle + 1}`)!;
     expect(tree).toBeDefined();
     expect(treeGrowth(tree, birth + 1000)).toBe(0); // still a seed
@@ -129,16 +132,16 @@ describe('trees seed and grow, flowers spread', () => {
     expect(isTreeGrown(tree, birth + TREE_GROW_MS)).toBe(true);
 
     // Old age: gone after its life, back as a new seed next cycle.
-    syncNatureGrowth(ANCHOR, birth + TREE_LIFE_MS + 1000);
+    syncNatureWorld(ANCHOR, birth + TREE_LIFE_MS + 1000);
     expect(engineState.blocks.has(tree.bodyId)).toBe(false);
-    syncNatureGrowth(ANCHOR, birth + TREE_CYCLE_MS + 1000);
+    syncNatureWorld(ANCHOR, birth + TREE_CYCLE_MS + 1000);
     expect(engineState.blocks.has(`tree:grown-tree-0-c${c0.cycle + 2}`)).toBe(true);
   });
 
   it('flowers bud, bloom and wilt', () => {
     seedDefaultBiome(ANCHOR);
     const t = Date.UTC(2026, 10, 20);
-    syncNatureGrowth(ANCHOR, t);
+    syncNatureWorld(ANCHOR, t);
     const f = grown('flower')[0];
     const start = (f.meta.growth as { start: number }).start;
     expect(flowerBloom(f, start)).toBe(0);
@@ -149,26 +152,25 @@ describe('trees seed and grow, flowers spread', () => {
   it('does not put back a tree or flower a player took this cycle', () => {
     seedDefaultBiome(ANCHOR);
     const t = Date.UTC(2026, 10, 20);
-    syncNatureGrowth(ANCHOR, t);
+    syncNatureWorld(ANCHOR, t);
     const f = grown('flower')[0];
     engineState.blocks.delete(f.bodyId);
-    syncNatureGrowth(ANCHOR, t + 5000);
+    syncNatureWorld(ANCHOR, t + 5000);
     expect(engineState.blocks.has(f.bodyId)).toBe(false);
   });
 
   it('bees only move into a grown tree', () => {
     seedDefaultBiome(ANCHOR);
-    // Every seed spot holds a fresh seedling right now.
-    const layout = getGrowthLayout(ANCHOR)!;
     const t = Date.UTC(2026, 10, 20);
-    syncNatureGrowth(ANCHOR, t);
-    const hive = engineState.blocks.get('hive:hive-0')!;
-    const old = hive.meta.treeId as string;
-    engineState.blocks.delete(old);
-    rehomeHivesFrom(old, t);
+    syncNatureWorld(ANCHOR, t);
+    const old = engineState.blocks.get(HIVE_BODY_ID)!.meta.treeId as string;
+    recordNatureEvent('fell', old, ANCHOR, 0, 0, t);
+    const moved = t + TREE_CLEAR_MS;
+    syncNatureWorld(ANCHOR, moved);
+    const hive = engineState.blocks.get(HIVE_BODY_ID)!;
+    expect(hive.meta.treeId).not.toBe(old);
     const host = engineState.blocks.get(hive.meta.treeId as string)!;
-    expect(isTreeGrown(host, t)).toBe(true);
-    expect(layout.trees.length).toBeGreaterThan(0);
+    expect(isTreeGrown(host, moved)).toBe(true);
   });
 });
 
