@@ -9,7 +9,7 @@ import { MINTME_POOL_LOW_DIFF } from "@/lib/blockchain/mintmeMiner/stratum";
 import { MINTME_PAYOUT_THRESHOLD, MINTME_PAYOUT_PERCENT } from "@/lib/blockchain/mintmeMiner/payoutPolicy";
 import { INFINITY_VAULTS, infinityVaultEvmAddress } from "@/lib/blockchain/infinity/vaults";
 
-export const MINTME_TOGGLE_OFF_MESSAGE = "Turn on Miner in the node dashboard to start mining";
+export const MINTME_TOGGLE_OFF_MESSAGE = "Turn on the miner in Settings → Storage → Personal Servers. It needs a personal server.";
 
 export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number }) {
   const [enabled, setEnabled] = useState(getMintMeMinerEnabled());
@@ -55,7 +55,7 @@ export function MintMeMiningCard({ connectedPeers }: { connectedPeers: number })
           <p className="text-xs text-muted-foreground break-all">Infinity MintMe vault: {infinityVaultEvmAddress(INFINITY_VAULTS.mintme)}</p>
           <p className="text-xs text-muted-foreground">Rewards join your one MINTME balance and can be tipped or sent right away. Your wallet claims them from the MintMe reward contract automatically while unlocked; on-chain release to outside addresses is coming soon.</p>
         </div>
-        <Link className="text-xs text-primary underline" to="/node-dashboard">Mining connection details</Link>
+        <Link className="text-xs text-primary underline" to="/settings?tab=storage">Mining connection details</Link>
       </CardContent>
     </Card>
   );

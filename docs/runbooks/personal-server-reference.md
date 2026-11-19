@@ -170,3 +170,22 @@ also list your app origin, otherwise browsers block the anonymous GET.
 
 A LAN-only address cannot serve users off your network — the mirror must be
 reachable over public HTTPS to be advertised to peers.
+
+## MintMe miner bridge
+
+The MintMe miner lives in Settings → Storage → Personal Servers. It only
+appears once a personal server is attached, and it is off until you turn it on.
+
+Browsers cannot open TCP sockets, so the miner reaches the pool through a
+WebSocket bridge on your server. The address is derived from the server you
+pick:
+
+```
+https://files.example.org      →  wss://files.example.org/mintme-bridge
+https://files.example.org:8443 →  wss://files.example.org:8443/mintme-bridge
+```
+
+The app connects to `wss://<host>/mintme-bridge?pool=pool.webchain.network:2222`
+and sends newline-delimited Stratum JSON as text frames. Serve that path with
+any WebSocket → TCP relay that forwards text to `pool.webchain.network:2222`,
+and only to that pool. Local and plain-HTTP servers cannot be used for mining.

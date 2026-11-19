@@ -3,14 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MintMeMiningService } from "./MintMeMiningService";
 
 const state = vi.hoisted(() => ({
-  peers: ["host"], enabled: true, peerListener: () => {}, preferenceListener: () => {},
-  start: vi.fn(), stop: vi.fn(), cellStop: vi.fn(),
+  peers: ["host"], enabled: true, bridge: "wss://files.example.org/mintme-bridge" as string | null,
+  peerListener: () => {}, preferenceListener: () => {}, serverListener: () => {},
+  start: vi.fn(), stop: vi.fn(),
   nativeSync: vi.fn(), customSync: vi.fn(), notify: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthReady", () => ({ useAuthReady: () => ({ isReady: true, user: { id: "member" } }) }));
 vi.mock("@/lib/preview/guestAccess", () => ({ isGuestUser: () => false }));
 vi.mock("@/lib/mining/mintmeMinerPreference", () => ({
   getMintMeMinerEnabled: () => state.enabled,
+  getMintMeBridgeUrl: () => state.bridge,
   onMintMeMinerEnabledChange: (listener: () => void) => { state.preferenceListener = listener; return () => {}; },
 }));
 vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () => ({
@@ -28,12 +30,11 @@ vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
 vi.mock("sonner", () => ({ toast: { success: state.notify } }));
 vi.mock("@/lib/blockchain/mintmeMiner/communityPayoutService", () => ({ createMeshCommunityPayout: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
 vi.mock("@/lib/blockchain/mintmeMiner/autoClaim", () => ({ createMeshAutoClaim: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
-vi.mock("@/lib/blockchain/mintmeMiner/miningCell", () => ({ getMintMeMiningCell: () => ({
-  selectedEndpoint: "wss://mining.example.org/bridge", start: async () => {}, stop: state.cellStop,
-  subscribe: () => () => {},
-}) }));
+vi.mock("@/lib/storage/providers/personalServerStore", () => ({
+  subscribePersonalServers: (listener: () => void) => { state.serverListener = listener; return () => {}; },
+}));
 
-beforeEach(() => { vi.clearAllMocks(); state.peers = ["host"]; state.enabled = true; state.nativeSync.mockResolvedValue(0); state.customSync.mockResolvedValue(0); });
+beforeEach(() => { vi.clearAllMocks(); state.peers = ["host"]; state.enabled = true; state.bridge = "wss://files.example.org/mintme-bridge"; state.nativeSync.mockResolvedValue(0); state.customSync.mockResolvedValue(0); });
 afterEach(() => vi.useRealTimers());
 describe("app-wide MintMe lifecycle", () => {
   it("checks every imported contract every two minutes, even when native sync fails", async () => {
@@ -59,17 +60,30 @@ describe("app-wide MintMe lifecycle", () => {
     await waitFor(() => expect(state.start).toHaveBeenCalledOnce());
     act(() => { state.peers = []; state.peerListener(); });
     expect(state.stop).toHaveBeenLastCalledWith("needs-mesh", "Waiting for a mesh connection.");
-    expect(state.cellStop).toHaveBeenCalled();
     act(() => { state.peers = ["host"]; state.peerListener(); });
     expect(state.start).toHaveBeenCalledTimes(2);
     view.unmount();
   });
-  it("stops both discovery and mining when the dashboard toggle turns off", async () => {
+  it("stops mining when the switch turns off", async () => {
     const view = render(<MintMeMiningService />);
     await waitFor(() => expect(state.start).toHaveBeenCalledOnce());
     act(() => { state.enabled = false; state.preferenceListener(); });
     expect(state.stop).toHaveBeenLastCalledWith("off");
-    expect(state.cellStop).toHaveBeenCalled();
+    view.unmount();
+  });
+  it("mines through the personal server bridge and stops when the server is removed", async () => {
+    const view = render(<MintMeMiningService />);
+    await waitFor(() => expect(state.start).toHaveBeenCalledOnce());
+    expect(state.start).toHaveBeenCalledWith(expect.objectContaining({ proxyUrl: "wss://files.example.org/mintme-bridge" }));
+    act(() => { state.bridge = null; state.serverListener(); });
+    expect(state.stop).toHaveBeenLastCalledWith("needs-proxy", expect.stringContaining("personal server"));
+    view.unmount();
+  });
+  it("never starts without a personal server", async () => {
+    state.bridge = null;
+    const view = render(<MintMeMiningService />);
+    await waitFor(() => expect(state.stop).toHaveBeenCalledWith("needs-proxy", expect.any(String)));
+    expect(state.start).not.toHaveBeenCalled();
     view.unmount();
   });
   it("does not recreate an unavailable worker on unrelated peer updates", async () => {

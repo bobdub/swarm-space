@@ -3,8 +3,8 @@
  * switch: when getMintMeMinerEnabled() is false nothing starts, and turning it
  * off stops the pool connection and worker immediately.
  */
-import { getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
-import { StratumClient, getStratumProxyUrl, MINTME_POOL_LOW_DIFF, type StratumJob } from "./stratum";
+import { getMintMeMinerEnabled, onMintMeMinerEnabledChange, getMintMeBridgeUrl } from "@/lib/mining/mintmeMinerPreference";
+import { StratumClient, MINTME_POOL_LOW_DIFF, type StratumJob } from "./stratum";
 import { ShareTracker, type MeshLike } from "./shareTracker";
 import { getMintMeCommunityVaultAddress } from "./communityCustody";
 import { fromHex, meetsTarget } from "./hashEngine";
@@ -49,8 +49,8 @@ export class MintMeMiner {
     if (this.client || this.worker) return;
     const address = getMintMeCommunityVaultAddress();
     if (!address) { this.set({ status: "needs-vault", message: "The community MintMe receiving address has not been configured. Mining is paused." }); return; }
-    const proxyUrl = opts.proxyUrl ?? getStratumProxyUrl();
-    if (!proxyUrl) { this.set({ status: "needs-proxy", message: "Waiting for a community mining bridge. Connection details are in the Node dashboard." }); return; }
+    const proxyUrl = opts.proxyUrl ?? getMintMeBridgeUrl();
+    if (!proxyUrl) { this.set({ status: "needs-proxy", message: "Attach a public personal server to mine. Find it in Settings → Storage → Personal Servers." }); return; }
 
     this.tracker = new ShareTracker(opts.mesh, () => this.set({ peerShares: this.tracker?.fromPeers.length ?? 0 }));
     this.client = new StratumClient({

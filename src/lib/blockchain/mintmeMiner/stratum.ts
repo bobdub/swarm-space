@@ -2,29 +2,19 @@
  * MintMe (Webchain) Stratum client.
  *
  * Browsers cannot open raw TCP sockets, so the pool is reached through a
- * public WebSocket→TCP bridge discovered through the mining cell. Without a bridge the client
- * reports `needs-proxy` and never pretends to be connected.
+ * WebSocket→TCP bridge on the user's own personal server. Without a bridge the
+ * miner reports `needs-proxy` and never pretends to be connected.
  */
 import { targetValue } from "./hashEngine";
 export const MINTME_POOL_LOW_DIFF = "pool.webchain.network:2222";
 export const MINTME_POOL_STANDARD = "pool.webchain.network:3333";
 export const MINTME_LOW_DIFFICULTY = 12_500;
-const PROXY_KEY = "swarm-mintme-stratum-proxy";
-
 export interface StratumJob {
   jobId: string;
   blob: string;
   target: string;
   difficulty: number;
   algorithm?: "lyra2v2-webchain";
-}
-
-export function getStratumProxyUrl(): string | null {
-  try {
-    return sanitizeStratumProxyUrl(localStorage.getItem(PROXY_KEY) ?? import.meta.env.VITE_MINTME_STRATUM_WSS_URL ?? "");
-  } catch {
-    return null;
-  }
 }
 
 /** Public endpoint only: no credentials, tokens, insecure sockets or private hosts. */
@@ -37,17 +27,6 @@ export function sanitizeStratumProxyUrl(value: string): string | null {
         /^\d+\.\d+\.\d+\.\d+$/.test(host)) return null;
     return url.href;
   } catch { return null; }
-}
-
-export function setStratumProxyUrl(url: string | null): boolean {
-  const sanitized = url ? sanitizeStratumProxyUrl(url) : null;
-  if (url && !sanitized) return false;
-  try {
-    if (sanitized) localStorage.setItem(PROXY_KEY, sanitized);
-    else localStorage.removeItem(PROXY_KEY);
-    window.dispatchEvent(new Event("mintme-bridge-config-change"));
-    return true;
-  } catch { return false; }
 }
 
 /** MintMe supports compact and full eight-byte little-endian pool targets. */
