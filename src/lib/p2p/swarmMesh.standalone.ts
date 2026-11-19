@@ -317,8 +317,12 @@ const TARGET_MESH_CONNECTIONS = 20;
 /** Max dials per pass — enough to grow but avoid dial storms */
 const MAX_AUTO_DIALS_PER_PASS = 5;
 
-/** Expire stuck pending dials so the mesh can retry cleanly */
-const PENDING_DIAL_TIMEOUT_MS = 20_000;
+/**
+ * Expire stuck pending dials so the mesh can retry cleanly. Slow devices can
+ * take well over 20s to finish ICE; retrying sooner stacks a second offer on
+ * top of one that was still working.
+ */
+const PENDING_DIAL_TIMEOUT_MS = 45_000;
 
 function getExhaustedRetries(): Set<string> {
   try {

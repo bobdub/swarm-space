@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAuthReady } from '@/hooks/useAuthReady';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { dialBrainInviteFirst, resolveInviteLocation, getBrainInviteState, markBrainInviteSynced, prepareBrainInvite, subscribeBrainInvite, updateBrainInviteConnection } from '@/lib/p2p/brainInvite';
+import { isGuestUser } from '@/lib/preview/guestAccess';
 
 /** Handles navigation into invites when signaling was already initialized. */
 export function BrainInviteConnection() {
@@ -11,6 +12,15 @@ export function BrainInviteConnection() {
   const { stats, isEnabled, isConnecting, enable, connectToPeer, getPeerId, isPeerBlocked, getActivePeerConnections } = useP2PContext();
   const invite = useSyncExternalStore(subscribeBrainInvite, getBrainInviteState);
   useEffect(() => { prepareBrainInvite(pathname, hash); }, [pathname, hash]);
+  // A guest who enters the Brain directly (not through an invite) has a
+  // guest identity but no running node, so the invite link they share would
+  // point at a peer that is offline. Bring their node online in the Brain.
+  const isGuest = isGuestUser(user);
+  const inBrain = pathname === '/brain' || pathname.startsWith('/brain/');
+  useEffect(() => {
+    if (!isReady || !isGuest || !inBrain || isEnabled || isConnecting) return;
+    void enable().catch(() => { /* the next render retries */ });
+  }, [isReady, isGuest, inBrain, isEnabled, isConnecting, enable]);
   useEffect(() => {
     // Until auth/guest identity resolves, the invite stays buffered in its
     // "starting" phase; this effect re-runs as soon as `user` appears.

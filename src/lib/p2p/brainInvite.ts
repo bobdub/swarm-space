@@ -12,10 +12,12 @@ let attemptedUrl = '';
 let attemptCount = 0;
 let lastAttemptAt = 0;
 // Cold private-tab joins need warm-up: guest key provisioning, signaling and
-// ICE can outlast a single dial. Knock a few times before giving up.
-const MAX_ATTEMPTS = 4;
-const REDIAL_INTERVAL_MS = 12_000;
-const UNAVAILABLE_AFTER_MS = 60_000;
+// ICE can outlast a single dial, and an older phone or laptop can take up to
+// two minutes to finish connecting. Knock patiently for about four minutes
+// before calling the invite unavailable.
+const MAX_ATTEMPTS = 8;
+const REDIAL_INTERVAL_MS = 20_000;
+const UNAVAILABLE_AFTER_MS = 120_000;
 /** How long a local node may refuse to dial (still starting) before the invite is "unavailable". */
 export const REFUSED_GRACE_MS = 20_000;
 let firstRefusedAt = 0;
