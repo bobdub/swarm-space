@@ -10,13 +10,15 @@ interface Props {
   roomId: string;
   peerCount: number;
   isMuted: boolean;
+  /** False when the user is listening only (no mic yet). */
+  micOn?: boolean;
   toggleMute: () => void;
   /** True while this user is sharing their screen to the room. */
   isSharingScreen?: boolean;
   stopScreenShare?: () => void;
 }
 
-export function BrainSyncDock({ peerCount, isMuted, toggleMute, isSharingScreen = false, stopScreenShare }: Props) {
+export function BrainSyncDock({ peerCount, isMuted, micOn = true, toggleMute, isSharingScreen = false, stopScreenShare }: Props) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const manager = user ? getWebRTCManager(user.id, user.username) : null;
@@ -26,7 +28,7 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute, isSharingScreen 
     if (!manager) return;
     if (!cameraOn) {
       try {
-        await manager.startLocalStream(true, true);
+        await manager.startLocalStream(micOn, true);
         manager.toggleVideo(true);
         setCameraOn(true);
       } catch (err) {
@@ -67,7 +69,7 @@ export function BrainSyncDock({ peerCount, isMuted, toggleMute, isSharingScreen 
         <span>Brain synced</span>
         <span className="text-muted-foreground">· {peerCount}</span>
       </button>
-      <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={toggleMute} aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}>
+      <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={toggleMute} aria-label={!micOn ? 'Turn on microphone' : isMuted ? 'Unmute microphone' : 'Mute microphone'}>
         {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
       </Button>
       <Button type="button" size="icon" variant="ghost" className="h-8 w-8" onClick={toggleCamera} aria-label={cameraOn ? 'Turn camera off' : 'Turn camera on'}>

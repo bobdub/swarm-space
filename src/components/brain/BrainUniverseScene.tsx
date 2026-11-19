@@ -161,6 +161,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { isBrainEntryComplete, setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
@@ -1196,22 +1197,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   );
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
-  // ── Entry gate: avatar + mic test before spawn ────────────────────
-  // If the user has already completed the Brain entry gate (avatar + mic
-  // test) in this browser, skip the modal entirely on subsequent visits.
+  // ── Entry gate: avatar + optional mic test before spawn ───────────
+  // If the user has already completed the Brain entry gate (avatar, with
+  // or without a mic) in this browser, skip the modal on later visits.
   // Without this, the modal flashes for one frame every time you re-enter
   // /brain (or when an outer wizard navigates here right after collecting
   // the same info), because `entryOpen` defaulted to `true` unconditionally.
   const entryAlreadyComplete = (() => {
     if (isGuestUser(user) && !user.guestName?.trim()) return false;
-    try {
-      const raw = localStorage.getItem('brain-entry-complete');
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as { hasMic?: boolean } | null;
-      return Boolean(parsed?.hasMic);
-    } catch {
-      return false;
-    }
+    return isBrainEntryComplete();
   })();
   const [ready, setReady] = useState<boolean>(entryAlreadyComplete);
   const [entryOpen, setEntryOpen] = useState<boolean>(!entryAlreadyComplete);
@@ -1263,14 +1257,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [roomId]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
+  // Users who entered without a mic join listen-only: they hear everyone
+  // and the mic is only requested when they press the mic button.
+  const micOn = useBrainMicChoice();
   const {
     participants: voicePeers,
     isMuted,
     toggleMute,
+    enableMic,
     sendChatLine,
     onChatLine,
     broadcastSelfPosition,
-  } = useBrainVoice(ready, roomId);
+  } = useBrainVoice(ready, roomId, { audio: micOn });
+  const onMicButton = useCallback(() => {
+    if (micOn) { toggleMute(); return; }
+    void enableMic().then((ok) => {
+      if (ok) setBrainMic(true);
+      else toast.error("Couldn't turn on your mic. Check the browser's microphone permission.");
+    });
+  }, [micOn, toggleMute, enableMic]);
   // People chatting from the main menu share this room's chat (lobby only);
   // list them beside the people in the Brain.
   const chatPeers = useNetworkChatPeers(ready, roomId);
@@ -1332,9 +1337,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // actually receive the new video SSRC.
         const existing = manager.getLocalStream();
         const hasDeadTrack = !!existing && existing.getTracks().some(t => t.readyState === 'ended');
+        // Listen-only users keep their mic off when turning the camera on.
         const stream = hasDeadTrack
-          ? await manager.refreshLocalStream(true, true)
-          : await manager.startLocalStream(true, true);
+          ? await manager.refreshLocalStream(micOn, true)
+          : await manager.startLocalStream(micOn, true);
         manager.toggleVideo(true);
         setLocalStream(stream);
         setCameraOn(true);
@@ -1354,7 +1360,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       } catch { /* ignore */ }
       setCameraOn(false);
     }
-  }, [cameraOn, user]);
+  }, [cameraOn, user, micOn]);
 
   // ── Screen share ──────────────────────────────────────────────────
   // Independent of camera and mic: sharing never touches the voice track.
@@ -2290,16 +2296,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             type="button"
             variant="outline"
             size="sm"
-            onClick={toggleMute}
+            onClick={onMicButton}
             className={
-              isMuted
+              !micOn || isMuted
                 ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive ring-1 ring-destructive/40'
                 : 'bg-[hsla(265,70%,8%,0.7)]'
             }
-            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-            title={isMuted ? 'Self mic muted' : 'Mute self mic'}
+            aria-label={!micOn ? 'Turn on microphone' : isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={!micOn ? 'Mic off (listening only). Tap to turn on' : isMuted ? 'Self mic muted' : 'Mute self mic'}
           >
-            {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            {!micOn || isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
           {infinityChatMode === 'audio' && <Button
             type="button"

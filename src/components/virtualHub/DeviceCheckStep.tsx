@@ -16,6 +16,8 @@ interface DeviceCheckStepProps {
   audioOutputId?: string;
   onChange: (prefs: { audioInputId?: string; audioOutputId?: string }) => void;
   onPermissionGranted: (granted: boolean) => void;
+  /** The caller lets the user continue without a mic. */
+  micOptional?: boolean;
 }
 
 export function DeviceCheckStep({
@@ -23,6 +25,7 @@ export function DeviceCheckStep({
   audioOutputId,
   onChange,
   onPermissionGranted,
+  micOptional = false,
 }: DeviceCheckStepProps) {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [micLevel, setMicLevel] = useState(0);
@@ -79,14 +82,16 @@ export function DeviceCheckStep({
         };
         tick();
       } catch {
-        toast.error("Microphone access denied. Please allow access to continue.");
+        toast.error(micOptional
+          ? "Microphone access was blocked. You can still enter without it."
+          : "Microphone access denied. Please allow access to continue.");
         setGranted(false);
         onPermissionGranted(false);
       } finally {
         setRequesting(false);
       }
     },
-    [stop, onPermissionGranted]
+    [stop, onPermissionGranted, micOptional]
   );
 
   const playTestTone = useCallback(async () => {
@@ -121,7 +126,9 @@ export function DeviceCheckStep({
             <Mic className="h-4 w-4" /> Microphone permission
           </div>
           <p className="text-sm text-muted-foreground">
-            Allow access so you can speak in the virtual hub.
+            {micOptional
+              ? "Allow access so others can hear you. This is optional."
+              : "Allow access so you can speak in the virtual hub."}
           </p>
           <Button
             type="button"
