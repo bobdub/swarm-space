@@ -68,6 +68,17 @@ describe('Main Brain 5-day activity gate', () => {
     expect(listPlacements().map((r) => r.placementId)).toEqual(['seen']);
   });
 
+  it('backfill carries wall-interaction activity to a newcomer', () => {
+    _acceptWallInteractionForTest({ id: 'g1', placementId: 'busy', kind: 'graffiti', actorId: 'x', emoji: '🔥', at: Date.now() - DAY });
+    acceptPeerPlacement(rec('busy', 'peer', 20 * DAY));
+    const snap = buildGlobalPlacementSnapshot();
+    // Newcomer: no interaction history.
+    _resetWorldPlacementsForTest();
+    _resetWallInteractionsForTest();
+    expect(mergePlacementSnapshot(snap)).toBe(1);
+    expect(listPlacements().map((r) => r.placementId)).toEqual(['busy']);
+  });
+
   it('ignores activity stamps from the future', () => {
     expect(isPlacementIdle({ ...rec('x', 'peer', 9 * DAY), activityAt: Date.now() + 365 * DAY })).toBe(true);
   });

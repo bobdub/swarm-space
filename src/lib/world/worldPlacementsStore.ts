@@ -12,7 +12,7 @@ import {
   poseTimeFromCreatedAt,
   type PlacedHandle,
 } from '@/lib/world/placementController';
-import { isPlacementIdle } from '@/lib/world/placementActivity';
+import { isPlacementIdle, lastPlacementActivityAt } from '@/lib/world/placementActivity';
 import { isPostUnsupported, subscribeUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
 import { isLightBuilderMode, subscribeBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
 
@@ -655,7 +655,14 @@ export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>
   return [...records.values()]
     // Idle Main Brain placements are not seeded to peers (5-day gate).
     .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec) && !isPlacementIdle(rec))
-    .map(({ _origin: _ignored, ...rest }) => ({ ...rest, universeKey: 'global' }));
+    // Carry the newest activity (incl. wall views/tips/graffiti this node
+    // has seen) in `activityAt`, so a newcomer with no interaction history
+    // doesn't judge an actively used wall idle.
+    .map(({ _origin: _ignored, ...rest }) => ({
+      ...rest,
+      universeKey: 'global',
+      activityAt: Math.max(rest.activityAt ?? 0, lastPlacementActivityAt(rest)),
+    }));
 }
 
 /** Merge a peer's lobby snapshot. Non-global entries are discarded. */
