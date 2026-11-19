@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
+import { blockOffsetInFrame } from '@/lib/brain/blockFrame';
+import { beePoseAt, nearestFlowers, type V3 } from '@/lib/brain/nature/beeFlight';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
@@ -78,9 +80,12 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'flower': return <Flower color={color} />;
     case 'tree': return <Tree color={color} blockId={block.bodyId} />;
     case 'fish': return <Fish color={color} sex={(block.meta?.sex as string) ?? 'female'} />;
-    case 'hive': return <Hive color={color} />;
-    case 'queen_bee': return <Bee color={color} queen />;
-    case 'bee': return <Bee color={color} />;
+    case 'hive': return <Hive color={color} block={block} />;
+    // Bees are drawn by the hive's swarm (flying between hive and
+    // flowers); the queen stays at the hive. Their blocks remain the
+    // gameplay record, so nothing is drawn standing on the grass here.
+    case 'queen_bee': return null;
+    case 'bee': return null;
     case 'stone':
       return (
         <Boulder
@@ -196,41 +201,330 @@ function Fish({ color, sex }: { color: string; sex: string }) {
   );
 }
 
-function Hive({ color }: { color: string }) {
+/** Branch height where it leaves the trunk, and where it holds the hive (m). */
+const BRANCH_Y_TRUNK = 2.3;
+const BRANCH_Y_HIVE = 2.58;
+const BRANCH_R = 0.075;
+/** Hive body: a hanging teardrop of comb, top just under the branch. */
+const HIVE_TOP = BRANCH_Y_HIVE - BRANCH_R * 0.6;
+const HIVE_H = 1.06;
+const HIVE_PROFILE: [number, number][] = [
+  [0.07, 0], [0.2, -0.07], [0.34, -0.2], [0.42, -0.4], [0.43, -0.58],
+  [0.37, -0.79], [0.24, -0.96], [0.08, -1.04], [0, -HIVE_H],
+];
+/** Height below the hive top of the entrance, and its depth into the wall. */
+const ENTRANCE_DROP = 0.74;
+const ENTRANCE_R = 0.4;
+
+function hiveRadiusAt(drop: number): number {
+  for (let i = 1; i < HIVE_PROFILE.length; i++) {
+    const [r0, y0] = HIVE_PROFILE[i - 1];
+    const [r1, y1] = HIVE_PROFILE[i];
+    if (-drop <= y0 && -drop >= y1) return r0 + ((r1 - r0) * (-drop - y0)) / (y1 - y0 || 1);
+  }
+  return 0;
+}
+
+/**
+ * A wild honey hive hanging from a branch of its host tree, with the
+ * hive's workers flying out to the flowers and back. Everything is built
+ * here in code. If the host tree is felled the branch goes down with it
+ * and the hive drops to the grass, where the bees keep working it.
+ */
+function Hive({ color, block }: { color: string; block: BuilderBlock }) {
+  const engine = useMemo(() => getBuilderBlockEngine(), []);
+  const treeId = (block.meta?.treeId as string | undefined) ?? '';
+  // Where the host trunk stands in the hive's own frame. Measured from the
+  // live tree block so the branch meets the trunk exactly; the seeded
+  // right/forward offsets are the fallback.
+  const [trunkR, trunkF] = useMemo(() => {
+    const tree = treeId ? engine.getBlock(treeId) : undefined;
+    if (tree) {
+      const o = blockOffsetInFrame(block, tree);
+      return [o[0], o[2]];
+    }
+    // The view's local +x is up × forward, i.e. the site's LEFT, so a
+    // right offset maps to -x.
+    return [
+      -((block.meta?.trunkRight as number | undefined) ?? 0),
+      (block.meta?.trunkForward as number | undefined) ?? 0,
+    ];
+  }, [engine, block, treeId]);
+  const reach = Math.hypot(trunkR, trunkF);
+  const hung = treeId !== '' && reach > 0.01;
+  // Unit vector from trunk out to the hive, in the hive's local x/z.
+  const ux = hung ? -trunkR / reach : 1;
+  const uz = hung ? -trunkF / reach : 0;
+
+  const wax = useMemo(() => new THREE.Color('#d39a2c').lerp(new THREE.Color(color), 0.18), [color]);
+  const band = useMemo(() => wax.clone().multiplyScalar(0.72), [wax]);
+  const geometry = useMemo(
+    // Lathe points must run bottom → top for outward-facing walls.
+    () => new THREE.LatheGeometry(HIVE_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 18),
+    [],
+  );
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  const entrance = useMemo<V3>(() => {
+    const r = hiveRadiusAt(ENTRANCE_DROP);
+    return [ux * (r + 0.05), HIVE_TOP - ENTRANCE_DROP, uz * (r + 0.05)];
+  }, [ux, uz]);
+
+  const hiveRef = useRef<THREE.Group>(null);
+  const branchRef = useRef<THREE.Group>(null);
+  /** How far the hive has dropped from its branch (m) — read by the swarm. */
+  const dropRef = useRef(0);
+
+  useFrame(() => {
+    const restDrop = HIVE_TOP - HIVE_H;
+    let drop = 0;
+    let branchTilt = 0;
+    let branchScale = 1;
+    if (!hung) {
+      drop = restDrop;
+      branchScale = 0;
+    } else {
+      const tree = engine.getBlock(treeId);
+      const chop = getTreeChop(treeId);
+      if (!tree) {
+        drop = restDrop;
+        branchScale = 0;
+      } else if (chop?.toppledAt) {
+        const since = Date.now() - chop.toppledAt;
+        // The hive shakes loose a beat into the fall, then drops.
+        const t = Math.min(1, Math.max(0, (since - 250) / 650));
+        drop = restDrop * t * t;
+        const tt = Math.min(1, since / TOPPLE_MS);
+        branchTilt = tt * tt * (Math.PI / 2) * 0.92;
+        branchScale = Math.max(0.001, 1 - Math.max(0, since - TOPPLE_MS) / STUMP_FADE_MS);
+      } else if (chop) {
+        const since = Date.now() - chop.lastHitAt;
+        branchTilt = since < 420 ? Math.sin(since / 22) * 0.07 * (1 - since / 420) : 0;
+      }
+    }
+    dropRef.current = drop;
+    if (hiveRef.current) {
+      hiveRef.current.position.set(0, HIVE_TOP - drop, 0);
+      // Hanging hives sway a touch in the breeze; a grounded one is still.
+      const sway = drop > 0 ? 0 : Math.sin(Date.now() / 1400) * 0.025;
+      hiveRef.current.rotation.set(sway * uz, 0, -sway * ux);
+    }
+    if (branchRef.current) {
+      // Same pivot and motion as the tree: about its base, in its frame.
+      branchRef.current.rotation.set(0, 0, branchTilt);
+      branchRef.current.scale.setScalar(branchScale);
+      branchRef.current.visible = branchScale > 0.002;
+    }
+  });
+
+  const branchLen = Math.hypot(reach + 0.25, BRANCH_Y_HIVE - BRANCH_Y_TRUNK);
+  const branchYaw = Math.atan2(-uz, ux);
+  const branchPitch = Math.atan2(BRANCH_Y_HIVE - BRANCH_Y_TRUNK, reach);
+
   return (
     <group>
-      <mesh position={[0, 0.4, 0]} castShadow>
-        <cylinderGeometry args={[0.55, 0.7, 0.8, 12]} />
-        <meshStandardMaterial color={color} roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.85, 0]} castShadow>
-        <cylinderGeometry args={[0.4, 0.55, 0.3, 12]} />
-        <meshStandardMaterial color={color} roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 1.05, 0]} castShadow>
-        <coneGeometry args={[0.4, 0.35, 12]} />
-        <meshStandardMaterial color="#6b4f2a" roughness={0.9} />
-      </mesh>
+      {hung && (
+        // Pivot at the trunk's base so a falling tree takes the branch along.
+        <group ref={branchRef} position={[trunkR, 0, trunkF]}>
+          <group position={[0, BRANCH_Y_TRUNK, 0]} rotation={[0, branchYaw, branchPitch]}>
+            <mesh position={[branchLen / 2, 0, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+              <cylinderGeometry args={[BRANCH_R * 0.7, BRANCH_R * 1.25, branchLen, 7]} />
+              <meshStandardMaterial color="#6b4f2a" roughness={0.92} />
+            </mesh>
+            {/* a short twig with a few leaves past the hive */}
+            <mesh position={[branchLen * 0.82, 0.16, 0.12]} rotation={[0.5, 0, -0.6]}>
+              <cylinderGeometry args={[0.02, 0.03, 0.45, 5]} />
+              <meshStandardMaterial color="#6b4f2a" roughness={0.92} />
+            </mesh>
+            <mesh position={[branchLen + 0.05, 0.08, 0]} castShadow>
+              <icosahedronGeometry args={[0.24, 0]} />
+              <meshStandardMaterial color="#3f7a35" roughness={0.85} flatShading />
+            </mesh>
+          </group>
+        </group>
+      )}
+
+      <group ref={hiveRef} position={[0, HIVE_TOP, 0]}>
+        {/* stalk of comb fixing the hive to the branch */}
+        <mesh position={[0, 0.02, 0]}>
+          <cylinderGeometry args={[0.06, 0.09, 0.1, 8]} />
+          <meshStandardMaterial color={band} roughness={0.8} />
+        </mesh>
+        <mesh geometry={geometry} castShadow receiveShadow>
+          <meshStandardMaterial color={wax} roughness={0.7} emissive={wax} emissiveIntensity={0.08} />
+        </mesh>
+        {/* comb ridges */}
+        {[0.2, 0.4, 0.6, 0.82].map((d) => (
+          <mesh key={d} position={[0, -d, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <torusGeometry args={[hiveRadiusAt(d) + 0.005, 0.03, 6, 18]} />
+            <meshStandardMaterial color={band} roughness={0.8} />
+          </mesh>
+        ))}
+        {/* entrance, facing away from the trunk */}
+        <mesh
+          position={[ux * (hiveRadiusAt(ENTRANCE_DROP) - 0.01), -ENTRANCE_DROP, uz * (hiveRadiusAt(ENTRANCE_DROP) - 0.01)]}
+          rotation={[0, Math.atan2(ux, uz), 0]}
+        >
+          <circleGeometry args={[0.085, 12]} />
+          <meshStandardMaterial color="#1c1206" roughness={1} side={THREE.DoubleSide} />
+        </mesh>
+        {/* the queen, resting on the lip of the entrance */}
+        <group
+          position={[ux * (ENTRANCE_R + 0.07), -ENTRANCE_DROP - 0.12, uz * (ENTRANCE_R + 0.07)]}
+          rotation={[0, Math.atan2(ux, uz) + Math.PI / 2, 0]}
+          scale={1.3}
+        >
+          <BeeModel queen />
+        </group>
+      </group>
+
+      <BeeSwarm hive={block} entrance={entrance} dropRef={dropRef} />
     </group>
   );
 }
 
-function Bee({ color, queen = false }: { color: string; queen?: boolean }) {
-  const r = queen ? 0.14 : 0.09;
+const BEE_YELLOW = '#f7c21a';
+
+/** One bee, nose along +z: striped body, dark head, flapping wings. */
+function BeeModel({
+  queen = false,
+  wingL,
+  wingR,
+  pollen,
+}: {
+  queen?: boolean;
+  wingL?: React.Ref<THREE.Group>;
+  wingR?: React.Ref<THREE.Group>;
+  pollen?: React.Ref<THREE.Group>;
+}) {
   return (
-    <group position={[0, queen ? 0.5 : 0.3, 0]}>
-      <mesh castShadow>
-        <sphereGeometry args={[r, 8, 8]} />
-        <meshStandardMaterial color={color} roughness={0.6} emissive={queen ? '#ffae00' : '#000'} emissiveIntensity={queen ? 0.25 : 0} />
+    <group>
+      <mesh scale={[0.78, 0.78, queen ? 1.6 : 1.3]}>
+        <sphereGeometry args={[0.11, 10, 8]} />
+        <meshStandardMaterial
+          color={queen ? '#e9a20f' : BEE_YELLOW}
+          emissive={queen ? '#ffae00' : BEE_YELLOW}
+          emissiveIntensity={queen ? 0.35 : 0.22}
+          roughness={0.55}
+        />
       </mesh>
-      {/* stripe */}
-      <mesh position={[0, 0, 0]}>
-        <torusGeometry args={[r * 0.95, r * 0.18, 6, 12]} />
-        <meshStandardMaterial color="#1a1a1a" roughness={0.9} />
+      {[-0.035, 0.05].map((z) => (
+        <mesh key={z} position={[0, 0, z]} scale={[1, 1, 0.55]}>
+          <torusGeometry args={[0.083, 0.024, 6, 14]} />
+          <meshStandardMaterial color="#141008" roughness={0.9} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.01, 0.15 * (queen ? 1.15 : 1)]}>
+        <sphereGeometry args={[0.065, 8, 6]} />
+        <meshStandardMaterial color="#141008" roughness={0.7} />
       </mesh>
+      {/* wings hinge at the body so they flap, not spin */}
+      {[1, -1].map((side) => (
+        <group key={side} ref={side > 0 ? wingL : wingR} position={[side * 0.03, 0.075, 0.02]}>
+          <mesh position={[side * 0.1, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[0.2, 0.11]} />
+            <meshStandardMaterial color="#eaf6ff" transparent opacity={0.55} side={THREE.DoubleSide} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
+      {pollen && (
+        <group ref={pollen} visible={false}>
+          {[-1, 1].map((s) => (
+            <mesh key={s} position={[s * 0.07, -0.06, -0.01]}>
+              <sphereGeometry args={[0.035, 6, 5]} />
+              <meshStandardMaterial color="#ffb300" emissive="#ff9500" emissiveIntensity={0.3} />
+            </mesh>
+          ))}
+        </group>
+      )}
     </group>
   );
 }
+
+/**
+ * The hive's workers: one flying bee per worker block, foraging the
+ * closest flowers on a shared clock so every peer sees the same flight.
+ */
+function BeeSwarm({
+  hive,
+  entrance,
+  dropRef,
+}: {
+  hive: BuilderBlock;
+  entrance: V3;
+  dropRef: React.MutableRefObject<number>;
+}) {
+  const engine = useMemo(() => getBuilderBlockEngine(), []);
+  const [flowers, setFlowers] = useState<V3[]>([]);
+  const [workers, setWorkers] = useState(0);
+
+  useEffect(() => {
+    const refresh = () => {
+      const local = engine
+        .listBlocks((b) => b.kind === 'flower' && b.meta?.biome === 'nature.biome.v1')
+        .map((f) => {
+          const o = blockOffsetInFrame(hive, f);
+          return [o[0], o[1] + 0.47, o[2]] as V3; // the bloom, not the stem foot
+        });
+      setFlowers(nearestFlowers(entrance, local));
+      setWorkers(engine.listBlocks((b) => b.kind === 'bee' && b.meta?.hiveId === hive.id).length);
+    };
+    refresh();
+    return engine.subscribe((evt) => {
+      if (evt.block.kind === 'flower' || evt.block.kind === 'bee') refresh();
+    });
+  }, [engine, hive, entrance]);
+
+  const bees = useRef<(THREE.Group | null)[]>([]);
+  const wingsL = useRef<(THREE.Group | null)[]>([]);
+  const wingsR = useRef<(THREE.Group | null)[]>([]);
+  const pollen = useRef<(THREE.Group | null)[]>([]);
+
+  useFrame(() => {
+    const now = Date.now() / 1000;
+    const drop = dropRef.current;
+    const door: V3 = [entrance[0], entrance[1] - drop, entrance[2]];
+    for (let i = 0; i < workers; i++) {
+      const g = bees.current[i];
+      if (!g) continue;
+      const p = beePoseAt(i, workers, now, door, flowers);
+      const ahead = beePoseAt(i, workers, now + 0.08, door, flowers).pos;
+      g.position.set(p.pos[0], p.pos[1], p.pos[2]);
+      const dx = ahead[0] - p.pos[0];
+      const dy = ahead[1] - p.pos[1];
+      const dz = ahead[2] - p.pos[2];
+      const flat = Math.hypot(dx, dz);
+      if (flat > 1e-4) {
+        g.rotation.set(-Math.atan2(dy, flat) * 0.6, Math.atan2(dx, dz), 0);
+      } else if (p.phase === 'rest') {
+        // Resting at the door: face out, away from the hive.
+        g.rotation.set(0, Math.atan2(entrance[0], entrance[2]), 0);
+      }
+      const flap = p.phase === 'rest' ? 0.15 : Math.sin(now * 90 + i) * 0.7;
+      const wl = wingsL.current[i];
+      const wr = wingsR.current[i];
+      if (wl) wl.rotation.z = 0.25 + flap;
+      if (wr) wr.rotation.z = -0.25 - flap;
+      const pg = pollen.current[i];
+      if (pg) pg.visible = p.phase === 'back' || p.phase === 'rest';
+    }
+  });
+
+  return (
+    <>
+      {Array.from({ length: workers }, (_, i) => (
+        <group key={i} ref={(el) => { bees.current[i] = el; }} position={entrance}>
+          <BeeModel
+            wingL={(el) => { wingsL.current[i] = el; }}
+            wingR={(el) => { wingsR.current[i] = el; }}
+            pollen={(el) => { pollen.current[i] = el; }}
+          />
+        </group>
+      ))}
+    </>
+  );
+}
+
 function Boulder({
   color,
   blockId,
