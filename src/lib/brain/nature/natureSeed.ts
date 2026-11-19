@@ -16,6 +16,7 @@
  *   - 8 granite boulders (gatherable stone), kept off the pond and hive
  */
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
+import { hiveSpotOnTree } from '@/lib/brain/nature/hiveRehome';
 import { NATURE_CATALOG, type NatureKind } from './natureCatalog';
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -173,9 +174,9 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   const OLD_HX = 8, OLD_HZ = 22;
   const host = trees.reduce((best, t) =>
     Math.hypot(t.x - OLD_HX, t.z - OLD_HZ) < Math.hypot(best.x - OLD_HX, best.z - OLD_HZ) ? t : best);
-  const hostLen = Math.hypot(host.x, host.z) || 1;
-  const HX = host.x - (host.x / hostLen) * HIVE_REACH;
-  const HZ = host.z - (host.z / hostLen) * HIVE_REACH;
+  const spot = hiveSpotOnTree(host);
+  const HX = spot.x;
+  const HZ = spot.z;
   place({
     anchorPeerId,
     kind: 'hive',
@@ -187,8 +188,8 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
       workerCap: WORKER_BEES,
       treeId: `tree:${host.id}`,
       // Trunk position relative to the hive, in the hive's right/forward frame.
-      trunkRight: host.x - HX,
-      trunkForward: host.z - HZ,
+      trunkRight: spot.trunkRight,
+      trunkForward: spot.trunkForward,
     },
   });
   ids.push('hive-0');
@@ -247,7 +248,7 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
 }
 
 /** How far out along its branch the hive hangs from the trunk (m). */
-export const HIVE_REACH = 1.9;
+export { HIVE_REACH } from '@/lib/brain/nature/hiveRehome';
 
 /** Worker bees that forage from the hive. */
 export const WORKER_BEES = 8;

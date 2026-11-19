@@ -6,6 +6,7 @@ import { blockOffsetInFrame } from '@/lib/brain/blockFrame';
 import { beePoseAt, nearestFlowers, type V3 } from '@/lib/brain/nature/beeFlight';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { seedDefaultBiome } from '@/lib/brain/nature/natureSeed';
+import { hiveBuildProgress, rehomeHivesFrom, HUSK_MS } from '@/lib/brain/nature/hiveRehome';
 import { seedMountains } from '@/lib/brain/nature/mountainSeed';
 import { seedVolcanoes } from '@/lib/brain/nature/volcanoSeed';
 import { NATURE_CATALOG, type NatureKind } from '@/lib/brain/nature/natureCatalog';
@@ -45,7 +46,12 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // letting that release leak into ground tremor.
     seedVolcanoes(anchorPeerId);
     // Re-render when blocks are added/removed/upgraded by anyone.
-    const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
+    const unsub = engine.subscribe((evt) => {
+      // A felled tree has been cleared away: any hive it held moves to a
+      // new tree, and the bees build a fresh comb there.
+      if (evt.type === 'remove' && evt.block.kind === 'tree') rehomeHivesFrom(evt.block.bodyId);
+      force((n) => (n + 1) & 0xfff);
+    });
     return unsub;
   }, [anchorPeerId, engine]);
 
@@ -71,6 +77,7 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
 
 /** Dispatch by kind. Geometry is intentionally minimal in Phase 2. */
 function NaturePiece({ block }: { block: BuilderBlock }) {
+  if (block.kind === 'hive_husk') return <HiveHusk block={block} />;
   const kind = block.kind as NatureKind;
   const spec = NATURE_CATALOG[kind];
   const color = spec?.color ?? '#888';
@@ -80,7 +87,8 @@ function NaturePiece({ block }: { block: BuilderBlock }) {
     case 'flower': return <Flower color={color} />;
     case 'tree': return <Tree color={color} blockId={block.bodyId} />;
     case 'fish': return <Fish color={color} sex={(block.meta?.sex as string) ?? 'female'} />;
-    case 'hive': return <Hive color={color} block={block} />;
+    // Keyed by host tree so a hive that moved house starts fresh.
+    case 'hive': return <Hive key={String(block.meta?.treeId ?? '')} color={color} block={block} />;
     // Bees are drawn by the hive's swarm (flying between hive and
     // flowers); the queen stays at the hive. Their blocks remain the
     // gameplay record, so nothing is drawn standing on the grass here.
@@ -216,6 +224,12 @@ const HIVE_PROFILE: [number, number][] = [
 const ENTRANCE_DROP = 0.74;
 const ENTRANCE_R = 0.4;
 
+/** Size of the comb while the bees build it: a small knob growing to full. */
+function hiveBuildScale(build: number): number {
+  const e = build * build * (3 - 2 * build);
+  return 0.15 + 0.85 * e;
+}
+
 function hiveRadiusAt(drop: number): number {
   for (let i = 1; i < HIVE_PROFILE.length; i++) {
     const [r0, y0] = HIVE_PROFILE[i - 1];
@@ -229,7 +243,9 @@ function hiveRadiusAt(drop: number): number {
  * A wild honey hive hanging from a branch of its host tree, with the
  * hive's workers flying out to the flowers and back. Everything is built
  * here in code. If the host tree is felled the branch goes down with it
- * and the hive drops to the grass, where the bees keep working it.
+ * and the hive drops to the grass. Once the tree is cleared away the
+ * colony moves to the nearest standing tree (see `hiveRehome`) and builds
+ * a new comb there, growing from a small knob while the bees crowd round.
  */
 function Hive({ color, block }: { color: string; block: BuilderBlock }) {
   const engine = useMemo(() => getBuilderBlockEngine(), []);
@@ -274,8 +290,12 @@ function Hive({ color, block }: { color: string; block: BuilderBlock }) {
   const branchRef = useRef<THREE.Group>(null);
   /** How far the hive has dropped from its branch (m) — read by the swarm. */
   const dropRef = useRef(0);
+  /** How far the comb is built, 0..1 — read by the swarm. */
+  const buildRef = useRef(hiveBuildProgress(block.meta?.builtAt, Date.now()));
 
   useFrame(() => {
+    const build = hiveBuildProgress(block.meta?.builtAt, Date.now());
+    buildRef.current = build;
     const restDrop = HIVE_TOP - HIVE_H;
     let drop = 0;
     let branchTilt = 0;
@@ -308,6 +328,8 @@ function Hive({ color, block }: { color: string; block: BuilderBlock }) {
       // Hanging hives sway a touch in the breeze; a grounded one is still.
       const sway = drop > 0 ? 0 : Math.sin(Date.now() / 1400) * 0.025;
       hiveRef.current.rotation.set(sway * uz, 0, -sway * ux);
+      // A new hive starts as a small knob of comb and grows to full size.
+      hiveRef.current.scale.setScalar(hiveBuildScale(build));
     }
     if (branchRef.current) {
       // Same pivot and motion as the tree: about its base, in its frame.
@@ -378,7 +400,46 @@ function Hive({ color, block }: { color: string; block: BuilderBlock }) {
         </group>
       </group>
 
-      <BeeSwarm hive={block} entrance={entrance} dropRef={dropRef} />
+      <BeeSwarm hive={block} entrance={entrance} dropRef={dropRef} buildRef={buildRef} />
+    </group>
+  );
+}
+
+/**
+ * The broken comb a colony leaves behind when its tree is felled. It
+ * starts where the fallen hive landed, rolls onto its side, and after a
+ * while crumbles away into the grass.
+ */
+function HiveHusk({ block }: { block: BuilderBlock }) {
+  const geometry = useMemo(
+    () => new THREE.LatheGeometry(HIVE_PROFILE.map(([r, y]) => new THREE.Vector2(r, y)).reverse(), 14),
+    [],
+  );
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  const abandonedAt = (block.meta?.abandonedAt as number | undefined) ?? Date.now();
+  const groupRef = useRef<THREE.Group>(null);
+  const matRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  useFrame(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    const since = Date.now() - abandonedAt;
+    const roll = Math.min(1, since / 1200);
+    const tip = roll * roll * (Math.PI / 2) * 0.9;
+    g.rotation.set(0, 0, tip);
+    g.position.set(0, 0.36 * (tip / (Math.PI / 2)), 0);
+    // Crumble over the last third of its time on the grass.
+    const fade = Math.min(1, Math.max(0, (HUSK_MS - since) / (HUSK_MS / 3)));
+    g.scale.setScalar(0.4 + 0.6 * fade);
+    if (matRef.current) matRef.current.opacity = fade;
+    g.visible = fade > 0.01;
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh geometry={geometry} position={[0, HIVE_H, 0]} castShadow receiveShadow>
+        <meshStandardMaterial ref={matRef} color="#7a5a2a" roughness={0.95} transparent />
+      </mesh>
     </group>
   );
 }
@@ -449,10 +510,12 @@ function BeeSwarm({
   hive,
   entrance,
   dropRef,
+  buildRef,
 }: {
   hive: BuilderBlock;
   entrance: V3;
   dropRef: React.MutableRefObject<number>;
+  buildRef: React.MutableRefObject<number>;
 }) {
   const engine = useMemo(() => getBuilderBlockEngine(), []);
   const [flowers, setFlowers] = useState<V3[]>([]);
@@ -483,12 +546,31 @@ function BeeSwarm({
   useFrame(() => {
     const now = Date.now() / 1000;
     const drop = dropRef.current;
-    const door: V3 = [entrance[0], entrance[1] - drop, entrance[2]];
+    const build = buildRef.current;
+    // While the comb is being built it is smaller, so its door sits closer in.
+    const sc = hiveBuildScale(build);
+    const door: V3 = [entrance[0] * sc, HIVE_TOP - (HIVE_TOP - entrance[1]) * sc - drop, entrance[2] * sc];
+    // Builders crowd round the growing comb instead of foraging; near the
+    // end of the build they ease out into their foraging loop.
+    const combCentre: V3 = [0, HIVE_TOP - HIVE_H * 0.45 * sc - drop, 0];
+    const k = build >= 1 ? 1 : Math.max(0, (build - 0.88) / 0.12);
+    const ease = k * k * (3 - 2 * k);
+    const poseAt = (i: number, t: number) => {
+      const forage = beePoseAt(i, workers, t, door, flowers);
+      if (ease >= 1) return forage;
+      const crowd = beePoseAt(i, workers, t, combCentre, []);
+      const pos: V3 = [
+        crowd.pos[0] + (forage.pos[0] - crowd.pos[0]) * ease,
+        crowd.pos[1] + (forage.pos[1] - crowd.pos[1]) * ease,
+        crowd.pos[2] + (forage.pos[2] - crowd.pos[2]) * ease,
+      ];
+      return { pos, phase: ease > 0.5 ? forage.phase : crowd.phase, flower: forage.flower };
+    };
     for (let i = 0; i < workers; i++) {
       const g = bees.current[i];
       if (!g) continue;
-      const p = beePoseAt(i, workers, now, door, flowers);
-      const ahead = beePoseAt(i, workers, now + 0.08, door, flowers).pos;
+      const p = poseAt(i, now);
+      const ahead = poseAt(i, now + 0.08).pos;
       g.position.set(p.pos[0], p.pos[1], p.pos[2]);
       const dx = ahead[0] - p.pos[0];
       const dy = ahead[1] - p.pos[1];
