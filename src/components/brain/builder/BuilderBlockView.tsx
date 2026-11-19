@@ -1,13 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import {
-  FEET_SHELL_RADIUS,
-  getEarthPose,
-  getEarthLocalSiteFrame,
-  earthLocalToWorld,
-} from '@/lib/brain/earth';
-import { getBuilderBlockEngine, blockWorldPos, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+import { blockWorldBasis } from '@/lib/brain/blockFrame';
 
 
 /**
@@ -50,41 +45,12 @@ export function BuilderBlockView({
 
   useFrame(() => {
     if (!groupRef.current || !block) return;
-    const pose = getEarthPose();
     // Render is read-only, and it reads the pose of THIS FRAME. The
     // engine's per-tick stamp of `body.pos` still owns the support basin
     // and every gameplay query; drawing from that stamp instead left the
     // block one frame behind the ground (~4 cm of orbital translation),
     // which read as objects jittering side to side.
-    const worldPos = blockWorldPos(block);
-    const dx = worldPos[0] - pose.center[0];
-    const dy = worldPos[1] - pose.center[1];
-    const dz = worldPos[2] - pose.center[2];
-    const r = Math.hypot(dx, dy, dz) || 1;
-    void FEET_SHELL_RADIUS;
-    const up: [number, number, number] = [dx / r, dy / r, dz / r];
-
-    const lf = getEarthLocalSiteFrame(block.anchorPeerId);
-    const fwdW = earthLocalToWorld(lf.forward, pose);
-    const rgtW = earthLocalToWorld(lf.right, pose);
-    let forward: [number, number, number] = [
-      fwdW[0] - pose.center[0], fwdW[1] - pose.center[1], fwdW[2] - pose.center[2],
-    ];
-    const dot = forward[0] * up[0] + forward[1] * up[1] + forward[2] * up[2];
-    forward = [forward[0] - up[0] * dot, forward[1] - up[1] * dot, forward[2] - up[2] * dot];
-    const fl = Math.hypot(forward[0], forward[1], forward[2]) || 1;
-    forward = [forward[0] / fl, forward[1] / fl, forward[2] / fl];
-    void rgtW;
-    const right: [number, number, number] = [
-      up[1] * forward[2] - up[2] * forward[1],
-      up[2] * forward[0] - up[0] * forward[2],
-      up[0] * forward[1] - up[1] * forward[0],
-    ];
-    const m = new THREE.Matrix4().makeBasis(
-      new THREE.Vector3(right[0], right[1], right[2]),
-      new THREE.Vector3(up[0], up[1], up[2]),
-      new THREE.Vector3(forward[0], forward[1], forward[2]),
-    );
+    const { worldPos, m } = blockWorldBasis(block);
     groupRef.current.position.set(worldPos[0], worldPos[1], worldPos[2]);
     groupRef.current.setRotationFromMatrix(m);
   });
