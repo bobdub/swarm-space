@@ -149,10 +149,15 @@ let historySeq = 0;
 
 // Track which rooms we've joined (roomId -> participant mesh peerIds)
 const joinedRooms = new Map<string, Set<string>>();
+/** The room the local call layer is in, kept across bridge restarts. */
+let activeJoin: { roomId: string; userId: string; username: string } | null = null;
 
 // ── Departed / silent peer tracking ────────────────────────────────────
 /** `${roomId}|${peerId}` -> time the peer left. Stale echoes never revive them. */
 const departedAt = new Map<string, number>();
+/** `${roomId}|${peerId}` -> time a peer was evicted for going quiet. Unlike a
+ *  real departure, anything we hear from them afterwards brings them back. */
+const silentAt = new Map<string, number>();
 /** `${roomId}|${peerId}` -> last time we heard anything from the peer. */
 const lastHeardAt = new Map<string, number>();
 const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void>();
@@ -172,12 +177,18 @@ function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'
   joinedRooms.get(roomId)?.delete(peerId);
   roomPresenceLog.get(roomId)?.delete(peerId);
   lastHeardAt.delete(roomKey(roomId, peerId));
-  departedAt.set(roomKey(roomId, peerId), Date.now());
   if (reason === 'silent') {
+    // Quiet is not gone: a mesh edge hiccup or a throttled background tab
+    // stops heartbeats while the call itself is fine. Remember it softly
+    // so the next packet from them revives the membership.
+    silentAt.set(roomKey(roomId, peerId), Date.now());
     console.log(`[WebRTC-Bridge] 💤 ${peerId} silent in ${roomId} — removing`);
     for (const h of signalHandlers) {
-      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now() }); } catch { /* ignore */ }
+      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason: 'silent' } }); } catch { /* ignore */ }
     }
+  } else {
+    silentAt.delete(roomKey(roomId, peerId));
+    departedAt.set(roomKey(roomId, peerId), Date.now());
   }
   for (const h of presenceRemovedHandlers) {
     try { h(roomId, peerId); } catch { /* ignore */ }
@@ -199,6 +210,24 @@ export function sweepSilentRoomPeers(now: number = Date.now()): void {
   for (const [k, t] of departedAt) {
     if (now - t > 5 * 60_000) departedAt.delete(k);
   }
+  for (const [k, t] of silentAt) {
+    if (now - t > 5 * 60_000) silentAt.delete(k);
+  }
+}
+
+/**
+ * True while `peerId` is a live member of a room we are in: announced, not
+ * departed, and heard from recently. The call layer uses it to keep trying
+ * to reach a peer that is clearly still there instead of giving up.
+ */
+export function isRoomPeerPresent(roomId: string, peerId: string, now: number = Date.now()): boolean {
+  const members = joinedRooms.get(roomId);
+  if (!members) return false;
+  const key = roomKey(roomId, peerId);
+  if (departedAt.has(key) || silentAt.has(key)) return false;
+  const heard = lastHeardAt.get(key);
+  if (heard !== undefined) return now - heard <= ROOM_PEER_SILENCE_MS;
+  return members.has(peerId);
 }
 
 function heartbeatRooms(): void {
@@ -318,6 +347,32 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
   }
   if (envelope.msgType !== 'leave-room' && joinedRooms.has(envelope.roomId)) {
     lastHeardAt.set(fromKey, Date.now());
+  }
+
+  // A peer we evicted for going quiet is talking again: they never left.
+  // Restore membership and tell the call layer, so it reconnects (or keeps)
+  // their audio right away instead of waiting for them to re-join.
+  if (envelope.msgType !== 'leave-room' && silentAt.has(fromKey)) {
+    silentAt.delete(fromKey);
+    const room = joinedRooms.get(envelope.roomId);
+    if (room && myPeerId && room.has(myPeerId)) {
+      room.add(envelope.from);
+      console.log(`[WebRTC-Bridge] 🔔 ${envelope.from} is back in ${envelope.roomId}`);
+      if (envelope.msgType !== 'join-room') {
+        for (const h of signalHandlers) {
+          try {
+            h({
+              msgType: 'join-room',
+              from: envelope.from,
+              roomId: envelope.roomId,
+              userId: envelope.userId,
+              username: envelope.username,
+              ts: envelope.ts,
+            });
+          } catch { /* ignore */ }
+        }
+      }
+    }
   }
 
   switch (envelope.msgType) {
@@ -790,6 +845,13 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   for (const roomId of historyInterest.keys()) {
     sendChatHistoryRequest(roomId, knownPeerSnapshot.size ? Array.from(knownPeerSnapshot).slice(0, HISTORY_FANOUT) : []);
   }
+  // Announce a room joined before the bridge (re)started, then ask who is
+  // already there, so the call forms now rather than on the next edge churn.
+  if (activeJoin) {
+    const { roomId, userId, username } = activeJoin;
+    announceJoinRoom(roomId, userId, username);
+    helloRoom(roomId);
+  }
   console.log('[WebRTC-Bridge] ✅ Signaling bridge started');
   return () => stopSignalingBridge();
 }
@@ -910,6 +972,10 @@ export function sendMediaState(
  * Announce joining a room — existing participants will respond with offers.
  */
 export function announceJoinRoom(roomId: string, userId: string, username: string): void {
+  // Remember the room even before the mesh is up: the call layer only joins
+  // once, so a join made during the cold start used to be lost and the
+  // other users only found us minutes later, when some mesh edge churned.
+  activeJoin = { roomId, userId, username };
   if (!meshRef) return;
   ensureSweep();
 
@@ -938,6 +1004,7 @@ export function announceJoinRoom(roomId: string, userId: string, username: strin
  * Announce leaving a room.
  */
 export function announceLeaveRoom(roomId: string): void {
+  if (activeJoin?.roomId === roomId) activeJoin = null;
   if (!meshRef) return;
   
   meshRef.broadcast(SIGNAL_CHANNEL, {

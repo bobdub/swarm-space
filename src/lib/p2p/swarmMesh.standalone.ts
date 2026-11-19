@@ -1,4 +1,5 @@
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
+import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 
@@ -334,21 +335,7 @@ function clearRetryExhausted(manifestId: string): void {
   } catch { /* noop */ }
 }
 
-const DEFAULT_ICE: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-  // Public community relays: fallback only, so carrier NAT (mobile) pairs
-  // that cannot hole-punch still connect. STUN stays first for direct paths.
-  {
-    urls: [
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
-      'turn:openrelay.metered.ca:443?transport=tcp',
-    ],
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-];
+const DEFAULT_ICE: RTCIceServer[] = DEFAULT_ICE_SERVERS;
 
 // Ordered failover list: configured servers (VITE_PEERJS_*) first, PeerJS
 // Cloud last. See signalingEndpoints.ts for why every node walks one order.
