@@ -293,6 +293,34 @@ function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
   void meshRef.send(SIGNAL_CHANNEL, envelope.to, { ...envelope, hops: hops + 1 }).catch(() => undefined);
 }
 
+/**
+ * Deliver a directed envelope to `to`, even without a direct mesh edge.
+ * `mesh.send` resolves `false` (it does not throw) when we have no edge to
+ * the target, so the old `.catch` fallback never ran and the signal was
+ * silently dropped. In a sparse mesh (A linked to B and C, but B and C not
+ * linked) that meant B and C never formed a call: A heard both of them, they
+ * never heard each other. Broadcasting lets a neighbour that does reach the
+ * target relay it (see relayDirected); dedup keys stop double delivery.
+ */
+function sendDirected(envelope: SignalEnvelope & { to: string }): void {
+  const mesh = meshRef;
+  if (!mesh) return;
+  const fallback = () => {
+    if (meshRef !== mesh) return;
+    for (const peerId of mesh.getConnectedPeerIds()) {
+      if (peerId === envelope.to) continue;
+      void mesh.send(SIGNAL_CHANNEL, peerId, envelope).catch(() => undefined);
+    }
+  };
+  if (!mesh.getConnectedPeerIds().includes(envelope.to)) {
+    fallback();
+    return;
+  }
+  void Promise.resolve(mesh.send(SIGNAL_CHANNEL, envelope.to, envelope))
+    .then((ok) => { if (ok === false) fallback(); })
+    .catch(fallback);
+}
+
 function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): void {
   if (!meshRef || !RELAYED_ANNOUNCEMENTS.has(envelope.msgType)) return;
   // Only members of the room forward its announcements.
@@ -387,14 +415,15 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         console.log(`[WebRTC-Bridge] 👋 ${envelope.from} joined room ${envelope.roomId}`);
         
         // Send room-sync so joining peer knows who's here
-        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+        sendDirected({
           msgType: 'room-sync',
           from: myPeerId,
+          to: envelope.from,
           roomId: envelope.roomId,
           participants: Array.from(room),
           userId: envelope.userId,
           ts: Date.now(),
-        } satisfies SignalEnvelope);
+        });
       }
       // Forward to handlers (WebRTCManager will create offer)
       for (const h of signalHandlers) {
@@ -549,18 +578,18 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       if (room && myPeerId && room.has(myPeerId)) {
         const alreadyKnown = room.has(envelope.from);
         room.add(envelope.from);
-        meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+        sendDirected({
           msgType: 'room-sync',
           from: myPeerId,
           to: envelope.from,
           roomId: envelope.roomId,
           participants: Array.from(room),
           ts: Date.now(),
-        } satisfies SignalEnvelope).catch(() => undefined);
+        });
         // Replay our latest presence directly so their UI hydrates immediately.
         const mine = myLastPresence.get(envelope.roomId);
         if (mine) {
-          meshRef?.send(SIGNAL_CHANNEL, envelope.from, {
+          sendDirected({
             msgType: 'presence',
             from: myPeerId,
             to: envelope.from,
@@ -574,7 +603,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
               pv: mine.pv,
             },
             ts: Date.now(),
-          } satisfies SignalEnvelope).catch(() => undefined);
+          });
         }
         // Also surface to local handlers as a synthetic peer-joined hint.
         // Only do this when this is a genuinely new room member for this
@@ -897,11 +926,8 @@ export function sendSignalViaMesh(
     data,
     ts: Date.now(),
   };
-  // Send directly to target peer
-  meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
-    // Fallback: broadcast (peer will filter by `to` field)
-    meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
-  });
+  // Direct when we have an edge to them, otherwise through a neighbour.
+  sendDirected(envelope as SignalEnvelope & { to: string });
 }
 
 /**
@@ -923,9 +949,7 @@ export function sendReconnectRequest(
     roomId,
     ts: Date.now(),
   };
-  meshRef.send(SIGNAL_CHANNEL, toPeerId, envelope).catch(() => {
-    meshRef?.broadcast(SIGNAL_CHANNEL, envelope);
-  });
+  sendDirected(envelope as SignalEnvelope & { to: string });
 }
 
 /**
