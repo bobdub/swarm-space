@@ -267,6 +267,7 @@ const seenOrder: string[] = [];
 const MAX_SEEN_SIGNALS = 2000;
 const RELAYED_ANNOUNCEMENTS = new Set<SignalEnvelope['msgType']>([
   'join-room', 'leave-room', 'presence', 'media-state', 'screen-share-state', 'room-heartbeat', 'chat-message',
+  'room-hello',
 ]);
 
 /** Test/internal: identity of an envelope for dedup. */
@@ -323,10 +324,14 @@ function sendDirected(envelope: SignalEnvelope & { to: string }): void {
 
 function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): void {
   if (!meshRef || !RELAYED_ANNOUNCEMENTS.has(envelope.msgType)) return;
-  // Only members of the room forward its announcements.
-  if (!joinedRooms.has(envelope.roomId)) return;
   const hops = envelope.hops ?? 0;
   if (hops >= MAX_SIGNAL_HOPS) return;
+  // Members forward a room's announcements across the hop budget. A node
+  // outside the room forwards only first-hop ones: a newcomer whose only
+  // mesh link is a non-member (common right after joining, while direct
+  // links are still being dialled) was otherwise unreachable, and the room
+  // only heard them once a direct link formed, often minutes later.
+  if (!joinedRooms.has(envelope.roomId) && hops > 0) return;
   const next = { ...envelope, hops: hops + 1 };
   for (const peerId of meshRef.getConnectedPeerIds()) {
     if (peerId === fromPeerId || peerId === envelope.from) continue;
