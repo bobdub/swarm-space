@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
-import { hidePostForUser } from "@/lib/hiddenPosts";
+import { hidePostForUser, useIsPostHiddenNow } from "@/lib/hiddenPosts";
 import { stopSupportingPost, useIsPostUnsupported } from "@/lib/content/unsupportedPostsStore";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -139,12 +139,15 @@ interface DecryptedAttachment {
 }
 
 /**
- * A post this node has stopped supporting renders nothing, everywhere —
- * the card vanishes the moment Stop Support is chosen.
+ * A post this node has stopped supporting, or that the user just hid,
+ * renders nothing, everywhere — the card vanishes the moment it's chosen.
  */
 export function PostCard({ post }: PostCardProps) {
   const unsupported = useIsPostUnsupported(post.id);
-  if (unsupported) return null;
+  // Hide Post takes effect on every list at once (Explore never re-filters
+  // posts it already rendered).
+  const hidden = useIsPostHiddenNow(post.id);
+  if (unsupported || hidden) return null;
   return <PostCardBody post={post} />;
 }
 
