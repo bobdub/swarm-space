@@ -69,6 +69,8 @@ const PUBDRINK_CHANNEL = 'pub:drink';
 const NATURE_CHANNEL = 'nature:event';
 const NATURE_SYNC_REQUEST = 'nature:events:sync-request';
 const NATURE_SYNC_RESPONSE = 'nature:events:sync-response';
+/** How often every connected peer is asked again for its nature events. */
+const NATURE_RESYNC_MS = 2 * 60_000;
 /** How often we look for peers we haven't backfilled from yet. */
 const PEER_POLL_MS = 10_000;
 
@@ -280,6 +282,15 @@ export function bootPlacementGossipBridge(): void {
     };
     pollPeers();
     setInterval(pollPeers, PEER_POLL_MS);
+
+    // Nature events: also re-ask every connected peer now and then, so a
+    // missed relay (a dropped message, a peer that was mid-reconnect)
+    // still converges. Only new events are kept, so this is cheap.
+    setInterval(() => {
+      try {
+        for (const id of mesh!.getConnectedPeerIds()) void mesh!.send(NATURE_SYNC_REQUEST, id, {});
+      } catch { /* noop */ }
+    }, NATURE_RESYNC_MS);
 
     console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables)');
   })();

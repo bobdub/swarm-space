@@ -41,7 +41,10 @@ vi.mock('@/lib/brain/earth', () => ({
   getEarthPose: () => ({ center: [0, 0, 0], spinQuat: [0, 0, 0, 1], invSpinQuat: [0, 0, 0, 1] }),
   quatRotate: (_q: unknown, v: number[]) => v,
 }));
-vi.mock('@/lib/world/landPermissions', () => ({ canBuildAtWorldPoint: () => ({ ok: true }) }));
+const land = vi.hoisted(() => ({ ok: true }));
+vi.mock('@/lib/world/landPermissions', () => ({
+  canBuildAtWorldPoint: () => (land.ok ? { ok: true } : { ok: false, reason: 'Not your land.' }),
+}));
 vi.mock('@/lib/brain/uqrcPhysics', () => ({
   getBrainPhysics: () => ({
     getBody: () => ({ pos: [0, 100, 0] }),
@@ -90,6 +93,7 @@ beforeEach(() => {
   _resetHoneyForTest();
   _resetNatureGrowthForTest();
   _resetNatureEventsForTest();
+  land.ok = true;
   setToolTarget(null);
 });
 
@@ -219,6 +223,13 @@ describe('honey, fruit and young trees', () => {
     expect(await applyToolToTarget(AXE, hive)).toBe(true);
     expect(listNatureEvents().map((e) => [e.kind, e.blockId])).toEqual([['hive-down', 'hive-0']]);
     expect(materialTotals().food).toBe(0);
+  });
+
+  it('cannot break a hive on land you may not alter', async () => {
+    land.ok = false;
+    const hive = nature('hive-0', 'hive');
+    expect(await applyToolToTarget(AXE, hive, 'me')).toBe(false);
+    expect(listNatureEvents()).toHaveLength(0);
   });
 
   it('a seedling cannot be chopped', async () => {

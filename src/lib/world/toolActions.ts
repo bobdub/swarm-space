@@ -405,7 +405,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   // Any tool but a bucket breaks the honey hive; the bees go and build a
   // new one in another tree.
   if (target.natureKind === 'hive') {
-    return chopHive(toolPrefabId, prefab.label, prefab.color, prefab.mass, target.blockId);
+    return chopHive(toolPrefabId, prefab.label, prefab.color, prefab.mass, target.blockId, selfId);
   }
 
   // Trees take several cuts: each accepted swing shakes the trunk, and the
@@ -507,7 +507,14 @@ function gatherFromLiving(
   return true;
 }
 
-function chopHive(toolPrefabId: string, toolLabel: string, color: string, mass: number, blockId: string): boolean {
+function chopHive(
+  toolPrefabId: string,
+  toolLabel: string,
+  color: string,
+  mass: number,
+  blockId: string,
+  selfId?: string,
+): boolean {
   const block = getBuilderBlockEngine().getBlock(blockId);
   if (!block) {
     clearTargetIfBlock(blockId);
@@ -515,6 +522,8 @@ function chopHive(toolPrefabId: string, toolLabel: string, color: string, mass: 
   }
   const body = getBrainPhysics().getBody(blockId);
   const point = body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : ([0, 0, 0] as Vec3);
+  // Same land rule as any other strike: no breaking things on land you can't alter.
+  if (landBlocks(point, selfId)) return false;
   const up = unitFrom(point);
   const probe = resolveSwingProbe(point, up, color, mass);
   const now = Date.now();

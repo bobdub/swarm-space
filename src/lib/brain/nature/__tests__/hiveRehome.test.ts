@@ -72,6 +72,7 @@ import {
   recordNatureEvent,
   listNatureEvents,
   _resetNatureEventsForTest,
+  attachNatureEventGossip,
   type NatureEvent,
 } from '@/lib/world/natureEventsStore';
 import { isTreeFelled, _resetTreeChopForTest } from '@/lib/world/treeChopStore';
@@ -235,6 +236,23 @@ describe('nature events', () => {
     expect(acceptPeerNatureEvent({ kind: 'fell' }, T0)).toBe(false);
     expect(mergeNatureEvents('nope', T0)).toBe(0);
     expect(listNatureEvents(ANCHOR)).toHaveLength(1);
+  });
+
+  it('pass newly learned events on to other peers, once', () => {
+    const sent: string[] = [];
+    attachNatureEventGossip((e) => sent.push(e.id));
+    const a = hiveDownEvent(T0);
+    const b = fellEvent('tree:tree-1', T0 + 1);
+    acceptPeerNatureEvent(a, T0);
+    acceptPeerNatureEvent(a, T0);
+    mergeNatureEvents([a, b], T0 + 2);
+    expect(sent).toEqual([a.id, b.id]);
+  });
+
+  it('keep old history so regrown trees and the hive replay the same way', () => {
+    const old = fellEvent('tree:tree-1', T0 - 30 * 24 * 60 * 60_000);
+    expect(acceptPeerNatureEvent(old, T0)).toBe(true);
+    expect(acceptPeerNatureEvent(fellEvent('tree:tree-2', T0 + 60 * 60_000), T0)).toBe(false); // from the future
   });
 });
 

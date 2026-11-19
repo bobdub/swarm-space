@@ -8,6 +8,15 @@
  * set converges; everything built on it (which trees stand, where the hive
  * hangs) is a pure function of the set and the clock. Kept in
  * localStorage so a reload alone does not bring a felled tree back.
+ *
+ * Events are never expired by age: a regrown tree's id comes from the
+ * felling before it, and the hive is replayed from its first host, so
+ * history must stay whole for peers to agree. Only a size cap applies,
+ * far above what a village sees.
+ *
+ * Every newly learned event is passed on to the other connected peers, so
+ * it reaches peers that are not directly connected to whoever made it.
+ * Peers drop events they already hold, so the relay stops by itself.
  */
 
 export type NatureEventKind = 'fell' | 'hive-down';
@@ -27,9 +36,7 @@ export interface NatureEvent {
   z: number;
 }
 
-/** Events older than this are dropped; everything they caused has long played out. */
-export const NATURE_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
-const MAX_EVENTS = 2000;
+const MAX_EVENTS = 5000;
 const STORAGE_KEY = 'brain.natureEvents.v1';
 
 type Listener = () => void;
@@ -65,7 +72,7 @@ function hydrate(): void {
     const list = JSON.parse(raw) as unknown;
     if (!Array.isArray(list)) return;
     for (const e of list) if (isEvent(e)) events.set(e.id, e);
-    prune(Date.now());
+    prune();
   } catch { /* storage blocked or corrupt */ }
 }
 
@@ -75,8 +82,7 @@ function persist(): void {
   } catch { /* storage blocked */ }
 }
 
-function prune(now: number): void {
-  for (const [id, e] of events) if (now - e.at > NATURE_EVENT_TTL_MS) events.delete(id);
+function prune(): void {
   if (events.size > MAX_EVENTS) {
     const oldest = [...events.values()].sort((a, b) => a.at - b.at).slice(0, events.size - MAX_EVENTS);
     for (const e of oldest) events.delete(e.id);
@@ -91,10 +97,10 @@ function notify(): void {
 
 function add(e: NatureEvent, now: number): boolean {
   if (events.has(e.id)) return false;
-  // Ignore stale facts and anything claiming to come from the future.
-  if (now - e.at > NATURE_EVENT_TTL_MS || e.at - now > 5 * 60_000) return false;
+  // Ignore anything claiming to come from the future.
+  if (e.at - now > 5 * 60_000) return false;
   events.set(e.id, e);
-  prune(now);
+  prune();
   persist();
   return true;
 }
@@ -121,8 +127,12 @@ export function recordNatureEvent(
 export function acceptPeerNatureEvent(payload: unknown, now = Date.now()): boolean {
   hydrate();
   if (!isEvent(payload)) return false;
-  const ok = add({ ...payload }, now);
-  if (ok) notify();
+  const e = { ...payload };
+  const ok = add(e, now);
+  if (ok) {
+    notify();
+    relay(e);
+  }
   return ok;
 }
 
@@ -130,10 +140,17 @@ export function acceptPeerNatureEvent(payload: unknown, now = Date.now()): boole
 export function mergeNatureEvents(payload: unknown, now = Date.now()): number {
   hydrate();
   if (!Array.isArray(payload)) return 0;
-  let n = 0;
-  for (const e of payload.slice(0, MAX_EVENTS)) if (isEvent(e) && add({ ...e }, now)) n++;
-  if (n > 0) notify();
-  return n;
+  const fresh: NatureEvent[] = [];
+  for (const e of payload.slice(0, MAX_EVENTS)) {
+    if (!isEvent(e)) continue;
+    const copy = { ...e };
+    if (add(copy, now)) fresh.push(copy);
+  }
+  if (fresh.length > 0) {
+    notify();
+    for (const e of fresh) relay(e);
+  }
+  return fresh.length;
 }
 
 export function listNatureEvents(anchorPeerId?: string): NatureEvent[] {
@@ -151,6 +168,11 @@ export function felledAt(blockId: string): number | undefined {
     if (e.kind === 'fell' && e.blockId === blockId && (best === undefined || e.at < best)) best = e.at;
   }
   return best;
+}
+
+/** Pass a newly learned event on to the peers we are connected to. */
+function relay(e: NatureEvent): void {
+  try { gossip?.(e); } catch { /* noop */ }
 }
 
 export function attachNatureEventGossip(fn: Gossip): void {
