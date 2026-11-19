@@ -266,6 +266,28 @@ export function useBrainVoice(
   }, [isMuted, user]);
 
   /**
+   * Turn the mic on for a user who entered listen-only. Asks the browser
+   * for the mic (call from a click so the prompt is allowed), slots the
+   * track into every open call and unmutes. Resolves false when the mic
+   * was blocked or is unavailable; listening keeps working either way.
+   */
+  const enableMic = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
+    const manager = getWebRTCManager(user.id, user.username);
+    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+    try {
+      await manager.startLocalStream(true, false, { audioInputId: prefs?.audioInputId });
+    } catch {
+      // The saved mic may be gone; fall back to the default one.
+      try { await manager.startLocalStream(true, false); } catch { return false; }
+    }
+    if (!manager.hasLiveAudioTrack()) return false;
+    manager.toggleAudio(true);
+    setIsMuted(false);
+    return true;
+  }, [user]);
+
+  /**
    * Push the local avatar's world-space position into the next presence
    * broadcast. Call from a low-frequency throttled tick (e.g. every 1.5 s)
    * — every call performs a mesh broadcast, so do not call per-frame.
@@ -352,6 +374,7 @@ export function useBrainVoice(
     participants,
     isMuted,
     toggleMute,
+    enableMic,
     joined,
     sendChatLine,
     onChatLine,

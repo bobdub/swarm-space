@@ -146,4 +146,35 @@ describe('answering side sends its microphone', () => {
     expect(addTrackCalledAfterOffer).toBe(true);
     expect(pc.transceivers.some((t) => t.sender.track === screen && t.mid === null)).toBe(true);
   });
+
+  it('a listen-only user (no mic) still answers, then sends audio once the mic is turned on', async () => {
+    const m = new WebRTCManager('local-peer', 'Local');
+    await m.joinRoom('brain');
+    signalHandler!({ msgType: 'offer', from: 'peer-Z', roomId: 'brain', ts: 1, data: { type: 'offer', sdp: 'x' } });
+    await new Promise((r) => setTimeout(r, 0));
+    const pc = created[0];
+    // The call is answered, so the peer's voice reaches us.
+    expect(sent.some((s) => s.type === 'answer')).toBe(true);
+    const audioSlot = pc.transceivers.find((t) => t.mid === '0')!;
+    expect(audioSlot.sender.track).toBeNull();
+    expect(audioSlot.direction).toBe('sendrecv');
+
+    // Later the user presses the mic button.
+    const late: FakeTrack = { kind: 'audio', readyState: 'live', enabled: true, id: 'late-mic' };
+    const tracks: FakeTrack[] = [late];
+    // @ts-expect-error – test shim for getUserMedia
+    globalThis.navigator.mediaDevices = {
+      getUserMedia: async () => ({
+        getAudioTracks: () => tracks.filter((t) => t.kind === 'audio'),
+        getVideoTracks: () => tracks.filter((t) => t.kind === 'video'),
+        getTracks: () => tracks,
+        addTrack: (t: FakeTrack) => { tracks.push(t); },
+      }),
+    };
+    sent.length = 0;
+    await m.startLocalStream(true, false);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(audioSlot.sender.track).toBe(late);
+    expect(sent.some((s) => s.type === 'offer')).toBe(true);
+  });
 });
