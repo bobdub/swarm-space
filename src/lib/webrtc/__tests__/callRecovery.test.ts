@@ -33,7 +33,7 @@ class FakePC {
   remoteDescription: RTCSessionDescription | null = null;
   localDescription: RTCSessionDescription | null = null;
   onicecandidate: unknown = null;
-  ontrack: unknown = null;
+  ontrack: ((event: RTCTrackEvent) => void) | null = null;
   onconnectionstatechange: (() => void) | null = null;
   oniceconnectionstatechange: unknown = null;
   onnegotiationneeded: unknown = null;
@@ -54,11 +54,27 @@ class FakePC {
 
 const created: FakePC[] = [];
 
+class FakeStream {
+  constructor(private tracks: MediaStreamTrack[] = []) {}
+  getTracks() { return [...this.tracks]; }
+  getAudioTracks() { return this.tracks.filter(t => t.kind === 'audio'); }
+  getVideoTracks() { return this.tracks.filter(t => t.kind === 'video'); }
+}
+
+function remoteTrack(id: string, kind: 'audio' | 'video', readyState: 'live' | 'ended' = 'live') {
+  return { id, kind, readyState, muted: false } as MediaStreamTrack;
+}
+
+function receive(pc: FakePC, track: MediaStreamTrack) {
+  pc.ontrack?.({ track, streams: [] } as unknown as RTCTrackEvent);
+}
+
 beforeEach(() => {
   sentSignals.length = 0;
   reconnectSignals.length = 0;
   created.length = 0;
   peerPresent = true;
+  vi.stubGlobal('MediaStream', FakeStream);
   // @ts-expect-error – install fake constructor
   globalThis.RTCPeerConnection = class extends FakePC {
     constructor(c: RTCConfiguration) { super(c); created.push(this); }
@@ -70,6 +86,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 async function connectedManager(peer = 'peer-B') {
@@ -171,6 +188,68 @@ describe('Brain call recovery', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(created.length).toBe(count);
     expect(pc.close).not.toHaveBeenCalled();
+  });
+
+  it('does not let either health sweep interrupt an in-flight negotiation', async () => {
+    const { m, pc } = await connectedManager();
+    pc.signalingState = 'have-local-offer';
+    await vi.advanceTimersByTimeAsync(24_000);
+    m.sweepHalfOpenConnections();
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(sentSignals).toHaveLength(0);
+    expect(reconnectSignals).toHaveLength(0);
+  });
+
+  it('does not renegotiate an intentionally muted remote with no incoming tracks', async () => {
+    const { pc } = await connectedManager();
+    signalHandler?.({ msgType: 'media-state', from: 'peer-B', roomId: 'brain', ts: 4, data: { mic: false } });
+    await vi.advanceTimersByTimeAsync(24_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(pc.close).not.toHaveBeenCalled();
+  });
+
+  it('the half-open sweep honors disconnect grace and existing recovery', async () => {
+    const { m, pc } = await connectedManager();
+    pc.setState('disconnected');
+    m.sweepHalfOpenConnections();
+    await vi.advanceTimersByTimeAsync(8_000);
+    m.sweepHalfOpenConnections();
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(reconnectSignals).toHaveLength(0);
+  });
+
+  it('replaces dead or obsolete audio with one live track and a fresh playback stream', async () => {
+    const { m, pc } = await connectedManager();
+    const old = remoteTrack('old-mic', 'audio');
+    const video = remoteTrack('camera', 'video');
+    receive(pc, old);
+    receive(pc, video);
+    const previous = m.getParticipants()[0].stream;
+    const fresh = remoteTrack('new-mic', 'audio');
+    receive(pc, fresh);
+    const current = m.getParticipants()[0].stream;
+    expect(current).not.toBe(previous);
+    expect(current?.getAudioTracks()).toEqual([fresh]);
+    expect(current?.getVideoTracks()).toEqual([video]);
+    // A delayed end from the replaced mic cannot remove the new one.
+    old.onended?.(new Event('ended'));
+    expect(m.getParticipants()[0].stream?.getAudioTracks()).toEqual([fresh]);
+  });
+
+  it('recovery clears stale streams and ignores tracks from the closed connection', async () => {
+    const { m, pc } = await connectedManager();
+    receive(pc, remoteTrack('old-mic', 'audio'));
+    const delayedTrackEvent = pc.ontrack;
+    await m.resyncPeer('peer-B');
+    expect(m.getParticipants()[0].stream).toBeNull();
+    delayedTrackEvent?.({ track: remoteTrack('late-old-mic', 'audio'), streams: [] } as unknown as RTCTrackEvent);
+    expect(m.getParticipants()[0].stream).toBeNull();
+    await m.createPeerConnection('peer-B');
+    const replacement = created.at(-1);
+    if (!replacement) throw new Error('Expected replacement connection');
+    const live = remoteTrack('live-mic', 'audio');
+    receive(replacement, live);
+    expect(m.getParticipants()[0].stream?.getAudioTracks()).toEqual([live]);
   });
 });
 
