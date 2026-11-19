@@ -2008,6 +2008,9 @@ export class StandaloneSwarmMesh {
       if (err?.type === 'peer-unavailable') {
         const match = err.message?.match(/peer\s+(peer-[a-f0-9]+)/i);
         if (match?.[1]) {
+          // The server answered: the dial is over, so a retry need not wait
+          // out the pending-dial timeout.
+          this.clearPendingDial(match[1]);
           this.recordHandshakeFailure(match[1]);
           console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable`);
         }

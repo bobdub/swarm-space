@@ -57,9 +57,10 @@ export class MintMeMiningCell {
     window.addEventListener("mintme-bridge-config-change", this.configListener);
     this.refresh();
     const { GunAdapter } = await import("@/lib/p2p/transports/gunAdapter");
+    const { GUN_RELAYS } = await import("@/lib/p2p/gunRelays");
     if (generation !== this.generation) return;
     const adapter = new GunAdapter({
-      peers: ["https://gun.eco/gun", "https://e2e.we-share.io/gun"],
+      peers: [...GUN_RELAYS],
       graphKey: MINING_CELL_GRAPH, channelName: "mintme-mining-cell", registryMode: true,
     });
     this.adapter = adapter;
