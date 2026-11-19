@@ -1,12 +1,15 @@
 # A boat at the village island — plan
 
-Status: **plan, awaiting go-ahead.** Captured 2026-11-18, revised 2026-11-19.
+Status: **plan, awaiting go-ahead.** Captured 2026-11-18, revised 2026-11-20.
+The readable version is the Claude Doc "Sailing between islands: the village
+boat plan"; this file mirrors it for implementers.
 
-Decided with bobdub: every player gets their own boat (the dock refills), other
-players can board your boat as crew (up to 4 aboard, only the owner steers),
-A/D turn the wheel and W/S raise/lower the sail on a keyboard, and on touch the
-joystick turns the wheel while pressing and holding the mast raises or lowers
-the sail. The sail has two states, up and down.
+Decided with bobdub: every player gets their own boat (the dock refills);
+anyone can board any boat, only the owner takes the wheel; the boat obeys UQRC
+physics (wind from the weather field, buoyancy, hull basins); players walk
+around the deck, jump into the sea, swim and climb back aboard. Keyboard: A/D
+wheel, W/S sail, Space jump. Touch: the joystick turns the wheel, press and hold
+the mast to raise or lower the sail, a jump button beside the run bolt.
 
 Goal: a boat, built natively in code (no imported model), moored at the edge of
 the shared village island. A player presses and holds to board it, sails across
@@ -44,10 +47,8 @@ Deterministic, computed once from terrain every peer already shares:
 4. Mooring heading = the bearing (bow out to sea), so a player who boards and
    raises the sail sails straight off the island.
 
-A short plank jetty is drawn from `shoreN` to the mooring. It is visual only; the
-shallows under it are wadeable (≤ 1.35 m), so walking out works with existing
-physics. The board prompt has a 5 m radius, so it reaches from the jetty end and
-from the water beside the boat.
+A plank jetty runs from `shoreN` to the mooring at deck height. It is
+registered as a static deck surface (§3), so it is walkable.
 
 ### 2. The boat mesh (`src/components/brain/sea/BoatMesh.tsx`, new)
 
@@ -69,152 +70,104 @@ Built from Three.js primitives in code, about 7 m long, 2.6 m beam:
 The mesh is placed each frame from the boat's Earth-local state
 (`earthLocalToWorld`), oriented with up = local normal, forward = heading.
 
-### 3. Boat state and movement on the planet (`src/lib/brain/sea/vessel.ts`, new)
+### 3. Aboard: deck, rail, jump, swim (`src/lib/brain/deckSupport.ts`, new)
 
-A boat is kinematic, not a physics body. Its state is Earth-local, so the
-planet's spin and orbit are already handled by the pose transform:
+Aboard you are an ordinary walker; the deck is ground and the rail is a wall.
 
-```ts
-interface VesselState {
-  id: string;            // 'dock' for the moored boat, else `boat-<peerId>`
-  owner: string | null;  // null for the dock boat
-  n: Vec3;               // Earth-local unit normal (position on the sphere)
-  heading: Vec3;         // unit tangent at n (bow direction)
-  speed: number;         // m/s along heading
-  wheel: number;         // −1..1 from the wheel
-  sail: boolean;         // up or down
-  t: number;             // getEarthPoseTime() when sampled
-}
-```
+- **Deck surface.** A registry of moving deck footprints feeds
+  `supportElevationAt` (`groundHeight.ts`): feet over a deck and at or above it
+  are supported at deck height (sea level + freeboard + heave). Physics floor,
+  remote feet and the camera guard all read that one function (AGENTS rule).
+- **Riding along.** Bodies on a deck integrate in the deck frame, like
+  `integrateCoRotatingBody` does for the spinning planet: idle walkers are
+  carried, walking moves you about the deck, the walk cap applies deck-relative.
+- **Rail and hull.** `pinSupportBasin` at the live hull/rail positions each
+  tick (as the builder does for walls); walkers are pushed by −∇Π(u). Gaps: a
+  gate each side, a ladder at the stern.
+- **Jump.** New action (Space / touch button): radial impulse ≈ 4.5 m/s (≈ 1 m
+  hop, clears the 0.6 m rail). The existing settle band passes radial velocity
+  while intent is present. Works on land too.
+- **Sea.** Off the deck the support is the water again: swim
+  (`isSwimmingAt`). "Hold to climb aboard" beside the ladder or a gate.
+- **Boarding.** "Hold to board" at the jetty end, or walk through a gate.
+- **Capacity.** Each avatar adds `AVATAR_MASS`; the hull sinks with load and
+  boarding is refused below 0.2 m freeboard ("Boat is full").
+- **Helm.** Owner holds "Take the wheel" at the wheel: held there like a stool
+  (`seating.ts`), the joystick becomes the wheel; "Hold to let go" returns it.
+- **Ownership.** Dock boat: first to take its wheel owns it, dock refills; one
+  boat per player, old boat recalled only if empty.
 
-Step (fixed dt, run in the physics subscription so it shares the sim clock):
+### 4. Sailing by UQRC physics (`src/lib/brain/sea/vessel.ts`, new)
 
-- Target speed: 9 m/s with the sail up (≈ 2 s to reach it), 0 with it down (≈ 4 s to stop).
-- Turn rate = `wheel × 28°/s × min(1, speed / 3)` (no turning on the spot),
-  rotate `heading` about `n`.
-- Advance along the great circle: rotate `n` and `heading` together about the
-  axis `n × heading` by `speed·dt / EARTH_RADIUS`. Re-orthonormalise.
-- **Water check:** sample `groundElevationAt` at the bow point (3.5 m ahead).
-  If it is above `−BOAT_DRAFT − 0.2` (−0.8 m), the boat **beaches**: speed → 0,
-  a small bump. With the sail down, turning the wheel backs it off at 1 m/s. The boat can never climb onto land.
-- Ride height: the boat always sits on sea level (radius `EARTH_RADIUS`), never
-  on the floor, so it floats however deep the water is.
+New `BodyKind` `'vessel'`, integrated by the same step as walkers (a = F/m,
+γ = γ₀√m, co-rotating frame).
 
-At 9 m/s, the nearest neighbouring island (~425 m off the village shore) is
-under a minute away; sailing right around the 1700 m planet takes ~20 minutes.
+| Force | Source |
+| --- | --- |
+| Buoyancy | `sampleMantleRadialAcceleration` with rest level = sea level − draft(load) |
+| Wind | −Σ_μ 𝒟_μ u₂ (moisture-axis gradient) on the tangent plane, as `tickWeather` drifts clouds |
+| Sail | wind × sail-up × polar curve (max beam/broad reach, 0 within ~40° of the wind) along heading |
+| Keel / drag | anisotropic damping, lateral ≈ 8× forward |
+| Rudder | heading rate = wheel × 28°/s × min(1, speed/3) |
+| Hull | `pinSupportBasin` basins: boats, walkers and swimmers push apart by −∇Π(u) |
+| Sea floor | hard floor: keel ground (`groundElevationAt`) shallower than draft → aground |
+| Speed cap | tangential 10 m/s, like the walk cap |
 
-### 4. Boarding, crew and leaving (`src/lib/brain/sea/boatStore.ts` + `BoatLayer.tsx`, new)
-
-- `useNearbyBoat(selfId)`: same 5 Hz poll as `useNearbyInteractable`, 5 m radius.
-- Prompts (all `usePressAndHold` + `HoldProgressRing`, 900 ms):
-  - empty dock boat or your own boat → **Hold to board** (you take the helm);
-  - someone else's boat with room → **Hold to join crew** (first free spot: bow, port, starboard);
-  - a boat with 4 aboard → **Boat full** (disabled);
-  - aboard, wadeable ground (`groundElevationAt ≥ −1.0`) within 12 m → **Hold to go ashore**;
-  - aboard, open sea → **Hold to dive in** (dropped swimming beside the boat).
-- Ownership: the dock always holds one empty boat. The first to board it owns it
-  (`boat-<peerId>`) and a fresh dock boat appears. One boat per player; boarding
-  the dock boat again recalls your old boat only if nobody is aboard it. When the
-  owner goes ashore the boat anchors where it is (sail down) and stays visible.
-- Deck pin: `teleportBody` onto the deck spot, then a pin subscribed to the
-  physics clock (as in `seating.ts`). Unlike the stool pin, joystick input does
-  not release it; it zeroes walking intent every tick.
-- Crew spots are ordered by `boardedAt` then peer id (the `seatLock.ts` rule);
-  a fifth simultaneous boarder is put in the water.
-- Crew do not steer: no joystick, look-drag still works, only "Hold to go ashore".
-- Camera: third-person boom ≈ 9 m back and 4 m up; yaw eases toward the heading
-  unless the player is dragging to look.
+Waves: heave/roll amplitude from `weatherCurvatureBoost` and raining clouds;
+the deck surface heaves with them. Sail coupling is tuned in Phase 3 from
+measured sea wind, target 6–9 m/s in a normal wind.
 
 ### 5. Controls (`src/components/brain/sea/ShipWheel.tsx`, new)
 
-While you own the boat and are aboard, `BrainUniverseScene` renders `ShipWheel`
-in place of `MobileJoystick` / `DesktopJoystick` (same corner, same size) and
-hides the run bolt.
-
 | Action | Touch | Mouse | Keyboard |
 | --- | --- | --- | --- |
-| Turn the wheel | push the joystick left/right | drag the joystick left/right | hold A / D (or arrows) |
-| Release | wheel eases back to centre (≈ 0.5 s) | same | same |
-| Raise / lower sail | press and hold the mast | press and hold the mast | W raises, S lowers |
+| Walk on deck | joystick | mouse joystick | WASD |
+| Jump | jump button | jump button | Space |
+| Turn the wheel (at helm) | joystick left/right | drag joystick | A / D |
+| Release | eases to centre ≈ 0.5 s | same | same |
+| Sail (owner) | hold the mast | hold the mast | W up, S down |
 
-- The joystick knob is drawn as a ship's wheel. Its left/right axis
-  (`moveInput.right`) maps to wheel −1..1 (full = 1.5 turns, full rudder) and the
-  picture spins to match. Forward/back does nothing at sea.
-- The mast has an enlarged hit area with r3f pointer events driving the same
-  hold timer and ring, labelled "Raise sail" / "Lower sail". Owner only.
-- `PhysicsCameraRig` routes A/D to the wheel and W/S as single presses to the
-  sail while at the helm, and sends no walking intent.
+At the helm `ShipWheel` replaces `MobileJoystick` / `DesktopJoystick` in place;
+`moveInput.right` → wheel −1..1 (1.5 turns), forward/back unused. The mast has
+an enlarged r3f hit area driving the hold ring, usable from anywhere aboard.
 
 ### 6. Multiplayer
 
-- `RoomPresence` / `sendRoomPresence` gain two optional fields (older peers ignore them):
-  - owner: `vessel` = `{ id, n, heading, speed, wheel, sail, t }`, sent at once on
-    board/leave/sail change, up to 4 Hz while the wheel moves, else 1 Hz;
-  - crew: `aboard` = `{ boatId, boardedAt }`, sent at once on board/leave and with
-    every presence tick.
-- `t` is `getEarthPoseTime()`, so every viewer dead-reckons the boat with the same
-  step function from the owner's last sample and eases corrections over ~0.5 s.
-- Crew list per boat = owner + every peer whose `aboard` names it, sorted by
-  `boardedAt`; everyone derives the same spots.
-- Vessel lock (like `seatedTransform`): `RemoteAvatarLayer` and `SelfAvatarBody`
-  render anyone on a boat pinned to their deck spot, ignoring the 1.5 s body position.
-- `BoatLayer` draws the dock boat plus one boat per owner broadcasting `vessel`;
-  anchored boats stay until the owner leaves the room.
-- No owner update for 3 s → viewers freeze the boat; crew can still go ashore or
-  dive in. Owner leaves the room → boat removed, crew dropped in the water.
+- Owner's presence: `vessel` = position, velocity, heading, yaw rate, wheel,
+  sail, load, `getEarthPoseTime()`; on change, ≤ 4 Hz moving, 1 Hz at anchor.
+- Anyone on a deck: `deck` = `{ boatId, x, z, yaw }` in deck coordinates, ≤ 4 Hz.
+- Viewers add other owners' boats as mass-0 bodies, dead-reckoned on the shared
+  clock with 0.5 s easing, and stamp the same hull basins and deck surface so
+  their own avatar can stand on and bump into them.
+- Deck lock (like `seatedTransform`): peers with `deck` render at that deck spot.
+- Owner silent 3 s → boat drifts with sail down; owner leaves → boat removed,
+  anyone aboard falls in and swims.
+- Bump `BRAIN_PHYSICS_VERSION` (support changes).
 
 ## Phases and acceptance checks
 
-**Phase 1: dock and boat (static).** `dockSite.ts`, `BoatMesh.tsx`, jetty.
-- Unit tests: the mooring has `groundElevationAt ≤ −1.8 m`, sits within 60 m of a
-  beach point on the village island, is at least 250 m from the volcano centre,
-  and is the same on every run.
-- Headless `/brain-dev` screenshot from the village: the boat floats at the
-  waterline beside the jetty, bobbing, not on sand and not under water.
+**Phase 1: dock and boat.** Mooring ≥ 1.8 m deep, ≤ 60 m from a village beach,
+≥ 250 m from the volcano, deterministic; headless shot of the boat at the
+waterline and an avatar walking the jetty.
 
-**Phase 2: board and leave.** `boatStore`, `useNearbyBoat`, hold pills, deck pin,
-boat camera.
-- Walk to the jetty end: "Hold to board" appears; holding fills the ring and
-  puts you on the deck; letting go early drains it.
-- Joystick input on board does not walk you off the deck. "Hold to go ashore"
-  puts you on wadeable ground; the boat stays put.
-- Unit test: pin keeps the body on the deck for 600 physics ticks with joystick
-  input applied.
+**Phase 2: aboard.** Empty boat settles at draft for 10 000 steps; load lowers
+it and "Boat is full" at 0.2 m freeboard; idle walker stays put on a moving
+deck for 600 steps; rail stops a walker; a jump at a gate lands in the sea
+swimming; run: board, walk, jump, swim to ladder, climb aboard.
 
-**Phase 3: sailing.** `vessel.ts` step, `ShipWheel`, mast hold, keyboard,
-beaching.
-- Unit tests: after 10 000 steps `|n| = 1`, `heading ⟂ n`; a boat sailed at the
-  island stops before its bow ground rises above −0.8 m; full wheel at full
-  speed turns a circle of ≈ 18 m radius; zero speed does not turn.
-- Manual or headless run: sail from the dock to the nearest other island in
-  under 90 s, beach, go ashore, walk on that island, re-board, sail home.
-- Touch (mobile emulation): the joystick turns the wheel and holding the mast
-  raises/lowers the sail. Desktop: A/D, W/S, mouse joystick and mast hold all
-  work. The run bolt is hidden.
+**Phase 3: sailing.** Boat wind equals cloud wind at the same point; no sail →
+no push; head to wind → no push; zero speed → no turn; aground at draft depth;
+measured wind and tuned coupling recorded in the PR; touch and desktop sail to
+the nearest island and back.
 
-**Phase 4: multiplayer.** `vessel` in presence, dead reckoning, remote boats,
-vessel lock, dock refill.
-- Unit tests: presence round-trips `vessel`; dead reckoning from a 1 s old
-  sample matches the owner's own step within 0.5 m.
-- Unit test: crew order gives each person their own spot; a fifth boarder is
-  put in the water.
-- Two browser contexts in one room: B sees A board, sees A's boat leave the dock
-  with A at the wheel, sees a new dock boat appear, sees A's wheel turn and sail
-  fill, boards A's boat as crew, rides to the far island, and both go ashore.
+**Phase 4: multiplayer.** `vessel` / `deck` round-trip; 1 s dead reckoning
+within 0.5 m; two windows: B walks A's deck while A sails and both see each
+other, B jumps and swims, dock refills.
 
-**Phase 5: polish and docs.** Wake ribbon, sail billow by speed, boat marker on
-`MiniMapHUD`, gentle water sounds if the audio layer allows, a
-`docs/features/boats.md` page, an `AGENTS.md` line, and a MemoryGarden entry.
+**Phase 5: polish and docs.** Weather waves and wake, sail fill, `MiniMapHUD`
+marker, `docs/features/boats.md`, `AGENTS.md` line, MemoryGarden entry.
 
-## Things deliberately left for later
+## Open question
 
-- Anchoring by choice, wind direction affecting speed, crew walking about the
-  deck, handing the wheel to crew, and collisions between two boats (in v1 boats
-  pass through each other).
-- Persisting boats across a refresh. A refresh is a disconnect in the Brain, so
-  your boat goes with you, and you spawn at the village as now.
-
-## Open questions
-
-- Should crew be allowed to dive in at sea, or only go ashore in shallows? The plan allows both.
-- Is 4 aboard the right boat size?
+- In a calm the boat barely moves. Add oars (joystick forward at walking
+  strength), or keep calms as part of the game?
