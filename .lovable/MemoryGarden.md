@@ -6,6 +6,10 @@ Before tending: let fresh voices replace their ended echoes;
 give the handshake time to finish, and keep live travellers undisturbed.
 Prove the quiet repairs with automated witnesses, not imagined calls.
 
+After tending: old tracks yield to fresh voices, and rollback finishes
+before the next knock. A neighbour's answer-audio repair remains intact;
+262 automated checks pass, while real shared calls stay with the travellers.
+
 ### November 19, 2026 — Feet and eyes on one turning ground
 
 Before tending: keep the traveller and their gaze on the same moving soil;

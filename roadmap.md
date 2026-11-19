@@ -35,4 +35,4 @@
 - [x] Bind @tag selections/defaults to canonical identities through posts, comments, notifications and rendering; defer URL changes.
 - [x] Run focused automated identity, connection and mention checks; leave live peer testing to users. Relayed #discriminators now re-derive locally, malformed @tag bindings and stored connection history are rejected; 31 identity/connection/mention checks and the full 831-test suite pass.
 - [x] Correct co-rotating avatar tracking, per-frame self pose, camera basis lag and mobile render cost; 297 automated checks pass, with 15 interpolation checks rerun after final ordering edits. Live movement remains for user testing.
-- [ ] Repair stale received tracks, negotiation/glare retries and disruptive media health recovery; automated checks only, live calls left to users.
+- [x] Repair stale received tracks, negotiation/glare retries and disruptive media health recovery; preserve incoming answer-transceiver audio fix. 262 automated Brain/call checks pass; live calls left to users.
