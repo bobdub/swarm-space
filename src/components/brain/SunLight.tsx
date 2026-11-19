@@ -25,7 +25,6 @@ export function SunLight() {
       intensity={4500}
       decay={2}
       color={SUN_LIGHT_COLOR}
-      castShadow
     />
   );
 }

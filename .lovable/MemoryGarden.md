@@ -1,5 +1,15 @@
 ## MemoryGarden
 
+### November 19, 2026 — Feet and eyes on one turning ground
+
+Before tending: keep the traveller and their gaze on the same moving soil;
+remove delayed echoes, guard the quiet mesh, and let real device feel remain
+with the people walking there.
+
+After tending: feet and eyes read one turning frame; held headings no longer
+chase the spinning world. 297 automated checks pass; live feel and phone
+frame rate remain unmeasured, and no traveller's call was opened for testing.
+
 ### November 19, 2026 — A quieter stride
 
 Before tending: let motion keep its rhythm without waking every branch;
