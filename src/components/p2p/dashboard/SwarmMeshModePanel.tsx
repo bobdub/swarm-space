@@ -16,7 +16,7 @@ import { useMeshMining } from "@/hooks/useMeshMining";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { getShowNetworkContent, setShowNetworkContent } from "@/lib/feed";
+import { getMyContentOnly, setMyContentOnly } from "@/lib/feed";
 import { getShyMode, setShyMode } from "@/lib/p2p/entityVoice";
 import { getMintMeMinerEnabled, setMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
 import { MintMeConnectionDetails } from "./MintMeConnectionDetails";
@@ -49,7 +49,7 @@ export function SwarmMeshModePanel({
   const [library, setLibrary] = useState<LibraryPeer[]>([]);
   const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
-  const [showNetContent, setShowNetContent] = useState(() => getShowNetworkContent());
+  const [myContentOnly, setMyContentOnlyState] = useState(() => getMyContentOnly());
   const [shyNode, setShyNode] = useState(() => getShyMode());
   const [mintmeEnabled, setMintmeEnabled] = useState(() => getMintMeMinerEnabled());
   useEffect(() => onMintMeMinerEnabledChange(setMintmeEnabled), []);
@@ -190,25 +190,25 @@ export function SwarmMeshModePanel({
         </CardContent>
       </Card>
 
-      {/* Show Network Content toggle */}
+      {/* My Content Only toggle — ON (right) = only your own posts */}
       <Card className="border-foreground/10">
         <CardContent className="pt-5">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5 pr-4">
-              <Label htmlFor="show-net-content-swarm" className="flex items-center gap-1.5">
+              <Label htmlFor="my-content-only-swarm" className="flex items-center gap-1.5">
                 <Eye className="h-3.5 w-3.5 text-primary" />
-                Show Network Content
+                My Content Only
               </Label>
               <p className="text-xs text-muted-foreground">
-                Display posts synced from peers in your feed. Off = only your own posts appear.
+                On = your feed shows only posts you made or signed. Off = posts synced from peers show too.
               </p>
             </div>
             <Switch
-              id="show-net-content-swarm"
-              checked={showNetContent}
+              id="my-content-only-swarm"
+              checked={myContentOnly}
               onCheckedChange={(v) => {
-                setShowNetContent(v);
-                setShowNetworkContent(v);
+                setMyContentOnlyState(v);
+                setMyContentOnly(v);
               }}
             />
           </div>

@@ -12,7 +12,8 @@ import { getBlockedUserIds } from "@/lib/connections";
 import { getHiddenPostIds } from "@/lib/hiddenPosts";
 import { getEntangledUserIds } from "@/lib/entanglements";
 import { filterPostsByProjectMembership } from "@/lib/projects";
-import { getShowNetworkContent } from "@/lib/feed";
+import { getMyContentOnly, isPostVisibleForContentFilter } from "@/lib/feed";
+import { resolveLocalIdentity } from "@/lib/content/ownContent";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -45,7 +46,10 @@ export default function Posts() {
     setHiddenPostIds(hiddenIds);
     setEntangledUserIds(entangledIds);
 
-    const showNetwork = getShowNetworkContent();
+    const myContentOnly = getMyContentOnly();
+    const identity = myContentOnly
+      ? await resolveLocalIdentity(user).catch(() => ({ userId: user?.id ?? null }))
+      : null;
     const visiblePosts = allPosts.filter((post) => {
       if (blockedIds.includes(post.author)) {
         return false;
@@ -53,14 +57,9 @@ export default function Posts() {
       if (hiddenIds.includes(post.id)) {
         return false;
       }
-      if (!showNetwork && post.author !== user?.id) {
-        // Keep walled posts discoverable even when general network content is off,
-        // so peers can still see/paywall-unlock them.
-        if (post._origin !== 'local' && !post.walled) {
-          return false;
-        }
-      }
-      return true;
+      // "My Content Only" shows strictly the local identity's own posts —
+      // no walled-post exception — and Stop Support drops a post here too.
+      return isPostVisibleForContentFilter(post, identity, myContentOnly);
     });
     const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
     const sorted = [...membershipFiltered].sort(

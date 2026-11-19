@@ -31,7 +31,8 @@ const base = (id: string, universeKey?: string) => ({
   actorId: 'peer-a',
   hitPoint: [0, 0, 0] as [number, number, number],
   yaw: 0,
-  createdAt: 1,
+  // Recent, so the Main Brain 5-day activity gate keeps it.
+  createdAt: Date.now() - 1000,
   universeKey,
 });
 

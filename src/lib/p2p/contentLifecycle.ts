@@ -25,6 +25,7 @@ import type { Comment, Post } from "@/types";
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "../crypto";
 import { canonicalJsonBytes } from "../utils/canonicalJson";
 import { getCachedPrivateKey, getCurrentUser, getStoredAccounts } from "../auth";
+import { isPostUnsupported } from "../content/unsupportedPostsStore";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const FADEOUT_WINDOW_MS = 15 * DAY_MS;
@@ -691,6 +692,8 @@ function isFaded(authorId: string, now: number): boolean {
 export async function shouldAcceptIncomingPost(post: { id?: string; author?: string; createdAt?: unknown; editedAt?: unknown }): Promise<boolean> {
   await ensureLifecycleLoaded();
   if (isPostTombstoned(post.id, post.author)) return false;
+  // This node stopped supporting the post: drop incoming copies.
+  if (isPostUnsupported(post.id)) return false;
   if (!post.author) return true;
   noteAuthorActivityFromPost(post);
   if (!isFaded(post.author, Date.now())) return true;

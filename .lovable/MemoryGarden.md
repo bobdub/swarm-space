@@ -1081,3 +1081,8 @@ After tending: Settings → Security now has Merge Account. One device shows a s
 
 ## 2026-11-19 — Restoring the paths that worked
 Invites stopped stacking dials, the mobile relay came back as a last resort, saved friends got a ten-minute window instead of forever, and calls lost the fallback that silenced them. Test Connect returned to Settings so Mike can compare a plain link against the mesh. Caretaker note: when something worked before, restore it first and refine second.
+
+## November 19, 2026 — A node that chooses what it carries
+Before tending: the "network content" switch said off but still let peers' walled posts through, and it trusted a single id string to know what was yours. A node had no way to say "not this one" to a post short of blocking a whole person, the Main Brain kept every wall forever even when nobody came by, and older machines had to draw every wall in the world.
+
+After tending: the switch now reads My Content Only, and when it is on you see only posts you made or signed, walled or not. Any post from the network, in the feed or on a Brain wall, can be given Stop Support: this node stops holding, seeding and passing it on, and a wall showing it simply is not there any more, so the room opens up. The Node Dashboard lists them under Unsupported Content with Resume Support. Walls in the shared Main Brain rest after five quiet days, with views, tips, graffiti and edits all counting as activity, and their builder can Refresh them back. The builder's Options panel has a Performance choice: Stacked draws everything, Light skips every placement so terrain, sea, sky and avatars stay smooth, and the choice is remembered. Automated checks and a production build only; no live mesh session was opened.

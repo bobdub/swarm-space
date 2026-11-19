@@ -1,3 +1,4 @@
+import { isPostUnsupported } from "@/lib/content/unsupportedPostsStore";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -126,6 +127,7 @@ const Explore = () => {
         if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
           return false;
         }
+        if (isPostUnsupported(post.id)) return false;
         return !blockedIds.includes(post.author) && !hiddenIds.includes(post.id);
       });
       const membershipFiltered = await filterPostsByProjectMembership(visible, user?.id ?? null);

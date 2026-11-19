@@ -1,4 +1,12 @@
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
+import {
+  isChunkUnsupported,
+  isManifestUnsupported,
+  isPostUnsupported,
+  listUnsupportedPosts,
+  subscribeUnsupportedPosts,
+  hydrateUnsupportedPosts,
+} from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
@@ -795,6 +803,7 @@ export class StandaloneSwarmMesh {
     this.loadLibrary();
     this.loadBlockedPeers();
     this.setupVisibilityHandler();
+    this.watchUnsupportedPosts();
 
     this.saveLibrary();
 
@@ -1678,6 +1687,7 @@ export class StandaloneSwarmMesh {
         const fileId = m.fileId as string;
         if (!fileId) continue;
         if (m.seedingPaused === true) continue;
+        if (isManifestUnsupported(fileId)) continue;
         const refs = Array.isArray(m.chunks) ? (m.chunks as string[]).filter(r => typeof r === 'string') : [];
         if (refs.length === 0) continue;
 
@@ -2841,6 +2851,67 @@ export class StandaloneSwarmMesh {
   }
 
   // ═══════════════════════════════════════════════════════════════════
+  // STOP SUPPORT — posts this node sovereignly opted out of
+  // (src/lib/content/unsupportedPostsStore.ts owns the list)
+  // ═══════════════════════════════════════════════════════════════════
+
+  private unsupportedKnown = new Set<string>();
+
+  private watchUnsupportedPosts(): void {
+    this.unsupportedKnown = new Set(listUnsupportedPosts().map((e) => e.postId));
+    subscribeUnsupportedPosts(() => this.syncUnsupportedPosts());
+    void hydrateUnsupportedPosts();
+  }
+
+  /** Apply Stop Support / Resume Support to the live mesh state. */
+  private syncUnsupportedPosts(): void {
+    const current = listUnsupportedPosts();
+    const now = new Set(current.map((e) => e.postId));
+    let changed = false;
+    for (const entry of current) {
+      // Deregister from the local seed pool and drop the relay copy.
+      for (const manifestId of entry.manifestIds) {
+        this.fileSeeders.get(manifestId)?.delete(this.peerId);
+        this.clearAssetRetry(manifestId);
+      }
+      if (this.contentStore.delete(entry.postId)) changed = true;
+    }
+    for (const postId of this.unsupportedKnown) {
+      if (!now.has(postId)) void this.restoreSupportedPost(postId);
+    }
+    this.unsupportedKnown = now;
+    if (changed) this.emitContentChange();
+  }
+
+  /** Resume Support: serve the post again and re-register its media. */
+  private async restoreSupportedPost(postId: string): Promise<void> {
+    try {
+      const { get } = await import('../store');
+      const post = await get<Record<string, unknown>>('posts', postId);
+      if (!post || isPostUnsupported(postId)) return;
+      const createdAt = typeof post.createdAt === 'string' ? post.createdAt : undefined;
+      this.contentStore.set(postId, {
+        id: postId,
+        type: 'post',
+        data: post,
+        author: typeof post.author === 'string' ? post.author : 'unknown',
+        timestamp: createdAt ? new Date(createdAt).getTime() : Date.now(),
+        hash: `${postId}-${createdAt ?? Date.now()}`,
+      });
+      this.emitContentChange();
+      const manifestIds = Array.isArray(post.manifestIds)
+        ? post.manifestIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+      for (const manifestId of manifestIds) {
+        const { complete } = await this.ensureManifestAndChunks(manifestId);
+        if (complete) this.announceSeeding(manifestId);
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] Resume support failed for', postId, err);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
   // CONTENT LIFECYCLE — signed tombstones, author presence, fadeout
   // (src/lib/p2p/contentLifecycle.ts owns the rules; this is transport)
   // ═══════════════════════════════════════════════════════════════════
@@ -2970,7 +3041,7 @@ export class StandaloneSwarmMesh {
   private handleInventory(from: string, msg: Record<string, unknown>): void {
     const ids = msg.ids as string[] | undefined;
     if (!Array.isArray(ids)) return;
-    const needed = ids.filter(id => !this.contentStore.has(id));
+    const needed = ids.filter(id => !this.contentStore.has(id) && !isPostUnsupported(id));
     if (!needed.length) return;
     const conn = this.connections.get(from);
     if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
@@ -2981,7 +3052,9 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
     if (!conn) return;
-    const items = ids.map(id => this.contentStore.get(id)).filter((i): i is ContentItem => !!i);
+    const items = ids
+      .map(id => this.contentStore.get(id))
+      .filter((i): i is ContentItem => !!i && !(i.type === 'post' && isPostUnsupported(i.id)));
     if (!items.length) return;
     try {
       conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
@@ -2997,6 +3070,8 @@ export class StandaloneSwarmMesh {
     const refused: Array<{ id?: string; author?: string }> = [];
     for (const item of items) {
       if (!item.id) continue;
+      // Stop Support: this node neither stores nor relays the post.
+      if (item.type === 'post' && isPostUnsupported(item.id)) continue;
       // Anti-resurrection: never take back deleted content; tell the sender why.
       const lc = this.lifecycle;
       if (lc && (item.type === 'post' || item.type === 'comment')) {
@@ -3766,6 +3841,7 @@ export class StandaloneSwarmMesh {
   }
 
   isFileBlocked(fileId: string): boolean {
+    if (isManifestUnsupported(fileId)) return true;
     const p = this.getFilePref(fileId);
     return p.paused || p.ignored;
   }
@@ -4172,7 +4248,7 @@ export class StandaloneSwarmMesh {
           const posts = req.result as Array<{ id: string; author?: string; createdAt?: string; [key: string]: unknown }>;
           let n = 0;
           for (const post of posts) {
-            if (!post.id || this.contentStore.has(post.id)) continue;
+            if (!post.id || this.contentStore.has(post.id) || isPostUnsupported(post.id)) continue;
             this.contentStore.set(post.id, {
               id: post.id, type: 'post', data: post,
               author: post.author ?? 'unknown',
@@ -4785,6 +4861,7 @@ export class StandaloneSwarmMesh {
    * that we can now seed it — enabling auto-seeding.
    */
   private announceSeeding(manifestId: string): void {
+    if (isManifestUnsupported(manifestId)) return;
     // Track ourselves as a seeder
     if (!this.fileSeeders.has(manifestId)) {
       this.fileSeeders.set(manifestId, new Set());
@@ -4876,7 +4953,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    const manifest = await this.getManifestFromDB(manifestId);
+    const manifest = isManifestUnsupported(manifestId) ? null : await this.getManifestFromDB(manifestId);
     const conn = this.connections.get(fromPeerId);
     if (!conn) {
       return;
@@ -4903,7 +4980,7 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    const chunk = await this.getChunkFromDB(chunkRef);
+    const chunk = isChunkUnsupported(chunkRef) ? null : await this.getChunkFromDB(chunkRef);
     const conn = this.connections.get(fromPeerId);
     if (!conn) {
       return;

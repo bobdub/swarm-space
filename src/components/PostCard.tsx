@@ -1,4 +1,4 @@
-import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star } from "lucide-react";
+import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star, Unplug } from "lucide-react";
 import { usePostFavorite } from "@/hooks/usePostFavorite";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -36,6 +36,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { updatePost, deletePost as removePost } from "@/lib/posts";
 import { blockUser } from "@/lib/connections";
 import { hidePostForUser } from "@/lib/hiddenPosts";
+import { stopSupportingPost, useIsPostUnsupported } from "@/lib/content/unsupportedPostsStore";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -137,7 +138,17 @@ interface DecryptedAttachment {
   decryptError?: boolean;
 }
 
+/**
+ * A post this node has stopped supporting renders nothing, everywhere —
+ * the card vanishes the moment Stop Support is chosen.
+ */
 export function PostCard({ post }: PostCardProps) {
+  const unsupported = useIsPostUnsupported(post.id);
+  if (unsupported) return null;
+  return <PostCardBody post={post} />;
+}
+
+function PostCardBody({ post }: PostCardProps) {
   const timeAgo = formatDistanceToNow(new Date(post.createdAt), { addSuffix: true });
   const editedTimeAgo = post.editedAt
     ? formatDistanceToNow(new Date(post.editedAt), { addSuffix: true })
@@ -844,6 +855,28 @@ export function PostCard({ post }: PostCardProps) {
     }
   };
 
+  const handleStopSupport = async () => {
+    try {
+      await stopSupportingPost({
+        postId: post.id,
+        source: "feed",
+        author: post.author,
+        authorName: post.authorName,
+        content: post.content,
+        manifestIds: post.manifestIds,
+      });
+      toast({
+        title: "Support stopped",
+        description: "This node no longer holds, seeds or relays this post. Resume it any time from the Node Dashboard.",
+      });
+    } catch (error) {
+      console.error("Failed to stop support:", error);
+      toast({ title: "Couldn't stop support", variant: "destructive" });
+    }
+  };
+
+  // Stop Support is a node-level choice for network content (not your own).
+  const canStopSupport = !isAuthor && post._origin !== "local";
   const canBlockUser = Boolean(currentUser) && !isAuthor;
   // Favorites keep other authors' posts from fading here; our own never fade.
   const canFavorite = Boolean(currentUser) && !isAuthor;
@@ -1079,7 +1112,7 @@ export function PostCard({ post }: PostCardProps) {
                   )}
                 </div>
               </div>
-              {(isAuthor || canBlockUser || canHidePost || canFavorite || hasDownloadableMedia) && (
+              {(isAuthor || canBlockUser || canHidePost || canStopSupport || canFavorite || hasDownloadableMedia) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -1157,6 +1190,17 @@ export function PostCard({ post }: PostCardProps) {
                       >
                         <EyeOff className="mr-2 h-4 w-4" />
                         {isHidingPost ? "Hiding…" : "Hide Post"}
+                      </DropdownMenuItem>
+                    )}
+                    {canStopSupport && (
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleStopSupport();
+                        }}
+                      >
+                        <Unplug className="mr-2 h-4 w-4" />
+                        Stop Support
                       </DropdownMenuItem>
                     )}
                     {canBlockUser && (
