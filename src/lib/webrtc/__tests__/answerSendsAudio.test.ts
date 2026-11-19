@@ -121,4 +121,29 @@ describe('answering side sends its microphone', () => {
     expect(pc.transceivers[0].sender.track).toBeNull();
     expect(pc.transceivers.find((t) => t.mid === '0')?.sender.track).toBe(mic);
   });
+
+  it('keeps the camera slot when answering while sharing the screen', async () => {
+    const m = await managerWithMic();
+    const cam: FakeTrack = { kind: 'video', readyState: 'live', enabled: true, id: 'cam' };
+    const screen: FakeTrack = { kind: 'video', readyState: 'live', enabled: true, id: 'screen' };
+    // @ts-expect-error – private: live mic + camera
+    m.localStream = { getAudioTracks: () => [mic], getVideoTracks: () => [cam], getTracks: () => [mic, cam] };
+    // @ts-expect-error – private: an active screen share
+    m.screenStream = { id: 'scr', getVideoTracks: () => [screen], getTracks: () => [screen] };
+    let addTrackCalledAfterOffer = false;
+    // @ts-expect-error – fake addTrack: a new, unnegotiated video transceiver
+    FakePC.prototype.addTrack = function (this: FakePC, track: FakeTrack) {
+      addTrackCalledAfterOffer = this.transceivers.some((t) => t.mid !== null);
+      const t = new FakeTransceiver('video', 'sendrecv');
+      t.sender.track = track;
+      this.transceivers.push(t);
+      return t.sender;
+    };
+    signalHandler!({ msgType: 'offer', from: 'peer-Z', roomId: 'brain', ts: 1, data: { type: 'offer', sdp: 'x' } });
+    await new Promise((r) => setTimeout(r, 0));
+    const pc = created[0];
+    expect(pc.transceivers.find((t) => t.mid === '1')?.sender.track).toBe(cam);
+    expect(addTrackCalledAfterOffer).toBe(true);
+    expect(pc.transceivers.some((t) => t.sender.track === screen && t.mid === null)).toBe(true);
+  });
 });

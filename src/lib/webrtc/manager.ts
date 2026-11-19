@@ -406,7 +406,7 @@ export class WebRTCManager {
     // newcomer, and the polite side after glare) stays silent until a
     // second negotiation of its own succeeds: the "they can hear me but I
     // can't hear them" split.
-    await this.adoptOfferedTransceivers(pc);
+    await this.adoptOfferedTransceivers(meshPeerId, pc);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -1076,8 +1076,11 @@ export class WebRTCManager {
 
     // Attach the screen track (if already sharing) so late joiners see it.
     // It travels as its own MediaStream, exactly like any second video source.
+    // When answering, wait until the offer's camera slot is adopted: an
+    // addTrack() transceiver created now could be taken for the offer's
+    // camera m-line, leaving no slot for the camera.
     const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
-    if (screenTrack && this.screenStream) {
+    if (screenTrack && this.screenStream && !opts.forAnswer) {
       this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream);
     }
 
@@ -1404,7 +1407,7 @@ export class WebRTCManager {
    * (left over from glare rollback) so they cannot trigger a duplicate
    * m-line later.
    */
-  private async adoptOfferedTransceivers(pc: RTCPeerConnection): Promise<void> {
+  private async adoptOfferedTransceivers(peerId: string, pc: RTCPeerConnection): Promise<void> {
     for (const kind of ['audio', 'video'] as const) {
       const main = this.mediaTransceiver(pc, kind);
       if (!main || main.mid === null) continue;
@@ -1426,6 +1429,15 @@ export class WebRTCManager {
       // later replaceTrack needs no renegotiation.
       if (main.direction !== 'sendrecv') {
         try { main.direction = 'sendrecv'; } catch { /* ignore */ }
+      }
+    }
+    // Sharing our screen: add it now as its own stream. It needs a new
+    // m-line, so the browser raises negotiationneeded and we offer it once
+    // this answer settles.
+    const screenTrack = this.screenStream?.getVideoTracks()[0] ?? null;
+    if (screenTrack && this.screenStream && !this.screenSenders.has(peerId)) {
+      try { this.attachScreenTrack(peerId, pc, screenTrack, this.screenStream); } catch (err) {
+        console.warn(`[WebRTC] could not attach screen share for ${peerId}`, err);
       }
     }
   }
