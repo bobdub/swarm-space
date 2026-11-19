@@ -26,7 +26,7 @@ import {
 import { _acceptWallInteractionForTest, _resetWallInteractionsForTest } from '@/lib/world/wallInteractionsStore';
 import { isPlacementIdle, MAIN_BRAIN_IDLE_MS } from '@/lib/world/placementActivity';
 import { setBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
-import { _resetUnsupportedPostsForTest, stopSupportingPost } from '@/lib/content/unsupportedPostsStore';
+import { _resetUnsupportedPostsForTest, resumeSupportingPost, stopSupportingPlacement, stopSupportingPost } from '@/lib/content/unsupportedPostsStore';
 
 const DAY = 24 * 60 * 60 * 1000;
 const rec = (id: string, actorId: string, ageMs: number, universeKey?: string) => ({
@@ -129,5 +129,18 @@ describe('placement suppression', () => {
     expect(isPlacementSuppressed(wall)).toBe(false);
     await stopSupportingPost({ postId: 'p1', source: 'brain', manifestIds: [] });
     expect(isPlacementSuppressed(wall)).toBe(true);
+  });
+
+  it('a bare wall can be unsupported on its own and resumed', async () => {
+    _resetWorldPlacementsForTest();
+    setActiveUniverse('global');
+    acceptPeerPlacement(rec('bare', 'peer', DAY));
+    const wall = { placementId: 'bare' };
+    const entry = await stopSupportingPlacement({ placementId: 'bare', ownerId: 'peer' });
+    expect(isPlacementSuppressed(wall)).toBe(true);
+    expect(buildGlobalPlacementSnapshot()).toEqual([]);
+    await resumeSupportingPost(entry!.postId);
+    expect(isPlacementSuppressed(wall)).toBe(false);
+    expect(buildGlobalPlacementSnapshot().map((r) => r.placementId)).toEqual(['bare']);
   });
 });

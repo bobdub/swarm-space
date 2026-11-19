@@ -42,7 +42,7 @@ export function UnsupportedContentPanel() {
           <Badge variant="outline" className="ml-auto text-xs">{entries.length}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Posts this node stopped supporting. They are hidden here, not seeded and not relayed, and Brain walls showing them are removed on this device.
+          Posts and Brain walls this node stopped supporting. They are hidden here, not seeded and not relayed, and Brain walls showing them are removed on this device.
         </p>
       </CardHeader>
       <CardContent className="space-y-2">
@@ -61,9 +61,9 @@ export function UnsupportedContentPanel() {
                   {entry.preview || <span className="italic text-muted-foreground">No preview</span>}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {entry.authorName || (entry.author ? `${entry.author.slice(0, 10)}…` : 'Unknown author')}
+                  {entry.authorName || (entry.author ? `${entry.author.slice(0, 10)}…` : 'Unknown builder')}
                   {' · '}
-                  {entry.source === 'brain' ? 'from a Brain wall' : 'from the feed'}
+                  {entry.kind === 'placement' ? 'Brain wall' : entry.source === 'brain' ? 'post from a Brain wall' : 'from the feed'}
                   {' · '}
                   {formatDistanceToNow(new Date(entry.unsupportedAt), { addSuffix: true })}
                   {entry.manifestIds.length > 0 && ` · ${entry.manifestIds.length} file${entry.manifestIds.length === 1 ? '' : 's'}`}

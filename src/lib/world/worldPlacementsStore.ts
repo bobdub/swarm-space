@@ -13,7 +13,7 @@ import {
   type PlacedHandle,
 } from '@/lib/world/placementController';
 import { isPlacementIdle, lastPlacementActivityAt } from '@/lib/world/placementActivity';
-import { isPostUnsupported, subscribeUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
+import { isPlacementUnsupported, isPostUnsupported, subscribeUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
 import { isLightBuilderMode, subscribeBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
 
 const DB_NAME = 'swarm-world-placements';
@@ -99,8 +99,11 @@ export function getActiveUniverse(): string {
  * placement; a wall whose pinned post this node stopped supporting is
  * skipped on its own.
  */
-export function isPlacementSuppressed(rec: Pick<PlacementRecord, 'decoration'>): boolean {
+export function isPlacementSuppressed(
+  rec: Pick<PlacementRecord, 'decoration'> & { placementId?: string },
+): boolean {
   if (isLightBuilderMode()) return true;
+  if (isPlacementUnsupported(rec.placementId)) return true;
   return isPostUnsupported(rec.decoration?.postId);
 }
 
@@ -654,7 +657,9 @@ export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void
 export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>[] {
   return [...records.values()]
     // Idle Main Brain placements are not seeded to peers (5-day gate).
-    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec) && !isPlacementIdle(rec))
+    // Placements (or pinned posts) this node stopped supporting aren't relayed.
+    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec) && !isPlacementIdle(rec)
+      && !isPlacementUnsupported(rec.placementId) && !isPostUnsupported(rec.decoration?.postId))
     // Carry the newest activity (incl. wall views/tips/graffiti this node
     // has seen) in `activityAt`, so a newcomer with no interaction history
     // doesn't judge an actively used wall idle.
