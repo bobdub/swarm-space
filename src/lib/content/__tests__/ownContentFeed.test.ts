@@ -45,11 +45,14 @@ describe('My Content Only toggle', () => {
     _resetUnsupportedPostsForTest();
   });
 
-  it('is the inverse of Show Network Content and defaults ON', () => {
-    expect(getMyContentOnly()).toBe(true);
-    setMyContentOnly(false);
-    expect(getShowNetworkContent()).toBe(true);
+  it('defaults OFF so network content syncs and shows naturally', () => {
+    // A legacy "network off" value must not switch it on.
+    localStorage.setItem('feed.showNetworkContent', 'false');
     expect(getMyContentOnly()).toBe(false);
+    expect(getShowNetworkContent()).toBe(true);
+    setMyContentOnly(true);
+    expect(getShowNetworkContent()).toBe(false);
+    expect(getMyContentOnly()).toBe(true);
   });
 
   it('ON hides walled network posts (no paywall loophole)', async () => {

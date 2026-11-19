@@ -18,34 +18,43 @@ export const FEED_FILTER_STORAGE_KEY = "home.feed.filter";
 // Network Content Toggle
 // ═══════════════════════════════════════════════════════════════════
 
-const SHOW_NETWORK_CONTENT_KEY = "feed.showNetworkContent";
-
 /**
- * Whether to display posts received from peers (synced content).
- * Defaults to `false` — local-first: only your own content shows until you opt in.
+ * "My Content Only" — OFF by default, so peers' content syncs and shows
+ * naturally; ON shows only posts authored or signed by the local identity
+ * (see `isOwnPost`), with no exceptions (walled peer posts included).
  *
- * The dashboard presents the inverse as "My Content Only": switch ON means
- * this returns false and feeds show only posts authored or signed by the
- * local identity (see `isOwnPost`). There are no exceptions — walled posts
- * from peers are network content too.
+ * Stored under its own key: the old `feed.showNetworkContent` defaulted to
+ * hiding network content, so it is deliberately not read any more.
  */
-export function getShowNetworkContent(): boolean {
+const MY_CONTENT_ONLY_KEY = "feed.myContentOnly";
+
+export function getMyContentOnly(): boolean {
   try {
-    const stored = localStorage.getItem(SHOW_NETWORK_CONTENT_KEY);
-    if (stored === "true") return true;
-    return false; // default OFF — local-first
+    return localStorage.getItem(MY_CONTENT_ONLY_KEY) === "true";
   } catch {
     return false;
   }
 }
 
-/** "My Content Only" — the inverse view of `getShowNetworkContent`. */
-export function getMyContentOnly(): boolean {
-  return !getShowNetworkContent();
+export function setMyContentOnly(only: boolean): void {
+  try {
+    localStorage.setItem(MY_CONTENT_ONLY_KEY, String(only));
+  } catch {
+    console.warn("[feed] Failed to persist My Content Only");
+  }
+  // Notify feeds to re-render
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("network-content-toggle"));
+  }
 }
 
-export function setMyContentOnly(only: boolean): void {
-  setShowNetworkContent(!only);
+/** Whether peers' synced posts show — the inverse of "My Content Only". */
+export function getShowNetworkContent(): boolean {
+  return !getMyContentOnly();
+}
+
+export function setShowNetworkContent(show: boolean): void {
+  setMyContentOnly(!show);
 }
 
 /**
@@ -62,17 +71,6 @@ export function isPostVisibleForContentFilter(
   return true;
 }
 
-export function setShowNetworkContent(show: boolean): void {
-  try {
-    localStorage.setItem(SHOW_NETWORK_CONTENT_KEY, String(show));
-    // Notify feeds to re-render
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("network-content-toggle"));
-    }
-  } catch {
-    console.warn("[feed] Failed to persist network content toggle");
-  }
-}
 
 // ═══════════════════════════════════════════════════════════════════
 
