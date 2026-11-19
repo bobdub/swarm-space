@@ -12,6 +12,9 @@ import {
   poseTimeFromCreatedAt,
   type PlacedHandle,
 } from '@/lib/world/placementController';
+import { isPlacementIdle, lastPlacementActivityAt } from '@/lib/world/placementActivity';
+import { isPostUnsupported, subscribeUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
+import { isLightBuilderMode, subscribeBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
 
 const DB_NAME = 'swarm-world-placements';
 const STORE = 'placements';
@@ -30,6 +33,9 @@ export interface PlacementRecord extends PlacedHandle {
   /** Universe scope this placement belongs to (e.g. 'global', 'project-<id>',
    *  'liveroom-<id>'). Legacy rows without this field are treated as 'global'. */
   universeKey?: string;
+  /** Last author activity (place, move, edit, re-decorate, refresh). Drives
+   *  the Main Brain 5-day gate together with wall interactions. */
+  activityAt?: number;
 }
 
 /** Deletion record — outlives the placement so backfill can't resurrect it. */
@@ -87,7 +93,29 @@ export function getActiveUniverse(): string {
   return activeUniverse;
 }
 
+/**
+ * Placements this device does not materialize at all — no block, no
+ * physics collider, no render. Light builder mode bypasses every user
+ * placement; a wall whose pinned post this node stopped supporting is
+ * skipped on its own.
+ */
+export function isPlacementSuppressed(rec: Pick<PlacementRecord, 'decoration'>): boolean {
+  if (isLightBuilderMode()) return true;
+  return isPostUnsupported(rec.decoration?.postId);
+}
+
+/** Own placements never go idle on the author's device, so the author can
+ *  always see and refresh them. */
+function isIdleElsewhere(rec: PlacementRecord): boolean {
+  if (ownsPlacement(rec, getCurrentUser()?.id)) return false;
+  return isPlacementIdle(rec);
+}
+
 function replayPlacement(rec: PlacementRecord, opts: { force?: boolean } = {}): void {
+  if (isPlacementSuppressed(rec)) {
+    try { getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId); } catch { /* noop */ }
+    return;
+  }
   try {
     if (opts.force) getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId);
     placePrefabAtHit({
@@ -345,6 +373,12 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
   if (isTombstoned(rec)) return;
   const existing = records.get(rec.placementId);
   if (existing && existing._origin === 'local' && rec._origin === 'peer') return;
+  // Main Brain 5-day gate: an idle placement isn't carried by this peer.
+  if (scopeOf(rec) === 'global' && isIdleElsewhere(rec)) {
+    if (existing && isIdleElsewhere(existing)) dropIdlePlacement(existing);
+    else if (!existing && opts.replay) void dbDelete(rec.placementId).catch(() => { /* noop */ });
+    return;
+  }
   records.set(rec.placementId, rec);
   // Persist peer-origin GLOBAL (main-Brain lobby) placements so a reload
   // doesn't blank the shared lobby before the next backfill sync lands.
@@ -369,6 +403,8 @@ function ingest(rec: PlacementRecord, opts: { replay?: boolean } = {}): void {
 
 export async function hydrateWorldPlacements(): Promise<void> {
   chan();
+  watchSuppression();
+  startIdleSweep();
   if (!storageHydrated) {
     storageHydrated = true;
     for (const tomb of [...(await dbAllTombs()), ...readTombSnapshot()]) {
@@ -389,6 +425,7 @@ export async function hydrateWorldPlacements(): Promise<void> {
     }
     scheduleNotify();
   }
+  sweepIdlePlacements();
   writeSnapshot();
   writeTombSnapshot();
 }
@@ -399,8 +436,12 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
     placedAtPoseTime: handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
     _origin: 'local',
     universeKey: activeUniverse,
+    activityAt: Date.now(),
   };
   records.set(rec.placementId, rec);
+  if (isPlacementSuppressed(rec)) {
+    try { getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId); } catch { /* noop */ }
+  }
   writeSnapshot();
   await dbPut(rec);
   try { chan()?.postMessage(rec); } catch { /* noop */ }
@@ -436,8 +477,12 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
       refreshed?.placedAtPoseTime ?? handle.placedAtPoseTime ?? poseTimeFromCreatedAt(handle.createdAt),
     _origin: 'local',
     universeKey: prev?.universeKey ?? activeUniverse,
+    activityAt: Date.now(),
   };
   records.set(rec.placementId, rec);
+  if (isPlacementSuppressed(rec)) {
+    try { getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId); } catch { /* noop */ }
+  }
   writeSnapshot();
   await dbPut(rec);
   try { chan()?.postMessage(rec); } catch { /* noop */ }
@@ -458,8 +503,14 @@ export async function patchLocalPlacementMeta(
 ): Promise<PlacementRecord | null> {
   const prev = records.get(placementId);
   if (!prev || !ownsPlacement(prev, getCurrentUser()?.id)) return null;
-  const next: PlacementRecord = { ...prev, ...patch, _origin: 'local' };
+  const next: PlacementRecord = { ...prev, ...patch, _origin: 'local', activityAt: Date.now() };
   records.set(placementId, next);
+  // A new pinned post may change whether this wall is suppressed here.
+  if (isPlacementSuppressed(next)) {
+    try { getBuilderBlockEngine().removeBlock(next.placementId, next.prefabId); } catch { /* noop */ }
+  } else if (scopeOf(next) === activeUniverse) {
+    replayPlacement(next);
+  }
   writeSnapshot();
   await dbPut(next);
   try { chan()?.postMessage(next); } catch { /* noop */ }
@@ -486,6 +537,74 @@ export async function removeLocalPlacement(placementId: string): Promise<void> {
   try { chan()?.postMessage({ __delete: tomb }); } catch { /* noop */ }
   try { deleteGossipBridge?.(tomb); } catch (err) { console.warn('[worldPlacements] delete gossip error', err); }
   scheduleNotify();
+}
+
+/**
+ * Author refresh: mark an owned placement active now and gossip it, so
+ * peers that let it go idle in the Main Brain pick it back up.
+ */
+export async function touchLocalPlacement(placementId: string): Promise<PlacementRecord | null> {
+  return patchLocalPlacementMeta(placementId, {});
+}
+
+/** Drop an idle peer placement from this node: render, physics, storage. */
+function dropIdlePlacement(rec: PlacementRecord): void {
+  records.delete(rec.placementId);
+  try { getBuilderBlockEngine().removeBlock(rec.placementId, rec.prefabId); } catch { /* noop */ }
+  void dbDelete(rec.placementId).catch(() => { /* noop */ });
+  scheduleNotify();
+}
+
+/**
+ * Main Brain 5-day gate sweep. Idle placements by other authors leave this
+ * node (not tombstoned — an author refresh brings them back through the
+ * normal gossip / lobby backfill). Returns how many were dropped.
+ */
+export function sweepIdlePlacements(now = Date.now()): number {
+  let dropped = 0;
+  for (const rec of [...records.values()]) {
+    if (scopeOf(rec) !== 'global') continue;
+    if (ownsPlacement(rec, getCurrentUser()?.id)) continue;
+    if (!isPlacementIdle(rec, now)) continue;
+    dropIdlePlacement(rec);
+    dropped++;
+  }
+  if (dropped > 0) writeSnapshot();
+  return dropped;
+}
+
+const IDLE_SWEEP_MS = 60 * 60 * 1000;
+let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
+function startIdleSweep(): void {
+  if (idleSweepTimer || typeof setInterval === 'undefined') return;
+  idleSweepTimer = setInterval(() => { sweepIdlePlacements(); }, IDLE_SWEEP_MS);
+  (idleSweepTimer as { unref?: () => void }).unref?.();
+}
+
+/**
+ * Re-apply suppression to the active universe: remove blocks for walls
+ * that are now suppressed (Light mode, Stop Support) and re-place the rest.
+ */
+export function resyncPlacementSuppression(): void {
+  try {
+    const engine = getBuilderBlockEngine();
+    for (const rec of records.values()) {
+      if (scopeOf(rec) !== activeUniverse) continue;
+      if (isPlacementSuppressed(rec)) engine.removeBlock(rec.placementId, rec.prefabId);
+      else replayPlacement(rec);
+    }
+  } catch (err) {
+    console.warn('[worldPlacements] suppression resync failed', err);
+  }
+  flushNotify();
+}
+
+let suppressionWatched = false;
+function watchSuppression(): void {
+  if (suppressionWatched) return;
+  suppressionWatched = true;
+  subscribeBuilderRenderMode(resyncPlacementSuppression);
+  subscribeUnsupportedPosts(resyncPlacementSuppression);
 }
 
 export function listPlacements(): PlacementRecord[] {
@@ -534,8 +653,16 @@ export function acceptPeerPlacement(rec: Omit<PlacementRecord, '_origin'>): void
  */
 export function buildGlobalPlacementSnapshot(): Omit<PlacementRecord, '_origin'>[] {
   return [...records.values()]
-    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec))
-    .map(({ _origin: _ignored, ...rest }) => ({ ...rest, universeKey: 'global' }));
+    // Idle Main Brain placements are not seeded to peers (5-day gate).
+    .filter((rec) => scopeOf(rec) === 'global' && !isTombstoned(rec) && !isPlacementIdle(rec))
+    // Carry the newest activity (incl. wall views/tips/graffiti this node
+    // has seen) in `activityAt`, so a newcomer with no interaction history
+    // doesn't judge an actively used wall idle.
+    .map(({ _origin: _ignored, ...rest }) => ({
+      ...rest,
+      universeKey: 'global',
+      activityAt: Math.max(rest.activityAt ?? 0, lastPlacementActivityAt(rest)),
+    }));
 }
 
 /** Merge a peer's lobby snapshot. Non-global entries are discarded. */
@@ -570,4 +697,5 @@ export function _resetWorldPlacementsForTest(): void {
   if (channel) { try { channel.close(); } catch { /* noop */ } channel = null; }
   gossipBridge = null;
   deleteGossipBridge = null;
+  if (idleSweepTimer) { clearInterval(idleSweepTimer); idleSweepTimer = null; }
 }

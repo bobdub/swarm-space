@@ -5,6 +5,8 @@ import { getBlockedUserIds } from "./connections";
 import { getHiddenPostIds } from "./hiddenPosts";
 import { getEntangledUserIds } from "./entanglements";
 import { filterPostsByProjectMembership } from "./projects";
+import { isOwnPost, resolveLocalIdentity, type LocalIdentity } from "./content/ownContent";
+import { isPostUnsupported } from "./content/unsupportedPostsStore";
 
 export type FeedFilter = "all" | "following" | "local";
 
@@ -21,6 +23,11 @@ const SHOW_NETWORK_CONTENT_KEY = "feed.showNetworkContent";
 /**
  * Whether to display posts received from peers (synced content).
  * Defaults to `false` — local-first: only your own content shows until you opt in.
+ *
+ * The dashboard presents the inverse as "My Content Only": switch ON means
+ * this returns false and feeds show only posts authored or signed by the
+ * local identity (see `isOwnPost`). There are no exceptions — walled posts
+ * from peers are network content too.
  */
 export function getShowNetworkContent(): boolean {
   try {
@@ -30,6 +37,29 @@ export function getShowNetworkContent(): boolean {
   } catch {
     return false;
   }
+}
+
+/** "My Content Only" — the inverse view of `getShowNetworkContent`. */
+export function getMyContentOnly(): boolean {
+  return !getShowNetworkContent();
+}
+
+export function setMyContentOnly(only: boolean): void {
+  setShowNetworkContent(!only);
+}
+
+/**
+ * Feed visibility for one post under the "My Content Only" filter and this
+ * node's Stop Support list. Shared by the home feed and the Posts page.
+ */
+export function isPostVisibleForContentFilter(
+  post: Post,
+  identity: LocalIdentity | null,
+  myContentOnly: boolean,
+): boolean {
+  if (isPostUnsupported(post.id)) return false;
+  if (myContentOnly && !isOwnPost(post, identity)) return false;
+  return true;
 }
 
 export function setShowNetworkContent(show: boolean): void {
@@ -49,6 +79,7 @@ export function setShowNetworkContent(show: boolean): void {
 export interface FeedDependencies {
   loadPosts: () => Promise<Post[]>;
   getUser: () => UserMeta | null;
+  resolveIdentity?: (user: UserMeta | null) => Promise<LocalIdentity>;
   loadBlockedUserIds: (userId: string) => Promise<string[]>;
   loadHiddenPostIds: (userId: string) => Promise<string[]>;
   loadFollowingIds: (userId: string) => Promise<string[]>;
@@ -57,6 +88,7 @@ export interface FeedDependencies {
 const defaultDependencies: FeedDependencies = {
   loadPosts: () => getAll<Post>("posts"),
   getUser: () => getCurrentUser(),
+  resolveIdentity: (user) => resolveLocalIdentity(user),
   loadBlockedUserIds: (userId: string) => getBlockedUserIds(userId),
   loadHiddenPostIds: (userId: string) => getHiddenPostIds(userId),
   loadFollowingIds: (userId: string) => getEntangledUserIds(userId),
@@ -136,7 +168,10 @@ export async function fetchHomeFeed(
     ]);
   }
 
-  const showNetwork = getShowNetworkContent();
+  const myContentOnly = getMyContentOnly();
+  const identity = myContentOnly || filter === "local"
+    ? await (deps.resolveIdentity ?? resolveLocalIdentity)(user).catch(() => ({ userId: userId ?? null }))
+    : null;
 
   const visiblePosts = posts.filter((post) => {
     if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
@@ -148,20 +183,10 @@ export async function fetchHomeFeed(
     if (hiddenIds.includes(post.id)) {
       return false;
     }
-    // When network content is hidden, only show posts created by this user
-    // EXCEPTION: Walled posts must always be visible so peers can see the
-    // lock overlay and pay to unlock — hiding them defeats the paywall.
-    // BUG-13 FIX: Posts by the current user always show regardless of _origin
-    // (legacy posts may lack _origin entirely — they are still owned content)
-    // BUG-15 FIX: Legacy posts without _origin are treated as local if the
-    // author matches the current user, or as network content otherwise.
-    if (!showNetwork && post.author !== userId) {
-      const origin = post._origin ?? (post.author === userId ? 'local' : 'synced');
-      if (origin !== 'local' && !post.walled) {
-        return false;
-      }
-    }
-    return true;
+    // "My Content Only": strictly the local identity's own posts. Walled
+    // network posts get no exception here — that loophole kept peers' paid
+    // posts in a feed the user had switched to their own content only.
+    return isPostVisibleForContentFilter(post, identity, myContentOnly);
   });
 
   const membershipFilteredPosts = await filterPostsByProjectMembership(visiblePosts, userId ?? null);
@@ -182,7 +207,7 @@ export async function fetchHomeFeed(
     if (!userId) {
       return [];
     }
-    return sorted.filter((post) => post.author === userId);
+    return sorted.filter((post) => isOwnPost(post, identity));
   }
 
   return sorted;

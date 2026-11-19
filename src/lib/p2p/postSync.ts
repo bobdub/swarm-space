@@ -1,4 +1,5 @@
 import { getAll, get, put } from "../store";
+import { isPostUnsupported } from "../content/unsupportedPostsStore";
 import { getCurrentUser } from "../auth";
 import {
   getAchievementProgressRecord,
@@ -226,7 +227,8 @@ export class PostSyncManager {
       ]);
 
       // Filter out local-only posts — they should never leave this node
-      const posts = allPosts.filter(p => !p._localOnly);
+      // ...and posts this node stopped supporting are never relayed.
+      const posts = allPosts.filter(p => !p._localOnly && !isPostUnsupported(p.id));
 
       console.log(`[PostSync] 📤 Preparing to send ${posts.length} posts and ${projects.length} projects to peer ${peerId}`);
 

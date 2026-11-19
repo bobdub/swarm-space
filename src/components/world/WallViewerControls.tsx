@@ -4,6 +4,7 @@ import { GRAFFITI_PALETTE, graffitiHoldMs, REINFORCE_CREDITS, REINFORCE_SWARM } 
 import { recordWallInteraction } from '@/lib/world/wallInteractionsStore';
 import { reinforceWall } from '@/lib/world/wallReinforce';
 import { addReaction } from '@/lib/interactions';
+import { stopSupportingPost } from '@/lib/content/unsupportedPostsStore';
 
 interface Props {
   placementId: string;
@@ -14,7 +15,11 @@ interface Props {
   onClose: () => void;
 }
 
-/** Visitor-only chip: Reinforce (fixed tip) and Graffiti (hold an emoji to stamp). */
+/**
+ * Visitor-only chip: Reinforce (fixed tip), Graffiti (hold an emoji to
+ * stamp) and, for walls pinning a post, Stop Support — this node stops
+ * holding that post and the wall vanishes here entirely.
+ */
 export function WallViewerControls({ placementId, ownerId, selfId, postId, priorStamps, onClose }: Props) {
   const [mode, setMode] = useState<'menu' | 'graffiti'>('menu');
   const [busy, setBusy] = useState(false);
@@ -62,6 +67,17 @@ export function WallViewerControls({ placementId, ownerId, selfId, postId, prior
     } finally { setBusy(false); }
   };
 
+  const stopSupport = async () => {
+    if (!postId) return;
+    try {
+      await stopSupportingPost({ postId, source: 'brain' });
+      toast.success('Support stopped · resume it any time from the Node Dashboard');
+      onClose();
+    } catch {
+      toast.error("Couldn't stop support");
+    }
+  };
+
   const secs = Math.round(holdMs / 100) / 10;
   return (
     <div onPointerDown={(e) => e.stopPropagation()} style={chip}>
@@ -72,6 +88,12 @@ export function WallViewerControls({ placementId, ownerId, selfId, postId, prior
             {busy ? 'Tipping…' : 'Reinforce'}
           </button>
           <button type="button" onClick={() => setMode('graffiti')} style={{ ...btn, color: '#7dd3fc' }}>Graffiti</button>
+          {postId && (
+            <button type="button" onClick={() => void stopSupport()} style={{ ...btn, color: '#fda4af' }}
+              title="Stop holding, seeding and relaying this wall's post on this node. The wall disappears here.">
+              Stop Support
+            </button>
+          )}
           <button type="button" onClick={onClose} style={btn} aria-label="Close">✕</button>
         </>
       ) : (

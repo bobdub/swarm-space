@@ -126,3 +126,19 @@ export async function restoreRendezvousIdentity(identity: {
     console.warn('[RendezvousIdentity] Failed to restore identity:', error);
   }
 }
+
+/**
+ * Read this device's content-signing public key without generating one.
+ * Returns null when the device has never signed anything (no key yet).
+ */
+export function peekRendezvousPublicKey(): string | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StoredIdentity>;
+    return typeof parsed.publicKey === 'string' && parsed.publicKey ? parsed.publicKey : null;
+  } catch {
+    return null;
+  }
+}

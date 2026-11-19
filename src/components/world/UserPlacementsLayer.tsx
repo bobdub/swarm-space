@@ -11,8 +11,13 @@ import {
   listPlacements,
   subscribePlacements,
   removeLocalPlacement,
+  touchLocalPlacement,
+  isPlacementSuppressed,
   type PlacementRecord,
 } from '@/lib/world/worldPlacementsStore';
+import { useBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
+import { useUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
+import { idleDays, isMainBrainScope, MAIN_BRAIN_IDLE_MS } from '@/lib/world/placementActivity';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import {
   getHeldTool,
@@ -25,7 +30,7 @@ import { toolTargetFromPlacement, type ToolTarget } from '@/lib/world/toolTarget
 import { WallPostBillboard } from '@/components/world/WallPostBillboard';
 import { ownsPlacement } from '@/lib/world/buildOwnership';
 import { WallViewerControls } from '@/components/world/WallViewerControls';
-import { listWallInteractions, subscribeWallInteractions } from '@/lib/world/wallInteractionsStore';
+import { listWallInteractions, recordWallView, subscribeWallInteractions } from '@/lib/world/wallInteractionsStore';
 import { canViewerInteract, goldLustre, VIEWER_REACH_M } from '@/lib/world/wallInteractionRules';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 
@@ -62,6 +67,10 @@ export function UserPlacementsLayer({
   const [, setInteractionTick] = useState(0);
   useEffect(() => subscribeWallInteractions(() => setInteractionTick((n) => n + 1)), []);
   const [viewerTarget, setViewerTarget] = useState<string | null>(null);
+  // Light builder mode bypasses every placement; Stop Support removes walls
+  // pinning that post. Both re-render this layer when they change.
+  const renderMode = useBuilderRenderMode();
+  useUnsupportedPosts();
   useEffect(() => {
     if (!selectedPlacementId) return;
     if (!records.some((rec) => rec.placementId === selectedPlacementId)) onSelectPlacement(null);
@@ -71,12 +80,18 @@ export function UserPlacementsLayer({
     if (!records.some((rec) => rec.placementId === toolTarget.id)) setToolTarget(null);
   }, [records, toolTarget]);
 
+  // Light mode: no placement meshes, colliders or <Html> layers at all.
+  if (renderMode === 'light') return null;
+
   return (
     <>
       {records.map((rec) => {
         const prefab = getPrefab(rec.prefabId);
         if (!prefab) return null;
         if (isPeerMuted(rec.actorId)) return null;
+        // Stop Support: a wall pinning an unsupported post is not drawn —
+        // no box, no collider, no billboard — so the room opens up.
+        if (isPlacementSuppressed(rec)) return null;
         const bodyId = `${prefab.id}:${rec.placementId}`;
         const owned = ownsPlacement(rec, selfId);
         const isHoldable =
@@ -152,6 +167,7 @@ export function UserPlacementsLayer({
                       onClick={(e) => {
                         e.stopPropagation();
                         if (e.distance > VIEWER_REACH_M) return;
+                        if (!viewing) recordWallView(rec.placementId, selfId);
                         setViewerTarget(viewing ? null : rec.placementId);
                       }}
                     >
@@ -235,6 +251,16 @@ export function UserPlacementsLayer({
                               style={{ ...btnStyle, color: '#7dd3fc' }}
                             >
                               {decorationPostId ? 'Re-decorate' : 'Decorate'}
+                            </button>
+                          )}
+                          {isMainBrainScope(rec) && (
+                            <button
+                              type="button"
+                              onClick={() => { void touchLocalPlacement(rec.placementId); }}
+                              title={`Main Brain items rest after ${Math.round(MAIN_BRAIN_IDLE_MS / 86_400_000)} days without activity. Refresh keeps this one active for everyone.`}
+                              style={{ ...btnStyle, color: idleDays(rec) >= 4 ? '#fcd34d' : '#a7f3d0' }}
+                            >
+                              Refresh{idleDays(rec) > 0 ? ` · ${idleDays(rec)}d` : ''}
                             </button>
                           )}
                           <button type="button" onClick={() => onDeletePlacement(rec)} style={{ ...btnStyle, color: '#fda4af' }}>Delete</button>
