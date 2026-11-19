@@ -4,6 +4,7 @@ import { useAuthReady } from '@/hooks/useAuthReady';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { dialBrainInviteFirst, resolveInviteLocation, getBrainInviteState, markBrainInviteSynced, prepareBrainInvite, subscribeBrainInvite, updateBrainInviteConnection } from '@/lib/p2p/brainInvite';
 import { isGuestUser } from '@/lib/preview/guestAccess';
+import { useNetworkChatOpen } from '@/lib/chat/networkChatStore';
 
 let guestBrainAutoStarted = false;
 
@@ -16,16 +17,21 @@ export function BrainInviteConnection() {
   useEffect(() => { prepareBrainInvite(pathname, hash); }, [pathname, hash]);
   // A guest who enters the Brain directly (not through an invite) has a
   // guest identity but no running node, so the invite link they share would
-  // point at a peer that is offline. Bring their node online in the Brain.
+  // point at a peer that is offline. Bring their node online in the Brain
+  // or when they open the network chat.
   const isGuest = isGuestUser(user);
   const inBrain = pathname === '/brain' || pathname.startsWith('/brain/');
+  // Opening Chat from the main menu needs a running node just as much: the
+  // network chat reaches connected peers wherever each of them is.
+  const chatOpen = useNetworkChatOpen();
+  const wantsNode = inBrain || chatOpen;
   // Only once per page load: if the guest later turns networking off, that
   // choice stands until they reload.
   useEffect(() => {
-    if (guestBrainAutoStarted || !isReady || !isGuest || !inBrain || isEnabled || isConnecting) return;
+    if (guestBrainAutoStarted || !isReady || !isGuest || !wantsNode || isEnabled || isConnecting) return;
     guestBrainAutoStarted = true;
     void enable().catch(() => { guestBrainAutoStarted = false; });
-  }, [isReady, isGuest, inBrain, isEnabled, isConnecting, enable]);
+  }, [isReady, isGuest, wantsNode, isEnabled, isConnecting, enable]);
   useEffect(() => {
     // Until auth/guest identity resolves, the invite stays buffered in its
     // "starting" phase; this effect re-runs as soon as `user` appears.

@@ -19,9 +19,11 @@ import { isBrainSynced } from "@/lib/brain/brainSyncStore";
 import { ENTITY_DISPLAY_NAME, ENTITY_USER_ID } from '@/lib/p2p/entityVoice';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
 
+import { BRAIN_ROOM_ID } from "@/lib/chat/networkChatRoom";
+
 /** Default shared room so every visitor to /brain hears every other visitor.
  *  Project universes pass their own room id, e.g. `brain-project-${id}`. */
-export const BRAIN_ROOM_ID = "brain-universe-shared";
+export { BRAIN_ROOM_ID };
 
 /** Voice participant enriched with the chosen avatar id from presence broadcasts. */
 export interface BrainVoicePeer {

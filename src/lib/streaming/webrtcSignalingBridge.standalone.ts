@@ -15,6 +15,7 @@
  */
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
+import { isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -342,7 +343,10 @@ function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): vo
   // mesh link is a non-member (common right after joining, while direct
   // links are still being dialled) was otherwise unreachable, and the room
   // only heard them once a direct link formed, often minutes later.
-  if (!joinedRooms.has(envelope.roomId) && hops > 0) return;
+  // The shared network chat is open to everyone connected, inside the Brain
+  // or not, so every node carries its lines across the full hop budget.
+  const openChat = envelope.msgType === 'chat-message' && isNetworkChatRoom(envelope.roomId);
+  if (!openChat && !joinedRooms.has(envelope.roomId) && hops > 0) return;
   const next = { ...envelope, hops: hops + 1 };
   for (const peerId of meshRef.getConnectedPeerIds()) {
     if (peerId === fromPeerId || peerId === envelope.from) continue;
@@ -383,6 +387,9 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     // the call may still be reading the room's chat.
     && envelope.msgType !== 'chat-history-request'
     && envelope.msgType !== 'chat-history'
+    // The shared network chat does not depend on being in the Brain: someone
+    // who walked out of the Brain to Explore keeps chatting with it.
+    && !(envelope.msgType === 'chat-message' && isNetworkChatRoom(envelope.roomId))
   ) {
     const left = departedAt.get(fromKey);
     if (left !== undefined && (envelope.ts ?? 0) <= left + 1_000) return;
