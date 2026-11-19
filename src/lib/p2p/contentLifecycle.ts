@@ -201,7 +201,37 @@ function recordKey(t: { type: ContentTombstone["type"]; postId?: string; authorI
 
 function cacheRecord(record: TombstoneRecord): void {
   if (record.kind === "post" && record.postId) postTombstones.set(postKey(record.authorId, record.postId), record);
-  if (record.kind === "account") accountTombstones.set(record.authorId, record);
+  if (record.kind === "account") {
+    accountTombstones.set(record.authorId, record);
+    if (record.tombstone) notifyAccountRetired(record.authorId);
+  }
+}
+
+// ── Account retirement listeners ────────────────────────────────────────
+
+const accountRetiredListeners = new Set<(authorId: string) => void>();
+
+/**
+ * Called once a signed account tombstone is known for an author (loaded,
+ * received or issued here). Recovery custody uses it to drop the retired
+ * identity's vault so stale shells leave the mesh.
+ */
+export function onAccountRetired(listener: (authorId: string) => void): () => void {
+  accountRetiredListeners.add(listener);
+  return () => accountRetiredListeners.delete(listener);
+}
+
+function notifyAccountRetired(authorId: string): void {
+  for (const listener of accountRetiredListeners) {
+    try { listener(authorId); } catch { /* listener errors never block lifecycle */ }
+  }
+}
+
+/** True while a signed account tombstone for this author is live. */
+export async function isAccountRetired(authorId: string, now = Date.now()): Promise<boolean> {
+  await ensureLifecycleLoaded();
+  const record = accountTombstones.get(authorId);
+  return !!record?.tombstone && isLive(record, now);
 }
 
 function uncacheRecord(record: TombstoneRecord): void {

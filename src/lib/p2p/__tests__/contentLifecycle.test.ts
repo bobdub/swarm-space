@@ -338,3 +338,24 @@ describe("fadeout and favorites", () => {
     expect(h.table("contentTombstones").size).toBe(0);
   });
 });
+
+describe("account retirement", () => {
+  it("tells listeners when a signed account tombstone arrives, so the recovery vault can be dropped", async () => {
+    const heard: string[] = [];
+    const off = lc.onAccountRetired((id) => heard.push(id));
+    expect(await lc.isAccountRetired(alice.id)).toBe(false);
+    const t = await lc.signTombstone(
+      { type: "account_tombstone", authorId: alice.id, deletedAt: new Date().toISOString() },
+      alice.privateKey,
+      alice.publicKey,
+    );
+    await lc.receiveTombstones([t]);
+    expect(heard).toEqual([alice.id]);
+    expect(await lc.isAccountRetired(alice.id)).toBe(true);
+    // A post tombstone is not an account retirement.
+    await lc.receiveTombstones([await signPostTombstone(eve, "p9")]);
+    expect(heard).toEqual([alice.id]);
+    expect(await lc.isAccountRetired(eve.id)).toBe(false);
+    off();
+  });
+});

@@ -87,7 +87,7 @@ export async function sendWalletTip(params: {
   recipient: string; assetId: string; amount: number; message?: string; intent?: "tip" | "transfer";
   /** SWARM only; defaults to Hollow. */
   weight?: TipWeight;
-}): Promise<void> {
+}): Promise<SwarmTransaction | null> {
   if (sending) throw new Error("A wallet payment is already being processed");
   sending = true;
   try {
@@ -103,7 +103,7 @@ export async function sendWalletTip(params: {
     if (asset.kind === "credits") {
       const send = params.intent === "transfer" ? transferCredits : tipUser;
       await send(recipient.id, params.amount, { message });
-      return;
+      return null;
     }
     if (params.weight && params.weight !== "hollow" && asset.id !== "chain:SWARM") {
       throw new Error("Only SWARM tips carry an engraving weight");
@@ -126,6 +126,7 @@ export async function sendWalletTip(params: {
     if (!await receiveWalletTip(tx)) throw new Error("Wallet ownership or available balance could not be verified");
     // The ledger is authoritative. Failed delivery remains retryable, never a second debit.
     await broadcastTip(tx).catch(() => {});
+    return tx;
   } finally { sending = false; }
 }
 
