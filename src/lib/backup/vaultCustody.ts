@@ -120,6 +120,7 @@ async function readIndex(): Promise<Record<string, number>> {
  */
 export async function holdVault(value: unknown, fromPeer: string): Promise<boolean> {
   if (!(await verifyRecoveryVault(value))) return false;
+  if (await isRetired((value as RecoveryVaultEnvelope).userId)) return false;
   // Serialize index read → evict → write so concurrent stores cannot drop
   // index entries and escape the MAX_HELD_VAULTS cap.
   const run = custodyQueue.then(() => holdVerifiedVault(value as RecoveryVaultEnvelope, fromPeer));
@@ -151,8 +152,51 @@ async function holdVerifiedVault(envelope: RecoveryVaultEnvelope, fromPeer: stri
   return true;
 }
 
+// ── Retirement (account merge / account tombstone) ────────────────────
+
+let retiredCheck: (userId: string) => Promise<boolean> | boolean = () => false;
+
+/**
+ * Wire the account-tombstone lookup. A retired identity's vault is never
+ * held, served or re-pushed, so stale shells leave the mesh.
+ */
+export function setVaultRetirementCheck(check: (userId: string) => Promise<boolean> | boolean): void {
+  retiredCheck = check;
+}
+
+async function isRetired(userId: string): Promise<boolean> {
+  try { return !!(await retiredCheck(userId)); } catch { return false; }
+}
+
+/** Drop a held (custodied) vault for an identity whose account is retired. */
+export async function retireHeldVault(userId: string): Promise<boolean> {
+  const run = custodyQueue.then(async () => {
+    const held = await getHeldVault(userId);
+    const index = await readIndex();
+    const indexed = userId in index;
+    if (!held && !indexed) return false;
+    try { await remove("meta", HELD_KEY(userId)); } catch { /* ignore */ }
+    if (indexed) {
+      delete index[userId];
+      await put("meta", { k: HELD_INDEX_KEY, v: index });
+    }
+    return true;
+  });
+  custodyQueue = run.catch(() => false);
+  return run;
+}
+
+/** The retiring device removes its own vault and custody acks. */
+export async function retireOwnVault(userId: string): Promise<void> {
+  try { await remove("meta", OWN_KEY(userId)); } catch { /* ignore */ }
+  try { await remove("meta", ACKS_KEY(userId)); } catch { /* ignore */ }
+  await retireHeldVault(userId);
+  announce(userId);
+}
+
 /** Highest verified envelope this device knows for a userId (own or held). */
 export async function bestKnownVault(userId: string): Promise<RecoveryVaultEnvelope | null> {
+  if (await isRetired(userId)) return null;
   const own = (await getOwnVault(userId))?.envelope ?? null;
   const held = await getHeldVault(userId);
   const candidates = [own, held].filter((e): e is RecoveryVaultEnvelope => !!e);
@@ -275,6 +319,7 @@ function send(peerId: string, msg: VaultMessage): void {
 }
 
 async function pushOwnVault(peerId: string, userId: string): Promise<void> {
+  if (await isRetired(userId)) return;
   const own = await getOwnVault(userId);
   if (own) send(peerId, { kind: "store", envelope: own.envelope });
 }
