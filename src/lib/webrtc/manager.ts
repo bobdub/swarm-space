@@ -9,7 +9,9 @@ import {
   onSignal,
   getLocalMeshPeerId,
   isBridgeActive,
+  isRoomPeerPresent,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
 import { spikeHealth } from '@/lib/uqrc/withHealth';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
@@ -20,12 +22,22 @@ const MAX_NEGOTIATION_RETRIES = 5;
 const MEDIA_HEALTH_INTERVAL_MS = 8_000;
 /** Minimum gap between repairs of the same peer. */
 const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
+/** After every recovery attempt failed, wait this long and start over while
+ *  the peer is still in the room, instead of dropping their audio for good. */
+const RECOVERY_BACKOFF_MS = 20_000;
 
 /** Dispatched on the local MediaStream after a camera or mic switch. */
 export const LOCAL_INPUT_SWITCHED_EVENT = 'swarm-input-switched';
 
 /** Shared with the pre-join modal, which writes the same key. */
 const PREFERRED_DEVICES_KEY = 'swarm-preferred-devices';
+
+/** DTLS fingerprint of an SDP. It changes only when the remote side built a
+ *  brand-new RTCPeerConnection, so it tells a restart apart from a rejoin. */
+export function sdpFingerprint(sdp: string | undefined | null): string | null {
+  const match = sdp?.match(/a=fingerprint:(\S+ \S+)/i);
+  return match ? match[1].toLowerCase() : null;
+}
 
 function loadPreferredInput(kind: 'audio' | 'video'): string | undefined {
   try {
@@ -169,6 +181,17 @@ export class WebRTCManager {
         }
 
         case 'leave-room': {
+          // The bridge evicts a peer whose room heartbeats went quiet for a
+          // while (a mesh edge hiccup, a throttled background tab). If our
+          // call with them is still carrying media, they did not leave:
+          // keep talking. A real departure still closes the call, and a
+          // connection that later fails goes through normal recovery.
+          const reason = (envelope.data as { reason?: unknown } | undefined)?.reason;
+          const livePc = this.connections.get(meshPeerId);
+          if (reason === 'silent' && livePc?.connectionState === 'connected') {
+            console.log(`[WebRTC] Peer ${meshPeerId} went quiet on the mesh but the call is live — keeping it`);
+            break;
+          }
           console.log(`[WebRTC] Peer ${meshPeerId} left`);
           this.cleanupPeer(meshPeerId);
           this.broadcastMessage({
@@ -235,7 +258,9 @@ export class WebRTCManager {
 
         case 'reconnect-request': {
           console.log(`[WebRTC] 🔄 Reconnect request from ${meshPeerId}`);
-          // Tear down stale connection and let them re-offer
+          // Tear down stale connection and let them re-offer. Their offer is
+          // on its way, so the health sweep must not "repair" the gap.
+          this.lastRepairAt.set(meshPeerId, Date.now());
           this.removePeer(meshPeerId);
           this.ensureParticipant(meshPeerId, envelope.username);
           // Send ack via mesh
@@ -258,7 +283,7 @@ export class WebRTCManager {
 
   // ── WebRTC Negotiation ─────────────────────────────────────────────
 
-  private async createOfferForPeer(meshPeerId: string): Promise<void> {
+  private async createOfferForPeer(meshPeerId: string, options: { iceRestart?: boolean } = {}): Promise<void> {
     if (!this.currentRoomId) return;
 
     // Prevent parallel negotiations with the same peer
@@ -287,7 +312,8 @@ export class WebRTCManager {
     this.makingOffer.set(meshPeerId, true);
 
     try {
-      const pc = await this.createPeerConnection(meshPeerId);
+      // An ICE restart revives the existing (even failed) connection.
+      const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: options.iceRestart });
 
       if (pc.signalingState !== 'stable') {
         console.log(`[WebRTC] Deferring offer for ${meshPeerId}; signalingState=${pc.signalingState}`);
@@ -295,7 +321,7 @@ export class WebRTCManager {
         return;
       }
 
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer(options.iceRestart ? { iceRestart: true } : undefined);
       await pc.setLocalDescription(offer);
 
       sendSignalViaMesh(meshPeerId, this.currentRoomId, 'offer', offer);
@@ -329,7 +355,22 @@ export class WebRTCManager {
 
   private async handleRemoteOffer(meshPeerId: string, offer: RTCSessionDescriptionInit): Promise<void> {
     console.log(`[WebRTC] 📥 Received offer from ${meshPeerId}`);
-    const pc = await this.createPeerConnection(meshPeerId);
+    // Same DTLS fingerprint = same remote connection (a renegotiation or an
+    // ICE restart, which may revive a failed one). A new fingerprint means
+    // they rebuilt their side (rejoin, refresh, recovery): applying that to
+    // our old connection fails, which left the pair silent until the next
+    // timeout. Start a fresh connection for it instead.
+    const existing = this.connections.get(meshPeerId);
+    const incoming = sdpFingerprint(offer.sdp);
+    const known = sdpFingerprint(existing?.remoteDescription?.sdp);
+    const sameRemote = !!existing && !!incoming && !!known && incoming === known;
+    if (existing && known && incoming && !sameRemote) {
+      console.log(`[WebRTC] ${meshPeerId} rebuilt their connection — starting a fresh one`);
+      this.removePeer(meshPeerId);
+      this.makingOffer.set(meshPeerId, false);
+      this.negotiationLock.set(meshPeerId, false);
+    }
+    const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote });
 
     const isCurrentlyMakingOffer = this.makingOffer.get(meshPeerId) ?? false;
     const offerCollision = isCurrentlyMakingOffer || pc.signalingState !== 'stable';
@@ -379,6 +420,18 @@ export class WebRTCManager {
       console.warn(
         `[WebRTC] Dropping stray answer from ${meshPeerId} (state=${pc.signalingState})`,
       );
+      return;
+    }
+    // Our renegotiation reached a peer that had rebuilt their side, so they
+    // answered from a brand-new connection. Ours cannot take it: rebuild and
+    // offer again instead of sitting on a broken pair.
+    const known = sdpFingerprint(pc.remoteDescription?.sdp);
+    const incoming = sdpFingerprint(answer.sdp);
+    if (known && incoming && known !== incoming) {
+      console.log(`[WebRTC] ${meshPeerId} answered from a new connection — rebuilding`);
+      this.removePeer(meshPeerId);
+      this.negotiationRetryCount.delete(meshPeerId);
+      void this.createOfferForPeer(meshPeerId).catch(() => undefined);
       return;
     }
     try {
@@ -962,19 +1015,25 @@ export class WebRTCManager {
 
   getScreenStream(): MediaStream | null { return this.screenStream; }
 
-  async createPeerConnection(peerId: string): Promise<RTCPeerConnection> {
-    // Reuse existing connection if it's still alive
+  async createPeerConnection(peerId: string, opts: { reuseFailed?: boolean } = {}): Promise<RTCPeerConnection> {
+    // Reuse existing connection if it's still alive (or being ICE-restarted)
     const existing = this.connections.get(peerId);
-    if (existing && existing.connectionState !== 'closed' && existing.connectionState !== 'failed') {
+    if (
+      existing &&
+      existing.connectionState !== 'closed' &&
+      (existing.connectionState !== 'failed' || opts.reuseFailed)
+    ) {
       return existing;
     }
+    // Never leak the connection we are replacing.
+    if (existing) {
+      try { existing.close(); } catch { /* ignore */ }
+    }
 
+    // Same STUN + TURN list as the data mesh: a pair that only reaches
+    // each other through a relay must be able to relay audio too.
     const config: RTCConfiguration = {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-      ],
+      iceServers: DEFAULT_ICE_SERVERS,
     };
 
     const pc = new RTCPeerConnection(config);
@@ -1183,8 +1242,25 @@ export class WebRTCManager {
   }
 
   private attemptRecovery(peerId: string): void {
+    if (!this.currentRoomId) return;
+    this.clearReconnectTimer(peerId);
     const attempts = this.reconnectAttempts.get(peerId) ?? 0;
     if (attempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.reconnectAttempts.delete(peerId);
+      this.removePeer(peerId);
+      // Still in the room (heartbeats arriving over the mesh)? Then the
+      // network is just being difficult: keep them listed and start over
+      // after a pause. Dropping them here left the two users unable to
+      // hear each other until somebody re-joined.
+      if (isRoomPeerPresent(this.currentRoomId, peerId)) {
+        console.log(`[WebRTC] ⏸ Recovery attempts exhausted for ${peerId}; retrying in ${RECOVERY_BACKOFF_MS / 1000}s`);
+        const timer = setTimeout(() => {
+          this.reconnectTimers.delete(peerId);
+          if (this.participants.has(peerId)) this.attemptRecovery(peerId);
+        }, RECOVERY_BACKOFF_MS);
+        this.reconnectTimers.set(peerId, timer);
+        return;
+      }
       console.log(`[WebRTC] ❌ Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached for ${peerId} — removing`);
       this.cleanupPeer(peerId);
       this.broadcastMessage({
@@ -1196,21 +1272,29 @@ export class WebRTCManager {
     }
 
     this.reconnectAttempts.set(peerId, attempts + 1);
+    this.lastRepairAt.set(peerId, Date.now());
     console.log(`[WebRTC] 🔄 Recovery attempt ${attempts + 1}/${MAX_RECONNECT_ATTEMPTS} for ${peerId}`);
 
-    // Tear down stale connection
-    this.removePeer(peerId);
-
-    // Send reconnect-request via mesh signaling bridge
-    if (this.currentRoomId) {
+    const pc = this.connections.get(peerId);
+    if (attempts === 0 && pc && pc.connectionState !== 'closed') {
+      // First try an ICE restart on the same connection: new candidates
+      // (including TURN relays) without tearing down the call, so a brief
+      // network change does not cut audio for both sides.
+      console.log(`[WebRTC] ❄️ ICE restart for ${peerId}`);
+      this.negotiationRetryCount.delete(peerId);
+      void this.createOfferForPeer(peerId, { iceRestart: true }).catch(err =>
+        console.warn(`[WebRTC] ICE restart offer failed for ${peerId}:`, err));
+    } else {
+      // Tear down stale connection and ask the peer for a fresh one.
+      this.removePeer(peerId);
       sendReconnectRequest(peerId, this.currentRoomId, 'reconnect-request');
     }
 
-    // If no ack within timeout, try again or give up
+    // If not connected within the timeout, escalate (or eventually back off).
     const timer = setTimeout(() => {
       this.reconnectTimers.delete(peerId);
-      const pc = this.connections.get(peerId);
-      if (!pc || pc.connectionState !== 'connected') {
+      const current = this.connections.get(peerId);
+      if (!current || current.connectionState !== 'connected') {
         this.attemptRecovery(peerId);
       }
     }, RECONNECT_TIMEOUT_MS);
@@ -1335,6 +1419,7 @@ export class WebRTCManager {
   async resyncPeer(peerId: string): Promise<void> {
     if (!this.currentRoomId) return;
     console.log(`[WebRTC] 🔁 Manual resync for ${peerId}`);
+    this.lastRepairAt.set(peerId, Date.now());
     this.reconnectAttempts.set(peerId, 0);
     this.clearReconnectTimer(peerId);
     this.removePeer(peerId);
@@ -1559,9 +1644,15 @@ export class WebRTCManager {
         const pc = this.connections.get(peerId);
         const last = this.lastRepairAt.get(peerId) ?? 0;
         if (now - last < MEDIA_REPAIR_COOLDOWN_MS) continue;
+        // A disconnect grace or recovery already owns this peer. Repairing
+        // on top of it tore down the connection the recovery was building,
+        // and the two sides kept resetting each other.
+        if (this.disconnectTimers.has(peerId) || this.reconnectTimers.has(peerId)) continue;
 
         const state = pc?.connectionState;
-        const halfOpen = !pc || state === 'failed' || state === 'disconnected' || state === 'closed';
+        // 'disconnected' is usually a blip that heals by itself; the
+        // grace timer started by onconnectionstatechange handles it.
+        const halfOpen = !pc || state === 'failed' || state === 'closed';
         const receivingNothing =
           !!pc &&
           state === 'connected' &&
