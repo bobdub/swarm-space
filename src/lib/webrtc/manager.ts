@@ -376,6 +376,7 @@ export class WebRTCManager {
       this.negotiationLock.set(meshPeerId, false);
     }
     const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote, forAnswer: true });
+    if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
 
     const isCurrentlyMakingOffer = this.makingOffer.get(meshPeerId) ?? false;
     const offerCollision = isCurrentlyMakingOffer || pc.signalingState !== 'stable';
@@ -390,19 +391,28 @@ export class WebRTCManager {
       }
     }
 
-    await pc.setRemoteDescription(new RTCSessionDescription(offer));
-    await this.flushPendingCandidates(meshPeerId, pc);
-    // Put our mic/camera on the transceivers this offer created, so the
-    // answer itself carries our audio. Otherwise the answering side (every
-    // newcomer, and the polite side after glare) stays silent until a
-    // second negotiation of its own succeeds: the "they can hear me but I
-    // can't hear them" split.
-    await this.adoptOfferedTransceivers(pc);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-
-    sendSignalViaMesh(meshPeerId, this.currentRoomId!, 'answer', answer);
-    console.log(`[WebRTC] 📤 Sent answer to ${meshPeerId}`);
+    this.applyingRemoteOffer.add(meshPeerId);
+    try {
+      // Keep queued offers out of the brief stable state during rollback.
+      if (offerCollision && pc.signalingState !== 'stable') {
+        await pc.setLocalDescription({ type: 'rollback' });
+      }
+      this.ignoredOffers.delete(meshPeerId);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await this.flushPendingCandidates(meshPeerId, pc);
+      // Preserve the incoming fix: the answer sends on the offered slots.
+      await this.adoptOfferedTransceivers(pc);
+      const answer = await pc.createAnswer();
+      if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
+      await pc.setLocalDescription(answer);
+      if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
+      sendSignalViaMesh(meshPeerId, roomId, 'answer', pc.localDescription ?? answer);
+    } finally {
+      if (this.connections.get(meshPeerId) === pc) {
+        this.applyingRemoteOffer.delete(meshPeerId);
+        this.drainNegotiation(meshPeerId, pc);
+      }
+    }
   }
 
   private async handleRemoteAnswer(meshPeerId: string, answer: RTCSessionDescriptionInit): Promise<void> {
@@ -1756,7 +1766,7 @@ export class WebRTCManager {
           this.lastRepairAt.set(peerId, now);
           console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
           if (halfOpen) {
-            void this.resyncPeer(peerId).catch(() => {});
+            this.attemptRecovery(peerId);
           } else if (notSending && liveMic && pc) {
             void this.slotTrackIntoPeer(pc, liveMic)
               .catch(() => false)
