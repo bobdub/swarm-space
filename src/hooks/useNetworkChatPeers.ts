@@ -5,7 +5,7 @@ import { BRAIN_ROOM_ID, isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
 import {
   announceNetworkChatHere,
   getNetworkChatPeers,
-  getRoomPresences,
+  getLiveNetworkRoomPresences,
   onNetworkChatPeers,
   onRoomPresence,
   onRoomPresenceRemoved,
@@ -54,7 +54,7 @@ export function useNetworkChatPeers(active: boolean, roomId: string = BRAIN_ROOM
       setMembers([]);
       return;
     }
-    const refresh = () => setMembers(mergeNetworkChatMembers(getRoomPresences(roomId), getNetworkChatPeers()));
+    const refresh = () => setMembers(mergeNetworkChatMembers(getLiveNetworkRoomPresences(roomId), getNetworkChatPeers()));
     refresh();
     const offChat = onNetworkChatPeers(refresh);
     const offPresence = onRoomPresence((p) => { if (p.roomId === roomId) refresh(); });

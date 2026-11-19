@@ -118,5 +118,16 @@ describe('network chat outside the Brain', () => {
     bridge.announceNetworkChatHere(BRAIN_ROOM_ID, 'uE', 'Eve');
     expect(e.sent.some((s) => s.to === 'B' && s.payload.msgType === 'chat-here' && s.payload.username === 'Eve')).toBe(true);
   });
+
+  it('stops listing a Brain peer who went quiet, even when this device never joined the Brain', () => {
+    const e = makeMesh('E', ['B']);
+    startSignalingBridge(e.mesh as never);
+    e.deliver('B', { msgType: 'presence', from: 'B', roomId: BRAIN_ROOM_ID, username: 'Bee', data: {}, ts: 1 });
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID).map((p) => p.username)).toEqual(['Bee']);
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID, Date.now() + bridge.CHAT_HERE_TTL_MS + 1)).toHaveLength(0);
+    // A heartbeat keeps them listed.
+    e.deliver('B', { msgType: 'room-heartbeat', from: 'B', roomId: BRAIN_ROOM_ID, ts: 2 });
+    expect(bridge.getLiveNetworkRoomPresences(BRAIN_ROOM_ID)).toHaveLength(1);
+  });
 });
 

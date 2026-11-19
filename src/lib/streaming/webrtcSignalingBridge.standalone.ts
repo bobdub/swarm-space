@@ -378,6 +378,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     return;
   }
   relayRoomAnnouncement(fromPeerId, envelope);
+  noteNetworkRoomTraffic(envelope);
 
   const fromKey = roomKey(envelope.roomId, envelope.from);
   if (envelope.msgType === 'join-room' || envelope.msgType === 'room-hello') {
@@ -947,6 +948,7 @@ export function stopSignalingBridge(): void {
   roomChatLog.clear();
   roomPresenceLog.clear();
   chatHerePeers.clear();
+  networkRoomHeardAt.clear();
   lastHelloAt.clear();
   historyRepliedAt.clear();
   console.log('[WebRTC-Bridge] ⏹ Signaling bridge stopped');
@@ -1319,6 +1321,29 @@ export function announceNetworkChatHere(roomId: string, userId: string | undefin
     data: { open },
     ts: Date.now(),
   } satisfies SignalEnvelope);
+}
+
+/** peerId -> last time anything reached us from them on the shared chat room. */
+const networkRoomHeardAt = new Map<string, number>();
+
+/**
+ * Liveness for the shared room that does not need membership: someone
+ * chatting from the menu never joins it, so the room sweep never evicts a
+ * Brain peer who vanished without saying goodbye. Heartbeats, presence and
+ * chat all count as signs of life.
+ */
+function noteNetworkRoomTraffic(envelope: SignalEnvelope): void {
+  if (!isNetworkChatRoom(envelope.roomId)) return;
+  if (envelope.msgType === 'leave-room') networkRoomHeardAt.delete(envelope.from);
+  else networkRoomHeardAt.set(envelope.from, Date.now());
+}
+
+/** Room presences in the shared chat room from peers heard from recently. */
+export function getLiveNetworkRoomPresences(roomId: string, now: number = Date.now()): RoomPresence[] {
+  return getRoomPresences(roomId).filter((p) => {
+    const heard = networkRoomHeardAt.get(p.peerId);
+    return heard !== undefined && now - heard <= CHAT_HERE_TTL_MS;
+  });
 }
 
 /** Peers that announced the network chat recently (never ourselves). */
