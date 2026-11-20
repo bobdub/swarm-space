@@ -81,7 +81,9 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       // Reaches get a little slack, so drifting while holding still works.
       const body = getBrainPhysics().getBody(selfId);
       const now = body ? boatActionFor(body.pos, HOLD_SLACK_M) : null;
-      if (!now) {
+      // A station hold only takes the station it offered.
+      const swapped = a.kind === 'take' && now?.kind === 'take' && (now.role !== a.role || now.boatKey !== a.boatKey);
+      if (!now || swapped) {
         if (a.kind === 'take') toast.message(`Step closer to the ${a.role === 'helm' ? 'wheel' : a.role === 'oars' ? 'oars' : 'rod'} and hold again`, { id: 'boat-hold' });
         else toast.message('Too far from the boat', { description: 'Swim to the ladder or a side of the boat and hold again.', id: 'boat-hold' });
         return;
