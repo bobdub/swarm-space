@@ -111,6 +111,9 @@ const OXIDE_CLOSER = new Set(['O', 'Ne']); // n=2 closure participants
 //  Prefab specs (House)
 // ─────────────────────────────────────────────────────────────────────────
 
+/** The buildable fire pit. Not a held tool, though it lives in the Tools tab. */
+export const FIRE_PIT_ID = 'fire_pit_stone';
+
 const SPECS: PrefabSpec[] = [
   // Foundations — granite slab (Si + O + Fe trace)
   {
@@ -230,6 +233,20 @@ const SPECS: PrefabSpec[] = [
     constituents: [{ symbol: 'C', count: 13 }, { symbol: 'Si', count: 9 }, { symbol: 'O', count: 18 }],
     density: 1.7,
     width: 0.12, depth: 0.04, height: 0.70,
+    yawSnapStep: Math.PI / 4,
+  },
+  // Fire Pit — a ring of fieldstones. Placed from the Tools tab like any
+  // build; once standing, anyone nearby can light it with gathered Wood
+  // (see `src/lib/world/fireStore.ts`). All mineral, so the pit itself
+  // never burns and costs Stone only.
+  {
+    id: FIRE_PIT_ID,
+    label: 'Fire Pit',
+    sectionId: 'tools',
+    formula: 'Si₆Ca₂Fe',
+    constituents: [{ symbol: 'Si', count: 6 }, { symbol: 'Ca', count: 2 }, { symbol: 'Fe', count: 1 }],
+    density: 2.4,
+    width: 1.2, depth: 1.2, height: 0.3,
     yawSnapStep: Math.PI / 4,
   },
   // Consumables — salt rock for honing tools.

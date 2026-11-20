@@ -1121,3 +1121,18 @@ After tending: every hello now carries the sender's boat as it was last sent, so
 Before tending: a swimmer beside the boat could be shown "Hold to climb aboard" and still not get aboard. The offer only reached a couple of metres from the gates and the ladder. Bobbing or sliding along the hull while holding could carry a swimmer just past that, so the ring emptied half way, or filled and then did nothing at all. It took five tries to get aboard.
 
 After tending: you can climb aboard from anywhere alongside the hull, and you come up at that side's gate. The offer stays up for a moment if you drift past its edge. A completed hold allows an extra metre of drift. If the boat really is out of reach, a note says so instead of silence. The button no longer shrinks under your finger while the ring fills. Checked with automated tests and a headless browser run (from the water by the bow, a hold landed the swimmer on deck at the starboard gate). No live mesh session was opened.
+
+## November 21, 2026 — A sail you can find, oars you can see
+Before tending: at the helm on a touch screen, the only way to raise the sail was to press and hold the mast itself, and nothing said so clearly enough to find. A helmsman could spin the wheel all day and go nowhere. At the oars nothing moved on the boat, so with an empty Food bag a rower couldn't tell whether they were rowing at all. "Hold to ship the oars" sounded like taking them, when it means putting them away.
+
+After tending: the helm shows Raise sail and Lower sail buttons to hold, alongside W and S and the mast. The oars swing out through the rowlocks when you take them and sweep with each stroke, one side harder as you turn. With no Food the note says plainly that the oars won't pull, and points to the rods. The ring now reads "Hold to let go of the oars", and a station offer, like the climb, waits a moment if you shuffle off its edge. Checked in a headless browser run: Raise sail took her to 100% and 1.2 m/s, and Lower sail brought it down. With no Food the note showed; with 5 Food she rowed at 1.4 m/s with the oars out.
+
+## November 21, 2026 — The oars stay the oars
+Before tending: standing at the oars near the helm, the hold ring offered the oars, but when it filled, the extra reach a completing hold allows also put the wheel in range, and the wheel was checked first. You held for the oars and got the wheel.
+
+After tending: the nearest station in reach wins, so the slack can't swap one station for another, and a hold that would land on a different station than it offered asks you to step closer instead. A test stands at the oars and checks both offers.
+
+## November 20, 2026 — A fire on the island
+Before tending: the island had wood in every pack and nowhere to burn it. Trees fell, logs were gathered, and the nights stayed dark.
+
+After tending: the builder's Tools tab has a Fire Pit, a ring of fieldstones for 4 Stone. Tap it and put on a log: one Wood lights it and burns five minutes, more Wood keeps it going, up to half an hour ahead. Flames flicker and throw warm light, and when the wood is spent the fire dies down by itself. Anyone can feed anyone's pit, and every peer sees the same fire, because a fire is only the shared record of who put wood on it and when, read against the shared clock. Checked with automated tests (lighting, feeding, the cap, relighting, two peers receiving the facts in different orders) and a headless browser run of `/brain-dev` with one pit lit beside one cold. No live mesh session was opened.

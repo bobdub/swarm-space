@@ -19,7 +19,13 @@ import {
   BITE_WAIT_DEEP_S,
   BITE_WAIT_SHALLOW_S,
   BITE_WINDOW_S,
+  FIGHT_HITS,
+  FIGHT_MISSES,
+  FIGHT_ROUND_S,
   ROD_SPOTS,
+  markerAt,
+  markerInZone,
+  strike,
   _resetFishingForTest,
   cast,
   getFishing,
@@ -64,7 +70,7 @@ describe('a line over the rail', () => {
     expect(meanBiteWait(9)).toBeLessThan(BITE_WAIT_SHALLOW_S);
   });
 
-  it('lands a fish reeled while it is on, for one Food', () => {
+  it('hooks a fish while it is on, then lands it after a fight, for one Food', () => {
     let food = 0;
     setFishingReward(() => { food++; });
     setFishingRandom(() => 0.5);
@@ -74,11 +80,69 @@ describe('a line over the rail', () => {
     // ln 2 × 12 s + 1.5 s ≈ 9.8 s
     expect(bite).toBeGreaterThan(9);
     expect(bite).toBeLessThan(11);
-    expect(reel(bite + 1)).toBe(true);
+    // Hooking starts the fight; nothing is landed yet.
+    expect(reel(bite + 4)).toBe(false);
+    expect(getFishing().phase).toBe('fight');
+    expect(food).toBe(0);
+    // Strike each round when the marker is in the zone.
+    let t = bite + 4;
+    for (let i = 0; i < FIGHT_HITS; i++) {
+      const f = getFishing().fight!;
+      const sweep = f.sweep;
+      let at = t + 0.01;
+      while (!markerInZone(at)) at += 0.005;
+      expect(at - t).toBeLessThan(sweep);
+      t = at;
+      const r = strike(t);
+      expect(r).toBe(i === FIGHT_HITS - 1 ? 'landed' : 'hit');
+      if (r === 'hit') expect(getFishing().fight!.sweep).toBeLessThan(sweep);
+    }
     expect(food).toBe(1);
     expect(getFishing().phase).toBe('caught');
-    updateFishing(bite + 5, 0);
+    updateFishing(t + 5, 0);
     expect(getFishing().phase).toBe('idle');
+  });
+
+  it('the zone narrows and the marker sweeps the whole bar', () => {
+    setFishingRandom(() => 0.5);
+    cast(0, 20);
+    const bite = waitFor(0, 0, 60);
+    reel(bite);
+    const f = getFishing().fight!;
+    const w0 = f.zoneW;
+    let lo = 1, hi = 0;
+    for (let t = bite; t < bite + f.sweep; t += 0.01) { const m = markerAt(t); lo = Math.min(lo, m); hi = Math.max(hi, m); }
+    expect(lo).toBeLessThan(0.02);
+    expect(hi).toBeGreaterThan(0.98);
+    let at = bite;
+    while (!markerInZone(at)) at += 0.005;
+    strike(at);
+    expect(getFishing().fight!.zoneW).toBeLessThan(w0);
+  });
+
+  it('two bad strikes, or rounds left too long, lose the fish', () => {
+    let food = 0;
+    setFishingReward(() => { food++; });
+    setFishingRandom(() => 0.5);
+    cast(0, 20);
+    let bite = waitFor(0, 0, 60);
+    reel(bite);
+    let t = bite;
+    for (let i = 0; i < FIGHT_MISSES; i++) {
+      while (markerInZone(t)) t += 0.005;
+      expect(strike(t)).toBe(i === FIGHT_MISSES - 1 ? 'lost' : 'miss');
+    }
+    expect(getFishing().phase).toBe('missed');
+    // Do nothing at all: each idle round counts as a bad one.
+    updateFishing(t + 10, 0);
+    cast(t + 10, 20);
+    bite = waitFor(t + 10, 0, 60);
+    reel(bite);
+    updateFishing(bite + FIGHT_ROUND_S + 0.1, 0);
+    expect(getFishing().phase).toBe('fight');
+    updateFishing(bite + 2 * FIGHT_ROUND_S + 0.2, 0);
+    expect(getFishing().phase).toBe('missed');
+    expect(food).toBe(0);
   });
 
   it('loses a fish not reeled in time, and gives nothing for an early pull', () => {

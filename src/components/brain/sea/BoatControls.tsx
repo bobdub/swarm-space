@@ -6,7 +6,8 @@
  *   ("Hold to climb aboard"). When one more person would push the boat's
  *   freeboard under 0.2 m it reads "Boat is full" instead.
  * - On deck, beside the wheel, the rowing bench or a rod holder, the same
- *   ring takes the wheel, the oars or a rod, and lets go of them again.
+ *   ring takes the wheel, the oars or a rod. While you hold a station the
+ *   ring to let go sits at the lower right, out of your view.
  * - Jump: Space on a keyboard, or the round button beside the run bolt.
  *   It works anywhere you stand, which is how you leave the boat for a swim.
  */
@@ -47,9 +48,9 @@ function useBoatAction(selfId: string): BoatAction | null {
     const poll = () => {
       const body = getBrainPhysics().getBody(selfId);
       let next = body ? boatActionFor(body.pos) : null;
-      // Keep an approach offer briefly when it lapses (not a station or
-      // leave offer: those follow the crew state exactly).
-      const approach = last.current && (last.current.kind === 'climb' || last.current.kind === 'board');
+      // Keep an approach or station offer briefly when it lapses (not a
+      // leave offer: that follows the crew state exactly).
+      const approach = last.current && (last.current.kind === 'climb' || last.current.kind === 'board' || last.current.kind === 'take');
       if (!next && approach && body) {
         const now = performance.now();
         if (lostAt.current === null) lostAt.current = now;
@@ -81,8 +82,11 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       // Reaches get a little slack, so drifting while holding still works.
       const body = getBrainPhysics().getBody(selfId);
       const now = body ? boatActionFor(body.pos, HOLD_SLACK_M) : null;
-      if (!now) {
-        toast.message('Too far from the boat', { description: 'Swim to the ladder or a side of the boat and hold again.', id: 'boat-hold' });
+      // A station hold only takes the station it offered.
+      const swapped = a.kind === 'take' && now?.kind === 'take' && (now.role !== a.role || now.boatKey !== a.boatKey);
+      if (!now || swapped) {
+        if (a.kind === 'take') toast.message(`Step closer to the ${a.role === 'helm' ? 'wheel' : a.role === 'oars' ? 'oars' : 'rod'} and hold again`, { id: 'boat-hold' });
+        else toast.message('Too far from the boat', { description: 'Swim to the ladder or a side of the boat and hold again.', id: 'boat-hold' });
         return;
       }
       if (now.kind === 'full') { toast.message('Boat is full', { id: 'boat-hold' }); return; }
@@ -97,6 +101,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
   );
   if (!action) return null;
   const full = action.kind === 'full' || action.kind === 'busy';
+  const leaving = action.kind === 'leave';
   const label = action.kind === 'full'
     ? 'Boat is full'
     : action.kind === 'busy'
@@ -107,7 +112,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
         ? 'Hold to climb aboard'
         : action.kind === 'take'
           ? action.role === 'helm' ? 'Hold to take the wheel' : action.role === 'oars' ? 'Hold to take the oars' : 'Hold to take a rod'
-          : action.role === 'helm' ? 'Hold to let go of the wheel' : action.role === 'oars' ? 'Hold to ship the oars' : 'Hold to put the rod down';
+          : action.role === 'helm' ? 'Hold to let go of the wheel' : action.role === 'oars' ? 'Hold to let go of the oars' : 'Hold to put the rod down';
   return (
     <button
       type="button"
@@ -115,9 +120,16 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       disabled={full}
       data-testid="boat-hold"
       aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
-      className="absolute z-[70] left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white select-none"
+      className={`absolute z-[70] flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white select-none ${leaving ? '' : 'left-1/2 -translate-x-1/2'}`}
       style={{
-        bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)',
+        // Letting go of a station sits out of the way at the lower right
+        // (above the joystick on a phone); boarding and taking a station
+        // stay centred where you are looking.
+        ...(leaving
+          ? mobile
+            ? { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14.75rem)' }
+            : { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9.5rem)' }
+          : { bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }),
         background: 'hsla(265,70%,8%,0.85)',
         borderColor: full ? 'hsla(0,70%,60%,0.6)' : 'hsla(180,80%,60%,0.55)',
         opacity: full ? 0.8 : 1,

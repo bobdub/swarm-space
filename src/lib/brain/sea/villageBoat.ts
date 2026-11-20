@@ -15,7 +15,7 @@ import { getEarthPoseTime, type Vec3 } from '../earth';
 import { PHYSICS_HZ, type UqrcPhysics } from '../uqrcPhysics';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from './boatHull';
 import type { BoatFrame } from './boatDeck';
-import { getCrewRole, type CrewRole } from './crew';
+import { getCrewBoatKey, getCrewRole, type CrewRole } from './crew';
 import {
   HELM_SPOT,
   OARS_SPOT,
@@ -93,13 +93,14 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
   const fleet = getFleet();
   if (isOnDeck(p)) {
     const ownable = boat.kind === 'dock' || boat.kind === 'mine';
-    if (ownable && Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) <= STATION_REACH_M) {
+    // The nearest station in reach wins, so slack that widens both reaches
+    // never swaps the oars a body is standing at for the wheel.
+    const reach = STATION_REACH_M + slack * 0.5;
+    const dHelm = ownable ? Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) : Infinity;
+    const dOars = Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]);
+    if (Math.min(dHelm, dOars) <= reach) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      return { kind: 'take', boatKey: boat.key, role: 'helm' };
-    }
-    if (Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]) <= STATION_REACH_M) {
-      if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      return { kind: 'take', boatKey: boat.key, role: 'oars' };
+      return { kind: 'take', boatKey: boat.key, role: dHelm <= dOars ? 'helm' : 'oars' };
     }
     // A rod holder: anyone may fish from any boat.
     for (const spot of ROD_SPOTS) {
@@ -168,6 +169,30 @@ export function boardingSpot(action: BoatAction): [number, number] | null {
     return [action.from === 'port' ? -0.45 : 0.45, 0];
   }
   return null;
+}
+
+/**
+ * The boat this player crews at the wheel or the oars, if it is theirs
+ * (only the owner moves a boat; a rower on someone else's boat can back
+ * water instead).
+ */
+function myCrewedBoat(): FleetBoat | null {
+  const role = getCrewRole();
+  if (role !== 'helm' && role !== 'oars') return null;
+  const mine = getFleet().mine();
+  return mine && mine.key === getCrewBoatKey() ? mine : null;
+}
+
+/** True when the boat this player sails or rows is stuck on the ground. */
+export function myBoatAground(): boolean {
+  return !!myCrewedBoat()?.vessel.motion.aground;
+}
+
+/** Push this player's grounded boat off toward deeper water. */
+export function pushOffMyBoat(): 'pushed' | 'stuck' | 'afloat' {
+  const b = myCrewedBoat();
+  if (!b || !b.vessel.motion.aground) return 'afloat';
+  return b.vessel.pushOff() ? 'pushed' : 'stuck';
 }
 
 /** True when a school of fish is swimming under this player's boat now. */

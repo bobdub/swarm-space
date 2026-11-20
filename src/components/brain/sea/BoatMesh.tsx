@@ -294,8 +294,9 @@ export function BoatMesh({ vessel, boatKey }: { vessel: Vessel; boatKey?: string
         <boxGeometry args={[hullHalfBeam(tAt(benchZ)) * 1.85, 0.08, 0.36]} />
         <meshStandardMaterial color={TRIM} roughness={0.8} />
       </mesh>
+      <OarsOut vessel={vessel} boatKey={boatKey} benchZ={benchZ} />
       {[1, -1].map((side) => (
-        <group key={`oar-${side}`} position={[side * 0.75, BOAT_DECK_Y + 0.08, 0.2]}>
+        <group key={`oar-${side}`} name="stowed-oar" position={[side * 0.75, BOAT_DECK_Y + 0.08, 0.2]}>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
             <meshStandardMaterial color={HULL} roughness={0.7} />
@@ -387,7 +388,7 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
   useFrame(() => {
     const f = getFishing();
     const mine = !!boatKey && getCrewRole() === 'rod' && getCrewBoatKey() === boatKey;
-    const out = mine && (f.phase === 'waiting' || f.phase === 'bite');
+    const out = mine && (f.phase === 'waiting' || f.phase === 'bite' || f.phase === 'fight');
     const [sx, sz] = getCrewSpot() ?? ROD_SPOTS[0];
     const tip = rodTip(sx, sz);
     const side = sx < 0 ? -1 : 1;
@@ -397,13 +398,16 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
     const fish = fishRef.current;
     if (fish) {
       const landed = mine && f.phase === 'caught' ? getEarthPoseTime() - f.since : -1;
-      const show = (mine && f.phase === 'bite') || (landed >= 0 && landed < 1.6);
+      const on = f.phase === 'bite' || f.phase === 'fight';
+      const show = (mine && on) || (landed >= 0 && landed < 1.6);
       fish.visible = show;
       if (show) {
         const fx0 = tip[0] + side * 0.8;
         const fz0 = tip[2] - 0.4;
-        if (f.phase === 'bite') {
-          fish.position.set(fx0 + 0.1 * Math.sin(now * 9), -0.35, fz0 + 0.1 * Math.cos(now * 7));
+        if (on) {
+          // Hooked, it runs wider and harder than when it first takes.
+          const run = f.phase === 'fight' ? 0.45 : 0.1;
+          fish.position.set(fx0 + run * Math.sin(now * 3.1), -0.35, fz0 + run * Math.cos(now * 2.3));
           fish.rotation.set(0, now * 4, 0);
         } else {
           const u = Math.min(1, landed / 0.8);
@@ -419,7 +423,7 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
     if (!out) return;
     // The float sits on the water (the boat frame's y = 0 is the
     // waterline) and dips hard when a fish takes it.
-    const dip = f.phase === 'bite' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
+    const dip = f.phase === 'bite' || f.phase === 'fight' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
     const fx = tip[0] + side * 0.8;
     const fy = dip - 0.02 * (vessel.sea - 1);
     const fz = tip[2] - 0.4;
@@ -448,5 +452,60 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
         </mesh>
       </group>
     </>
+  );
+}
+
+/**
+ * The oars out through the rowlocks while someone rows: they sweep with
+ * the stroke (one side harder when turning). Stowed on deck otherwise.
+ */
+function OarsOut({ vessel, boatKey, benchZ }: { vessel: Vessel; boatKey?: string; benchZ: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const sweepRefs = useRef<(THREE.Group | null)[]>([]);
+  const phase = useRef(0);
+  const lastT = useRef(0);
+  const hb = hullHalfBeam(tAt(benchZ));
+  useFrame((_, dt) => {
+    const g = groupRef.current;
+    if (!g) return;
+    const localRower = !!boatKey && getCrewRole() === 'oars' && getCrewBoatKey() === boatKey;
+    const row = vessel.cmd.row;
+    const turn = vessel.cmd.rowTurn;
+    const pulling = Math.abs(row) > 0.05 || Math.abs(turn) > 0.05;
+    const out = localRower || pulling;
+    g.visible = out;
+    // Hide the stowed pair while the oars are out.
+    g.parent?.children.forEach((c) => { if (c.name === 'stowed-oar') c.visible = !out; });
+    if (!out) return;
+    const step = Math.min(0.1, dt || 0.016);
+    lastT.current += step;
+    if (pulling) phase.current += step * 2.6;
+    [1, -1].forEach((side, i) => {
+      const r = sweepRefs.current[i];
+      if (!r) return;
+      // Turning to starboard pulls the port oar harder, and the reverse.
+      const strength = Math.min(1, Math.abs(row - side * turn * 0.8));
+      r.rotation.y = pulling ? side * 0.45 * strength * Math.sin(phase.current) : 0;
+    });
+  });
+  return (
+    <group ref={groupRef} visible={false}>
+      {[1, -1].map((side, i) => (
+        <group key={`oar-out-${side}`} position={[side * hb, BOAT_DECK_Y + 0.35, benchZ]}>
+          <group ref={(el) => { sweepRefs.current[i] = el; }}>
+            <group rotation={[0, 0, side * -0.45]}>
+              <mesh position={[side * 0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
+                <meshStandardMaterial color={HULL} roughness={0.7} />
+              </mesh>
+              <mesh position={[side * 1.85, 0, 0]}>
+                <boxGeometry args={[0.55, 0.03, 0.16]} />
+                <meshStandardMaterial color={HULL} roughness={0.7} />
+              </mesh>
+            </group>
+          </group>
+        </group>
+      ))}
+    </group>
   );
 }
