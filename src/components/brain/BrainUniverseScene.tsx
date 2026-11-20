@@ -1874,7 +1874,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       });
       // Shy authors (and lines from older clients) are never learned.
       const learnable = remote.infinityLearn === true;
-      if (learnable) enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.authorId || remote.peerId || remote.author || remote.id, learned: true });
+      if (learnable) enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.authorId || remote.peerId || remote.author || remote.id, learned: true, consented: true });
       // Record the remote turn into the conversation ring + apply attraction.
       try {
         const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
@@ -1922,7 +1922,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     };
     setChatLines((prev) => [...prev, line].slice(-100));
     const selfLearn = selfLearnable();
-    if (selfLearn) enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: user?.id || selfId, learned: true });
+    if (selfLearn) enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: user?.id || selfId, learned: true, consented: true });
     // Broadcast to every other peer in the brain room.
     try { sendChatLine(text, line.id); } catch { /* ignore */ }
 

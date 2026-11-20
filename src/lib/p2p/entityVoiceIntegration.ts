@@ -34,7 +34,7 @@ export function initEntityVoiceListener(): void {
     // Passive piggyback: remember text already on this device (no mesh requests).
     // Shy authors are never remembered (see learnConsent).
     if (!isPrivatePost(postData) && postData.author !== ENTITY_USER_ID && isLearnable(postData)) {
-      enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? ''), learned: true });
+      enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? ''), learned: true, consented: true });
     }
     const forceEntity = Boolean(postData._forceEntityReply);
     if (getShyMode() && !forceEntity) return;
@@ -47,7 +47,7 @@ export function initEntityVoiceListener(): void {
     if (!detail || !detail.comment) return;
     const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
     if (comment.author !== ENTITY_USER_ID && isLearnable(comment)) {
-      enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author, learned: true });
+      enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author, learned: true, consented: true });
     }
     const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
     if (getShyMode() && !forceEntity) return;

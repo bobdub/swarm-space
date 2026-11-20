@@ -9,7 +9,7 @@ describe('infinityMemory', () => {
   });
 
   it('clips text to 1000 characters', () => {
-    const p = toPiece({ id: 'a', kind: 'post', text: 'x'.repeat(1500) });
+    const p = toPiece({ id: 'a', kind: 'post', text: 'x'.repeat(1500), consented: true });
     expect(p!.text.length).toBe(MEMORY_MAX_TEXT);
     expect(MEMORY_MAX_TEXT).toBe(1000);
   });

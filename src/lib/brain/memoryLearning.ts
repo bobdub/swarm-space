@@ -21,7 +21,7 @@ const ENTITY_IDS = new Set(['network-entity', 'peer-network-entity']);
 
 /** Unlearned pieces, oldest first, capped to one batch. */
 export function selectUnlearned(pieces: MemoryPiece[], batch = LEARN_BATCH): MemoryPiece[] {
-  return pieces.filter((p) => !p.learned).sort((a, b) => a.ts - b.ts).slice(0, batch);
+  return pieces.filter((p) => !p.learned && p.consented === true).sort((a, b) => a.ts - b.ts).slice(0, batch);
 }
 
 /** Posts weigh more than comments, comments more than chat. */
@@ -47,10 +47,10 @@ export async function backfillMemory(): Promise<number> {
     ]);
     const candidates = [
       ...posts.filter((p) => !ENTITY_IDS.has(String(p.author)) && !isPrivatePost(p) && isLearnable(p)).map((p) => ({
-        id: `post:${p.id}`, kind: 'post' as const, text: String(p.content ?? ''), author: String(p.author ?? ''), ts: Date.parse(String(p.createdAt ?? '')) || Date.now(),
+        id: `post:${p.id}`, kind: 'post' as const, consented: true as const, text: String(p.content ?? ''), author: String(p.author ?? ''), ts: Date.parse(String(p.createdAt ?? '')) || Date.now(),
       })),
       ...comments.filter((c) => !ENTITY_IDS.has(String(c.author)) && isLearnable(c)).map((c) => ({
-        id: `comment:${c.id}`, kind: 'comment' as const, text: String(c.text ?? ''), author: String(c.author ?? ''), ts: Date.parse(String(c.createdAt ?? '')) || Date.now(),
+        id: `comment:${c.id}`, kind: 'comment' as const, consented: true as const, text: String(c.text ?? ''), author: String(c.author ?? ''), ts: Date.parse(String(c.createdAt ?? '')) || Date.now(),
       })),
     ].sort((a, b) => b.ts - a.ts).slice(0, BACKFILL_CAP);
     const existing = await hasMemory(candidates.map((c) => c.id));

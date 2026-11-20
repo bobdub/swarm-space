@@ -68,13 +68,15 @@ function idle(fn: () => void): void {
 // ── Seamless: link learned memory into the synapse graph ─────────────
 
 async function linkMemory(): Promise<void> {
-  const { readMemory } = await import('@/lib/brain/infinityMemory');
+  const { readMemorySince } = await import('@/lib/brain/infinityMemory');
   let cursor = 0;
   try { cursor = Number(localStorage.getItem(LINK_CURSOR_KEY)) || 0; } catch { /* ignore */ }
-  const pieces = (await readMemory(LINK_BATCH)).filter((p) => p.ts > cursor).sort((a, b) => a.ts - b.ts);
+  // Page forward from the cursor (oldest first) so a burst never skips pieces.
+  const pieces = await readMemorySince(cursor, LINK_BATCH);
   if (!pieces.length) return;
   const graph = getSynapseGraph();
-  for (const p of pieces) graph.observe({ topics: topicsOf(p.text), peer: p.authorHash }, p.ts);
+  // Only pieces stored with the author's consent stamp; legacy pieces are skipped.
+  for (const p of pieces) if (p.consented === true) graph.observe({ topics: topicsOf(p.text), peer: p.authorHash }, p.ts);
   try { localStorage.setItem(LINK_CURSOR_KEY, String(pieces[pieces.length - 1].ts)); } catch { /* ignore */ }
   saveSynapseGraph();
 }
