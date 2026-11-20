@@ -17,6 +17,11 @@ export interface MemoryPiece {
   authorHash: string;
   /** True when the text was already fed to the learner live. */
   learned?: boolean;
+  /**
+   * True when the author was not shy (stamped `infinityLearn`). Pieces stored
+   * before consent stamps existed lack it and are never learned or linked.
+   */
+  consented?: boolean;
 }
 
 export const MEMORY_MAX_PIECES = 2000;
@@ -35,7 +40,8 @@ export function hashAuthor(author: string): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-export interface MemoryInput { id: string; kind: MemoryKind; text: string; author?: string; ts?: number; learned?: boolean }
+/** `consented` is required: callers store only items whose author was not shy. */
+export interface MemoryInput { id: string; kind: MemoryKind; text: string; author?: string; ts?: number; learned?: boolean; consented: true }
 
 export function toPiece(input: MemoryInput): MemoryPiece | null {
   const text = (input.text ?? '').trim();
@@ -47,6 +53,7 @@ export function toPiece(input: MemoryInput): MemoryPiece | null {
     ts: input.ts ?? Date.now(),
     authorHash: hashAuthor(input.author ?? 'anon'),
     learned: Boolean(input.learned),
+    consented: input.consented === true,
   };
 }
 
@@ -155,6 +162,27 @@ export async function readMemory(limit = 500): Promise<MemoryPiece[]> {
     return await new Promise((resolve) => {
       const out: MemoryPiece[] = [];
       const req = db.transaction(STORE).objectStore(STORE).index('ts').openCursor(null, 'prev');
+      req.onsuccess = () => {
+        const c = req.result;
+        if (!c || out.length >= limit) return resolve(out);
+        out.push(c.value as MemoryPiece);
+        c.continue();
+      };
+      req.onerror = () => resolve(out);
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Oldest pieces strictly newer than `afterTs`, ascending (for paging forward). */
+export async function readMemorySince(afterTs: number, limit = 200): Promise<MemoryPiece[]> {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve) => {
+      const out: MemoryPiece[] = [];
+      const range = IDBKeyRange.lowerBound(afterTs, true);
+      const req = db.transaction(STORE).objectStore(STORE).index('ts').openCursor(range, 'next');
       req.onsuccess = () => {
         const c = req.result;
         if (!c || out.length >= limit) return resolve(out);

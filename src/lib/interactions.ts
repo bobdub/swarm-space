@@ -1,6 +1,7 @@
 // Social interaction utilities
 import { get, put, getAllByIndex } from "./store";
 import { Post, Comment, Reaction, User, type MentionBinding } from "@/types";
+import { selfLearnStamp } from "@/lib/brain/agent/learnConsent";
 import { getCurrentUser, type UserMeta } from "./auth";
 import { createNotification } from "./notifications";
 import type { AchievementEvent } from "./achievements";
@@ -263,6 +264,7 @@ export async function addComment(
     mentions,
     createdAt: new Date().toISOString(),
     parentId,
+    ...selfLearnStamp(),
   };
 
   await put("comments", comment);

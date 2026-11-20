@@ -11,6 +11,7 @@ import { INFINITY_RECIPIENT } from '@/lib/blockchain/infinity/vaults';
 import { useP2PContext } from '@/contexts/P2PContext';
 import { getSharedNeuralEngine } from '@/lib/p2p/sharedNeuralEngine';
 import { MAX_CONVERSATION_PROMPT, replyToInfinity } from '@/lib/brain/infinityConversation';
+import { InfinityAgentPanel } from '@/components/brain/InfinityAgentPanel';
 import type { Post } from '@/types';
 
 type Message = { id: string; role: 'you' | 'infinity'; text: string };
@@ -18,7 +19,7 @@ type Message = { id: string; role: 'you' | 'infinity'; text: string };
 export function InfinityProfile({ posts }: { posts: Post[] }) {
   const navigate = useNavigate();
   const { stats } = useP2PContext();
-  const [tab, setTab] = useState<'chat' | 'posts'>('chat');
+  const [tab, setTab] = useState<'chat' | 'posts' | 'map'>('chat');
   const [gifting, setGifting] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [prompt, setPrompt] = useState('');
@@ -89,6 +90,7 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
       <nav aria-label="Infinity views" className="flex gap-2 border-b border-border py-3">
         <Button type="button" variant={tab === 'chat' ? 'secondary' : 'ghost'} onClick={() => setTab('chat')}>Conversation</Button>
         <Button type="button" variant={tab === 'posts' ? 'secondary' : 'ghost'} onClick={() => setTab('posts')}>Posts · {posts.length}</Button>
+        <Button type="button" variant={tab === 'map' ? 'secondary' : 'ghost'} onClick={() => setTab('map')}>Brain map</Button>
       </nav>
       {tab === 'chat' ? <section aria-label="Infinity conversation" className="py-4">
         <div className="flex items-center justify-between gap-3 pb-4">
@@ -104,8 +106,8 @@ export function InfinityProfile({ posts }: { posts: Post[] }) {
           <Button type="button" size="icon" aria-label="Send message" title="Send message" disabled={!enabled || working || !prompt.trim()} onClick={send}><Send className="h-4 w-4" /></Button>
         </div>
         <p className="mt-3 text-xs text-muted-foreground">Private session · Not saved or shared with peers</p>
-      </section> : <section className="space-y-5 py-6" aria-label="Infinity posts">{posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <p className="text-sm text-muted-foreground">No Infinity posts stored on this device.</p>}</section>}
-      <details className="border-t border-border py-4 text-sm text-muted-foreground"><summary className="cursor-pointer text-foreground">Learning & availability</summary><div className="mt-3 space-y-2"><p>Text memory and complete expressions stay on this device. Infinity's crystallized reflections are engraved inside hollow coins from the community pool, which then belong to Infinity; no member's wallet is used. Connected peers exchange vocabulary and pattern summaries, not complete memories.</p><p>Received learning remains here offline. Material held only by another peer is unavailable until it reaches this device.</p><p>UQRC ranks relevant whole expressions in a local field model. Its score is not a measure of consciousness or factual accuracy.</p></div></details>
+      </section> : tab === 'map' ? <InfinityAgentPanel /> : <section className="space-y-5 py-6" aria-label="Infinity posts">{posts.length ? posts.map(post => <PostCard key={post.id} post={post} />) : <p className="text-sm text-muted-foreground">No Infinity posts stored on this device.</p>}</section>}
+      <details className="border-t border-border py-4 text-sm text-muted-foreground"><summary className="cursor-pointer text-foreground">Learning & availability</summary><div className="mt-3 space-y-2"><p>Infinity only learns from people whose node is not shy (Shy Node in the node dashboard). Private and walled posts are never read.</p><p>Text memory and complete expressions stay on this device. Infinity's crystallized reflections are engraved inside hollow coins from the community pool, which then belong to Infinity; no member's wallet is used. Connected peers exchange vocabulary and pattern summaries, not complete memories.</p><p>Received learning remains here offline. Material held only by another peer is unavailable until it reaches this device.</p><p>UQRC ranks relevant whole expressions in a local field model. Its score is not a measure of consciousness or factual accuracy.</p></div></details>
     </main>
     {gifting && <SendCreditsModal toUserId={INFINITY_RECIPIENT.id} toUsername={INFINITY_RECIPIENT.username} isOpen onClose={() => setGifting(false)} />}
   </div>;

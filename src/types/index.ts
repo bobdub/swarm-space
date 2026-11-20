@@ -112,6 +112,8 @@ export interface Post {
   _syncedToMesh?: boolean;
   /** If true, this post will never be broadcast to the mesh */
   _localOnly?: boolean;
+  /** Author's node was not shy when posting, so Infinity may learn from it */
+  infinityLearn?: boolean;
   /** Explicit long-form identity, persisted so blogs/books never downgrade on peers */
   blogClassification?: "post" | "blog" | "book";
   /** Sticky guard: once true with blog/book classification, keep long-form rendering */
@@ -182,6 +184,8 @@ export interface Comment {
   mentions?: MentionBinding[];
   createdAt: string;
   parentId?: string;
+  /** Author's node was not shy when commenting, so Infinity may learn from it */
+  infinityLearn?: boolean;
 }
 
 export type HubPieceSection = "walls" | "doors" | "windows" | "roof" | "floor";

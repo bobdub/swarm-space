@@ -21,6 +21,7 @@ import type { PostBadgeSnapshot } from "@/types";
 import type { Manifest } from "@/lib/fileEncryption";
 import type { Post, Project } from "@/types";
 import { toast } from "sonner";
+import { selfLearnStamp } from "@/lib/brain/agent/learnConsent";
 import { StartLiveRoomButton } from "@/components/streaming/StartLiveRoomButton";
 import { signPost } from "@/lib/p2p/replication";
 import { applyBlogIdentity } from "@/lib/blogging/awareness";
@@ -236,6 +237,7 @@ export const PostComposer = ({
         likes: 0,
         comments: [],
         _origin: 'local',
+        ...selfLearnStamp(),
       };
 
       let signedPost = await signPost(applyBlogIdentity(post));

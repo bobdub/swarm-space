@@ -19,6 +19,7 @@ import { BRAIN_PHYSICS_VERSION } from "@/lib/brain/brainPersistence";
 import { isBrainSynced } from "@/lib/brain/brainSyncStore";
 import { ENTITY_DISPLAY_NAME, ENTITY_USER_ID } from '@/lib/p2p/entityVoice';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
+import { selfLearnStamp } from "@/lib/brain/agent/learnConsent";
 
 import { BRAIN_ROOM_ID } from "@/lib/chat/networkChatRoom";
 
@@ -369,6 +370,9 @@ export function useBrainVoice(
           undefined,
           undefined,
           infinityReplyTo,
+          // Infinity's own lines are never learned; a person's line is
+          // learnable only while their node is not shy.
+          infinityReplyTo ? {} : selfLearnStamp(),
         );
       } catch (err) {
         console.warn("[BrainVoice] chat broadcast failed", err);
@@ -388,6 +392,7 @@ export function useBrainVoice(
         peerId: string;
         authorId?: string;
         infinityReplyTo?: string;
+        infinityLearn?: boolean;
       }) => void,
     ) => {
       return onRoomChatMessage((msg: RoomChatMessage) => {
@@ -402,6 +407,7 @@ export function useBrainVoice(
           author: msg.infinityReplyTo ? ENTITY_DISPLAY_NAME : msg.senderUsername || msg.senderPeerId.slice(0, 8),
           authorId: msg.infinityReplyTo ? ENTITY_USER_ID : msg.senderUserId,
           infinityReplyTo: msg.infinityReplyTo,
+          infinityLearn: msg.infinityLearn === true && !msg.infinityReplyTo,
           text,
           ts: msg.ts,
           peerId: msg.senderPeerId,
