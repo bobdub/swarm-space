@@ -16,6 +16,7 @@ import { BOAT_DECK_Y, BOAT_GATE_HALF, BOAT_RAIL_H } from '@/lib/brain/sea/boatSp
 import { sailFill, type Vessel } from '@/lib/brain/sea/vessel';
 import { getCrewBoatKey, getCrewRole, getCrewSpot, startMastHold, stopMastHold } from '@/lib/brain/sea/crew';
 import { ROD_SPOTS, getFishing } from '@/lib/brain/sea/fishing';
+import { getEarthPoseTime } from '@/lib/brain/earth';
 import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
 
 const HULL = COMPOUND_TABLE.door_single.color; // oak
@@ -382,17 +383,40 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
   }, []);
   useEffect(() => () => geo.dispose(), [geo]);
   const line = useMemo(() => new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#f4f1e6' })), [geo]);
+  const fishRef = useRef<THREE.Group>(null);
   useFrame(() => {
     const f = getFishing();
     const mine = !!boatKey && getCrewRole() === 'rod' && getCrewBoatKey() === boatKey;
     const out = mine && (f.phase === 'waiting' || f.phase === 'bite');
-    line.visible = out;
-    if (floatRef.current) floatRef.current.visible = out;
-    if (!out) return;
     const [sx, sz] = getCrewSpot() ?? ROD_SPOTS[0];
     const tip = rodTip(sx, sz);
     const side = sx < 0 ? -1 : 1;
     const now = performance.now() / 1000;
+    // The fish: thrashing under the float while it's on, then swung up
+    // out of the water to the rod tip when you land it.
+    const fish = fishRef.current;
+    if (fish) {
+      const landed = mine && f.phase === 'caught' ? getEarthPoseTime() - f.since : -1;
+      const show = (mine && f.phase === 'bite') || (landed >= 0 && landed < 1.6);
+      fish.visible = show;
+      if (show) {
+        const fx0 = tip[0] + side * 0.8;
+        const fz0 = tip[2] - 0.4;
+        if (f.phase === 'bite') {
+          fish.position.set(fx0 + 0.1 * Math.sin(now * 9), -0.35, fz0 + 0.1 * Math.cos(now * 7));
+          fish.rotation.set(0, now * 4, 0);
+        } else {
+          const u = Math.min(1, landed / 0.8);
+          const e = u * u * (3 - 2 * u);
+          fish.position.set(fx0 + (tip[0] - fx0) * e, -0.35 + (tip[1] - 0.45 + 0.35) * e, fz0 + (tip[2] - fz0) * e);
+          // Hanging nose-up from the line, wriggling.
+          fish.rotation.set(Math.PI / 2 * e, 0, 0.4 * Math.sin(now * 14));
+        }
+      }
+    }
+    line.visible = out;
+    if (floatRef.current) floatRef.current.visible = out;
+    if (!out) return;
     // The float sits on the water (the boat frame's y = 0 is the
     // waterline) and dips hard when a fish takes it.
     const dip = f.phase === 'bite' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
@@ -413,6 +437,16 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
         <sphereGeometry args={[0.07, 10, 8]} />
         <meshStandardMaterial color="#e2483c" roughness={0.5} />
       </mesh>
+      <group ref={fishRef} visible={false}>
+        <mesh scale={[0.075, 0.1, 0.22]}>
+          <sphereGeometry args={[1, 10, 8]} />
+          <meshStandardMaterial color="#c9d6e3" roughness={0.35} metalness={0.3} />
+        </mesh>
+        <mesh position={[0, 0, 0.27]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.35, 1.2, 1]}>
+          <coneGeometry args={[0.09, 0.16, 4]} />
+          <meshStandardMaterial color="#c9d6e3" roughness={0.5} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
     </>
   );
 }

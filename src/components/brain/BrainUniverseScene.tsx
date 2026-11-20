@@ -63,6 +63,7 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { DockLayer } from '@/components/brain/sea/DockLayer';
+import { SeaLifeLayer } from '@/components/brain/sea/SeaLifeLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
 import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
 import { getCrewRole } from '@/lib/brain/sea/crew';
@@ -2483,6 +2484,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {/* Village jetty + moored boat (procedural, Earth-local). The
             planks register as a deck surface, so they are walkable. */}
         <DockLayer />
+        {/* Schools of fish and sharks in the open sea, on the shared clock. */}
+        <SeaLifeLayer selfId={selfId} />
         <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay
