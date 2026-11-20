@@ -62,6 +62,13 @@ import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
+import { DockLayer } from '@/components/brain/sea/DockLayer';
+import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
+import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
+import { getCrewRole } from '@/lib/brain/sea/crew';
+import { decodeBoatPresence, deckPointOn, getFleet } from '@/lib/brain/sea/fleet';
+import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { moveInput } from '@/lib/brain/moveInput';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
@@ -195,7 +202,6 @@ import {
   SPECTATOR_UP_M,
 } from '@/lib/pub/spectatorCameraStore';
 
-const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
 /** Run/Flash sprint state — toggled by Shift / on-screen pill. */
 const runState = { active: false, until: 0, cooldownUntil: 0 };
@@ -534,10 +540,14 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
     let fwd = kFwd + moveInput.fwd;
     let right = kRight + moveInput.right;
+    // At the helm or the oars the same keys and joystick work the boat
+    // (ShipWheel.tsx); the body stays at its station.
+    const crewing = getCrewRole() !== null;
+    if (crewing) { fwd = 0; right = 0; }
     // Run / Flash: Shift (desktop) or HUD pill multiplies intent magnitude.
     const now = performance.now();
     if (runState.active && now > runState.until) runState.active = false;
-    if (runState.active) {
+    if (runState.active && !crewing) {
       // Auto-forward: tapping the bolt with no joystick/WASD input sprints
       // straight ahead. Active input takes over and is multiplied as usual.
       if (Math.abs(fwd) + Math.abs(right) < 0.05) {
@@ -911,6 +921,7 @@ function MobileJoystick() {
       style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
+      <CrewJoystickSkin />
     </div>
   );
 }
@@ -1056,6 +1067,7 @@ function DesktopJoystick() {
       title="Drag to move"
     >
       <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
+      <CrewJoystickSkin />
     </div>
   );
 }
@@ -1713,6 +1725,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
     // This way every viewer sees remote peers congregating at the one
     // apartment everyone shares, instead of orbiting their private spawn.
+    const fleet = getFleet();
     const fallbackNear = (peerId: string): [number, number, number] => {
       return spawnNearSharedVillage(peerId, pose, 10, 22);
     };
@@ -1742,6 +1755,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         vel: [0, 0, 0] as [number, number, number],
         meta: { attachedTo: 'earth-surface' as const },
       };
+      // Boats: this peer's own boat, and where on a deck they stand. A
+      // peer on a deck is drawn on that deck spot (deck lock), so they
+      // ride a moving boat instead of trailing its 1.5 s-old position.
+      const boatInfo = decodeBoatPresence(p.boat);
+      fleet.applyRemote(p.peerId, boatInfo?.v);
+      if (boatInfo?.r) fleet.remoteRow(p.peerId, boatInfo.r);
+      const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
+      const deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
       const existing = physics.getBody(id);
       if (existing) {
         // Only adopt the broadcast position when the peer actually sent
@@ -1750,7 +1771,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // field's surface basin owns radial placement.
         existing.mass = 0;
         existing.vel = [0, 0, 0];
-        if (broadcastPos && fresh) existing.pos = broadcastPos;
+        if (deckPos) existing.pos = deckPos;
+        else if (broadcastPos && fresh) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
@@ -1765,6 +1787,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     for (const peerId of Array.from(applied.keys())) {
       if (!seen.has(`peer-${peerId}`)) applied.delete(peerId);
     }
+    // Boats of peers who left go with them (anyone aboard drops in).
+    fleet.retainPeers(new Set(voicePeers.map((p) => p.peerId)));
     // Remove peers that left
     const all = physics.getBodies();
     for (const b of all) {
@@ -1782,27 +1806,39 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // pressure across the ground" the user reported.
   useEffect(() => {
     if (!ready || !selfId) return;
+    const fleet = getFleet();
+    // Boats are keyed by mesh peer id, the id other players see us by.
+    fleet.setSelfPeer(() => getLocalMeshPeerId() ?? selfId);
     let lastLocal: [number, number, number] | null = null;
-    let lastSentAt = 0;
+    let lastAt = 0;
+    let hadBoat = false;
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
+      const world: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
+      const now = Date.now();
+      const boat = fleet.presenceFor(world);
+      // Boats go out at 3 Hz while moving, crewed, rowing or stood on;
+      // 1 Hz for an owned boat at anchor. Walking stays at 1.5 s.
+      const mine = fleet.mine();
+      const busy = !!boat && (!!boat.d || !!boat.r || (mine ? Math.hypot(...mine.vessel.motion.vel) > 0.05 : false));
+      const period = busy ? 333 : boat ? 1000 : 1500;
+      if (now - lastAt < period - 5) return;
       // Measured on the ground (Earth-local), not in world space: Earth's
       // own motion no longer counts as walking. Idle players still refresh
-      // every ~6 s so late joiners and dropped packets catch up.
-      const { position, local } = encodeSelfPosition(
-        [body.pos[0], body.pos[1], body.pos[2]],
-        getEarthPose(),
-      );
-      const now = Date.now();
-      if (lastLocal && localDistance(local, lastLocal) < 0.05 && now - lastSentAt < 6000) return;
+      // every ~6 s so late joiners and dropped packets catch up. A boat
+      // going away is always sent, so it disappears for the room too.
+      const { position, local } = encodeSelfPosition(world, getEarthPose());
+      const moved = !lastLocal || localDistance(local, lastLocal) >= 0.05;
+      if (!moved && !boat && !hadBoat && now - lastAt < 6000) return;
       lastLocal = local;
-      lastSentAt = now;
-      broadcastSelfPosition(position, local);
+      lastAt = now;
+      hadBoat = !!boat;
+      broadcastSelfPosition(position, local, boat);
     };
     // Send once immediately so peers learn our spawn point right away.
     tick();
-    const id = window.setInterval(tick, 1500);
+    const id = window.setInterval(tick, 333);
     return () => window.clearInterval(id);
   }, [ready, selfId, physics, broadcastSelfPosition]);
 
@@ -2442,6 +2478,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
         <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        {/* Village jetty + moored boat (procedural, Earth-local). The
+            planks register as a deck surface, so they are walkable. */}
+        <DockLayer />
         <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay
@@ -2653,6 +2692,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             mobile={isMobile}
             onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }}
           />
+          {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
+          <JumpButton selfId={selfId} mobile={isMobile} />
+          <BoatHoldButton selfId={selfId} mobile={isMobile} />
+          <ShipControls mobile={isMobile} />
         </>
       )}
 

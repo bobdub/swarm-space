@@ -71,7 +71,17 @@ import {
 } from './lightspeed';
 import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION } from './earth';
-import { groundWalkScaleAt, supportElevationAt } from './groundHeight';
+import { groundWalkScaleAt, isSwimmingAt, supportElevationAt } from './groundHeight';
+import { confineToDecks, hasDeckWalls } from './sea/deckSupport';
+
+/** Radial launch speed of a jump (m/s). Against the mantle's tanh pull
+ *  and the body's own damping this lifts the feet ≈ 1 m for ≈ 0.7 s,
+ *  enough to clear a 0.6 m boat rail. */
+export const JUMP_SPEED = 7.5;
+/** Longest a jump can stay airborne before the settle band takes over (s). */
+const JUMP_MAX_AIR_S = 3;
+/** Body radius used against deck walls (rails, hulls) (m). */
+const DECK_BODY_RADIUS = 0.35;
 
 export type BodyKind = 'avatar' | 'infinity' | 'portal' | 'piece' | 'self';
 
@@ -280,6 +290,8 @@ export class UqrcPhysics {
   /** Last finite Earth-local state for surface bodies. Used only if a bad
    * sample produces NaN/Infinity; normal finite motion never reads it. */
   private stableSurfaceLocal = new Map<string, [number, number, number]>();
+  /** Seconds in the air for bodies mid-jump. */
+  private airborne = new Map<string, number>();
 
   /** Register the rescue hook (scene-owned: it knows the village anchor). */
   setCoreRescue(fn: ((id: string) => void) | null): void {
@@ -408,12 +420,49 @@ export class UqrcPhysics {
 
   removeBody(id: string): void {
     this.bodies.delete(id);
+    this.airborne.delete(id);
     this.intent.delete(id);
     this.stableSurfaceLocal.delete(id);
   }
 
   setIntent(id: string, i: Intent): void {
     this.intent.set(id, i);
+  }
+
+  /**
+   * Jump: a radial impulse for a surface walker standing on something
+   * (ground, a deck, the shallows). While airborne the settle band, which
+   * otherwise damps radial motion to keep feet still, steps aside, so the
+   * mantle's own radial pull brings the body back down. Swimmers cannot
+   * jump. Returns true when the jump happened.
+   */
+  jump(id: string, speed: number = JUMP_SPEED): boolean {
+    const b = this.bodies.get(id);
+    if (!b || (b.kind !== 'self' && b.kind !== 'avatar')) return false;
+    if (b.meta?.attachedTo !== 'earth-surface') return false;
+    if (this.airborne.has(id)) return false;
+    const pose = getEarthPose();
+    const rx = b.pos[0] - pose.center[0];
+    const ry = b.pos[1] - pose.center[1];
+    const rz = b.pos[2] - pose.center[2];
+    const r = Math.hypot(rx, ry, rz);
+    if (!(r > 1e-6)) return false;
+    const n = worldPosToLocalNormal(b.pos, pose);
+    const feet = r - BODY_SHELL_RADIUS - FOOT_CUSHION;
+    if (isSwimmingAt(n, feet)) return false;
+    const support = supportElevationAt(n, feet);
+    if (feet - support > 0.2) return false; // already in the air
+    const ux = rx / r, uy = ry / r, uz = rz / r;
+    const vRad = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+    const add = speed - Math.max(0, vRad);
+    b.vel[0] += add * ux; b.vel[1] += add * uy; b.vel[2] += add * uz;
+    this.airborne.set(id, 0);
+    return true;
+  }
+
+  /** True while a body is in the air from a jump. */
+  isAirborne(id: string): boolean {
+    return this.airborne.has(id);
   }
 
   getIntent(id: string): Intent | undefined {
@@ -690,6 +739,35 @@ export class UqrcPhysics {
   }
 
   // ── private ────────────────────────────────────────────────────
+
+  private resolveDeckWalls(pose: EarthPose): void {
+    if (!hasDeckWalls()) return;
+    for (const b of this.bodies.values()) {
+      if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (b.meta?.attachedTo !== 'earth-surface') continue;
+      if (!b.pos.every(Number.isFinite)) continue;
+      const rx = b.pos[0] - pose.center[0];
+      const ry = b.pos[1] - pose.center[1];
+      const rz = b.pos[2] - pose.center[2];
+      const r = Math.hypot(rx, ry, rz);
+      if (!(r > 1e-6)) continue;
+      const n = quatRotate(pose.invSpinQuat, [rx / r, ry / r, rz / r]);
+      const fixed = confineToDecks(n, r - BODY_SHELL_RADIUS - FOOT_CUSHION, DECK_BODY_RADIUS);
+      if (!fixed) continue;
+      const w = quatRotate(pose.spinQuat, fixed);
+      const dx = w[0] * r - rx;
+      const dy = w[1] * r - ry;
+      const dz = w[2] * r - rz;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1e-9) continue;
+      b.pos[0] += dx; b.pos[1] += dy; b.pos[2] += dz;
+      const nx = dx / d, ny = dy / d, nz = dz / d;
+      const vIn = b.vel[0] * nx + b.vel[1] * ny + b.vel[2] * nz;
+      if (vIn < 0) {
+        b.vel[0] -= vIn * nx; b.vel[1] -= vIn * ny; b.vel[2] -= vIn * nz;
+      }
+    }
+  }
 
   private resolveSolidObstacles(pose: EarthPose): void {
     const solids: Body[] = [];
@@ -996,7 +1074,10 @@ export class UqrcPhysics {
           // the support is the sea floor, or the water itself once it is
           // deep enough to swim (supportElevationAt).
           const elevation = isSurfaceHumanoid
-            ? supportElevationAt(worldPosToLocalNormal(b.pos, pose))
+            ? supportElevationAt(
+              worldPosToLocalNormal(b.pos, pose),
+              rEarth - BODY_SHELL_RADIUS - FOOT_CUSHION,
+            )
             : 0;
           const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
           const invR = 1 / rEarth;
@@ -1090,8 +1171,9 @@ export class UqrcPhysics {
             // m, still ~0.17% of 𝒞_light closure. No bolt → multiplier
             // collapses to 1× and the original land/water scale rules.
             const sprintScale = Math.min(2, Math.max(1, intentMag));
+            const feetNow = rMag - BODY_SHELL_RADIUS - FOOT_CUSHION;
             const walkCap = SURFACE_WALK_SPEED * sprintScale *
-              groundWalkScaleAt(localNwalk);
+              groundWalkScaleAt(localNwalk, feetNow);
             if (tMag > walkCap) {
               const k = walkCap / tMag;
               b.vel[0] = vRad * ux + tx * k;
@@ -1110,9 +1192,18 @@ export class UqrcPhysics {
                 // on a volcano slope settles to the slope, not to the
                 // spherical baseline shell (which would phase the body
                 // through the visible cone).
-                const elevation = supportElevationAt(worldPosToLocalNormal(b.pos, pose));
+                const elevation = supportElevationAt(localNwalk, feetNow);
                 const targetShell = BODY_SHELL_RADIUS + elevation + FOOT_CUSHION;
                 const dr = rMag - targetShell;
+                // Mid-jump: let the radial velocity run; the mantle pull
+                // brings the body down. Landing (or a timeout) ends it.
+                let inAir = false;
+                const air = this.airborne.get(b.id);
+                if (air !== undefined) {
+                  const t = air + dt;
+                  if ((dr <= 0.02 && vRad <= 0) || t > JUMP_MAX_AIR_S) this.airborne.delete(b.id);
+                  else { this.airborne.set(b.id, t); inAir = true; }
+                }
               if (dr < 0 && Number.isFinite(targetShell)) {
                 // Hard terrain floor: the visible ground (volcano cone +
                 // land lift) is solid. Step the body up onto it and drop
@@ -1146,7 +1237,7 @@ export class UqrcPhysics {
                     b.prevLocal[0] *= s; b.prevLocal[1] *= s; b.prevLocal[2] *= s;
                   }
                 }
-              } else if (dr < 4.0) {
+              } else if (dr < 4.0 && !inAir) {
                 // Settle band (widened so walking downhill off the cone
                 // follows the slope instead of floating off ledges).
                 const moving = Math.min(1, intentMag);
@@ -1186,6 +1277,11 @@ export class UqrcPhysics {
         // reads sideways across the ground" failure mode by suppressing
         // the very radial response the field is trying to produce.
       }
+
+      // ── Deck walls: boat rails and hulls. Like the solid obstacles
+      //    below, a tangential push-out after the step; radial motion is
+      //    untouched. Runs before the local track so renderers see it.
+      this.resolveDeckWalls(pose);
 
       this.lastPose = pose;
 

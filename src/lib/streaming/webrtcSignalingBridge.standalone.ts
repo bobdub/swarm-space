@@ -100,6 +100,12 @@ export interface RoomPresence {
    * to trust the broadcast altitude or pin the avatar to the shell.
    */
   pv?: number;
+  /**
+   * Boats (Brain sea): the boat this peer owns, the deck spot they stand
+   * on, and an oar stroke on someone else's boat. Opaque here; validated
+   * by `decodeBoatPresence` (lib/brain/sea/fleet.ts) on the way in.
+   */
+  boat?: unknown;
   ts: number;
 }
 type RoomPresenceHandler = (presence: RoomPresence) => void;
@@ -598,6 +604,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         position?: unknown;
         local?: unknown;
         pv?: unknown;
+        boat?: unknown;
       };
       const vec3 = (v: unknown): [number, number, number] | undefined =>
         Array.isArray(v) && v.length === 3
@@ -617,6 +624,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         position: pos,
         local,
         pv,
+        boat: data.boat && typeof data.boat === 'object' ? data.boat : undefined,
         ts: envelope.ts,
       };
       let bucket = roomPresenceLog.get(envelope.roomId);
@@ -667,6 +675,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
               position: mine.position,
               local: mine.local,
               pv: mine.pv,
+              boat: mine.boat,
             },
             ts: Date.now(),
           });
@@ -933,6 +942,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
               position: mine.position,
               local: mine.local,
               pv: mine.pv,
+              boat: mine.boat,
             },
             ts: Date.now(),
           } satisfies SignalEnvelope).catch(() => undefined);
@@ -1217,6 +1227,7 @@ export function sendRoomPresence(
     position?: [number, number, number];
     local?: [number, number, number];
     pv?: number;
+    boat?: unknown;
   },
 ): void {
   if (!meshRef) return;
@@ -1233,6 +1244,7 @@ export function sendRoomPresence(
       position: presence.position,
       local: presence.local,
       pv: presence.pv,
+      boat: presence.boat,
     },
     ts,
   };
@@ -1252,6 +1264,7 @@ export function sendRoomPresence(
     position: presence.position,
     local: presence.local,
     pv: presence.pv,
+    boat: presence.boat,
     ts,
   };
   bucket.set(meshRef.getPeerId(), mineEntry);

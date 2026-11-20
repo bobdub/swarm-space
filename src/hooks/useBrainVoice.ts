@@ -40,6 +40,9 @@ export interface BrainVoicePeer {
   presenceTs?: number;
   /** Brain physics protocol version reported by the peer (undefined = pre-versioning / v0). */
   pv?: number;
+  /** Boat state from presence (owned boat, deck spot, oar stroke); validate
+   *  with `decodeBoatPresence`. */
+  boat?: unknown;
   /** Camera state reported by the peer. */
   cameraOn?: boolean;
   /** Microphone muted state reported by the peer. */
@@ -242,6 +245,7 @@ export function useBrainVoice(
         local: pres?.local,
         presenceTs: pres?.ts,
         pv: pres?.pv,
+        boat: pres?.boat,
         cameraOn: p.isVideoEnabled,
         muted: p.isMuted,
       };
@@ -263,6 +267,7 @@ export function useBrainVoice(
         local: pres.local,
         presenceTs: pres.ts,
         pv: pres.pv,
+        boat: pres.boat,
         cameraOn: false,
         muted: true,
       }));
@@ -320,7 +325,7 @@ export function useBrainVoice(
    * — every call performs a mesh broadcast, so do not call per-frame.
    */
   const broadcastSelfPosition = useCallback(
-    (position: [number, number, number], local?: [number, number, number]) => {
+    (position: [number, number, number], local?: [number, number, number], boat?: unknown) => {
       lastSelfPosRef.current = position;
       lastSelfLocalRef.current = local;
       const u = userRef.current;
@@ -334,6 +339,7 @@ export function useBrainVoice(
           position,
           local,
           pv: BRAIN_PHYSICS_VERSION,
+          boat,
         });
       } catch (err) {
         console.warn("[BrainVoice] position broadcast failed", err);

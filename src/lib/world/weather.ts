@@ -267,21 +267,15 @@ export function tickWeather(): WeatherSnapshot {
       ],
       pose,
     );
-    const { moisture, curvature, gradient } = sampleField(field, world);
+    const { moisture, curvature } = sampleField(field, world);
     c.score = moisture - W_CURVE * curvature;
 
-    // Σ_μ 𝒟_μ u₂ in world space → Earth-local → tangent plane.
-    const localGrad = quatRotate(pose.invSpinQuat, gradient);
-    const radial =
-      localGrad[0] * c.normal[0] + localGrad[1] * c.normal[1] + localGrad[2] * c.normal[2];
-    const tanX = localGrad[0] - c.normal[0] * radial;
-    const tanY = localGrad[1] - c.normal[1] * radial;
-    const tanZ = localGrad[2] - c.normal[2] * radial;
-    const DRIFT = DRIFT_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS;
+    // Drift with the wind at the cloud: Σ_μ 𝒟_μ u₂ on the tangent plane.
+    const w = windAt(c.normal, c.altitude);
     c.normal = normalise([
-      c.normal[0] + (tanX * DRIFT) / EARTH_RADIUS,
-      c.normal[1] + (tanY * DRIFT) / EARTH_RADIUS,
-      c.normal[2] + (tanZ * DRIFT) / EARTH_RADIUS,
+      c.normal[0] + w[0] / EARTH_RADIUS,
+      c.normal[1] + w[1] / EARTH_RADIUS,
+      c.normal[2] + w[2] / EARTH_RADIUS,
     ]);
 
     if (!c.raining) {
@@ -337,6 +331,31 @@ export function tickWeather(): WeatherSnapshot {
     try { fn(state); } catch (err) { console.warn('[weather] listener', err); }
   }
   return state;
+}
+
+/**
+ * The wind at an Earth-local normal, as an Earth-local tangent vector in
+ * metres per real second: Σ_μ 𝒟_μ u₂ (the moisture-axis gradient)
+ * projected onto the tangent plane, scaled by the same drift constant the
+ * clouds move with. Clouds ride exactly this vector once per 1 Hz tick, so
+ * a boat that reads it feels the wind the sky shows. `altitude` is metres
+ * above sea level; the lattice is ~531 m per cell, so sea level and the
+ * 120 m cloud layer read nearly the same air.
+ */
+export function windAt(localNormal: Vec3, altitude: number = CLOUD_ALTITUDE_M): Vec3 {
+  const pose = getEarthPose();
+  const field = getBrainPhysics().getField();
+  const r = EARTH_RADIUS + altitude;
+  const world = earthLocalToWorld(
+    [localNormal[0] * r, localNormal[1] * r, localNormal[2] * r],
+    pose,
+  );
+  const { gradient } = sampleField(field, world);
+  const g = quatRotate(pose.invSpinQuat, gradient);
+  const n = localNormal;
+  const radial = g[0] * n[0] + g[1] * n[1] + g[2] * n[2];
+  const k = DRIFT_PER_GAME_HOUR * WEATHER_TICK_GAME_HOURS * (1000 / TICK_MS);
+  return [(g[0] - n[0] * radial) * k, (g[1] - n[1] * radial) * k, (g[2] - n[2] * radial) * k];
 }
 
 export function _resetWeatherForTest(): void {
