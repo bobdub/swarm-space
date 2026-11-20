@@ -29,6 +29,7 @@ import {
 import { setFocusBoatResolver } from './vessel';
 import { ROD_SPOTS } from './fishing';
 import { groundElevationAt } from '../groundHeight';
+import { schoolNear } from './seaLife';
 
 export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
 
@@ -152,6 +153,13 @@ export function boardingSpot(action: BoatAction): [number, number] | null {
     return [action.from === 'port' ? -0.45 : 0.45, 0];
   }
   return null;
+}
+
+/** True when a school of fish is swimming under this player's boat now. */
+export function fishingSchoolNear(): boolean {
+  const b = getFleet().focus();
+  if (!b) return false;
+  return schoolNear(b.vessel.motion.n, getEarthPoseTime());
 }
 
 /** Water depth (m) under this player's boat, for a cast. */

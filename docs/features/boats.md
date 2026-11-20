@@ -34,10 +34,18 @@ Status: **live** in the Brain world. The full design and build history is in
   - When the float dips ("Fish on!"), press Reel in within 3 s for
     +1 Food. Too early and you just wind in; too late and it gets away.
   - Bites come sooner in deep water (about every 12 s on average) than in
-    the shallows (about 25 s).
+    the shallows (about 25 s). Over a school of fish they come in about 5 s,
+    and the readout says "A school of fish is under the boat".
+  - Land one and you see it swung up out of the water to the rod tip.
   - Nothing bites while the boat makes more than 1.5 m/s.
   - Fishing doesn't claim the boat, so you can fish from the jetty boat or
     from anyone's boat.
+- **Sea life.** Schools of fish swim just under the surface all over the
+  sea, with a few close to the jetty, and now and then one leaps clear.
+  Sharks patrol deep water well out past the shelf, their fins cutting the
+  surface. Sharks never hurt anyone: swim within about 12 m of one and you
+  get a warning to head for a boat or the shore. Everyone sees the same fish
+  and sharks in the same places.
 - **Swimming.** Space or the round arrow button jumps about a metre: clear
   the rail and you're in the sea.
 - **Weather.** The boat feels the same wind the clouds ride. The swell
@@ -66,6 +74,7 @@ Status: **live** in the Brain world. The full design and build history is in
 | Hold-ring actions | `villageBoat.ts` (`boatActionFor`) |
 | Crew roles (helm, oars, rod) and Food | `crew.ts` |
 | Fishing | `fishing.ts` |
+| Fish schools and sharks | `seaLife.ts`, drawn by `components/brain/sea/SeaLifeLayer.tsx` |
 | Wake | `wake.ts` |
 | Drawing | `components/brain/sea/DockLayer.tsx`, `BoatMesh.tsx` |
 | Controls | `components/brain/sea/BoatControls.tsx`, `ShipWheel.tsx` |
@@ -84,6 +93,9 @@ Rules worth keeping:
 - **Presence `boat`.** The wire format is `{v, d, r}`, validated by
   `decodeBoatPresence`. It is opaque to the signaling bridge and
   `useBrainVoice`, which only pass it along.
+- **Sea life is never sent.** Every school and shark has a home picked from
+  shared terrain (only where the whole loop is in deep enough water) and a
+  path on the shared clock, so every peer computes the same creatures.
 - **Local things stay local.** Food spends, fishing bites and catches, the
   wake and sail fill are worked out on each device and never sent.
 - **Version bump.** Changing deck or boat physics in a way older peers would

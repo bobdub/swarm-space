@@ -40,7 +40,7 @@ import {
   subscribeFishing,
   type FishingState,
 } from '@/lib/brain/sea/fishing';
-import { fishingDepth } from '@/lib/brain/sea/villageBoat';
+import { fishingDepth, fishingSchoolNear } from '@/lib/brain/sea/villageBoat';
 
 function useFishing(): FishingState {
   const [f, setF] = useState<FishingState>({ ...getFishing() });
@@ -112,7 +112,7 @@ export function CrewJoystickSkin() {
 export function ShipControls({ mobile }: { mobile: boolean }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
-  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null });
+  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false });
 
   // Food comes out of the gathered inventory on this device, and a fish
   // goes into it.
@@ -133,7 +133,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       if (e.code !== 'KeyF' || e.repeat) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      castOrReel(getEarthPoseTime(), fishingDepth());
+      castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear());
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -177,6 +177,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
           food: materialTotals().food,
           out: isOutOfFood(),
           mast: getMastHold(),
+          school: role === 'rod' && fishingSchoolNear(),
         });
       }
       raf = requestAnimationFrame(loop);
@@ -206,7 +207,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
     <button
       type="button"
       data-testid="fishing-cast"
-      onPointerDown={(e) => { e.preventDefault(); castOrReel(getEarthPoseTime(), fishingDepth()); }}
+      onPointerDown={(e) => { e.preventDefault(); castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear()); }}
       className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
       style={{
         bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)',
@@ -255,6 +256,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
         <div className={fishing.phase === 'bite' ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
           {fishingLine(fishing)}
         </div>
+      )}
+      {role === 'rod' && readout.school && (
+        <div className="text-sky-300" data-testid="fishing-school">A school of fish is under the boat. Bites come fast here.</div>
       )}
       {role === 'oars' && readout.out && <div className="text-amber-300">{OUT_OF_FOOD_NOTE}</div>}
       <div className="mt-1 opacity-70">{hint}</div>

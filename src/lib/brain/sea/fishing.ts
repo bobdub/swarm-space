@@ -10,6 +10,8 @@
  *
  * The bite times are drawn per cast from an injectable random source, on
  * this device only: fishing is a local activity like rowing's Food spend.
+ * The fish themselves are shared (`seaLife.ts`): cast where a school is
+ * swimming under the boat and the wait drops to a few seconds.
  */
 
 import { railHalfWidthAt } from './boatHull';
@@ -22,6 +24,8 @@ export const ROD_SPOTS: ReadonlyArray<[number, number]> = [[-ROD_X, ROD_Z], [ROD
 /** Mean wait for a bite (s) in deep water and in the shallows. */
 export const BITE_WAIT_DEEP_S = 12;
 export const BITE_WAIT_SHALLOW_S = 25;
+/** Mean wait (s) with a school of fish swimming under the boat. */
+export const BITE_WAIT_SCHOOL_S = 5;
 /** Depths (m) that count as shallows and as deep water. */
 const SHALLOW_M = 3;
 const DEEP_M = 15;
@@ -45,8 +49,12 @@ export interface FishingState {
   catches: number;
 }
 
-/** Mean seconds to a bite at `depth` metres of water. */
-export function meanBiteWait(depth: number): number {
+/**
+ * Mean seconds to a bite at `depth` metres of water. With a school of
+ * fish under the boat (`sea/seaLife.ts`) they come much sooner.
+ */
+export function meanBiteWait(depth: number, schoolNear = false): number {
+  if (schoolNear) return BITE_WAIT_SCHOOL_S;
   const d = Math.max(0, depth);
   const u = Math.min(1, Math.max(0, (d - SHALLOW_M) / (DEEP_M - SHALLOW_M)));
   return BITE_WAIT_SHALLOW_S + (BITE_WAIT_DEEP_S - BITE_WAIT_SHALLOW_S) * u;
@@ -90,10 +98,10 @@ function to(phase: FishingPhase, t: number): void {
 }
 
 /** Cast at shared time `t` over `depth` metres of water. */
-export function cast(t: number, depth: number): void {
+export function cast(t: number, depth: number, schoolNear = false): void {
   // Exponential wait: bites come at random, more often in deep water.
   const u = Math.min(0.999999, Math.max(1e-6, rng()));
-  state.biteAt = t + 1.5 - Math.log(1 - u) * meanBiteWait(depth);
+  state.biteAt = t + 1.5 - Math.log(1 - u) * meanBiteWait(depth, schoolNear);
   state.phase = 'waiting';
   state.since = t;
   emit();
@@ -112,9 +120,9 @@ export function reel(t: number): boolean {
 }
 
 /** The one press: cast when the line is in, reel when it is out. */
-export function castOrReel(t: number, depth: number): void {
+export function castOrReel(t: number, depth: number, schoolNear = false): void {
   if (state.phase === 'waiting' || state.phase === 'bite') reel(t);
-  else cast(t, depth);
+  else cast(t, depth, schoolNear);
 }
 
 /** Advance at shared time `t` with the boat making `speed` m/s. */
