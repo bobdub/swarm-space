@@ -22,6 +22,8 @@ import {
   OUT_OF_FOOD_NOTE,
   getCrewRole,
   getMastHold,
+  holdSail,
+  stopMastHold,
   isOutOfFood,
   setCrewInput,
   setFoodPurse,
@@ -198,9 +200,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
   const deg = Math.round((readout.windFrom * 180) / Math.PI);
   const windSide = Math.abs(deg) < 3 ? 'dead ahead' : Math.abs(deg) > 177 ? 'astern' : `${Math.abs(deg)}° ${deg > 0 ? 'starboard' : 'port'}`;
   const hint = role === 'helm'
-    ? mobile ? 'Joystick turns the wheel · hold the mast for the sail' : 'A/D wheel · W/S sail · or hold the mast'
+    ? mobile ? 'Joystick turns the wheel · hold Raise sail to get under way' : 'A/D wheel · W/S or hold Raise / Lower sail'
     : role === 'oars'
-      ? mobile ? 'Joystick rows and turns' : 'W/S row · A/D turn'
+      ? mobile ? 'Push the joystick forward to row, sideways to turn' : 'W/S row · A/D turn'
       : mobile ? 'Tap Cast, then Reel in when a fish bites' : 'F casts · F reels in when a fish bites';
   const lineOut = fishing.phase === 'waiting' || fishing.phase === 'bite';
   const castButton = role === 'rod' ? (
@@ -220,9 +222,43 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       {fishing.phase === 'bite' ? 'Reel in!' : lineOut ? 'Reel in' : 'Cast'}
     </button>
   ) : null;
+  const sailButton = (dir: 1 | -1, label: string) => (
+    <button
+      type="button"
+      data-testid={dir > 0 ? 'sail-raise' : 'sail-lower'}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+        holdSail(dir);
+      }}
+      onPointerUp={() => stopMastHold()}
+      onPointerCancel={() => stopMastHold()}
+      onContextMenu={(e) => e.preventDefault()}
+      className="rounded-full border px-4 py-2 text-sm font-semibold text-white select-none"
+      style={{
+        background: readout.mast === dir ? 'hsla(180,70%,30%,0.95)' : 'hsla(265,70%,8%,0.85)',
+        borderColor: 'hsla(180,80%,60%,0.55)',
+        touchAction: 'none',
+        WebkitTouchCallout: 'none',
+      }}
+      aria-label={`Hold to ${label.toLowerCase()}`}
+    >
+      {dir > 0 ? '▲' : '▼'} {label}
+    </button>
+  );
+  const sailButtons = role === 'helm' ? (
+    <div
+      className="absolute z-[70] left-1/2 -translate-x-1/2 flex gap-2"
+      style={{ bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)' }}
+    >
+      {sailButton(1, 'Raise sail')}
+      {sailButton(-1, 'Lower sail')}
+    </div>
+  ) : null;
   return (
     <>
     {castButton}
+    {sailButtons}
     <div
       data-testid="ship-readout"
       className="pointer-events-none absolute left-1/2 z-[70] -translate-x-1/2 rounded-xl border px-3 py-2 text-xs text-white"

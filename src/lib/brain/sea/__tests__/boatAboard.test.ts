@@ -146,6 +146,14 @@ describe('aboard the village boat', () => {
     expect(getVillageBoat().heave.sink).toBeGreaterThan(0.015);
   });
 
+  it('keeps offering the oars when a completing hold adds slack', () => {
+    addWalker('self', deckWorldPos(0, 1.4)!);
+    step(30);
+    const pos = physics.getBody('self')!.pos;
+    expect(boatActionFor(pos)).toMatchObject({ kind: 'take', role: 'oars' });
+    expect(boatActionFor(pos, HOLD_SLACK_M)).toMatchObject({ kind: 'take', role: 'oars' });
+  });
+
   it('stops a walker at the rail', () => {
     addWalker('self', deckWorldPos(0, 1.6)!);
     step(30);

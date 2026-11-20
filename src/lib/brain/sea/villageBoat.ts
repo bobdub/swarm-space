@@ -93,13 +93,14 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
   const fleet = getFleet();
   if (isOnDeck(p)) {
     const ownable = boat.kind === 'dock' || boat.kind === 'mine';
-    if (ownable && Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) <= STATION_REACH_M) {
+    // The nearest station in reach wins, so slack that widens both reaches
+    // never swaps the oars a body is standing at for the wheel.
+    const reach = STATION_REACH_M + slack * 0.5;
+    const dHelm = ownable ? Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) : Infinity;
+    const dOars = Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]);
+    if (Math.min(dHelm, dOars) <= reach) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      return { kind: 'take', boatKey: boat.key, role: 'helm' };
-    }
-    if (Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]) <= STATION_REACH_M) {
-      if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      return { kind: 'take', boatKey: boat.key, role: 'oars' };
+      return { kind: 'take', boatKey: boat.key, role: dHelm <= dOars ? 'helm' : 'oars' };
     }
     // A rod holder: anyone may fish from any boat.
     for (const spot of ROD_SPOTS) {

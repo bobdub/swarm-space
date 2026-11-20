@@ -31,7 +31,7 @@ export interface CrewInput {
 
 /** Metres of rowing per unit of Food. */
 export const ROW_METRES_PER_FOOD = 60;
-export const OUT_OF_FOOD_NOTE = 'Out of food: gather fruit, fish or honey.';
+export const OUT_OF_FOOD_NOTE = 'Out of Food, so the oars won\'t pull. Fish from a rod, or gather fruit or honey.';
 
 interface CrewState {
   role: CrewRole | null;
@@ -127,6 +127,13 @@ let mastHold: 1 | -1 | null = null;
 export function startMastHold(currentSail: number): void {
   if (state.role !== 'helm') return;
   mastHold = currentSail < 0.5 ? 1 : -1;
+  emit();
+}
+
+/** The on-screen sail buttons: hold to raise (+1) or lower (−1). */
+export function holdSail(dir: 1 | -1): void {
+  if (state.role !== 'helm') return;
+  mastHold = dir;
   emit();
 }
 
