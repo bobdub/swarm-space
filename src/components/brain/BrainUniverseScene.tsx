@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -2429,6 +2429,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         gl={{ antialias: true, alpha: false }}
         onCreated={handleCanvasCreated}
       >
+        {/* Anything in the 3D scene that waits on a download must wait
+            here, inside the Canvas. Without this boundary the Canvas hands
+            the wait to the page around it, and every timed HUD update (the
+            "hold to sit at cards" prompt, chat lines, the altitude readout)
+            is held back until the next click, such as toggling Builder Mode. */}
+        <Suspense fallback={null}>
         {/* Deep space background — dark navy, not pure black, so silhouettes read */}
         <color attach="background" args={['#05060f']} />
         {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
@@ -2522,6 +2528,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} />}
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
+        </Suspense>
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
