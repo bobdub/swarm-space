@@ -36,7 +36,6 @@ const RATE_LIMIT_MS = 30_000;
 const REPLY_RATE_LIMIT_MS = 45_000;
 const COMMENT_PROBABILITY_BASE = 1.0;
 const REPLY_PROBABILITY_BASE = 0.65;
-const SHY_MODE_KEY = 'entity-voice-shy-node';
 
 // ── Network Genesis — shared across all peers ────────────────────────
 
@@ -76,19 +75,10 @@ export function adoptOlderGenesis(peerGenesis: number): boolean {
   return false;
 }
 
-// ── Shy Mode (default: false — nodes join in unless they opt out) ────────────────────────────────────────
+// ── Shy Mode — see ./shyMode ─────────────────────────────────────
 
-export function getShyMode(): boolean {
-  try {
-    const v = localStorage.getItem(SHY_MODE_KEY);
-    if (v === null) return false;
-    return v === 'true';
-  } catch { return false; }
-}
-
-export function setShyMode(value: boolean): void {
-  try { localStorage.setItem(SHY_MODE_KEY, String(value)); } catch { /* ignore */ }
-}
+import { getShyMode } from './shyMode';
+export { getShyMode, setShyMode } from './shyMode';
 
 /**
  * Stage is an **observable**, not a gate. It is derived from live field

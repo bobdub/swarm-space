@@ -195,6 +195,7 @@ import { getFeatureFlags } from '@/config/featureFlags';
 import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib/brain/builderCameraStore';
 import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
+import { selfLearnable } from '@/lib/brain/agent/learnConsent';
 import { enqueueMemory } from '@/lib/brain/infinityMemory';
 import { networkNow } from '@/lib/time/networkClock';
 import {
@@ -1871,7 +1872,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         };
         return [...prev, line].slice(-100);
       });
-      enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.author || remote.id, learned: true });
+      // Shy authors (and lines from older clients) are never learned.
+      const learnable = remote.infinityLearn === true;
+      if (learnable) enqueueMemory({ id: `chat:${remote.id}`, kind: 'chat', text: remote.text, author: remote.authorId || remote.peerId || remote.author || remote.id, learned: true });
       // Record the remote turn into the conversation ring + apply attraction.
       try {
         const cur = recordTurn(eng, remote.author || remote.id, remote.text, remote.ts);
@@ -1880,7 +1883,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       } catch { /* attraction is best-effort */ }
       // Feed the partner's text into the learner so Infinity can echo /
       // bridge their actual words on the next turn (A↔B learning).
-      try {
+      if (learnable) try {
         const fusion = getSharedNeuralEngine().getDualLearning();
         fusion.ingestContentEvent({ text: remote.text, reactions: 0, comments: 1, shares: 0, trustScore: 90, peerId: remote.peerId || remote.author || remote.id, timestamp: remote.ts });
       } catch { /* learner optional */ }
@@ -1896,7 +1899,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       setChatLines((prev) => (prev.some((l) => l.id === d.id) ? prev : [...prev, d].slice(-100)));
     };
     window.addEventListener('pub:chat-line', onPubLine);
-    return () => window.removeEventListener('pub:chat-line', onPubLine);
+    // Infinity's own unprompted lines, sent from this device by the agent.
+    window.addEventListener('infinity:chat-line', onPubLine);
+    return () => {
+      window.removeEventListener('pub:chat-line', onPubLine);
+      window.removeEventListener('infinity:chat-line', onPubLine);
+    };
   }, []);
 
   // ── Chat send: feed field, optionally call Infinity ───────────────
@@ -1913,7 +1921,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       avatarRef: user?.profile?.avatarRef,
     };
     setChatLines((prev) => [...prev, line].slice(-100));
-    enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: selfId, learned: true });
+    const selfLearn = selfLearnable();
+    if (selfLearn) enqueueMemory({ id: `chat:${line.id}`, kind: 'chat', text, author: user?.id || selfId, learned: true });
     // Broadcast to every other peer in the brain room.
     try { sendChatLine(text, line.id); } catch { /* ignore */ }
 
@@ -1980,7 +1989,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // Now that the reply has been queued (or skipped), feed the user's
     // turn into the learner so future replies can build on it — without
     // contaminating the sample step that just ran.
-    try {
+    if (selfLearn) try {
       const fusion = getSharedNeuralEngine().getDualLearning();
       fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }

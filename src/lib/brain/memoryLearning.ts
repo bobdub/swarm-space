@@ -9,6 +9,7 @@
  */
 import { enqueueMemory, flushMemory, hasMemory, isPrivatePost, markLearned, readMemory, type MemoryPiece } from './infinityMemory';
 import type { ContentEvent } from '@/lib/p2p/dualLearningFusion';
+import { isLearnable } from './agent/learnConsent';
 
 export const LEARN_BATCH = 60;
 const BACKFILL_CAP = 400;
@@ -45,10 +46,10 @@ export async function backfillMemory(): Promise<number> {
       getAll<Record<string, unknown>>('comments').catch(() => []),
     ]);
     const candidates = [
-      ...posts.filter((p) => !ENTITY_IDS.has(String(p.author)) && !isPrivatePost(p)).map((p) => ({
+      ...posts.filter((p) => !ENTITY_IDS.has(String(p.author)) && !isPrivatePost(p) && isLearnable(p)).map((p) => ({
         id: `post:${p.id}`, kind: 'post' as const, text: String(p.content ?? ''), author: String(p.author ?? ''), ts: Date.parse(String(p.createdAt ?? '')) || Date.now(),
       })),
-      ...comments.filter((c) => !ENTITY_IDS.has(String(c.author))).map((c) => ({
+      ...comments.filter((c) => !ENTITY_IDS.has(String(c.author)) && isLearnable(c)).map((c) => ({
         id: `comment:${c.id}`, kind: 'comment' as const, text: String(c.text ?? ''), author: String(c.author ?? ''), ts: Date.parse(String(c.createdAt ?? '')) || Date.now(),
       })),
     ].sort((a, b) => b.ts - a.ts).slice(0, BACKFILL_CAP);

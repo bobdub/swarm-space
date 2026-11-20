@@ -194,7 +194,7 @@ export function SwarmMeshModePanel({
                 🧠 Shy Node
               </Label>
               <p className="text-xs text-muted-foreground">
-                Hide network entity comments on your posts. No trust penalty — your node still participates fully in the mesh.
+                Infinity won't comment on your posts or learn from what you write. No trust penalty — your node still participates fully in the mesh.
               </p>
             </div>
             <Switch

@@ -7,6 +7,7 @@ import { getEntityVoice, ENTITY_USER_ID, getShyMode } from './entityVoice';
 import { getSharedNeuralEngine } from './sharedNeuralEngine';
 import { containsEntityMention } from '@/lib/mentions';
 import { enqueueMemory, isPrivatePost } from '@/lib/brain/infinityMemory';
+import { isLearnable } from '@/lib/brain/agent/learnConsent';
 import type { ContentEvent } from './dualLearningFusion';
 import type { Post, Comment } from '@/types';
 
@@ -31,7 +32,8 @@ export function initEntityVoiceListener(): void {
     const postData = (e as CustomEvent).detail as Record<string, unknown>;
     if (!postData || !postData.id) return;
     // Passive piggyback: remember text already on this device (no mesh requests).
-    if (!isPrivatePost(postData) && postData.author !== ENTITY_USER_ID) {
+    // Shy authors are never remembered (see learnConsent).
+    if (!isPrivatePost(postData) && postData.author !== ENTITY_USER_ID && isLearnable(postData)) {
       enqueueMemory({ id: `post:${postData.id}`, kind: 'post', text: String(postData.content ?? ''), author: String(postData.author ?? ''), learned: true });
     }
     const forceEntity = Boolean(postData._forceEntityReply);
@@ -44,7 +46,7 @@ export function initEntityVoiceListener(): void {
     const detail = (e as CustomEvent).detail as Record<string, unknown> | undefined;
     if (!detail || !detail.comment) return;
     const comment = detail.comment as Comment & { _forceEntityReply?: boolean };
-    if (comment.author !== ENTITY_USER_ID) {
+    if (comment.author !== ENTITY_USER_ID && isLearnable(comment)) {
       enqueueMemory({ id: `comment:${comment.id}`, kind: 'comment', text: comment.text ?? '', author: comment.author, learned: true });
     }
     const forceEntity = Boolean(comment._forceEntityReply) || containsEntityMention(comment.text ?? '');
@@ -54,6 +56,7 @@ export function initEntityVoiceListener(): void {
   });
 
   void import('@/lib/brain/memoryLearning').then((m) => m.startMemoryLearning()).catch(() => {});
+  void import('@/lib/brain/agent/infinityAgent').then((m) => m.startInfinityAgent()).catch(() => {});
   console.log('[EntityVoice] 🧠 Listener initialized (posts + comments + @mentions)');
 }
 
@@ -88,8 +91,9 @@ async function evaluateAndComment(post: Post, force = false): Promise<void> {
 
   if (post.author === ENTITY_USER_ID) return;
 
-  // Always feed content into the shared engine for learning, regardless of shy mode
-  feedSharedEngine(post.content ?? '', post);
+  // Learn from the post only when its author was not shy (Infinity's own
+  // shy setting only decides whether it comments, not whom it learns from).
+  if (isLearnable(post) && !isPrivatePost(post as unknown as Record<string, unknown>)) feedSharedEngine(post.content ?? '', post);
 
   // ── Entanglement notifications for blog/video posts ──
   try {
@@ -147,8 +151,8 @@ async function evaluateAndReply(comment: Comment, force = false): Promise<void> 
 
   if (comment.author === ENTITY_USER_ID) return;
 
-  // Feed comment text into shared engine for learning
-  feedSharedEngine(comment.text ?? '');
+  // Feed comment text into shared engine for learning (non-shy authors only)
+  if (isLearnable(comment)) feedSharedEngine(comment.text ?? '');
 
   // If entity was @mentioned, bypass probability check
   const mentioned = force || containsEntityMention(comment.text ?? '');
