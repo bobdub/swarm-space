@@ -76,6 +76,10 @@ export function useBrainVoice(
   const joinedRef = useRef(false);
   const lastSelfPosRef = useRef<[number, number, number] | undefined>(undefined);
   const lastSelfLocalRef = useRef<[number, number, number] | undefined>(undefined);
+  // The boat state from the latest position broadcast. Every presence we
+  // send carries it: a presence without `boat` tells peers our boat is
+  // gone, which would drop the boat and its crew in their worlds.
+  const lastSelfBoatRef = useRef<unknown>(undefined);
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
 
@@ -95,6 +99,7 @@ export function useBrainVoice(
           position: lastSelfPosRef.current,
           local: lastSelfLocalRef.current,
           pv: BRAIN_PHYSICS_VERSION,
+          boat: lastSelfBoatRef.current,
         });
       } catch (err) {
         console.warn("[BrainVoice] presence broadcast failed", err);
@@ -328,6 +333,7 @@ export function useBrainVoice(
     (position: [number, number, number], local?: [number, number, number], boat?: unknown) => {
       lastSelfPosRef.current = position;
       lastSelfLocalRef.current = local;
+      lastSelfBoatRef.current = boat;
       const u = userRef.current;
       if (!u || !joinedRef.current) return;
       try {

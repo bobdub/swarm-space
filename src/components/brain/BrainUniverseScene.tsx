@@ -1760,7 +1760,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // ride a moving boat instead of trailing its 1.5 s-old position.
       const boatInfo = decodeBoatPresence(p.boat);
       fleet.applyRemote(p.peerId, boatInfo?.v);
-      if (boatInfo?.r) fleet.remoteRow(p.peerId, boatInfo.r);
+      // One stroke per presence: replays of a quiet rower's last presence
+      // (this effect re-runs on any peer's update) must not keep them rowing.
+      if (boatInfo?.r && p.presenceTs !== undefined) fleet.remoteRow(p.peerId, boatInfo.r, undefined, p.presenceTs);
       const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
       const deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
       const existing = physics.getBody(id);

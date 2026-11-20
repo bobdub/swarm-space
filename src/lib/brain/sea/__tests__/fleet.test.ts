@@ -104,6 +104,27 @@ describe('boat presence on the wire', () => {
   });
 });
 
+describe('remote strokes', () => {
+  it('takes one stroke per presence, so a quiet rower lapses even while replayed', () => {
+    const A = new Fleet({ selfPeer: () => 'peerA', registerDecks: false, localCrew: false });
+    const aBoat = A.claimDock()!;
+    const r = { o: 'peerA', id: aBoat.wireId, s: 1, tn: 0 };
+    A.remoteRow('peerB', r, 10, 5000);
+    expect(aBoat.rowers.get('peerB')?.at).toBe(10);
+    // The same presence replayed later (another peer's update re-ran the
+    // scene effect) does not refresh the stroke.
+    for (let i = 1; i <= 30; i++) { t = 10 + i * 0.1; setEarthPoseTime(t); A.remoteRow('peerB', r, t, 5000); }
+    expect(aBoat.rowers.get('peerB')?.at).toBe(10);
+    advance();
+    A.tick(null, DT, CALM);
+    expect(aBoat.rowers.has('peerB')).toBe(false);
+    expect(aBoat.vessel.cmd.row).toBe(0);
+    // A fresh presence does.
+    A.remoteRow('peerB', r, t, 5333);
+    expect(aBoat.rowers.get('peerB')?.at).toBe(t);
+  });
+});
+
 describe('hulls bump instead of passing through', () => {
   it('pushes an overlapping boat clear and stops it closing', () => {
     const site = getVillageDockSite()!;
