@@ -52,6 +52,13 @@ import {
   mergeNatureEvents,
   type NatureEvent,
 } from '@/lib/world/natureEventsStore';
+import {
+  attachFireGossip,
+  acceptPeerFireEvent,
+  listFireEvents,
+  mergeFireEvents,
+  type FireEvent,
+} from '@/lib/world/fireStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -69,6 +76,9 @@ const PUBDRINK_CHANNEL = 'pub:drink';
 const NATURE_CHANNEL = 'nature:event';
 const NATURE_SYNC_REQUEST = 'nature:events:sync-request';
 const NATURE_SYNC_RESPONSE = 'nature:events:sync-response';
+const FIRE_CHANNEL = 'fire:event';
+const FIRE_SYNC_REQUEST = 'fire:events:sync-request';
+const FIRE_SYNC_RESPONSE = 'fire:events:sync-response';
 /** How often every connected peer is asked again for its nature events. */
 const NATURE_RESYNC_MS = 2 * 60_000;
 /** How often we look for peers we haven't backfilled from yet. */
@@ -146,6 +156,10 @@ export function bootPlacementGossipBridge(): void {
     // Nature: felled trees and chopped hives, so every peer sees the same forest.
     attachNatureEventGossip((evt: NatureEvent) => {
       try { mesh!.broadcast(NATURE_CHANNEL, evt); } catch { /* noop */ }
+    });
+    // Fire pits: wood put on a fire, so every peer sees the same flames.
+    attachFireGossip((evt: FireEvent) => {
+      try { mesh!.broadcast(FIRE_CHANNEL, evt); } catch { /* noop */ }
     });
 
 
@@ -235,6 +249,21 @@ export function bootPlacementGossipBridge(): void {
       try { mergeNatureEvents(payload); } catch { /* noop */ }
     });
 
+    // ── Fire pits: live gossip + newcomer backfill ──────────────────
+    mesh.onMessage(FIRE_CHANNEL, (_peerId, payload) => {
+      try { acceptPeerFireEvent(payload); } catch { /* noop */ }
+    });
+    mesh.onMessage(FIRE_SYNC_REQUEST, (peerId) => {
+      try {
+        const list = listFireEvents();
+        if (list.length === 0) return;
+        void mesh!.send(FIRE_SYNC_RESPONSE, peerId, list);
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(FIRE_SYNC_RESPONSE, (_peerId, payload) => {
+      try { mergeFireEvents(payload); } catch { /* noop */ }
+    });
+
     // ── Backfill: main-Brain lobby placements only ──────────────────
     mesh.onMessage(SYNC_REQUEST_CHANNEL, (peerId) => {
       try {
@@ -277,6 +306,7 @@ export function bootPlacementGossipBridge(): void {
           void mesh!.send(BARLIGHTS_SYNC_REQUEST, id, {});
           void mesh!.send(PUBTABLE_SYNC_REQUEST, id, {});
           void mesh!.send(NATURE_SYNC_REQUEST, id, {});
+          void mesh!.send(FIRE_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
@@ -288,7 +318,10 @@ export function bootPlacementGossipBridge(): void {
     // still converges. Only new events are kept, so this is cheap.
     setInterval(() => {
       try {
-        for (const id of mesh!.getConnectedPeerIds()) void mesh!.send(NATURE_SYNC_REQUEST, id, {});
+        for (const id of mesh!.getConnectedPeerIds()) {
+          void mesh!.send(NATURE_SYNC_REQUEST, id, {});
+          void mesh!.send(FIRE_SYNC_REQUEST, id, {});
+        }
       } catch { /* noop */ }
     }, NATURE_RESYNC_MS);
 
