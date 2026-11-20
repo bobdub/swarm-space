@@ -161,6 +161,7 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { encodeSelfPosition, localDistance, resolvePeerWorldPosition } from '@/lib/brain/peerPosition';
 import { isBrainEntryComplete, setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
@@ -1694,8 +1695,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [universeKey]);
 
   // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
+  // Presence send time last applied per peer. This effect re-runs whenever
+  // any peer changes; re-applying an old position snapped every avatar back
+  // to where it was when its last update was sent.
+  const appliedPresenceTsRef = useRef(new Map<string, number>());
   useEffect(() => {
     if (!ready) return;
+    const applied = appliedPresenceTsRef.current;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
     const pose = getEarthPose();
     // Cluster fallback spawns near the local user's spawn so peers without
@@ -1722,9 +1728,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // Phase 4A — accept the peer's broadcast position verbatim. Their
       // physics already solved the surface; reprojecting it here would
       // snap walking remote avatars off-position every render.
-      const broadcastPos = p.position
-        ? ([p.position[0], p.position[1], p.position[2]] as [number, number, number])
-        : null;
+      // Earth-local points are turned into world space with OUR Earth pose,
+      // so the avatar sits on the same patch of ground it does for them.
+      const fresh = p.presenceTs !== undefined && applied.get(p.peerId) !== p.presenceTs;
+      const broadcastPos = resolvePeerWorldPosition(p, pose);
       const initPos = broadcastPos ?? fallbackNear(p.peerId);
       // Per-peer spawn log removed — this effect re-runs every render
       // because `voicePeers` is a fresh array reference, and the log was
@@ -1742,7 +1749,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // field's surface basin owns radial placement.
         existing.mass = 0;
         existing.vel = [0, 0, 0];
-        if (broadcastPos) existing.pos = broadcastPos;
+        if (broadcastPos && fresh) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
@@ -1752,6 +1759,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           meta: { ...init.meta, username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
+      if (broadcastPos && p.presenceTs !== undefined) applied.set(p.peerId, p.presenceTs);
+    }
+    for (const peerId of Array.from(applied.keys())) {
+      if (!seen.has(`peer-${peerId}`)) applied.delete(peerId);
     }
     // Remove peers that left
     const all = physics.getBodies();
@@ -1770,19 +1781,23 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // pressure across the ground" the user reported.
   useEffect(() => {
     if (!ready || !selfId) return;
-    let lastSent: [number, number, number] | null = null;
+    let lastLocal: [number, number, number] | null = null;
+    let lastSentAt = 0;
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
-      if (lastSent) {
-        const dx = pos[0] - lastSent[0];
-        const dy = pos[1] - lastSent[1];
-        const dz = pos[2] - lastSent[2];
-        if (Math.hypot(dx, dy, dz) < 0.05) return;
-      }
-      lastSent = pos;
-      broadcastSelfPosition(pos);
+      // Measured on the ground (Earth-local), not in world space: Earth's
+      // own motion no longer counts as walking. Idle players still refresh
+      // every ~6 s so late joiners and dropped packets catch up.
+      const { position, local } = encodeSelfPosition(
+        [body.pos[0], body.pos[1], body.pos[2]],
+        getEarthPose(),
+      );
+      const now = Date.now();
+      if (lastLocal && localDistance(local, lastLocal) < 0.05 && now - lastSentAt < 6000) return;
+      lastLocal = local;
+      lastSentAt = now;
+      broadcastSelfPosition(position, local);
     };
     // Send once immediately so peers learn our spawn point right away.
     tick();
