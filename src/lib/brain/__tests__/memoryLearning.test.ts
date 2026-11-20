@@ -3,12 +3,17 @@ import { selectUnlearned, pieceToEvent, LEARN_BATCH } from '../memoryLearning';
 import type { MemoryPiece } from '../infinityMemory';
 
 const piece = (id: string, ts: number, learned = false, kind: MemoryPiece['kind'] = 'post'): MemoryPiece =>
-  ({ id, kind, text: 'hello mesh', ts, authorHash: 'abcd1234', learned });
+  ({ id, kind, text: 'hello mesh', ts, authorHash: 'abcd1234', learned, consented: true });
 
 describe('memoryLearning', () => {
   it('only picks unlearned pieces, oldest first', () => {
     const out = selectUnlearned([piece('b', 2), piece('a', 1), piece('c', 3, true)]);
     expect(out.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('never picks legacy pieces stored without a consent stamp', () => {
+    const legacy: MemoryPiece = { id: 'old', kind: 'post', text: 'shy words', ts: 0, authorHash: 'x' };
+    expect(selectUnlearned([legacy, piece('a', 1)]).map((p) => p.id)).toEqual(['a']);
   });
 
   it('caps each batch at 60 pieces', () => {

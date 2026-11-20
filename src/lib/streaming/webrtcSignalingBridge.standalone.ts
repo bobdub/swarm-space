@@ -67,6 +67,8 @@ export interface RoomChatMessage {
   replyToPreview?: string;
   /** Prompt correlation; transport sender remains the generating user. */
   infinityReplyTo?: string;
+  /** Author was not shy when writing this line, so Infinity may learn it. */
+  infinityLearn?: boolean;
 }
 type RoomChatHandler = (message: RoomChatMessage) => void;
 
@@ -561,7 +563,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
 
     case 'chat-message': {
       if (!envelope.data || typeof envelope.data !== 'object') return;
-      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string; infinityReplyTo?: string };
+      const data = envelope.data as { id?: string; text?: string; ts?: number; avatarRef?: string; replyToId?: string; replyToUsername?: string; replyToPreview?: string; infinityReplyTo?: string; infinityLearn?: unknown };
       // Cap untrusted inbound text so a malformed or hostile peer cannot
       // push unbounded strings into every room member's chat log.
       const text = typeof data.text === 'string' ? data.text.trim().slice(0, CHAT_WIRE_MAX_LENGTH) : '';
@@ -581,6 +583,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         replyToUsername: typeof data.replyToUsername === 'string' ? data.replyToUsername : undefined,
         replyToPreview: typeof data.replyToPreview === 'string' ? data.replyToPreview : undefined,
         infinityReplyTo: typeof data.infinityReplyTo === 'string' ? data.infinityReplyTo.slice(0, 200) : undefined,
+        infinityLearn: data.infinityLearn === true ? true : undefined,
       };
       appendRoomChatMessage(message);
       break;
@@ -831,6 +834,7 @@ function receiveChatHistory(envelope: SignalEnvelope): void {
       replyToUsername: str(m.replyToUsername, 120),
       replyToPreview: str(m.replyToPreview),
       infinityReplyTo: str(m.infinityReplyTo, 200),
+      infinityLearn: m.infinityLearn === true ? true : undefined,
     };
     if (isBlockedSender(message, blocked)) continue;
     incoming.push(message);
@@ -1131,6 +1135,7 @@ export function sendRoomChatMessage(
   avatarRef?: string,
   replyTo?: { id: string; username: string; preview: string },
   infinityReplyTo?: string,
+  options: { infinityLearn?: boolean } = {},
 ): void {
   if (!meshRef) return;
   const trimmed = text.trim().slice(0, CHAT_WIRE_MAX_LENGTH);
@@ -1149,6 +1154,7 @@ export function sendRoomChatMessage(
     replyToUsername: replyTo?.username,
     replyToPreview: replyTo?.preview,
     infinityReplyTo,
+    infinityLearn: options.infinityLearn === true ? true : undefined,
   };
   appendRoomChatMessage(message);
   meshRef.broadcast(SIGNAL_CHANNEL, {
@@ -1167,6 +1173,7 @@ export function sendRoomChatMessage(
       replyToUsername: replyTo?.username,
       replyToPreview: replyTo?.preview,
       infinityReplyTo,
+      ...(message.infinityLearn ? { infinityLearn: true } : {}),
     },
     ts: message.ts,
   } satisfies SignalEnvelope);
@@ -1316,6 +1323,17 @@ export function onSignal(handler: SignalHandler): () => void {
  */
 export function getLocalMeshPeerId(): string | null {
   return meshRef?.getPeerId() ?? null;
+}
+
+/**
+ * How many mesh peers this device is connected to right now.
+ */
+export function getMeshConnectedPeerCount(): number {
+  try {
+    return meshRef?.getConnectedPeerIds().length ?? 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
