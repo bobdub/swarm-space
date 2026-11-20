@@ -227,7 +227,8 @@ describe('aboard the village boat', () => {
     const p = place('self');
     expect(Math.abs(p.x)).toBeLessThan(railHalfWidthAt(p.z));
     expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
-    expect(boatActionFor(physics.getBody('self')!.pos)).toBeNull();
+    // Aboard, the ring offers a station instead of boarding.
+    expect(boatActionFor(physics.getBody('self')!.pos)?.kind).toBe('take');
   });
 
   it('keeps a jetty walker from stepping over the rail away from the gate', () => {

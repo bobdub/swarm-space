@@ -8,10 +8,13 @@
  * 7 m long, 2.6 m beam, 0.6 m draft, deck 0.5 m above the water.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { BOAT_DECK_Y, BOAT_GATE_HALF, BOAT_RAIL_H } from '@/lib/brain/sea/boatSpec';
+import { getVillageBoat } from '@/lib/brain/sea/vessel';
+import { startMastHold, stopMastHold } from '@/lib/brain/sea/crew';
 import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
 
 const HULL = COMPOUND_TABLE.door_single.color; // oak
@@ -128,6 +131,44 @@ export function BoatMesh() {
   const benchZ = 0.85;
   const sternZ = HALF_L;
 
+  // Live parts: the wheel turns with the helm, the boom swings to leeward,
+  // and the sail unrolls from the boom as it is raised.
+  const wheelRef = useRef<THREE.Group>(null);
+  const boomRef = useRef<THREE.Group>(null);
+  const sailRef = useRef<THREE.Mesh>(null);
+  const furlRef = useRef<THREE.Mesh>(null);
+  const sailGeo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    // Triangle in the boom group's frame: luff up the mast, foot along the boom.
+    const top = mastH - 0.5 - (boomY - BOAT_DECK_Y);
+    g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0.05, 0.1, 0, top, 0.05, 0, 0.05, boomLen - 0.1], 3));
+    g.computeVertexNormals();
+    return g;
+  }, [boomLen, boomY]);
+  useFrame(() => {
+    const boat = getVillageBoat();
+    if (wheelRef.current) wheelRef.current.rotation.z = -boat.cmd.wheel * 1.5 * Math.PI * 2;
+    const sail = boat.cmd.sail;
+    const w = boat.windOnBow();
+    // Boom to leeward: near the centreline close-hauled, well out running.
+    const beta = Math.abs(w.from);
+    const swing = sail > 0.02 && w.speed > 1e-6 ? Math.max(0.15, Math.min(1.35, beta * 0.5)) : 0;
+    const target = w.from > 0 ? -swing : swing;
+    if (boomRef.current) boomRef.current.rotation.y += (target - boomRef.current.rotation.y) * 0.05;
+    if (sailRef.current) {
+      sailRef.current.visible = sail > 0.02;
+      sailRef.current.scale.set(1, Math.max(0.02, sail), 1);
+    }
+    if (furlRef.current) furlRef.current.scale.set(1 - 0.6 * sail, 1, 1 - 0.6 * sail);
+  });
+  const onMastDown = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    startMastHold(getVillageBoat().cmd.sail);
+    const up = () => { stopMastHold(); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
   return (
     <group>
       {/* Hull */}
@@ -155,14 +196,24 @@ export function BoatMesh() {
         <cylinderGeometry args={[0.07, 0.1, mastH, 10]} />
         <meshStandardMaterial color={TRIM} roughness={0.75} />
       </mesh>
-      <mesh position={[0, boomY, mastZ + boomLen / 2]} rotation={[Math.PI / 2, 0, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, boomLen, 8]} />
-        <meshStandardMaterial color={TRIM} roughness={0.75} />
+      {/* Press and hold the mast to raise or lower the sail (helm only). */}
+      <mesh position={[0, BOAT_DECK_Y + mastH / 2, mastZ]} onPointerDown={onMastDown}>
+        <cylinderGeometry args={[0.45, 0.45, mastH, 8]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
-      <mesh position={[0, boomY + 0.13, mastZ + boomLen / 2]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <cylinderGeometry args={[0.13, 0.11, boomLen - 0.2, 10]} />
-        <meshStandardMaterial color={CANVAS} roughness={0.95} />
-      </mesh>
+      <group ref={boomRef} position={[0, boomY, mastZ]}>
+        <mesh position={[0, 0, boomLen / 2]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, boomLen, 8]} />
+          <meshStandardMaterial color={TRIM} roughness={0.75} />
+        </mesh>
+        <mesh ref={furlRef} position={[0, 0.13, boomLen / 2]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.13, 0.11, boomLen - 0.2, 10]} />
+          <meshStandardMaterial color={CANVAS} roughness={0.95} />
+        </mesh>
+        <mesh ref={sailRef} geometry={sailGeo} visible={false} castShadow>
+          <meshStandardMaterial color={CANVAS} roughness={0.9} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
       {/* Stays: forestay to the bow, backstay to the stern */}
       <Line from={[0, BOAT_DECK_Y + mastH, mastZ]} to={[0, gunwaleY(0.02), zAt(0.02)]} />
       <Line from={[0, BOAT_DECK_Y + mastH, mastZ]} to={[0, gunwaleY(0.98), zAt(0.98)]} />
@@ -171,7 +222,7 @@ export function BoatMesh() {
         <boxGeometry args={[0.16, 0.9, 0.16]} />
         <meshStandardMaterial color={TRIM} roughness={0.7} />
       </mesh>
-      <group position={[0, BOAT_DECK_Y + 1.0, wheelZ + 0.12]}>
+      <group ref={wheelRef} position={[0, BOAT_DECK_Y + 1.0, wheelZ + 0.12]}>
         <mesh>
           <torusGeometry args={[0.36, 0.03, 8, 28]} />
           <meshStandardMaterial color={HULL} roughness={0.6} />

@@ -5,6 +5,8 @@
  *   boat ("Hold to board"), or swimming by the stern ladder or a gate
  *   ("Hold to climb aboard"). When one more person would push the boat's
  *   freeboard under 0.2 m it reads "Boat is full" instead.
+ * - On deck, beside the wheel or the rowing bench, the same ring takes the
+ *   wheel or the oars, and lets go of them again.
  * - Jump: Space on a keyboard, or the round button beside the run bolt.
  *   It works anywhere you stand, which is how you leave the boat for a swim.
  */
@@ -15,6 +17,7 @@ import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { teleportBody } from '@/lib/pub/seating';
+import { leaveRole, takeRole } from '@/lib/brain/sea/crew';
 import {
   boardingSpot,
   boatActionFor,
@@ -27,7 +30,9 @@ const HOLD_MS = 800;
 function sameAction(a: BoatAction | null, b: BoatAction | null): boolean {
   if (!a || !b) return a === b;
   if (a.kind !== b.kind) return false;
-  return a.kind !== 'climb' || (b.kind === 'climb' && a.from === b.from);
+  if (a.kind === 'climb') return b.kind === 'climb' && a.from === b.from;
+  if (a.kind === 'take' || a.kind === 'leave') return (b.kind === 'take' || b.kind === 'leave') && a.role === b.role;
+  return true;
 }
 
 function useBoatAction(selfId: string): BoatAction | null {
@@ -61,6 +66,8 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       const body = getBrainPhysics().getBody(selfId);
       const now = body ? boatActionFor(body.pos) : null;
       if (!now || now.kind === 'full') return;
+      if (now.kind === 'take') { takeRole(now.role, selfId); return; }
+      if (now.kind === 'leave') { leaveRole(); return; }
       const spot = boardingSpot(now);
       const world = spot ? deckWorldPos(spot[0], spot[1]) : null;
       if (world) teleportBody(selfId, world);
@@ -69,14 +76,22 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
   );
   if (!action) return null;
   const full = action.kind === 'full';
-  const label = full ? 'Boat is full' : action.kind === 'board' ? 'Hold to board' : 'Hold to climb aboard';
+  const label = full
+    ? 'Boat is full'
+    : action.kind === 'board'
+      ? 'Hold to board'
+      : action.kind === 'climb'
+        ? 'Hold to climb aboard'
+        : action.kind === 'take'
+          ? action.role === 'helm' ? 'Hold to take the wheel' : 'Hold to take the oars'
+          : action.role === 'helm' ? 'Hold to let go of the wheel' : 'Hold to ship the oars';
   return (
     <button
       type="button"
       {...(full ? {} : hold.bind)}
       disabled={full}
       data-testid="boat-hold"
-      aria-label={full ? 'The boat is full' : `Press and hold to ${action.kind === 'board' ? 'board the boat' : 'climb aboard'}`}
+      aria-label={full ? 'The boat is full' : `Press and hold: ${label.replace(/^Hold to /, '')}`}
       className="absolute z-[70] left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white select-none"
       style={{
         bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)',

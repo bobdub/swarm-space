@@ -64,6 +64,9 @@ import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
+import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
+import { getCrewRole } from '@/lib/brain/sea/crew';
+import { moveInput } from '@/lib/brain/moveInput';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
@@ -194,7 +197,6 @@ import {
   SPECTATOR_UP_M,
 } from '@/lib/pub/spectatorCameraStore';
 
-const moveInput = { fwd: 0, right: 0 };
 const lookInput = { yaw: 0, pitch: 0 };
 /** Run/Flash sprint state — toggled by Shift / on-screen pill. */
 const runState = { active: false, until: 0, cooldownUntil: 0 };
@@ -533,10 +535,14 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const kRight = (keys.current['KeyD'] ? 1 : 0) - (keys.current['KeyA'] ? 1 : 0);
     let fwd = kFwd + moveInput.fwd;
     let right = kRight + moveInput.right;
+    // At the helm or the oars the same keys and joystick work the boat
+    // (ShipWheel.tsx); the body stays at its station.
+    const crewing = getCrewRole() !== null;
+    if (crewing) { fwd = 0; right = 0; }
     // Run / Flash: Shift (desktop) or HUD pill multiplies intent magnitude.
     const now = performance.now();
     if (runState.active && now > runState.until) runState.active = false;
-    if (runState.active) {
+    if (runState.active && !crewing) {
       // Auto-forward: tapping the bolt with no joystick/WASD input sprints
       // straight ahead. Active input takes over and is multiplied as usual.
       if (Math.abs(fwd) + Math.abs(right) < 0.05) {
@@ -910,6 +916,7 @@ function MobileJoystick() {
       style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
+      <CrewJoystickSkin />
     </div>
   );
 }
@@ -1055,6 +1062,7 @@ function DesktopJoystick() {
       title="Drag to move"
     >
       <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
+      <CrewJoystickSkin />
     </div>
   );
 }
@@ -2639,6 +2647,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
           <JumpButton selfId={selfId} mobile={isMobile} />
           <BoatHoldButton selfId={selfId} mobile={isMobile} />
+          <ShipControls mobile={isMobile} />
         </>
       )}
 

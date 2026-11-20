@@ -9,8 +9,9 @@
  *
  * The boat floats by `sea/vessel.ts` and its deck is walkable
  * (`sea/villageBoat.ts`): the drawn hull and the deck you stand on read
- * the same waterline every frame. Sailing comes in Phase 3
- * (docs/project-plans/village-boat-plan.md).
+ * the same waterline every frame. She sails under the weather field's
+ * wind (`sea/vessel.ts`), so the mesh is placed from the boat's live
+ * position and heading each frame (docs/project-plans/village-boat-plan.md).
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -31,6 +32,7 @@ import { registerDeckSurface, straightDeck } from '@/lib/brain/sea/deckSupport';
 import { getVillageBoat, swellTiltAt } from '@/lib/brain/sea/vessel';
 import { mountVillageBoat } from '@/lib/brain/sea/villageBoat';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { windAt } from '@/lib/world/weather';
 import { BoatMesh } from './BoatMesh';
 
 const PLANK = '#8a6640';
@@ -121,14 +123,11 @@ export function DockLayer() {
   // The boat's deck is walkable and its float steps with the physics.
   useEffect(() => {
     if (!site) return;
-    return mountVillageBoat(getBrainPhysics());
+    // Wind is the weather field's own: the vector the clouds ride.
+    return mountVillageBoat(getBrainPhysics(), { wind: (n) => windAt(n) });
   }, [site]);
 
   const jetty = useMemo(() => (site ? buildJetty(site) : null), [site]);
-  const boatBase = useMemo(() => {
-    if (!site) return null;
-    return { quaternion: frameQuat(site.boatCenter, site.boatHeading), up: site.boatCenter };
-  }, [site]);
 
   const tmpQ = useMemo(() => new THREE.Quaternion(), []);
   const tmpE = useMemo(() => new THREE.Euler(), []);
@@ -138,20 +137,21 @@ export function DockLayer() {
       earthRef.current.position.set(pose.center[0], pose.center[1], pose.center[2]);
       earthRef.current.quaternion.set(pose.spinQuat[0], pose.spinQuat[1], pose.spinQuat[2], pose.spinQuat[3]);
     }
-    if (boatRef.current && boatBase && site) {
+    if (boatRef.current && site) {
       // Swell on the shared clock plus sinkage under load: the same
       // waterline the walkable deck reads, so feet stay on the planks.
       const t = getEarthPoseTime();
       const boat = getVillageBoat();
       const { roll, pitch } = swellTiltAt(t, boat.phase);
-      boatRef.current.position.copy(at(site.boatCenter, boat.waterlineAt(t)));
+      const { n, heading } = boat.motion;
+      boatRef.current.position.copy(at(n, boat.waterlineAt(t)));
       tmpE.set(pitch, 0, roll);
       tmpQ.setFromEuler(tmpE);
-      boatRef.current.quaternion.copy(boatBase.quaternion).multiply(tmpQ);
+      boatRef.current.quaternion.copy(frameQuat(n, heading)).multiply(tmpQ);
     }
   });
 
-  if (!site || !jetty || !boatBase) return null;
+  if (!site || !jetty) return null;
   return (
     <group ref={earthRef}>
       {jetty.planks.map((p, i) => (

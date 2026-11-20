@@ -1,7 +1,7 @@
 # A boat at the village island — plan
 
-Status: **building.** Phase 1 (dock and boat) and Phase 2 (aboard) are done;
-Phase 3 (sailing) is next. Captured 2026-11-18, revised 2026-11-20.
+Status: **building.** Phases 1 (dock and boat), 2 (aboard) and 3 (sailing)
+are done; Phase 4 (multiplayer) is next. Captured 2026-11-18, revised 2026-11-20.
 
 Phase 2 as built: `sea/vessel.ts` (Archimedes heave: sink = load ÷ (ρ·A_wp),
 A_wp ≈ 12.6 m² integrated from the hull; capacity by the 0.2 m freeboard rule
@@ -14,6 +14,22 @@ steps aside while airborne), and `BoatControls.tsx` (hold ring, jump button,
 Space). The rail is resolved like `resolveSolidObstacles` rather than with
 `pinSupportBasin`: a 531 m lattice cell cannot hold a metre-scale rail.
 Riding a deck that moves sideways is left for Phase 3, when the boat first moves.
+
+Phase 3 as built: `windAt` in `world/weather.ts` is the one wind (clouds now
+drift by it too). It reads the field at the cloud layer and measures ≈ 0.6–1 m/s
+typical, up to ≈ 4 m/s. `sea/vessel.ts` `stepMotion` is a dedicated integrator
+on the physics clock rather than a new `BodyKind`: true-wind sail polar
+(no drive inside 40°), `SAIL_COUPLING` 3.4, which gives ≈ 7 m/s on a beam reach
+in a 0.9 m/s field wind. Drag is 0.04·u|u| + 0.15·u, with the keel 8× sideways.
+The rudder turns 28°/s × min(1, speed/3), oars 0.46 m/s² (≈ 2 m/s), oar turn
+15°/s, cap 10 m/s, and the boat stops where keel clearance would go below zero.
+`sea/crew.ts` holds roles (helm, oars), inputs, the mast hold and Food
+(1 per 60 m via `spendMaterials`). `villageBoat.ts` moves the boat each tick,
+carries everyone on deck, and pins the crew at their stations. `ShipWheel.tsx`
+turns the joystick into a ship's wheel and shows the readout. Hull basins
+between boats come with Phase 4 (only one boat exists until then); the jetty
+piles do not stop the boat yet. Head to wind the boat is "in irons" (no drive,
+no steerage); the oars turn her out.
 The readable version is the Claude Doc "Sailing between islands: the village
 boat plan"; this file mirrors it for implementers.
 

@@ -131,23 +131,25 @@ export function confineInBoatFrame(
 }
 
 /**
- * The deck of a boat at `frame`, `top()` metres above sea level right now.
+ * The deck of a boat at `frame()`, `top()` metres above sea level right now.
  */
 export function boatDeck(opts: {
   id: string;
-  frame: BoatFrame;
+  /** Where the boat is now; read on every query, so the deck moves with it. */
+  frame: () => BoatFrame;
   radius: number;
   top: () => number;
 }): DeckSurface {
-  const { frame, radius } = opts;
+  const { radius } = opts;
   const reach = Math.hypot(HALF_L + 1, 2) / radius;
   const minDot = Math.cos(reach);
-  const near = (n: Vec3) =>
+  const near = (frame: BoatFrame, n: Vec3) =>
     n[0] * frame.center[0] + n[1] * frame.center[1] + n[2] * frame.center[2] >= minDot;
   return {
     id: opts.id,
     elevationAt(n: Vec3): number | null {
-      if (!near(n)) return null;
+      const frame = opts.frame();
+      if (!near(frame, n)) return null;
       const { x, z } = toBoatFrame(frame, n, radius);
       if (Math.abs(x) > deckHalfWidthAt(z)) return null;
       // The rail line is a hair wider than the planks; a walker held at the
@@ -155,7 +157,8 @@ export function boatDeck(opts: {
       return opts.top();
     },
     confine(n: Vec3, feet: number, bodyRadius: number): Vec3 | null {
-      if (!near(n)) return null;
+      const frame = opts.frame();
+      if (!near(frame, n)) return null;
       const { x, z } = toBoatFrame(frame, n, radius);
       const next = confineInBoatFrame(x, z, feet - opts.top(), bodyRadius);
       if (!next) return null;
