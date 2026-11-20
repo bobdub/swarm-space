@@ -63,6 +63,7 @@ import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mu
 import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
 import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
+import { networkNow } from '@/lib/time/networkClock';
 
 export interface BrainChatLine {
   id: string;
@@ -482,7 +483,7 @@ export function BrainChatPanel({
   const handleSubmit = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    if (engagedAtRef.current == null) engagedAtRef.current = Date.now();
+    if (engagedAtRef.current == null) engagedAtRef.current = networkNow();
     onSend(trimmed.slice(0, MAX_LEN), replyTo ?? undefined);
     setText('');
     setReplyTo(null);
