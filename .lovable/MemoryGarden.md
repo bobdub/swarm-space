@@ -1127,4 +1127,7 @@ Before tending: at the helm on a touch screen, the only way to raise the sail wa
 
 After tending: the helm shows Raise sail and Lower sail buttons to hold, alongside W and S and the mast. The oars swing out through the rowlocks when you take them and sweep with each stroke, one side harder as you turn. With no Food the note says plainly that the oars won't pull, and points to the rods. The ring now reads "Hold to let go of the oars", and a station offer, like the climb, waits a moment if you shuffle off its edge. Checked in a headless browser run: Raise sail took her to 100% and 1.2 m/s, and Lower sail brought it down. With no Food the note showed; with 5 Food she rowed at 1.4 m/s with the oars out.
 
-- 2026-11-20 · Boat stations: the nearest station in reach wins, so the slack a completing hold adds can no longer swap the oars someone is standing at for the wheel; a hold that would land on a different station asks them to step closer instead.
+## November 21, 2026 — The oars stay the oars
+Before tending: standing at the oars near the helm, the hold ring offered the oars, but when it filled, the extra reach a completing hold allows also put the wheel in range, and the wheel was checked first. You held for the oars and got the wheel.
+
+After tending: the nearest station in reach wins, so the slack can't swap one station for another, and a hold that would land on a different station than it offered asks you to step closer instead. A test stands at the oars and checks both offers.
