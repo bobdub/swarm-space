@@ -18,7 +18,8 @@ import {
 import { useBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
 import { useUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
 import { idleDays, isMainBrainScope, MAIN_BRAIN_IDLE_MS } from '@/lib/world/placementActivity';
-import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
+import { getPrefab, FIRE_PIT_ID } from '@/lib/brain/prefabHouseCatalog';
+import { FirePitView, FirePitControls } from '@/components/world/FirePitView';
 import {
   getHeldTool,
   setHeldTool,
@@ -67,6 +68,8 @@ export function UserPlacementsLayer({
   const [, setInteractionTick] = useState(0);
   useEffect(() => subscribeWallInteractions(() => setInteractionTick((n) => n + 1)), []);
   const [viewerTarget, setViewerTarget] = useState<string | null>(null);
+  // Fire pit a visitor tapped: shows its Light / Add wood chip.
+  const [fireTarget, setFireTarget] = useState<string | null>(null);
   // Light builder mode bypasses every placement; Stop Support removes walls
   // pinning that post. Both re-render this layer when they change.
   const renderMode = useBuilderRenderMode();
@@ -94,8 +97,10 @@ export function UserPlacementsLayer({
         if (isPlacementSuppressed(rec)) return null;
         const bodyId = `${prefab.id}:${rec.placementId}`;
         const owned = ownsPlacement(rec, selfId);
+        const isFirePit = prefab.id === FIRE_PIT_ID;
+        // The fire pit lives in the Tools tab but is built, not carried.
         const isHoldable =
-          prefab.sectionId === 'tools' || prefab.sectionId === 'consumables';
+          !isFirePit && (prefab.sectionId === 'tools' || prefab.sectionId === 'consumables');
         const isWall = prefab.sectionId === 'walls';
         const decorationPostId = rec.decoration?.postId ?? null;
         const visitor = isWall && canViewerInteract(rec, selfId);
@@ -118,6 +123,14 @@ export function UserPlacementsLayer({
               const tapDepth = Math.max(prefab.depth + 0.42, 0.72);
               return (
                 <group>
+                  {isFirePit ? (
+                    <FirePitView
+                      pitId={rec.placementId}
+                      width={prefab.width}
+                      height={prefab.height}
+                      highlight={selected || targeted}
+                    />
+                  ) : (
                   <mesh
                     position={[0, prefab.height / 2, 0]}
                     castShadow
@@ -133,6 +146,7 @@ export function UserPlacementsLayer({
                       side={2}
                     />
                   </mesh>
+                  )}
                   {isWall && decorationPostId && (
                     <WallPostBillboard
                       postId={decorationPostId}
@@ -174,6 +188,26 @@ export function UserPlacementsLayer({
                       <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
                       <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
                     </mesh>
+                  )}
+                  {isFirePit && !owned && (
+                    <mesh
+                      position={[0, prefab.height / 2, 0]}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (held) return;
+                        if (e.distance > VIEWER_REACH_M) return;
+                        setFireTarget(fireTarget === rec.placementId ? null : rec.placementId);
+                      }}
+                    >
+                      <boxGeometry args={[tapWidth, tapHeight, tapDepth]} />
+                      <meshBasicMaterial transparent opacity={0} depthWrite={false} side={2} />
+                    </mesh>
+                  )}
+                  {isFirePit && !owned && fireTarget === rec.placementId && !held && (
+                    <Html position={[0, prefab.height + 1.1, 0]} center distanceFactor={8} occlude zIndexRange={[100, 0]}
+                      style={{ pointerEvents: 'auto', userSelect: 'none' }}>
+                      <FirePitControls pitId={rec.placementId} selfId={selfId} onClose={() => setFireTarget(null)} />
+                    </Html>
                   )}
                   {stampCounts.size > 0 && (
                     <Html position={[0, 0.35, prefab.depth / 2 + 0.05]} center distanceFactor={8} occlude zIndexRange={[50, 0]}
@@ -240,6 +274,9 @@ export function UserPlacementsLayer({
                             >
                               Pick up
                             </button>
+                          )}
+                          {isFirePit && (
+                            <FirePitControls pitId={rec.placementId} selfId={selfId} compact />
                           )}
                           <button type="button" onClick={() => onEditPlacement(rec)} style={btnStyle}>
                             {isWall ? 'Move' : 'Edit'}

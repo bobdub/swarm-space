@@ -1131,3 +1131,8 @@ After tending: the helm shows Raise sail and Lower sail buttons to hold, alongsi
 Before tending: standing at the oars near the helm, the hold ring offered the oars, but when it filled, the extra reach a completing hold allows also put the wheel in range, and the wheel was checked first. You held for the oars and got the wheel.
 
 After tending: the nearest station in reach wins, so the slack can't swap one station for another, and a hold that would land on a different station than it offered asks you to step closer instead. A test stands at the oars and checks both offers.
+
+## November 20, 2026 — A fire on the island
+Before tending: the island had wood in every pack and nowhere to burn it. Trees fell, logs were gathered, and the nights stayed dark.
+
+After tending: the builder's Tools tab has a Fire Pit, a ring of fieldstones for 4 Stone. Tap it and put on a log: one Wood lights it and burns five minutes, more Wood keeps it going, up to half an hour ahead. Flames flicker and throw warm light, and when the wood is spent the fire dies down by itself. Anyone can feed anyone's pit, and every peer sees the same fire, because a fire is only the shared record of who put wood on it and when, read against the shared clock. Checked with automated tests (lighting, feeding, the cap, relighting, two peers receiving the facts in different orders) and a headless browser run of `/brain-dev` with one pit lit beside one cold. No live mesh session was opened.
