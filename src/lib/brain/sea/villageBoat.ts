@@ -15,7 +15,7 @@ import { getEarthPoseTime, type Vec3 } from '../earth';
 import { PHYSICS_HZ, type UqrcPhysics } from '../uqrcPhysics';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from './boatHull';
 import type { BoatFrame } from './boatDeck';
-import { getCrewRole, type CrewRole } from './crew';
+import { getCrewBoatKey, getCrewRole, type CrewRole } from './crew';
 import {
   HELM_SPOT,
   OARS_SPOT,
@@ -169,6 +169,30 @@ export function boardingSpot(action: BoatAction): [number, number] | null {
     return [action.from === 'port' ? -0.45 : 0.45, 0];
   }
   return null;
+}
+
+/**
+ * The boat this player crews at the wheel or the oars, if it is theirs
+ * (only the owner moves a boat; a rower on someone else's boat can back
+ * water instead).
+ */
+function myCrewedBoat(): FleetBoat | null {
+  const role = getCrewRole();
+  if (role !== 'helm' && role !== 'oars') return null;
+  const mine = getFleet().mine();
+  return mine && mine.key === getCrewBoatKey() ? mine : null;
+}
+
+/** True when the boat this player sails or rows is stuck on the ground. */
+export function myBoatAground(): boolean {
+  return !!myCrewedBoat()?.vessel.motion.aground;
+}
+
+/** Push this player's grounded boat off toward deeper water. */
+export function pushOffMyBoat(): 'pushed' | 'stuck' | 'afloat' {
+  const b = myCrewedBoat();
+  if (!b || !b.vessel.motion.aground) return 'afloat';
+  return b.vessel.pushOff() ? 'pushed' : 'stuck';
 }
 
 /** True when a school of fish is swimming under this player's boat now. */

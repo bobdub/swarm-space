@@ -33,7 +33,10 @@
  *   which works even at a standstill.
  * - Sea floor: if the keel would touch the ground (`groundElevationAt`
  *   shallower than the draft) the boat stops there; it can always back off
- *   into deeper water.
+ *   into deeper water, and the oars can still turn her where she lies.
+ *   Aground, the crew can push off (`pushOff`): a shove toward the
+ *   deepest water close by, with the sail let down so the wind can't drive
+ *   her straight back on.
  * - Speed cap: 10 m/s on the tangent plane, like the walk cap.
  */
 
@@ -215,6 +218,9 @@ function yawTangent(t: Vec3, n: Vec3, a: number): Vec3 {
   return norm3([t[0] * c + s[0] * sn, t[1] * c + s[1] * sn, t[2] * c + s[2] * sn]);
 }
 
+/** How far (m) a grounded keel may scrape into the sand while pivoting. */
+const PIVOT_SCRAPE_M = 0.2;
+
 /** Water under the keel (m, + = clear) at the bow, centre and stern. */
 export function keelClearance(n: Vec3, heading: Vec3, sink = 0): number {
   const draft = BOAT_DRAFT + sink;
@@ -300,9 +306,70 @@ export function stepMotion(
   const before = keelClearance(n, h, sink);
   const after = keelClearance(n2, h2, sink);
   if (after < 0 && after < before) {
+    // Stuck: no way on. Still let her pivot where she lies (the oars turn
+    // her even at rest): the keel may scrape a little deeper on the sand
+    // (to PIVOT_SCRAPE_M), never further.
+    if (Math.abs(yawRate) > 1e-6) {
+      const hTurn = yawTangent(h, n, yawRate * dt);
+      const turned = keelClearance(n, hTurn, sink);
+      if (turned >= -PIVOT_SCRAPE_M || turned >= before) return { n, heading: hTurn, vel: [0, 0, 0], yawRate, aground: true };
+    }
     return { n, heading: h, vel: [0, 0, 0], yawRate: 0, aground: true };
   }
   return { n: n2, heading: h2, vel: vel2, yawRate, aground: after < 0 };
+}
+
+// ── Pushing off ────
+
+/** Speed (m/s) a push off gives the boat. */
+export const PUSH_OFF_SPEED = 1.6;
+/** How far ahead (m) a push off looks for deeper water. */
+const PUSH_OFF_LOOK_M = 4;
+
+/**
+ * Which way to push a grounded boat: the direction (Earth-local tangent)
+ * whose water `PUSH_OFF_LOOK_M` away is deepest under the keel. Astern
+ * and ahead are tried first since the keel slides that way easiest; a
+ * sideways shove only wins when it is clearly better. Null when nothing
+ * close by is any deeper.
+ */
+export function pushOffDirection(n: Vec3, heading: Vec3, sink = 0): Vec3 | null {
+  const s = starboardOf(n, heading);
+  const here = keelClearance(n, heading, sink);
+  let best: Vec3 | null = null;
+  let bestScore = here + 0.02;
+  // Angles from astern (π) round both ways, with a small penalty for
+  // sideways pushes that the keel fights.
+  for (const a of [Math.PI, 0, (3 * Math.PI) / 4, -(3 * Math.PI) / 4, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
+    const dir = norm3([
+      heading[0] * Math.cos(a) + s[0] * Math.sin(a),
+      heading[1] * Math.cos(a) + s[1] * Math.sin(a),
+      heading[2] * Math.cos(a) + s[2] * Math.sin(a),
+    ]);
+    const n2 = travel(n, dir, PUSH_OFF_LOOK_M);
+    const h2 = norm3(tangent(heading, n2));
+    const score = keelClearance(n2, h2, sink) - 0.15 * Math.abs(Math.sin(a));
+    if (score > bestScore) { bestScore = score; best = dir; }
+  }
+  return best;
+}
+
+/**
+ * Push a grounded boat off toward deeper water. Lets the sail down too,
+ * so the wind doesn't put her straight back on. Returns false when she
+ * isn't aground or no deeper water is within reach.
+ */
+export function pushOff(m: MotionState, cmd: HelmCommand, sink = 0): MotionState | null {
+  if (!m.aground) return null;
+  const dir = pushOffDirection(m.n, m.heading, sink);
+  if (!dir) return null;
+  cmd.sail = 0;
+  return {
+    ...m,
+    vel: [dir[0] * PUSH_OFF_SPEED, dir[1] * PUSH_OFF_SPEED, dir[2] * PUSH_OFF_SPEED],
+    yawRate: 0,
+    aground: false,
+  };
 }
 
 // ── Hull contact ────────────────────────────────────────────────────
@@ -444,6 +511,14 @@ export class Vessel {
   stepMotion(dt: number, wind: Vec3): void {
     this.wind = wind;
     this.motion = stepMotion(this.motion, this.cmd, wind, dt, this.heave.sink);
+  }
+
+  /** Push off when aground (see `pushOff`). True if she moved. */
+  pushOff(): boolean {
+    const next = pushOff(this.motion, this.cmd, this.heave.sink);
+    if (!next) return false;
+    this.motion = next;
+    return true;
   }
 
   /**

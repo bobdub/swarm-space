@@ -156,6 +156,39 @@ describe('sailing by wind, sail, keel and rudder', () => {
     run(v, { row: -1 }, CALM, 60 * 10);
     expect(v.motion.aground).toBe(false);
   });
+
+  it('a boat driven ashore under sail can be pushed off and sailed away', () => {
+    const site = getVillageDockSite()!;
+    const v = new Vessel('test', 0, { n: site.boatCenter, heading: scale(site.boatHeading, -1) });
+    const astern = (b: Vessel) => scale(b.motion.heading, 1.2);
+    run(v, { sail: 1 }, astern, 60 * 120);
+    expect(v.motion.aground).toBe(true);
+    // At the wheel alone she can't steer off: no way on.
+    const stuckAt = v.motion.n;
+    run(v, { sail: 1, wheel: 1 }, astern, 60 * 5);
+    expect(v.motion.aground).toBe(true);
+    expect(angle(v.motion.n, stuckAt) * EARTH_RADIUS).toBeLessThan(0.05);
+    // Push off: she moves off into deeper water with the sail let down.
+    const before = keelClearance(v.motion.n, v.motion.heading);
+    expect(v.pushOff()).toBe(true);
+    expect(v.cmd.sail).toBe(0);
+    for (let i = 0; i < 60 * 4; i++) v.stepMotion(DT, astern(v));
+    expect(v.motion.aground).toBe(false);
+    expect(keelClearance(v.motion.n, v.motion.heading)).toBeGreaterThan(before + 0.2);
+    expect(angle(v.motion.n, stuckAt) * EARTH_RADIUS).toBeGreaterThan(1.5);
+    // Afloat, a push off does nothing.
+    expect(v.pushOff()).toBe(false);
+  });
+
+  it('the oars can turn a grounded boat where she lies', () => {
+    const site = getVillageDockSite()!;
+    const v = new Vessel('test', 0, { n: site.boatCenter, heading: scale(site.boatHeading, -1) });
+    run(v, { sail: 1 }, (b) => scale(b.motion.heading, 1.2), 60 * 120);
+    expect(v.motion.aground).toBe(true);
+    const h0 = v.motion.heading;
+    run(v, { rowTurn: 1 }, CALM, 60 * 6);
+    expect(angle(v.motion.heading, h0)).toBeGreaterThan(0.3);
+  });
 });
 
 describe('aboard while she sails', () => {
