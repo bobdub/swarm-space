@@ -388,7 +388,7 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
   useFrame(() => {
     const f = getFishing();
     const mine = !!boatKey && getCrewRole() === 'rod' && getCrewBoatKey() === boatKey;
-    const out = mine && (f.phase === 'waiting' || f.phase === 'bite');
+    const out = mine && (f.phase === 'waiting' || f.phase === 'bite' || f.phase === 'fight');
     const [sx, sz] = getCrewSpot() ?? ROD_SPOTS[0];
     const tip = rodTip(sx, sz);
     const side = sx < 0 ? -1 : 1;
@@ -398,13 +398,16 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
     const fish = fishRef.current;
     if (fish) {
       const landed = mine && f.phase === 'caught' ? getEarthPoseTime() - f.since : -1;
-      const show = (mine && f.phase === 'bite') || (landed >= 0 && landed < 1.6);
+      const on = f.phase === 'bite' || f.phase === 'fight';
+      const show = (mine && on) || (landed >= 0 && landed < 1.6);
       fish.visible = show;
       if (show) {
         const fx0 = tip[0] + side * 0.8;
         const fz0 = tip[2] - 0.4;
-        if (f.phase === 'bite') {
-          fish.position.set(fx0 + 0.1 * Math.sin(now * 9), -0.35, fz0 + 0.1 * Math.cos(now * 7));
+        if (on) {
+          // Hooked, it runs wider and harder than when it first takes.
+          const run = f.phase === 'fight' ? 0.45 : 0.1;
+          fish.position.set(fx0 + run * Math.sin(now * 3.1), -0.35, fz0 + run * Math.cos(now * 2.3));
           fish.rotation.set(0, now * 4, 0);
         } else {
           const u = Math.min(1, landed / 0.8);
@@ -420,7 +423,7 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
     if (!out) return;
     // The float sits on the water (the boat frame's y = 0 is the
     // waterline) and dips hard when a fish takes it.
-    const dip = f.phase === 'bite' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
+    const dip = f.phase === 'bite' || f.phase === 'fight' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
     const fx = tip[0] + side * 0.8;
     const fy = dip - 0.02 * (vessel.sea - 1);
     const fz = tip[2] - 0.4;

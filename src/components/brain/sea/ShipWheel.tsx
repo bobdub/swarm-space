@@ -10,8 +10,12 @@
  *   joystick left/right pull one oar harder to turn.
  * - Rowing spends Food (1 per 60 m). At 0 Food the oars stop.
  * At a rod:
- * - F or the Cast button casts; when a fish bites, F or "Reel in!" lands
- *   it for +1 Food (`sea/fishing.ts`).
+ * - F or the Cast button casts; when a fish bites, F or "Hook it!" hooks
+ *   it. Then it fights: strike (F, the Reel button, or a click on the bar)
+ *   while the marker is in the gold zone. Three good strikes land it for
+ *   +1 Food; two bad ones and it gets away (`sea/fishing.ts`).
+ * Aground (your own boat, at the wheel or the oars):
+ * - R or the Push off button shoves her off toward deeper water.
  *
  * Inputs go to `sea/crew.ts`; the boat reads them each physics tick.
  */
@@ -34,15 +38,19 @@ import { getVillageBoat } from '@/lib/brain/sea/vessel';
 import { materialTotals, spendMaterials } from '@/lib/world/materials';
 import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { getEarthPoseTime } from '@/lib/brain/earth';
+import { toast } from 'sonner';
 import {
   BITE_WINDOW_S,
+  FIGHT_HITS,
+  FIGHT_MISSES,
   castOrReel,
   getFishing,
+  markerAt,
   setFishingReward,
   subscribeFishing,
   type FishingState,
 } from '@/lib/brain/sea/fishing';
-import { fishingDepth, fishingSchoolNear } from '@/lib/brain/sea/villageBoat';
+import { fishingDepth, fishingSchoolNear, myBoatAground, pushOffMyBoat } from '@/lib/brain/sea/villageBoat';
 
 function useFishing(): FishingState {
   const [f, setF] = useState<FishingState>({ ...getFishing() });
@@ -53,7 +61,8 @@ function useFishing(): FishingState {
 function fishingLine(f: FishingState): string {
   if (f.phase === 'caught') return 'Caught a fish! +1 Food';
   if (f.phase === 'missed') return 'It got away.';
-  if (f.phase === 'bite') return 'Fish on! Reel in!';
+  if (f.phase === 'bite') return 'Fish on! Hook it!';
+  if (f.phase === 'fight') return 'Fighting! Strike while the marker is in the gold zone.';
   if (f.phase === 'waiting') return f.tooFast ? 'Too fast: the line trails. Slow below 1.5 m/s.' : 'Line out. Waiting for a bite…';
   return 'Cast your line.';
 }
@@ -65,6 +74,67 @@ function useCrewRole(): CrewRole | null {
 }
 
 const clamp1 = (v: number) => Math.max(-1, Math.min(1, v));
+
+function pushOff(): void {
+  const r = pushOffMyBoat();
+  if (r === 'stuck') toast.message('She won\'t budge', { description: 'No deeper water close by. Try the oars: row astern or turn her.', id: 'push-off' });
+}
+
+/** The reeling fight: strike while the marker is inside the gold zone. */
+function FightBar({ fishing, mobile }: { fishing: FishingState; mobile: boolean }) {
+  const markerRef = useRef<HTMLDivElement>(null);
+  const f = fishing.fight;
+  useEffect(() => {
+    let raf = 0;
+    const loop = () => {
+      const el = markerRef.current;
+      if (el) el.style.left = `${markerAt(getEarthPoseTime()) * 100}%`;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  if (fishing.phase !== 'fight' || !f) return null;
+  const flash = f.last && getEarthPoseTime() - f.lastAt < 0.6 ? f.last : null;
+  return (
+    <div
+      className="absolute z-[70] left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 select-none"
+      style={{ bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 19.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 13.5rem)' }}
+    >
+      <div className="flex gap-3 text-xs text-white" aria-live="polite">
+        <span data-testid="fight-hits">{'🐟'.repeat(f.hits)}{'·'.repeat(FIGHT_HITS - f.hits)} {f.hits}/{FIGHT_HITS}</span>
+        <span className="text-rose-300" data-testid="fight-misses">{'✕'.repeat(f.misses)}{'·'.repeat(FIGHT_MISSES - f.misses)}</span>
+      </div>
+      <button
+        type="button"
+        data-testid="fight-bar"
+        aria-label="Strike while the marker is in the gold zone"
+        onPointerDown={(e) => { e.preventDefault(); castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear()); }}
+        className="relative h-7 rounded-full border overflow-hidden"
+        style={{
+          width: mobile ? 240 : 300,
+          background: 'hsla(265,70%,8%,0.85)',
+          borderColor: flash === 'hit' ? 'hsla(140,80%,60%,0.95)' : flash === 'miss' ? 'hsla(0,80%,60%,0.95)' : 'hsla(180,80%,60%,0.55)',
+          touchAction: 'none',
+        }}
+      >
+        <div
+          className="absolute inset-y-0"
+          style={{
+            left: `${(f.zoneC - f.zoneW / 2) * 100}%`,
+            width: `${f.zoneW * 100}%`,
+            background: 'hsla(42,95%,55%,0.75)',
+          }}
+        />
+        <div
+          ref={markerRef}
+          className="absolute inset-y-0 -translate-x-1/2"
+          style={{ width: 4, background: 'white', boxShadow: '0 0 6px white' }}
+        />
+      </button>
+    </div>
+  );
+}
 
 /** A ship's wheel drawn over the joystick while you hold the helm. */
 export function CrewJoystickSkin() {
@@ -114,7 +184,7 @@ export function CrewJoystickSkin() {
 export function ShipControls({ mobile }: { mobile: boolean }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
-  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false });
+  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false, aground: false });
 
   // Food comes out of the gathered inventory on this device, and a fish
   // goes into it.
@@ -136,6 +206,19 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear());
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [role]);
+
+  // R pushes off when aground.
+  useEffect(() => {
+    if (role !== 'helm' && role !== 'oars') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyR' || e.repeat) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      pushOff();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -180,6 +263,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
           out: isOutOfFood(),
           mast: getMastHold(),
           school: role === 'rod' && fishingSchoolNear(),
+          aground: myBoatAground(),
         });
       }
       raf = requestAnimationFrame(loop);
@@ -203,8 +287,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
     ? mobile ? 'Joystick turns the wheel · hold Raise sail to get under way' : 'A/D wheel · W/S or hold Raise / Lower sail'
     : role === 'oars'
       ? mobile ? 'Push the joystick forward to row, sideways to turn' : 'W/S row · A/D turn'
-      : mobile ? 'Tap Cast, then Reel in when a fish bites' : 'F casts · F reels in when a fish bites';
-  const lineOut = fishing.phase === 'waiting' || fishing.phase === 'bite';
+      : mobile ? 'Tap Cast, Hook it when a fish bites, then tap in the gold zone' : 'F casts · F hooks · F strikes in the gold zone';
+  const lineOut = fishing.phase === 'waiting' || fishing.phase === 'bite' || fishing.phase === 'fight';
+  const hot = fishing.phase === 'bite' || fishing.phase === 'fight';
   const castButton = role === 'rod' ? (
     <button
       type="button"
@@ -213,13 +298,13 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
       style={{
         bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)',
-        background: fishing.phase === 'bite' ? 'hsla(38,90%,40%,0.95)' : 'hsla(265,70%,8%,0.85)',
-        borderColor: fishing.phase === 'bite' ? 'hsla(38,90%,70%,0.9)' : 'hsla(180,80%,60%,0.55)',
+        background: hot ? 'hsla(38,90%,40%,0.95)' : 'hsla(265,70%,8%,0.85)',
+        borderColor: hot ? 'hsla(38,90%,70%,0.9)' : 'hsla(180,80%,60%,0.55)',
         touchAction: 'none',
       }}
-      aria-label={fishing.phase === 'bite' ? `Reel in (${BITE_WINDOW_S} seconds)` : lineOut ? 'Reel in the line' : 'Cast the line'}
+      aria-label={fishing.phase === 'bite' ? `Hook the fish (${BITE_WINDOW_S} seconds)` : fishing.phase === 'fight' ? 'Strike' : lineOut ? 'Reel in the line' : 'Cast the line'}
     >
-      {fishing.phase === 'bite' ? 'Reel in!' : lineOut ? 'Reel in' : 'Cast'}
+      {fishing.phase === 'bite' ? 'Hook it!' : fishing.phase === 'fight' ? 'Reel!' : lineOut ? 'Reel in' : 'Cast'}
     </button>
   ) : null;
   const sailButton = (dir: 1 | -1, label: string) => (
@@ -255,10 +340,29 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       {sailButton(-1, 'Lower sail')}
     </div>
   ) : null;
+  const pushOffButton = (role === 'helm' || role === 'oars') && readout.aground ? (
+    <button
+      type="button"
+      data-testid="push-off"
+      onPointerDown={(e) => { e.preventDefault(); pushOff(); }}
+      className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
+      style={{
+        bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 19.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 13.5rem)',
+        background: 'hsla(28,85%,38%,0.95)',
+        borderColor: 'hsla(38,90%,70%,0.9)',
+        touchAction: 'none',
+      }}
+      aria-label="Push off the ground"
+    >
+      Push off{mobile ? '' : ' (R)'}
+    </button>
+  ) : null;
   return (
     <>
     {castButton}
     {sailButtons}
+    {pushOffButton}
+    {role === 'rod' && <FightBar fishing={fishing} mobile={mobile} />}
     <div
       data-testid="ship-readout"
       className="pointer-events-none absolute left-1/2 z-[70] -translate-x-1/2 rounded-xl border px-3 py-2 text-xs text-white"
@@ -289,7 +393,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       )}
       {(role === 'oars' || role === 'rod') && <div>Food {readout.food}</div>}
       {role === 'rod' && (
-        <div className={fishing.phase === 'bite' ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
+        <div className={hot ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
           {fishingLine(fishing)}
         </div>
       )}
@@ -297,6 +401,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
         <div className="text-sky-300" data-testid="fishing-school">A school of fish is under the boat. Bites come fast here.</div>
       )}
       {role === 'oars' && readout.out && <div className="text-amber-300">{OUT_OF_FOOD_NOTE}</div>}
+      {(role === 'helm' || role === 'oars') && readout.aground && (
+        <div className="font-semibold text-amber-300" data-testid="aground">Aground! Push off, or row astern.</div>
+      )}
       <div className="mt-1 opacity-70">{hint}</div>
     </div>
     </>

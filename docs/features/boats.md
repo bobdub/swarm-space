@@ -24,6 +24,15 @@ Status: **live** in the Brain world. The full design and build history is in
     beam, and only answers the rudder once she is moving.
   - The sail bellies to leeward as it draws, and flaps when you point her
     into the wind.
+- **Letting go.** While you hold the wheel, the oars or a rod, the "Hold to
+  let go" ring sits at the lower right (above the joystick on a phone), out
+  of your view.
+- **Running aground.** If your boat runs onto land, the readout says
+  "Aground!" and a Push off button appears at the wheel and the oars (R on a
+  keyboard). It shoves her toward the deepest water close by and lets the
+  sail down so the wind can't drive her straight back on; then turn her and
+  raise the sail. At the oars you can also row astern, and the oars can turn
+  her where she lies.
 - **Rowing** (oars, at the bench):
   - W/S row ahead or back; A/D turn.
   - The boat makes about 2 m/s.
@@ -32,8 +41,13 @@ Status: **live** in the Brain world. The full design and build history is in
   - Anyone aboard can row anyone's boat; the rower pays the Food.
 - **Fishing** (a rod holder at either rail, forward of the mast):
   - Hold "Hold to take a rod", then press Cast (or F).
-  - When the float dips ("Fish on!"), press Reel in within 3 s for
-    +1 Food. Too early and you just wind in; too late and it gets away.
+  - When the float dips ("Fish on!"), press Hook it! (or F) within 5 s.
+    Too early and you just wind in; too late and it gets away.
+  - Then the fish fights. A marker sweeps along a bar: strike (Reel!, F,
+    or a click on the bar) while it is inside the gold zone. Three good
+    strikes land it for +1 Food; each one narrows the zone and speeds the
+    marker up. Two bad strikes, or 6 s without one, count as misses, and
+    two misses lose the fish.
   - Bites come sooner in deep water (about every 12 s on average) than in
     the shallows (about 25 s). Over a school of fish they come in about 5 s,
     and the readout says "A school of fish is under the boat".
