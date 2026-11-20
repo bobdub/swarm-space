@@ -4,9 +4,9 @@ import { deckElevationAt } from './sea/deckSupport';
 import { WATER_WADE_DEPTH, WATER_WALK_SCALE } from './surfaceProfile';
 
 /** Water drag follows the same baked ground as the walker and renderer. */
-export function groundWalkScaleAt(localN: [number, number, number]): number {
+export function groundWalkScaleAt(localN: [number, number, number], feet?: number): number {
   // Planks are dry: full walking speed on a jetty or deck.
-  if (deckElevationAt(localN) > -Infinity) return 1;
+  if (deckElevationAt(localN, feet) > -Infinity) return 1;
   const t = Math.min(1, Math.max(0, (groundElevationAt(localN) - 0.05) / (WATER_WADE_DEPTH - 0.05)));
   const dry = t * t * (3 - 2 * t);
   return WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * dry;
@@ -43,14 +43,18 @@ export const SWIM_FEET_DEPTH = SWIM_BODY_DEPTH + BODY_CENTER_HEIGHT + FOOT_CUSHI
  * sea (the jetty, `sea/deckSupport.ts`) — whichever is highest. Land and
  * shallows: you stand on the ground. Deep water: you float and swim at
  * the surface with your head out. On a deck: you walk on its planks.
+ *
+ * Pass the walker's current `feet` elevation where it is known (the
+ * physics does): a deck then only counts when the feet are at its level,
+ * so a swimmer under the jetty or beside a hull stays in the water.
  */
-export function supportElevationAt(localN: [number, number, number]): number {
-  return Math.max(groundElevationAt(localN), -SWIM_FEET_DEPTH, deckElevationAt(localN));
+export function supportElevationAt(localN: [number, number, number], feet?: number): number {
+  return Math.max(groundElevationAt(localN), -SWIM_FEET_DEPTH, deckElevationAt(localN, feet));
 }
 
 /** True when the walker at this point is swimming rather than standing. */
-export function isSwimmingAt(localN: [number, number, number]): boolean {
-  return groundElevationAt(localN) < -SWIM_FEET_DEPTH && deckElevationAt(localN) === -Infinity;
+export function isSwimmingAt(localN: [number, number, number], feet?: number): boolean {
+  return groundElevationAt(localN) < -SWIM_FEET_DEPTH && deckElevationAt(localN, feet) === -Infinity;
 }
 
 /**
@@ -59,6 +63,6 @@ export function isSwimmingAt(localN: [number, number, number]): boolean {
  * cushion. Identical math to the physics floor, so every viewer puts feet
  * in the same place.
  */
-export function feetRadiusAt(localN: [number, number, number]): number {
-  return FEET_SHELL_RADIUS + supportElevationAt(localN) + FOOT_CUSHION;
+export function feetRadiusAt(localN: [number, number, number], feet?: number): number {
+  return FEET_SHELL_RADIUS + supportElevationAt(localN, feet) + FOOT_CUSHION;
 }

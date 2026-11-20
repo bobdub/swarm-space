@@ -1,6 +1,19 @@
 # A boat at the village island — plan
 
-Status: **plan, awaiting go-ahead.** Captured 2026-11-18, revised 2026-11-20.
+Status: **building.** Phase 1 (dock and boat) and Phase 2 (aboard) are done;
+Phase 3 (sailing) is next. Captured 2026-11-18, revised 2026-11-20.
+
+Phase 2 as built: `sea/vessel.ts` (Archimedes heave: sink = load ÷ (ρ·A_wp),
+A_wp ≈ 12.6 m² integrated from the hull; capacity by the 0.2 m freeboard rule
+is 48 people), `sea/boatDeck.ts` (deck outline and walls: rail with gates,
+stern ladder opening, solid hull below deck level, free above the rail top),
+`sea/villageBoat.ts` (mount, people count, hold actions), `deckSupport` now
+feet-aware (`DECK_STEP_UP` 0.45 m, so swimmers stay under the jetty and
+outside the hull), `UqrcPhysics.jump` (radial 7.5 m/s ≈ 1 m hop, settle band
+steps aside while airborne), and `BoatControls.tsx` (hold ring, jump button,
+Space). The rail is resolved like `resolveSolidObstacles` rather than with
+`pinSupportBasin`: a 531 m lattice cell cannot hold a metre-scale rail.
+Riding a deck that moves sideways is left for Phase 3, when the boat first moves.
 The readable version is the Claude Doc "Sailing between islands: the village
 boat plan"; this file mirrors it for implementers.
 
@@ -189,4 +202,4 @@ marker, `docs/features/boats.md`, `AGENTS.md` line, MemoryGarden entry.
 
 ## Open questions
 
-None. Ready to build on go-ahead.
+None.

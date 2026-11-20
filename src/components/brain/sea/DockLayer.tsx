@@ -7,8 +7,10 @@
  * deck surface on mount, so walkers stand on them through the same
  * `supportElevationAt` the physics floor, avatar feet and camera use.
  *
- * Phase 1: the boat is moored and only bobs. Boarding and sailing come in
- * later phases (docs/project-plans/village-boat-plan.md).
+ * The boat floats by `sea/vessel.ts` and its deck is walkable
+ * (`sea/villageBoat.ts`): the drawn hull and the deck you stand on read
+ * the same waterline every frame. Sailing comes in Phase 3
+ * (docs/project-plans/village-boat-plan.md).
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -26,6 +28,9 @@ import {
   type DockSite,
 } from '@/lib/brain/sea/dockSite';
 import { registerDeckSurface, straightDeck } from '@/lib/brain/sea/deckSupport';
+import { getVillageBoat, swellTiltAt } from '@/lib/brain/sea/vessel';
+import { mountVillageBoat } from '@/lib/brain/sea/villageBoat';
+import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { BoatMesh } from './BoatMesh';
 
 const PLANK = '#8a6640';
@@ -113,6 +118,12 @@ export function DockLayer() {
     );
   }, [site]);
 
+  // The boat's deck is walkable and its float steps with the physics.
+  useEffect(() => {
+    if (!site) return;
+    return mountVillageBoat(getBrainPhysics());
+  }, [site]);
+
   const jetty = useMemo(() => (site ? buildJetty(site) : null), [site]);
   const boatBase = useMemo(() => {
     if (!site) return null;
@@ -128,12 +139,12 @@ export function DockLayer() {
       earthRef.current.quaternion.set(pose.spinQuat[0], pose.spinQuat[1], pose.spinQuat[2], pose.spinQuat[3]);
     }
     if (boatRef.current && boatBase && site) {
-      // Gentle swell on the shared clock, so every viewer sees the same bob.
+      // Swell on the shared clock plus sinkage under load: the same
+      // waterline the walkable deck reads, so feet stay on the planks.
       const t = getEarthPoseTime();
-      const heave = 0.07 * Math.sin(t * 0.9) + 0.03 * Math.sin(t * 2.3 + 1.1);
-      const roll = 0.025 * Math.sin(t * 0.7 + 0.4);
-      const pitch = 0.012 * Math.sin(t * 1.1 + 2.0);
-      boatRef.current.position.copy(at(site.boatCenter, heave));
+      const boat = getVillageBoat();
+      const { roll, pitch } = swellTiltAt(t, boat.phase);
+      boatRef.current.position.copy(at(site.boatCenter, boat.waterlineAt(t)));
       tmpE.set(pitch, 0, roll);
       tmpQ.setFromEuler(tmpE);
       boatRef.current.quaternion.copy(boatBase.quaternion).multiply(tmpQ);

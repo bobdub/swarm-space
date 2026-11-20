@@ -63,6 +63,7 @@ import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
 import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { DockLayer } from '@/components/brain/sea/DockLayer';
+import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
 import { PubDrinkProps } from '@/components/pub/PubDrinkProps';
@@ -2635,6 +2636,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             mobile={isMobile}
             onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }}
           />
+          {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
+          <JumpButton selfId={selfId} mobile={isMobile} />
+          <BoatHoldButton selfId={selfId} mobile={isMobile} />
         </>
       )}
 

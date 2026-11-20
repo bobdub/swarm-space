@@ -11,14 +11,8 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
-import {
-  BOAT_BEAM,
-  BOAT_DECK_Y,
-  BOAT_DRAFT,
-  BOAT_GATE_HALF,
-  BOAT_LENGTH,
-  BOAT_RAIL_H,
-} from '@/lib/brain/sea/boatSpec';
+import { BOAT_DECK_Y, BOAT_GATE_HALF, BOAT_RAIL_H } from '@/lib/brain/sea/boatSpec';
+import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
 
 const HULL = COMPOUND_TABLE.door_single.color; // oak
 const TRIM = '#3b2616';
@@ -26,30 +20,8 @@ const DECK = '#9a7448';
 const CANVAS = '#e9e1cc';
 const ROPE = '#c8b48a';
 
-const HALF_L = BOAT_LENGTH / 2;
 const STATIONS = 24;
 const RIBS = 14;
-
-/** t ∈ [0,1], bow → stern. */
-function hullHalfBeam(t: number): number {
-  const max = BOAT_BEAM / 2;
-  if (t < 0.45) return max * Math.pow(Math.sin(((t / 0.45) * Math.PI) / 2), 0.75);
-  const u = (t - 0.45) / 0.55;
-  return max * (1 - 0.18 * u * u);
-}
-
-function gunwaleY(t: number): number {
-  return BOAT_DECK_Y + 0.22 + 0.35 * (1 - t) * (1 - t) * (1 - t);
-}
-
-function keelY(t: number): number {
-  const rise = Math.max(0, (0.22 - t) / 0.22);
-  return -BOAT_DRAFT + 1.1 * rise * rise;
-}
-
-function zAt(t: number): number {
-  return -HALF_L + t * BOAT_LENGTH;
-}
 
 function buildHull(): THREE.BufferGeometry {
   const pos: number[] = [];
@@ -119,23 +91,17 @@ function buildRail(side: 1 | -1, t0: number, t1: number): THREE.TubeGeometry {
   return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.035, 6, false);
 }
 
-/** t for a z position (inverse of zAt). */
-function tAt(z: number): number {
-  return (z + HALF_L) / BOAT_LENGTH;
-}
-
 export function BoatMesh() {
   const hull = useMemo(buildHull, []);
   const deck = useMemo(buildDeck, []);
   const gateT0 = tAt(-BOAT_GATE_HALF);
   const gateT1 = tAt(BOAT_GATE_HALF);
-  const sternRailEnd = 0.93;
   const rails = useMemo(
     () => [
       buildRail(1, 0.04, gateT0),
-      buildRail(1, gateT1, sternRailEnd),
+      buildRail(1, gateT1, STERN_RAIL_END_T),
       buildRail(-1, 0.04, gateT0),
-      buildRail(-1, gateT1, sternRailEnd),
+      buildRail(-1, gateT1, STERN_RAIL_END_T),
     ],
     [gateT0, gateT1],
   );
