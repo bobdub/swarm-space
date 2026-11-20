@@ -58,18 +58,27 @@ export function MintMeMiningService() {
     void Promise.all([
       import("@/lib/p2p/swarmMesh.standalone"),
       import("@/lib/blockchain/mintmeMiner/communityPayoutService"),
-    ]).then(async ([meshModule, payoutModule]) => {
+      import("@/lib/blockchain/infinity/poolAllocationService"),
+    ]).then(async ([meshModule, payoutModule, allocationModule]) => {
       if (cancelled) return;
       const mesh = meshModule.getSwarmMeshStandalone();
       const payout = await payoutModule.createMeshCommunityPayout(mesh);
       const claims = await (await import("@/lib/blockchain/mintmeMiner/autoClaim")).createMeshAutoClaim(mesh);
+      // Infinity's vault allocation proposals (members connected 2 h+ vote).
+      const allocation = await allocationModule.createMeshPoolAllocation(mesh);
       if (cancelled) return;
-      payout.start(); claims.start();
-      const tick = () => { if (mesh.getPhase() === "online") { void payout.tick().catch(() => {}); void claims.tick().catch(() => {}); } };
+      payout.start(); claims.start(); allocation.start();
+      let allocationAt = 0;
+      const tick = () => {
+        if (mesh.getPhase() !== "online") return;
+        void payout.tick().catch(() => {}); void claims.tick().catch(() => {});
+        // Propose at most every 10 minutes; answers to others' proposals are immediate.
+        if (Date.now() - allocationAt >= 10 * 60_000) { allocationAt = Date.now(); void allocation.tick().catch(() => {}); }
+      };
       const timer = window.setInterval(tick, 60_000);
       const unsub = mesh.onPeersChange(tick);
       tick();
-      cleanup = () => { window.clearInterval(timer); unsub(); payout.stop(); claims.stop(); };
+      cleanup = () => { window.clearInterval(timer); unsub(); payout.stop(); claims.stop(); allocation.stop(); };
     }).catch(() => {});
     return () => { cancelled = true; cleanup(); };
   }, [isReady, user?.id]);

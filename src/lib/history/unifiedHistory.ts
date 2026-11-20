@@ -174,6 +174,7 @@ function chainKind(tx: SwarmTransaction): HistoryKind {
       return tx.meta?.marketVault ? "exchange" : "conversion";
     case "token_transfer":
     case "coin_transfer":
+    case "infinity_vault_allocation":
     case "nft_transfer":
       return "transfer";
     case "custom_token_transfer":
@@ -201,6 +202,7 @@ const CHAIN_LABELS: Record<string, string> = {
   mining_reward: "Mining reward",
   reward_claim: "Reward claim",
   mintme_community_payout: "Community mining payout",
+  infinity_vault_allocation: "Infinity vault allocation",
   token_transfer: "Transfer",
   coin_transfer: "Coin transfer",
   custom_token_transfer: "Token transfer",

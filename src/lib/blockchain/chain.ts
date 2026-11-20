@@ -245,6 +245,17 @@ export class SwarmChain {
     return true;
   }
 
+  /** Infinity network action: capped donations → market allocation, re-derived from its recorded answers and this ledger. */
+  async acceptInfinityVaultAllocation(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    const { verifyAllocationTx } = await import("./infinity/poolAllocation");
+    if (this.hasTransaction(transaction.id)) return false;
+    if (!verifyAllocationTx(transaction, [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions])) return false;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
   /** Verify first, then synchronously check and append the complete batch.
    * No partially paid batch can survive an insufficient balance or interruption.
    */

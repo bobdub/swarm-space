@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { AGENT_TIERS, TIER_LABELS, TIER_START_MS, msToNextTier } from '@/lib/brain/agent/connectionClock';
 import { getAgentStatus, subscribeAgent } from '@/lib/brain/agent/infinityAgent';
 import { getSynapseGraph, nodeKey, nodeKind, type SynapseLink } from '@/lib/brain/agent/synapseGraph';
+import { InfinityAllocationLog } from './InfinityAllocationLog';
 
 const minutes = (ms: number) => {
   const m = Math.floor(ms / 60_000);
@@ -53,6 +54,7 @@ export function InfinityAgentPanel(): JSX.Element {
         </li>)}
       </ul> : <p className="mt-3 text-muted-foreground">No paths yet. They grow as Infinity learns from people who are not shy.</p>}
     </div>
+    <InfinityAllocationLog />
   </section>;
 }
 

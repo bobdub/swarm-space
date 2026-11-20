@@ -97,6 +97,23 @@ export function readCommunityPayout(tx: SwarmTransaction): MintMeCommunityPayout
   } catch { return null; }
 }
 
+export const INFINITY_VAULT_ALLOCATION_TYPE = "infinity_vault_allocation";
+
+export interface InfinityVaultAllocationMove { round: number; day: number; from: string; to: string; units: bigint }
+
+/** Shape-only read of an Infinity vault allocation; acceptance re-derives it (see infinity/poolAllocation). */
+export function readVaultAllocation(tx: SwarmTransaction): InfinityVaultAllocationMove | null {
+  try {
+    if (tx.type !== INFINITY_VAULT_ALLOCATION_TYPE) return null;
+    const m = tx.meta ?? {};
+    const round = m.round, day = m.day, units = m.units;
+    if (!Number.isSafeInteger(round) || (round as number) < 0 || tx.id !== `infinity-allocation-${round}`) return null;
+    if (!Number.isSafeInteger(day) || typeof units !== "string" || !/^[1-9]\d*$/.test(units)) return null;
+    if (tx.from !== INFINITY_VAULTS.donations || tx.to !== INFINITY_VAULTS.market) return null;
+    return { round: round as number, day: day as number, from: tx.from, to: tx.to, units: BigInt(units) };
+  } catch { return null; }
+}
+
 /** Custody deposits, signed native transfers and Infinity payout actions fund this asset.
  * Legacy self-transfers, migrations and MetaMask balance snapshots are not custody.
  */
@@ -110,6 +127,12 @@ export function nativeMintMeBalanceUnits(transactions: readonly SwarmTransaction
     if (payout) {
       if (payout.recipients.includes(userId)) balance += payout.perPeerUnits;
       if (payout.retainedTo === userId) balance += payout.communityUnits;
+      continue;
+    }
+    const allocation = readVaultAllocation(tx);
+    if (allocation) {
+      if (allocation.from === userId) balance -= allocation.units;
+      if (allocation.to === userId) balance += allocation.units;
       continue;
     }
     const units = nativeMintMeUnits(tx);
