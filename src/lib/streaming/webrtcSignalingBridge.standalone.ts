@@ -16,6 +16,7 @@
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
+import { networkNow, reconcileLiveTimestamp, syncNetworkClock } from '@/lib/time/networkClock';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -559,7 +560,9 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         senderUsername: envelope.username,
         senderAvatarRef: typeof data.avatarRef === "string" ? data.avatarRef : envelope.avatarRef,
         text,
-        ts: typeof data.ts === 'number' ? data.ts : envelope.ts,
+        // A live line was sent moments ago; a stamp far from now means the
+        // sender's device clock is wrong, so place it when it arrived.
+        ts: reconcileLiveTimestamp(typeof data.ts === 'number' ? data.ts : envelope.ts),
         replyToId: typeof data.replyToId === 'string' ? data.replyToId : undefined,
         replyToUsername: typeof data.replyToUsername === 'string' ? data.replyToUsername : undefined,
         replyToPreview: typeof data.replyToPreview === 'string' ? data.replyToPreview : undefined,
@@ -858,6 +861,8 @@ function sendChatHistoryRequest(roomId: string, peerIds: string[]): void {
 // ── Public API ─────────────────────────────────────────────────────────
 
 export function startSignalingBridge(mesh: MeshLike): () => void {
+  // Measure the device clock once so outgoing chat lines carry true time.
+  void syncNetworkClock();
   if (meshRef === mesh && unsubChannel) return () => stopSignalingBridge();
 
   stopSignalingBridge();
@@ -1110,7 +1115,7 @@ export function sendRoomChatMessage(
     senderUsername: username,
     senderAvatarRef: avatarRef,
     text: trimmed,
-    ts: Date.now(),
+    ts: networkNow(),
     replyToId: replyTo?.id,
     replyToUsername: replyTo?.username,
     replyToPreview: replyTo?.preview,

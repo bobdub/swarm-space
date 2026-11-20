@@ -187,6 +187,7 @@ import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib
 import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
 import { enqueueMemory } from '@/lib/brain/infinityMemory';
+import { networkNow } from '@/lib/time/networkClock';
 import {
   isOverheadView,
   SPECTATOR_BACK_M,
@@ -1853,7 +1854,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const line: BrainChatLine = {
       id: crypto.randomUUID(),
       author: user ? brainDisplayName(user) : 'You',
-      text, ts: Date.now(),
+      text, ts: networkNow(),
       authorId: user?.id,
       avatarRef: user?.profile?.avatarRef,
     };
@@ -1907,7 +1908,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           author: ENTITY_DISPLAY_NAME,
           authorId: ENTITY_USER_ID,
           infinityReplyTo: line.id,
-          text: pick, ts: Date.now(),
+          text: pick, ts: networkNow(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
         // The originating opted-in client generates; peers only consume it.
