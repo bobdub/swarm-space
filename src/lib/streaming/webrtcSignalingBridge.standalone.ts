@@ -86,6 +86,14 @@ export interface RoomPresence {
    */
   position?: [number, number, number];
   /**
+   * The same position relative to Earth's centre, in Earth's own spinning
+   * frame. Earth orbits and spins (about 3.5 m/s at the surface), so a
+   * world-space point goes stale the moment it is sent, and two devices
+   * whose clocks differ by a few seconds place it metres apart. The
+   * Earth-local point means the same spot on the ground on every device.
+   */
+  local?: [number, number, number];
+  /**
    * Brain physics protocol version. Absent → pre-versioning peer (v0).
    * Consumers compare against `BRAIN_PHYSICS_VERSION` to decide whether
    * to trust the broadcast altitude or pin the avatar to the shell.
@@ -585,12 +593,16 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         avatarId?: string;
         color?: string;
         position?: unknown;
+        local?: unknown;
         pv?: unknown;
       };
-      const pos = Array.isArray(data.position) && data.position.length === 3
-        && data.position.every((n) => typeof n === 'number' && Number.isFinite(n))
-        ? ([data.position[0], data.position[1], data.position[2]] as [number, number, number])
-        : undefined;
+      const vec3 = (v: unknown): [number, number, number] | undefined =>
+        Array.isArray(v) && v.length === 3
+        && v.every((n) => typeof n === 'number' && Number.isFinite(n))
+          ? ([v[0], v[1], v[2]] as [number, number, number])
+          : undefined;
+      const pos = vec3(data.position);
+      const local = vec3(data.local);
       const pv = typeof data.pv === 'number' && Number.isFinite(data.pv) ? data.pv : undefined;
       const presence: RoomPresence = {
         roomId: envelope.roomId,
@@ -600,6 +612,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         avatarId: typeof data.avatarId === 'string' ? data.avatarId : undefined,
         color: typeof data.color === 'string' ? data.color : undefined,
         position: pos,
+        local,
         pv,
         ts: envelope.ts,
       };
@@ -608,6 +621,10 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         bucket = new Map();
         roomPresenceLog.set(envelope.roomId, bucket);
       }
+      // A relayed copy can arrive after a newer direct one. Never let an
+      // older update move an avatar back to where it was.
+      const known = bucket.get(envelope.from);
+      if (known && (envelope.ts ?? 0) < known.ts) return;
       bucket.set(envelope.from, presence);
       for (const handler of roomPresenceHandlers) {
         try { handler(presence); } catch { /* ignore */ }
@@ -645,6 +662,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
               avatarId: mine.avatarId,
               color: mine.color,
               position: mine.position,
+              local: mine.local,
               pv: mine.pv,
             },
             ts: Date.now(),
@@ -908,6 +926,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
               avatarId: mine.avatarId,
               color: mine.color,
               position: mine.position,
+              local: mine.local,
               pv: mine.pv,
             },
             ts: Date.now(),
@@ -1191,6 +1210,7 @@ export function sendRoomPresence(
     avatarId?: string;
     color?: string;
     position?: [number, number, number];
+    local?: [number, number, number];
     pv?: number;
   },
 ): void {
@@ -1206,6 +1226,7 @@ export function sendRoomPresence(
       avatarId: presence.avatarId,
       color: presence.color,
       position: presence.position,
+      local: presence.local,
       pv: presence.pv,
     },
     ts,
@@ -1224,6 +1245,7 @@ export function sendRoomPresence(
     avatarId: presence.avatarId,
     color: presence.color,
     position: presence.position,
+    local: presence.local,
     pv: presence.pv,
     ts,
   };
