@@ -45,8 +45,10 @@ import {
   newDockVessel,
   onVesselReset,
   resolveHullContact,
+  seaStateFor,
   type Capsule,
 } from './vessel';
+import { ROD_SPOTS, updateFishing } from './fishing';
 import {
   canRow,
   chargeRowing,
@@ -54,6 +56,7 @@ import {
   getCrewInput,
   getCrewRole,
   getCrewSelfId,
+  getCrewSpot,
   leaveRole,
   setCrewBoatKey,
   type CrewRole,
@@ -365,6 +368,7 @@ export class Fleet {
       frame: () => frameOf(boat),
       radius: EARTH_RADIUS,
       top: () => boat.vessel.deckTopAt(getEarthPoseTime()),
+      boardingShut: () => !boat.vessel.canBoard(),
     });
     boat.deckOff = registerDeckSurface({
       id: inner.id,
@@ -569,7 +573,12 @@ export class Fleet {
   /**
    * One physics tick: claim, float, sail, reckon, collide, carry, pin.
    */
-  tick(physics: UqrcPhysics | null, dt: number, windFn: (n: Vec3) => Vec3): void {
+  tick(
+    physics: UqrcPhysics | null,
+    dt: number,
+    windFn: (n: Vec3) => Vec3,
+    seaFn: (n: Vec3) => number = () => 0,
+  ): void {
     const t = getEarthPoseTime();
     const dock = this.dock();
 
@@ -580,7 +589,9 @@ export class Fleet {
     if (role && crewKey) {
       const b = this.boats.get(crewKey);
       if (!b) leaveRole();
-      else if (b.kind === 'dock') {
+      else if (b.kind === 'dock' && role !== 'rod') {
+        // The wheel or the oars make the dock boat yours; fishing off it
+        // does not.
         if (!this.claimDock()) leaveRole();
       } else if (b.kind === 'remote' && role === 'helm') {
         leaveRole(); // only the owner takes the wheel
@@ -615,6 +626,13 @@ export class Fleet {
     }
 
     if (this.tickCount++ % WIND_EVERY_TICKS === 0) {
+      // Each boat's sea from the weather where it floats.
+      for (const b of this.boats.values()) {
+        try {
+          const w = windFn(b.vessel.motion.n);
+          b.vessel.seaTarget = seaStateFor(Math.hypot(w[0], w[1], w[2]), seaFn(b.vessel.motion.n));
+        } catch { /* keep the last sea */ }
+      }
       const focus = this.mine() ?? dock;
       try { this.wind = focus ? windFn(focus.vessel.motion.n) : [0, 0, 0]; } catch { this.wind = [0, 0, 0]; }
     }
@@ -648,6 +666,7 @@ export class Fleet {
         v.heave.sink += (w.k - v.heave.sink) * Math.min(1, dt / EASE_S);
         v.people = w.p;
         v.wind = this.wind;
+        v.stepSea(dt);
       } else {
         v.setPeople((aboard.get(b.key) ?? []).length);
         v.step(dt);
@@ -680,6 +699,9 @@ export class Fleet {
         }
       }
 
+      // The local angler's line on this boat.
+      if (role === 'rod' && crewKey === b.key) updateFishing(t, v.speed());
+
       // Food for the local rower on this boat.
       if (role === 'oars' && crewKey === b.key && (Math.abs(input.row) > 0.05 || Math.abs(input.rowTurn) > 0.05)) {
         chargeRowing(Math.acos(Math.min(1, dot(n0, v.motion.n))) * EARTH_RADIUS);
@@ -688,7 +710,10 @@ export class Fleet {
       // Carry everyone on this deck; hold the crew at their station.
       if (!physics) continue;
       const after = frameOf(b);
-      const moved = before.center !== after.center || before.heading !== after.heading;
+      // The deck also rises and falls with the swell; riders go with it
+      // (the step about to come), so a rough sea never leaves them behind.
+      const rise = v.deckTopAt(t + dt) - v.deckTopAt(t);
+      const moved = before.center !== after.center || before.heading !== after.heading || Math.abs(rise) > 1e-7;
       const pose = getEarthPose();
       for (const a of aboard.get(b.key) ?? []) {
         const body = physics.getBody(a.id);
@@ -696,12 +721,12 @@ export class Fleet {
         let x = a.x;
         let z = a.z;
         const pinned = !!role && crewKey === b.key && a.id === selfId;
-        if (pinned) [x, z] = role === 'helm' ? HELM_SPOT : OARS_SPOT;
+        if (pinned) [x, z] = role === 'helm' ? HELM_SPOT : role === 'oars' ? OARS_SPOT : getCrewSpot() ?? ROD_SPOTS[0];
         if (!pinned && !moved) continue;
         const rx = body.pos[0] - pose.center[0];
         const ry = body.pos[1] - pose.center[1];
         const rz = body.pos[2] - pose.center[2];
-        let r = Math.hypot(rx, ry, rz);
+        let r = Math.hypot(rx, ry, rz) + rise;
         if (pinned) r = BODY_SHELL_RADIUS + v.deckTopAt(t) + FOOT_CUSHION;
         const n = fromBoatFrame(after, x, z, EARTH_RADIUS);
         const local: Vec3 = [n[0] * r, n[1] * r, n[2] * r];

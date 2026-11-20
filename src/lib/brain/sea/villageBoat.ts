@@ -27,14 +27,18 @@ import {
   type FleetBoat,
 } from './fleet';
 import { setFocusBoatResolver } from './vessel';
+import { ROD_SPOTS } from './fishing';
+import { groundElevationAt } from '../groundHeight';
 
-export { HELM_SPOT, OARS_SPOT, isOnDeck };
+export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
 
 /** How close to the boat's gate you must stand on the jetty to board (m). */
 export const BOARD_REACH_M = 4.5;
 /** How close a swimmer must be to the ladder or a gate to climb aboard (m). */
 export const CLIMB_REACH_M = 2.2;
 const STATION_REACH_M = 1.3;
+/** Rod holders sit by the rail, closer together than the stations. */
+const ROD_REACH_M = 0.9;
 
 // "The boat" for this player: crewed, else owned, else the dock boat.
 setFocusBoatResolver(() => getFleet().focus()?.vessel ?? null);
@@ -49,6 +53,9 @@ export interface MountOptions {
   /** Wind at an Earth-local normal (tangent vector, m/s). Defaults to calm;
    *  the scene passes the weather field's `windAt`. */
   wind?: (n: Vec3) => Vec3;
+  /** Extra roughness from rain and wet sea at a normal (0…~0.85); the
+   *  scene passes `weatherCurvatureBoost`. Defaults to none. */
+  sea?: (n: Vec3) => number;
 }
 
 /** Run the fleet on the physics clock. Returns the cleanup. */
@@ -57,7 +64,8 @@ export function mountVillageBoat(physics: UqrcPhysics, opts: MountOptions = {}):
   if (!fleet.dock()) return () => {};
   fleet.attachAllDecks();
   const wind = opts.wind ?? (() => [0, 0, 0] as Vec3);
-  const unsub = physics.subscribe(() => fleet.tick(physics, 1 / PHYSICS_HZ, wind));
+  const sea = opts.sea ?? (() => 0);
+  const unsub = physics.subscribe(() => fleet.tick(physics, 1 / PHYSICS_HZ, wind, sea));
   return () => {
     unsub();
     fleet.detachAllDecks();
@@ -68,7 +76,7 @@ export type BoatAction =
   | { kind: 'board'; boatKey: string }
   | { kind: 'climb'; boatKey: string; from: 'ladder' | 'port' | 'starboard' }
   | { kind: 'full'; boatKey: string }
-  | { kind: 'take'; boatKey: string; role: CrewRole }
+  | { kind: 'take'; boatKey: string; role: CrewRole; spot?: [number, number] }
   | { kind: 'leave'; role: CrewRole }
   | { kind: 'busy' };
 
@@ -85,6 +93,12 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number): Bo
     if (Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]) <= STATION_REACH_M) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
       return { kind: 'take', boatKey: boat.key, role: 'oars' };
+    }
+    // A rod holder: anyone may fish from any boat.
+    for (const spot of ROD_SPOTS) {
+      if (Math.hypot(p.x - spot[0], p.z - spot[1]) <= ROD_REACH_M) {
+        return { kind: 'take', boatKey: boat.key, role: 'rod', spot: [spot[0], spot[1]] };
+      }
     }
     return null;
   }
@@ -138,4 +152,11 @@ export function boardingSpot(action: BoatAction): [number, number] | null {
     return [action.from === 'port' ? -0.45 : 0.45, 0];
   }
   return null;
+}
+
+/** Water depth (m) under this player's boat, for a cast. */
+export function fishingDepth(): number {
+  const b = getFleet().focus();
+  if (!b) return 0;
+  return Math.max(0, -groundElevationAt(b.vessel.motion.n));
 }

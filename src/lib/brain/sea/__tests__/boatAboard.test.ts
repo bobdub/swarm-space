@@ -107,6 +107,12 @@ describe('walls in the boat frame', () => {
     expect(confineInBoatFrame(x, z, 0.1, 0.35)!.x).toBeCloseTo(-(railHalfWidthAt(z) + 0.35), 6);
     expect(confineInBoatFrame(-(railHalfWidthAt(0) + 0.2), 0, 0.1, 0.35)).toBeNull();
   });
+  it('shuts the gates to newcomers once the boat is full, but lets people off', () => {
+    const outside = confineInBoatFrame(-(railHalfWidthAt(0) + 0.2), 0, 0.1, 0.35, true)!;
+    expect(outside.x).toBeCloseTo(-(railHalfWidthAt(0) + 0.35), 6);
+    // Aboard, standing in the open gate: free to step off.
+    expect(confineInBoatFrame(-(railHalfWidthAt(0) - 0.1), 0, 0, 0.35, true)).toBeNull();
+  });
   it('makes the hull solid to a swimmer and lets a jumper clear the rail', () => {
     const z = 1;
     const pushed = confineInBoatFrame(0.5, z, -1.85, 0.35)!;

@@ -29,12 +29,12 @@ import {
   type DockSite,
 } from '@/lib/brain/sea/dockSite';
 import { registerDeckSurface, straightDeck } from '@/lib/brain/sea/deckSupport';
-import { swellTiltAt } from '@/lib/brain/sea/vessel';
-import { getFleet, type FleetBoat } from '@/lib/brain/sea/fleet';
+import { frameOf, getFleet, type FleetBoat } from '@/lib/brain/sea/fleet';
 import { getCrewBoatKey, stopMastHold } from '@/lib/brain/sea/crew';
 import { mountVillageBoat } from '@/lib/brain/sea/villageBoat';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { windAt } from '@/lib/world/weather';
+import { weatherCurvatureBoost, windAt } from '@/lib/world/weather';
+import { WAKE_MAX_POINTS, WakeTrail } from '@/lib/brain/sea/wake';
 import { BoatMesh } from './BoatMesh';
 
 const PLANK = '#8a6640';
@@ -125,7 +125,7 @@ export function DockLayer() {
   useEffect(() => {
     if (!site) return;
     // Wind is the weather field's own: the vector the clouds ride.
-    return mountVillageBoat(getBrainPhysics(), { wind: (n) => windAt(n) });
+    return mountVillageBoat(getBrainPhysics(), { wind: (n) => windAt(n), sea: (n) => weatherCurvatureBoost(n) });
   }, [site]);
 
   const jetty = useMemo(() => (site ? buildJetty(site) : null), [site]);
@@ -185,7 +185,7 @@ function BoatView({ boat }: { boat: FleetBoat }) {
     // waterline the walkable deck reads, so feet stay on the planks.
     const t = getEarthPoseTime();
     const v = boat.vessel;
-    const { roll, pitch } = swellTiltAt(t, v.phase);
+    const { roll, pitch } = v.tiltAt(t);
     const { n, heading } = v.motion;
     g.position.copy(at(n, v.waterlineAt(t)));
     tmpE.set(pitch, 0, roll);
@@ -195,9 +195,51 @@ function BoatView({ boat }: { boat: FleetBoat }) {
   // Releasing the mast anywhere ends a hold begun on it.
   useEffect(() => () => { if (getCrewBoatKey() === boat.key) stopMastHold(); }, [boat.key]);
   return (
-    <group ref={ref}>
-      <BoatMesh vessel={boat.vessel} />
-    </group>
+    <>
+      <group ref={ref}>
+        <BoatMesh vessel={boat.vessel} boatKey={boat.key} />
+      </group>
+      <BoatWake boat={boat} />
+    </>
+  );
+}
+
+/** The trail on the water behind a moving boat (drawn in Earth-local space). */
+function BoatWake({ boat }: { boat: FleetBoat }) {
+  const trail = useMemo(() => new WakeTrail(), []);
+  const { geo, pos, alpha, rgba } = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const p = new Float32Array(WAKE_MAX_POINTS * 2 * 3);
+    const a = new Float32Array(WAKE_MAX_POINTS * 2);
+    const c = new Float32Array(WAKE_MAX_POINTS * 2 * 4).fill(1);
+    const idx: number[] = [];
+    for (let i = 0; i < WAKE_MAX_POINTS - 1; i++) {
+      const v = 2 * i;
+      idx.push(v, v + 2, v + 1, v + 1, v + 2, v + 3);
+    }
+    g.setIndex(idx);
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(c, 4));
+    g.setDrawRange(0, 0);
+    return { geo: g, pos: p, alpha: a, rgba: c };
+  }, []);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const meshRef = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    const t = getEarthPoseTime();
+    if (boat.visible) trail.sample(frameOf(boat), boat.vessel.speed(), t, EARTH_RADIUS);
+    const k = trail.ribbon(t, EARTH_RADIUS, 0.06, pos, alpha);
+    for (let i = 0; i < 2 * k; i++) rgba[i * 4 + 3] = alpha[i];
+    geo.setDrawRange(0, Math.max(0, k - 1) * 6);
+    (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    (geo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    if (k > 1) geo.computeBoundingSphere();
+    if (meshRef.current) meshRef.current.visible = k > 1;
+  });
+  return (
+    <mesh ref={meshRef} geometry={geo} frustumCulled={false} renderOrder={2}>
+      <meshBasicMaterial vertexColors transparent depthWrite={false} side={THREE.DoubleSide} />
+    </mesh>
   );
 }
 

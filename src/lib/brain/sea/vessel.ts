@@ -65,26 +65,52 @@ export function freeboardFor(people: number): number {
   return BOAT_DECK_Y - restSinkFor(people * PERSON_KG);
 }
 
-/** How many people the boat carries before freeboard drops under the limit. */
-export const BOAT_CAPACITY = Math.floor(
+/** How many people the hull floats before freeboard drops under the limit
+ *  (48: buoyancy alone would allow a crowd). */
+export const BUOYANT_CAPACITY = Math.floor(
   ((BOAT_DECK_Y - MIN_FREEBOARD) * WATER_DENSITY * WATERPLANE_AREA) / PERSON_KG,
 );
 
+/** A boat's party: the most people aboard at once, crew included. A 7 m
+ *  open boat is crowded well before it is low in the water. */
+export const PARTY_SIZE = 10;
+
+/** People the boat takes: the party, or fewer if buoyancy says so. */
+export const BOAT_CAPACITY = Math.min(PARTY_SIZE, BUOYANT_CAPACITY);
+
 /** True when one more person could board a boat already carrying `people`. */
 export function canBoard(people: number): boolean {
-  return freeboardFor(people + 1) >= MIN_FREEBOARD;
+  return people + 1 <= BOAT_CAPACITY && freeboardFor(people + 1) >= MIN_FREEBOARD;
 }
 
-/** Shared-clock swell (m) at time `t` (s), with a per-boat phase. */
-export function swellAt(t: number, phase = 0): number {
-  return 0.07 * Math.sin(t * 0.9 + phase) + 0.03 * Math.sin(t * 2.3 + 1.1 + phase * 1.7);
+/** Calmest sea (1) and the roughest the weather can make it. */
+export const SEA_CALM = 1;
+export const SEA_MAX = 3.5;
+/** Seconds for the sea to build or lie down toward the weather's target. */
+export const SEA_TAU_S = 8;
+
+/**
+ * Sea state (swell multiplier) from the weather at a point: wind raises
+ * waves, and rain or a soaked patch (`weatherCurvatureBoost`, 0…0.85)
+ * raises them more. 1 in a calm, about 1.5 in an ordinary 1 m/s breeze,
+ * up to 3.5 in a squall.
+ */
+export function seaStateFor(windSpeed: number, weatherBoost = 0): number {
+  const s = SEA_CALM + 0.5 * Math.max(0, windSpeed) + 1.5 * Math.max(0, weatherBoost);
+  return Math.min(SEA_MAX, s);
+}
+
+/** Shared-clock swell (m) at time `t` (s), with a per-boat phase, scaled
+ *  by the sea state `amp` (1 = calm). */
+export function swellAt(t: number, phase = 0, amp = 1): number {
+  return amp * (0.07 * Math.sin(t * 0.9 + phase) + 0.03 * Math.sin(t * 2.3 + 1.1 + phase * 1.7));
 }
 
 /** Small roll/pitch (rad) for the drawn hull; the deck stays level. */
-export function swellTiltAt(t: number, phase = 0): { roll: number; pitch: number } {
+export function swellTiltAt(t: number, phase = 0, amp = 1): { roll: number; pitch: number } {
   return {
-    roll: 0.025 * Math.sin(t * 0.7 + 0.4 + phase),
-    pitch: 0.012 * Math.sin(t * 1.1 + 2.0 + phase),
+    roll: amp * 0.025 * Math.sin(t * 0.7 + 0.4 + phase),
+    pitch: amp * 0.012 * Math.sin(t * 1.1 + 2.0 + phase),
   };
 }
 
@@ -109,6 +135,21 @@ export const KEEL_RATIO = 8;
 export const BOAT_MAX_SPEED = 10;
 /** No drive within this angle of the wind (rad). */
 export const NO_GO_ANGLE = (40 * Math.PI) / 180;
+
+/**
+ * How the sail looks for wind on the bow (`from`, rad, as `windOnBow`) at
+ * `speed` m/s: `fill` 0…1 is how full the canvas bellies (the polar's
+ * drive, saturating at 0.5 m/s of wind), and `luff` 0…1 how hard it
+ * flaps when pointed into the no-go zone. Drawing only; drive comes from
+ * `sailForce`.
+ */
+export function sailFill(from: number, speed: number): { fill: number; luff: number } {
+  if (speed < 0.02) return { fill: 0, luff: 0 };
+  const beta = Math.abs(from);
+  const strength = Math.min(1, speed / 0.5);
+  const luff = beta < NO_GO_ANGLE ? (1 - beta / NO_GO_ANGLE) * 0.6 + 0.4 : 0;
+  return { fill: sailPolar(beta) * strength, luff: luff * Math.min(1, speed / 0.2) };
+}
 
 /**
  * Sail polar: drive fraction for `beta`, the angle (rad, 0..π) between
@@ -387,6 +428,9 @@ export class Vessel {
   cmd: HelmCommand = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   /** Last wind the boat felt (Earth-local tangent, m/s). */
   wind: Vec3 = [0, 0, 0];
+  /** Sea state here (swell multiplier, 1 = calm), eased toward `seaTarget`. */
+  sea = SEA_CALM;
+  seaTarget = SEA_CALM;
 
   constructor(id: string, phase = 0, at?: { n: Vec3; heading: Vec3 }) {
     this.id = id;
@@ -426,11 +470,22 @@ export class Vessel {
 
   step(dt: number): void {
     this.heave = stepHeave(this.heave, this.people * PERSON_KG, dt);
+    this.stepSea(dt);
+  }
+
+  /** The sea builds and lies down slowly, so the deck never lurches. */
+  stepSea(dt: number): void {
+    this.sea += (this.seaTarget - this.sea) * (1 - Math.exp(-dt / SEA_TAU_S));
   }
 
   /** Waterline offset of the boat frame at time t (m): swell − load sink. */
   waterlineAt(t: number): number {
-    return swellAt(t, this.phase) - this.heave.sink;
+    return swellAt(t, this.phase, this.sea) - this.heave.sink;
+  }
+
+  /** Drawn roll and pitch now (rad). */
+  tiltAt(t: number): { roll: number; pitch: number } {
+    return swellTiltAt(t, this.phase, this.sea);
   }
 
   /** Walkable deck elevation above sea level at time t (m). */

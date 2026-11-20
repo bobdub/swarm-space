@@ -8,13 +8,14 @@
  * 7 m long, 2.6 m beam, 0.6 m draft, deck 0.5 m above the water.
  */
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { BOAT_DECK_Y, BOAT_GATE_HALF, BOAT_RAIL_H } from '@/lib/brain/sea/boatSpec';
-import type { Vessel } from '@/lib/brain/sea/vessel';
-import { startMastHold, stopMastHold } from '@/lib/brain/sea/crew';
+import { sailFill, type Vessel } from '@/lib/brain/sea/vessel';
+import { getCrewBoatKey, getCrewRole, getCrewSpot, startMastHold, stopMastHold } from '@/lib/brain/sea/crew';
+import { ROD_SPOTS, getFishing } from '@/lib/brain/sea/fishing';
 import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
 
 const HULL = COMPOUND_TABLE.door_single.color; // oak
@@ -94,7 +95,7 @@ function buildRail(side: 1 | -1, t0: number, t1: number): THREE.TubeGeometry {
   return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.035, 6, false);
 }
 
-export function BoatMesh({ vessel }: { vessel: Vessel }) {
+export function BoatMesh({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) {
   const hull = useMemo(buildHull, []);
   const deck = useMemo(buildDeck, []);
   const gateT0 = tAt(-BOAT_GATE_HALF);
@@ -137,14 +138,52 @@ export function BoatMesh({ vessel }: { vessel: Vessel }) {
   const boomRef = useRef<THREE.Group>(null);
   const sailRef = useRef<THREE.Mesh>(null);
   const furlRef = useRef<THREE.Mesh>(null);
+  // The sail is a grid over the triangle (luff up the mast, foot along the
+  // boom) so it can belly to leeward with the wind, and flap when luffing.
+  const SAIL_U = 8;
+  const SAIL_V = 8;
+  const sailTop = mastH - 0.5 - (boomY - BOAT_DECK_Y);
   const sailGeo = useMemo(() => {
     const g = new THREE.BufferGeometry();
-    // Triangle in the boom group's frame: luff up the mast, foot along the boom.
-    const top = mastH - 0.5 - (boomY - BOAT_DECK_Y);
-    g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0.05, 0.1, 0, top, 0.05, 0, 0.05, boomLen - 0.1], 3));
-    g.computeVertexNormals();
+    const p = new Float32Array((SAIL_U + 1) * (SAIL_V + 1) * 3);
+    const idx: number[] = [];
+    const row = SAIL_U + 1;
+    for (let j = 0; j < SAIL_V; j++) {
+      for (let i = 0; i < SAIL_U; i++) {
+        const a = j * row + i;
+        idx.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
+      }
+    }
+    g.setIndex(idx);
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3));
     return g;
-  }, [boomLen, boomY]);
+  }, []);
+  useEffect(() => () => sailGeo.dispose(), [sailGeo]);
+  const shapeSail = (depth: number, luff: number, side: number, time: number) => {
+    const attr = sailGeo.attributes.position as THREE.BufferAttribute;
+    const p = attr.array as Float32Array;
+    const footA = 0.1;
+    const footB = boomLen - 0.1;
+    let k = 0;
+    for (let j = 0; j <= SAIL_V; j++) {
+      const v = j / SAIL_V;
+      for (let i = 0; i <= SAIL_U; i++) {
+        const u = i / SAIL_U;
+        const fz = footA + (footB - footA) * u;
+        const y = 0.05 + (sailTop - 0.05) * v;
+        const z = fz * (1 - v) + 0.05 * v;
+        const chord = (footB - footA) * (1 - v);
+        const belly = Math.sin(Math.PI * u) * Math.pow(1 - v, 0.6);
+        let x = side * depth * chord * belly;
+        if (luff > 0) x += luff * 0.12 * Math.sin(time * 11 + u * 9 + v * 4) * belly;
+        p[k++] = x; p[k++] = y; p[k++] = z;
+      }
+    }
+    attr.needsUpdate = true;
+    sailGeo.computeVertexNormals();
+    sailGeo.computeBoundingSphere();
+  };
+  const sailShapeKey = useRef('');
   useFrame(() => {
     const boat = vessel;
     if (wheelRef.current) wheelRef.current.rotation.z = -boat.cmd.wheel * 1.5 * Math.PI * 2;
@@ -158,6 +197,17 @@ export function BoatMesh({ vessel }: { vessel: Vessel }) {
     if (sailRef.current) {
       sailRef.current.visible = sail > 0.02;
       sailRef.current.scale.set(1, Math.max(0.02, sail), 1);
+      if (sail > 0.02) {
+        // Belly to leeward with the drive; flap when pointed into the wind.
+        const { fill, luff } = sailFill(w.from, w.speed);
+        const side = w.from > 0 ? -1 : 1;
+        const depth = 0.14 * fill;
+        const key = luff > 0 ? '' : `${side}:${depth.toFixed(3)}`;
+        if (luff > 0 || key !== sailShapeKey.current) {
+          sailShapeKey.current = key;
+          shapeSail(depth, luff, side, performance.now() / 1000);
+        }
+      }
     }
     if (furlRef.current) furlRef.current.scale.set(1 - 0.6 * sail, 1, 1 - 0.6 * sail);
   });
@@ -255,6 +305,11 @@ export function BoatMesh({ vessel }: { vessel: Vessel }) {
           </mesh>
         </group>
       ))}
+      {/* Rods in their holders by the rail, forward of the mast */}
+      {ROD_SPOTS.map(([x, z]) => (
+        <RodInHolder key={`rod-${x}`} x={x} z={z} />
+      ))}
+      <FishingLine vessel={vessel} boatKey={boatKey} />
       {/* Stern ladder down into the sea */}
       <group position={[0, 0, sternZ + 0.06]}>
         {[-0.22, 0.22].map((x) => (
@@ -274,7 +329,7 @@ export function BoatMesh({ vessel }: { vessel: Vessel }) {
   );
 }
 
-function Line({ from, to }: { from: [number, number, number]; to: [number, number, number] }) {
+function Line({ from, to, radius = 0.012, color = ROPE }: { from: [number, number, number]; to: [number, number, number]; radius?: number; color?: string }) {
   const { position, quaternion, length } = useMemo(() => {
     const a = new THREE.Vector3(...from);
     const b = new THREE.Vector3(...to);
@@ -287,9 +342,77 @@ function Line({ from, to }: { from: [number, number, number]; to: [number, numbe
   }, [from.join(','), to.join(',')]);
   return (
     <mesh position={position} quaternion={quaternion}>
-      <cylinderGeometry args={[0.012, 0.012, length, 4]} />
-      <meshStandardMaterial color={ROPE} roughness={0.9} />
+      <cylinderGeometry args={[radius, radius * 0.6, length, 5]} />
+      <meshStandardMaterial color={color} roughness={0.9} />
     </mesh>
   );
 }
 
+/** Rod geometry: butt in a holder on the rail, tip out over the water. */
+const ROD_LEN = 2.4;
+function rodTip(x: number, z: number): [number, number, number] {
+  const side = x < 0 ? -1 : 1;
+  const base = [x + side * 0.3, BOAT_DECK_Y + 0.75, z] as const;
+  // 55° out from upright, leaning a little forward.
+  const a = (55 * Math.PI) / 180;
+  return [base[0] + side * Math.sin(a) * ROD_LEN, base[1] + Math.cos(a) * ROD_LEN, base[2] - 0.25];
+}
+
+function RodInHolder({ x, z }: { x: number; z: number }) {
+  const side = x < 0 ? -1 : 1;
+  const base: [number, number, number] = [x + side * 0.3, BOAT_DECK_Y + 0.75, z];
+  return (
+    <group>
+      <Line from={base} to={rodTip(x, z)} radius={0.018} color={TRIM} />
+      <mesh position={[base[0], base[1] - 0.15, base[2]]}>
+        <cylinderGeometry args={[0.04, 0.04, 0.3, 6]} />
+        <meshStandardMaterial color={TRIM} roughness={0.7} />
+      </mesh>
+    </group>
+  );
+}
+
+/** The local angler's line and float, when they fish from this boat. */
+function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) {
+  const floatRef = useRef<THREE.Mesh>(null);
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+    return g;
+  }, []);
+  useEffect(() => () => geo.dispose(), [geo]);
+  const line = useMemo(() => new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#f4f1e6' })), [geo]);
+  useFrame(() => {
+    const f = getFishing();
+    const mine = !!boatKey && getCrewRole() === 'rod' && getCrewBoatKey() === boatKey;
+    const out = mine && (f.phase === 'waiting' || f.phase === 'bite');
+    line.visible = out;
+    if (floatRef.current) floatRef.current.visible = out;
+    if (!out) return;
+    const [sx, sz] = getCrewSpot() ?? ROD_SPOTS[0];
+    const tip = rodTip(sx, sz);
+    const side = sx < 0 ? -1 : 1;
+    const now = performance.now() / 1000;
+    // The float sits on the water (the boat frame's y = 0 is the
+    // waterline) and dips hard when a fish takes it.
+    const dip = f.phase === 'bite' ? -0.12 + 0.08 * Math.sin(now * 18) : 0.02 * Math.sin(now * 2.1);
+    const fx = tip[0] + side * 0.8;
+    const fy = dip - 0.02 * (vessel.sea - 1);
+    const fz = tip[2] - 0.4;
+    const p = (geo.attributes.position as THREE.BufferAttribute).array as Float32Array;
+    p[0] = tip[0]; p[1] = tip[1]; p[2] = tip[2];
+    p[3] = fx; p[4] = fy + 0.05; p[5] = fz;
+    (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    geo.computeBoundingSphere();
+    if (floatRef.current) floatRef.current.position.set(fx, fy, fz);
+  });
+  return (
+    <>
+      <primitive object={line} />
+      <mesh ref={floatRef} visible={false}>
+        <sphereGeometry args={[0.07, 10, 8]} />
+        <meshStandardMaterial color="#e2483c" roughness={0.5} />
+      </mesh>
+    </>
+  );
+}

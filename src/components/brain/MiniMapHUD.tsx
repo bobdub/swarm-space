@@ -7,6 +7,9 @@ import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { getFleet } from '@/lib/brain/sea/fleet';
+import { getVillageDockSite, travel } from '@/lib/brain/sea/dockSite';
+import { getCrewBoatKey } from '@/lib/brain/sea/crew';
 
 interface Props {
   selfId: string;
@@ -122,6 +125,48 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
           ctx.fill();
         }
 
+        // The jetty and the boats: the hull points along her heading.
+        const toMap = (n: Vec3): [number, number] | null => {
+          const w = quatRotate(pose.spinQuat, n);
+          const dx = pose.center[0] + w[0] * EARTH_RADIUS - center[0];
+          const dy = pose.center[1] + w[1] * EARTH_RADIUS - center[1];
+          const dz = pose.center[2] + w[2] * EARTH_RADIUS - center[2];
+          const tx = dx * frame.right[0] + dy * frame.right[1] + dz * frame.right[2];
+          const tz = dx * frame.forward[0] + dy * frame.forward[1] + dz * frame.forward[2];
+          if (Math.abs(tx) > MAP_RANGE_M * 1.2 || Math.abs(tz) > MAP_RANGE_M * 1.2) return null;
+          return [MAP_SIZE / 2 + (tx / MAP_RANGE_M) * (MAP_SIZE / 2), MAP_SIZE / 2 + (tz / MAP_RANGE_M) * (MAP_SIZE / 2)];
+        };
+        const site = getVillageDockSite();
+        if (site) {
+          const a = toMap(site.jettyStart);
+          const b = toMap(travel(site.jettyStart, site.jettyDir, site.jettyLength));
+          if (a && b) {
+            ctx.strokeStyle = 'hsl(30, 45%, 50%)';
+            ctx.lineWidth = 3;
+            ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+          }
+        }
+        const crewKey = getCrewBoatKey();
+        for (const boat of getFleet().list()) {
+          if (!boat.visible) continue;
+          const { n, heading } = boat.vessel.motion;
+          const c = toMap(n);
+          const bow = toMap(travel(n, heading, 40));
+          if (!c || !bow) continue;
+          const ang = Math.atan2(bow[1] - c[1], bow[0] - c[0]);
+          const mine = boat.kind === 'mine' || boat.key === crewKey;
+          ctx.save();
+          ctx.translate(c[0], c[1]);
+          ctx.rotate(ang);
+          ctx.fillStyle = mine ? 'hsl(45, 95%, 60%)' : boat.kind === 'dock' ? 'hsl(30, 45%, 62%)' : 'hsl(0, 0%, 92%)';
+          ctx.strokeStyle = 'hsla(265, 70%, 8%, 0.9)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(7, 0); ctx.lineTo(-5, -3.5); ctx.lineTo(-5, 3.5); ctx.closePath();
+          ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+
         // Border
         ctx.strokeStyle = 'hsla(180, 80%, 60%, 0.5)';
         ctx.lineWidth = 2;
@@ -169,7 +214,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         style={{ width: isMobile ? 'min(220px, calc(100vw - 3rem))' : MAP_SIZE, height: 'auto', aspectRatio: '1 / 1' }}
       />
       <p className="mt-2 max-w-[220px] md:max-w-[280px] text-[10px] text-foreground/50">
-        Cyan = peers · amber = portals · centre = you
+        Violet = peers · amber = portals · gold = your boat · white = others' boats · centre = you
       </p>
     </div>
   );

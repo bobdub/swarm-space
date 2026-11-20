@@ -5,8 +5,8 @@
  *   boat ("Hold to board"), or swimming by the stern ladder or a gate
  *   ("Hold to climb aboard"). When one more person would push the boat's
  *   freeboard under 0.2 m it reads "Boat is full" instead.
- * - On deck, beside the wheel or the rowing bench, the same ring takes the
- *   wheel or the oars, and lets go of them again.
+ * - On deck, beside the wheel, the rowing bench or a rod holder, the same
+ *   ring takes the wheel, the oars or a rod, and lets go of them again.
  * - Jump: Space on a keyboard, or the round button beside the run bolt.
  *   It works anywhere you stand, which is how you leave the boat for a swim.
  */
@@ -64,7 +64,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       const body = getBrainPhysics().getBody(selfId);
       const now = body ? boatActionFor(body.pos) : null;
       if (!now || now.kind === 'full' || now.kind === 'busy') return;
-      if (now.kind === 'take') { takeRole(now.role, selfId, now.boatKey); return; }
+      if (now.kind === 'take') { takeRole(now.role, selfId, now.boatKey, now.spot); return; }
       if (now.kind === 'leave') { leaveRole(); return; }
       const spot = boardingSpot(now);
       const world = spot ? deckWorldPos(spot[0], spot[1], now.boatKey) : null;
@@ -83,8 +83,8 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       : action.kind === 'climb'
         ? 'Hold to climb aboard'
         : action.kind === 'take'
-          ? action.role === 'helm' ? 'Hold to take the wheel' : 'Hold to take the oars'
-          : action.role === 'helm' ? 'Hold to let go of the wheel' : 'Hold to ship the oars';
+          ? action.role === 'helm' ? 'Hold to take the wheel' : action.role === 'oars' ? 'Hold to take the oars' : 'Hold to take a rod'
+          : action.role === 'helm' ? 'Hold to let go of the wheel' : action.role === 'oars' ? 'Hold to ship the oars' : 'Hold to put the rod down';
   return (
     <button
       type="button"

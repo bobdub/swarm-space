@@ -1,7 +1,7 @@
 # A boat at the village island — plan
 
-Status: **building.** Phases 1 (dock and boat), 2 (aboard), 3 (sailing) and
-4 (multiplayer) are done; Phase 5 (polish and docs) is next. Captured 2026-11-18, revised 2026-11-20.
+Status: **built.** All five phases are done; how boats work now is in
+`docs/features/boats.md`. Captured 2026-11-18, revised 2026-11-20.
 
 Phase 2 as built: `sea/vessel.ts` (Archimedes heave: sink = load ÷ (ρ·A_wp),
 A_wp ≈ 12.6 m² integrated from the hull; capacity by the 0.2 m freeboard rule
@@ -50,6 +50,22 @@ anyone can row, and the owner's world sums remote strokes (dropped after
 capsules and bump each other and the jetty. Remote avatars standing on a
 deck are placed from their `d` spot, so they ride the boat instead of
 sliding off it between updates.
+
+Phase 5 as built:
+- Capacity is a party of 10 (`PARTY_SIZE`, decided 2026-11-21), well inside
+  the 48 the hull floats. A full boat's gates shut to newcomers.
+- The swell scales with the weather: `seaStateFor(wind, weatherCurvatureBoost)`
+  runs from 1 to 3.5, eased over 8 s. Riders are carried up and down with
+  the deck, so in a squall they stay within 2 cm of it.
+- A fading wake trails a moving boat (`wake.ts`).
+- The sail bellies to leeward with the polar's drive and flaps in the no-go
+  zone (`sailFill`).
+- The mini map shows the jetty and the boats.
+- Fishing rods (added at the user's request, so a becalmed crew can earn the
+  Food rowing burns): two rod holders forward of the mast. A cast waits an
+  exponential time (mean 12 s deep, 25 s in the shallows, none above
+  1.5 m/s), and reeling within 3 s of the bite lands +1 Food. Fishing does
+  not claim the dock boat.
 
 The readable version is the Claude Doc "Sailing between islands: the village
 boat plan"; this file mirrors it for implementers.

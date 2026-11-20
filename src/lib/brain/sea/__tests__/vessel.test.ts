@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   BOAT_CAPACITY,
+  BUOYANT_CAPACITY,
+  PARTY_SIZE,
   MIN_FREEBOARD,
   PERSON_KG,
   Vessel,
@@ -39,11 +41,14 @@ describe('the boat floats', () => {
     expect(restSinkFor(4 * PERSON_KG)).toBeCloseTo(expected, 6);
   });
 
-  it('refuses one more person once freeboard would drop under 0.2 m', () => {
-    expect(freeboardFor(BOAT_CAPACITY)).toBeGreaterThanOrEqual(MIN_FREEBOARD);
-    expect(freeboardFor(BOAT_CAPACITY + 1)).toBeLessThan(MIN_FREEBOARD);
-    expect(canBoard(BOAT_CAPACITY - 1)).toBe(true);
-    expect(canBoard(BOAT_CAPACITY)).toBe(false);
+  it('takes a party of 10, well inside what the hull floats', () => {
+    expect(BUOYANT_CAPACITY).toBe(48);
+    expect(freeboardFor(BUOYANT_CAPACITY)).toBeGreaterThanOrEqual(MIN_FREEBOARD);
+    expect(freeboardFor(BUOYANT_CAPACITY + 1)).toBeLessThan(MIN_FREEBOARD);
+    expect(BOAT_CAPACITY).toBe(PARTY_SIZE);
+    expect(PARTY_SIZE).toBe(10);
+    expect(canBoard(9)).toBe(true);
+    expect(canBoard(10)).toBe(false);
   });
 
   it('has a waterplane that matches a 7 m open boat', () => {

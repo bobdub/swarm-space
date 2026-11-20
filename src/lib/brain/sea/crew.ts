@@ -2,7 +2,8 @@
  * crew — where this player stands on the boat's working stations, and the
  * raw controls they are giving.
  *
- * Roles: at the helm (the wheel and the sail) or at the oars. While in a
+ * Roles: at the helm (the wheel and the sail), at the oars, or at a rod
+ * holder fishing (`fishing.ts`). While in a
  * role the body is held at that station each physics tick (like a bar
  * stool, `seating.ts`) and the walking controls drive the boat instead.
  * Inputs are written by the on-screen controls and keyboard
@@ -13,7 +14,9 @@
  * device only. With no Food the oars stop pushing.
  */
 
-export type CrewRole = 'helm' | 'oars';
+import { stopFishing } from './fishing';
+
+export type CrewRole = 'helm' | 'oars' | 'rod';
 
 export interface CrewInput {
   /** Wheel target −1 … 1 (A/D, joystick left/right). 0 = let it centre. */
@@ -35,6 +38,8 @@ interface CrewState {
   /** Fleet key of the boat this role is on ('dock' = the berth's boat). */
   boatKey: string | null;
   selfId: string | null;
+  /** Boat-frame (x, z) of a station with more than one place (rods). */
+  spot: [number, number] | null;
   input: CrewInput;
   /** Metres rowed since the last Food was spent. */
   rowedSinceFood: number;
@@ -45,6 +50,7 @@ const state: CrewState = {
   role: null,
   boatKey: null,
   selfId: null,
+  spot: null,
   input: { wheel: 0, sail: 0, row: 0, rowTurn: 0 },
   rowedSinceFood: 0,
   outOfFood: false,
@@ -87,10 +93,15 @@ export function setCrewBoatKey(key: string | null): void {
   state.boatKey = key;
 }
 
-export function takeRole(role: CrewRole, selfId: string, boatKey: string = 'dock'): void {
+export function getCrewSpot(): [number, number] | null {
+  return state.spot;
+}
+
+export function takeRole(role: CrewRole, selfId: string, boatKey: string = 'dock', spot?: [number, number]): void {
   state.role = role;
   state.boatKey = boatKey;
   state.selfId = selfId;
+  state.spot = spot ?? null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   emit();
 }
@@ -99,7 +110,9 @@ export function leaveRole(): void {
   if (!state.role) return;
   state.role = null;
   state.boatKey = null;
+  state.spot = null;
   mastHold = null;
+  stopFishing();
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   emit();
 }
@@ -175,6 +188,7 @@ export function _resetCrewForTest(): void {
   state.role = null;
   state.boatKey = null;
   state.selfId = null;
+  state.spot = null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   state.rowedSinceFood = 0;
   state.outOfFood = false;

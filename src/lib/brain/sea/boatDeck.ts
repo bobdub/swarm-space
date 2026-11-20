@@ -11,7 +11,8 @@
  *   keeps you aboard, except at the gate on each side midships and the
  *   opening onto the stern ladder.
  * - Beside the boat at deck level (the jetty): the rail keeps you off,
- *   except through a gate.
+ *   except through a gate. Once the boat is full the gates shut to people
+ *   coming aboard (people aboard can still walk off).
  * - Below deck level (swimming): the hull is solid; you climb aboard by
  *   the ladder.
  * - Above the rail top (mid-jump): no walls, you can leap over.
@@ -90,6 +91,7 @@ export function confineInBoatFrame(
   z: number,
   feetAboveDeck: number,
   radius: number,
+  boardingShut = false,
 ): { x: number; z: number } | null {
   if (feetAboveDeck > BOAT_RAIL_H) return null; // clearing the rail mid-jump
   const ax = Math.abs(x);
@@ -111,8 +113,8 @@ export function confineInBoatFrame(
       return nx !== x || nz !== z ? { x: nx, z: nz } : null;
     }
     // Outside, at deck level (on the jetty beside the boat): the rail
-    // keeps you out except through a gate.
-    if (z >= -HALF_L && z <= HALF_L && !isGateZ(z)) {
+    // keeps you out except through an open gate.
+    if (z >= -HALF_L && z <= HALF_L && (boardingShut || !isGateZ(z))) {
       const edge = railHalfWidthAt(z) + radius;
       if (ax < edge) return { x: sign * edge, z };
     }
@@ -139,6 +141,8 @@ export function boatDeck(opts: {
   frame: () => BoatFrame;
   radius: number;
   top: () => number;
+  /** True while the boat is full: the gates let nobody else on. */
+  boardingShut?: () => boolean;
 }): DeckSurface {
   const { radius } = opts;
   const reach = Math.hypot(HALF_L + 1, 2) / radius;
@@ -160,7 +164,7 @@ export function boatDeck(opts: {
       const frame = opts.frame();
       if (!near(frame, n)) return null;
       const { x, z } = toBoatFrame(frame, n, radius);
-      const next = confineInBoatFrame(x, z, feet - opts.top(), bodyRadius);
+      const next = confineInBoatFrame(x, z, feet - opts.top(), bodyRadius, opts.boardingShut?.() ?? false);
       if (!next) return null;
       // Move by the correction only, so the radial part of n is untouched.
       const from = fromBoatFrame(frame, x, z, radius);
