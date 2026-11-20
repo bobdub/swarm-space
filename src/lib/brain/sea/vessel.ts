@@ -37,9 +37,9 @@
  * - Speed cap: 10 m/s on the tangent plane, like the walk cap.
  */
 
-import type { Vec3 } from '../earth';
+import { EARTH_RADIUS, type Vec3 } from '../earth';
 import { groundElevationAt } from '../groundHeight';
-import { BOAT_DECK_Y, BOAT_DRAFT, BOAT_LENGTH } from './boatSpec';
+import { BOAT_BEAM, BOAT_DECK_Y, BOAT_DRAFT, BOAT_LENGTH } from './boatSpec';
 import { WATERPLANE_AREA } from './boatHull';
 import { getVillageDockSite, starboardOf, travel } from './dockSite';
 
@@ -215,7 +215,8 @@ export function stepMotion(
 
   // Forces along the heading: sail + oars.
   const sail = sailForce(h, n, wind, cmd.sail);
-  const row = ROW_ACCEL * Math.max(-1, Math.min(1, cmd.row));
+  // Several rowers add up (each pulls one stroke's worth); cap at four.
+  const row = ROW_ACCEL * Math.max(-4, Math.min(4, cmd.row));
   let u = dot3(vel, h);
   let v = dot3(vel, s);
   const aSail = dot3(sail, h);
@@ -237,7 +238,7 @@ export function stepMotion(
   const way = Math.min(1, Math.abs(u) / RUDDER_FULL_SPEED) * Math.sign(u);
   const target =
     RUDDER_RATE * Math.max(-1, Math.min(1, cmd.wheel)) * way +
-    ROW_TURN_RATE * Math.max(-1, Math.min(1, cmd.rowTurn));
+    ROW_TURN_RATE * Math.max(-2, Math.min(2, cmd.rowTurn));
   const yawRate = m.yawRate + (target - m.yawRate) * Math.min(1, dt / 0.5);
 
   // Move along the sphere.
@@ -262,6 +263,91 @@ export function stepMotion(
   }
   return { n: n2, heading: h2, vel: vel2, yawRate, aground: after < 0 };
 }
+
+// ── Hull contact ────────────────────────────────────────────────────
+
+/** A hull or a jetty as a capsule on the sea: centre line from `a` to `b`
+ *  (Earth-local unit normals) with `radius` metres either side. */
+export interface Capsule {
+  a: Vec3;
+  b: Vec3;
+  radius: number;
+}
+
+const BOAT_BEAM_HALF = BOAT_BEAM / 2;
+
+/** The capsule a boat at (n, heading) occupies. */
+export function hullCapsule(n: Vec3, heading: Vec3): Capsule {
+  const half = BOAT_LENGTH / 2 - BOAT_BEAM_HALF;
+  return { a: travel(n, heading, half), b: travel(n, heading, -half), radius: BOAT_BEAM_HALF };
+}
+
+
+/** Closest points between segments p1p2 and q1q2 in a local 2-D plane. */
+function segSegDist(
+  p1: [number, number], p2: [number, number], q1: [number, number], q2: [number, number],
+): { d: number; dx: number; dy: number } {
+  const d1: [number, number] = [p2[0] - p1[0], p2[1] - p1[1]];
+  const d2: [number, number] = [q2[0] - q1[0], q2[1] - q1[1]];
+  const r: [number, number] = [p1[0] - q1[0], p1[1] - q1[1]];
+  const a = d1[0] * d1[0] + d1[1] * d1[1];
+  const e = d2[0] * d2[0] + d2[1] * d2[1];
+  const f = d2[0] * r[0] + d2[1] * r[1];
+  let sP = 0;
+  let tQ = 0;
+  const clamp = (v: number) => Math.max(0, Math.min(1, v));
+  if (a <= 1e-12 && e <= 1e-12) { sP = 0; tQ = 0; }
+  else if (a <= 1e-12) { sP = 0; tQ = clamp(f / e); }
+  else {
+    const c = d1[0] * r[0] + d1[1] * r[1];
+    if (e <= 1e-12) { tQ = 0; sP = clamp(-c / a); }
+    else {
+      const b = d1[0] * d2[0] + d1[1] * d2[1];
+      const denom = a * e - b * b;
+      sP = denom > 1e-12 ? clamp((b * f - c * e) / denom) : 0;
+      tQ = (b * sP + f) / e;
+      if (tQ < 0) { tQ = 0; sP = clamp(-c / a); }
+      else if (tQ > 1) { tQ = 1; sP = clamp((b - c) / a); }
+    }
+  }
+  const cx = p1[0] + d1[0] * sP - (q1[0] + d2[0] * tQ);
+  const cy = p1[1] + d1[1] * sP - (q1[1] + d2[1] * tQ);
+  return { d: Math.hypot(cx, cy), dx: cx, dy: cy };
+}
+
+/**
+ * Push a boat out of a capsule it overlaps (another hull, the jetty). The
+ * contact works in the tangent plane at the boat's centre. Returns the
+ * corrected motion; the velocity component into the obstacle is removed,
+ * so boats bump and stop rather than pass through.
+ */
+export function resolveHullContact(m: MotionState, other: Capsule): MotionState {
+  const n = m.n;
+  const ex = starboardOf(n, m.heading);
+  const ez = m.heading;
+  const to2 = (p: Vec3): [number, number] => {
+    const d: Vec3 = [p[0] - n[0], p[1] - n[1], p[2] - n[2]];
+    return [dot3(d, ex) * EARTH_RADIUS, dot3(d, ez) * EARTH_RADIUS];
+  };
+  const mine = hullCapsule(m.n, m.heading);
+  const hit = segSegDist(to2(mine.a), to2(mine.b), to2(other.a), to2(other.b));
+  const minD = mine.radius + other.radius;
+  if (hit.d >= minD) return m;
+  let nx = hit.dx;
+  let ny = hit.dy;
+  let len = hit.d;
+  if (len < 1e-6) { nx = 1; ny = 0; len = 1; }
+  nx /= len; ny /= len;
+  const push = minD - hit.d;
+  const dir: Vec3 = norm3([ex[0] * nx + ez[0] * ny, ex[1] * nx + ez[1] * ny, ex[2] * nx + ez[2] * ny]);
+  const n2 = travel(n, dir, push);
+  const heading = norm3(tangent(m.heading, n2));
+  let vel = tangent(m.vel, n2);
+  const vIn = dot3(vel, dir);
+  if (vIn < 0) vel = [vel[0] - dir[0] * vIn, vel[1] - dir[1] * vIn, vel[2] - dir[2] * vIn];
+  return { ...m, n: n2, heading, vel };
+}
+
 
 export interface HeaveState {
   /** Sinkage below the design waterline from load (m, + = deeper). */
@@ -362,19 +448,42 @@ export class Vessel {
 }
 
 let village: Vessel | null = null;
+let focusResolver: (() => Vessel | null) | null = null;
 
+/**
+ * Let the fleet decide which boat "the boat" means for this player: the
+ * one they crew, else the one they own, else the dock boat.
+ */
+export function setFocusBoatResolver(fn: (() => Vessel | null) | null): void {
+  focusResolver = fn;
+}
+
+/** The boat this player is concerned with (see `setFocusBoatResolver`). */
 export function getVillageBoat(): Vessel {
-  if (!village) {
-    const site = getVillageDockSite();
-    village = new Vessel(
-      'village-boat',
-      0,
-      site ? { n: site.boatCenter, heading: site.boatHeading } : undefined,
-    );
-  }
+  const focused = focusResolver?.();
+  if (focused) return focused;
+  return getDockVessel();
+}
+
+/** A fresh boat moored at the village berth. */
+export function newDockVessel(id: string): Vessel {
+  const site = getVillageDockSite();
+  return new Vessel(id, 0, site ? { n: site.boatCenter, heading: site.boatHeading } : undefined);
+}
+
+function getDockVessel(): Vessel {
+  if (!village) village = newDockVessel('village-boat');
   return village;
+}
+
+const resetHooks: (() => void)[] = [];
+
+/** Modules holding boats (the fleet) reset with the village boat in tests. */
+export function onVesselReset(fn: () => void): void {
+  resetHooks.push(fn);
 }
 
 export function _resetVillageBoatForTest(): void {
   village = null;
+  for (const fn of resetHooks) fn();
 }

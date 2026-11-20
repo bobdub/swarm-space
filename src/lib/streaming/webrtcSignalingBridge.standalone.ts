@@ -91,6 +91,12 @@ export interface RoomPresence {
    * to trust the broadcast altitude or pin the avatar to the shell.
    */
   pv?: number;
+  /**
+   * Boats (Brain sea): the boat this peer owns, the deck spot they stand
+   * on, and an oar stroke on someone else's boat. Opaque here; validated
+   * by `decodeBoatPresence` (lib/brain/sea/fleet.ts) on the way in.
+   */
+  boat?: unknown;
   ts: number;
 }
 type RoomPresenceHandler = (presence: RoomPresence) => void;
@@ -586,6 +592,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         color?: string;
         position?: unknown;
         pv?: unknown;
+        boat?: unknown;
       };
       const pos = Array.isArray(data.position) && data.position.length === 3
         && data.position.every((n) => typeof n === 'number' && Number.isFinite(n))
@@ -601,6 +608,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
         color: typeof data.color === 'string' ? data.color : undefined,
         position: pos,
         pv,
+        boat: data.boat && typeof data.boat === 'object' ? data.boat : undefined,
         ts: envelope.ts,
       };
       let bucket = roomPresenceLog.get(envelope.roomId);
@@ -646,6 +654,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
               color: mine.color,
               position: mine.position,
               pv: mine.pv,
+              boat: mine.boat,
             },
             ts: Date.now(),
           });
@@ -909,6 +918,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
               color: mine.color,
               position: mine.position,
               pv: mine.pv,
+              boat: mine.boat,
             },
             ts: Date.now(),
           } satisfies SignalEnvelope).catch(() => undefined);
@@ -1192,6 +1202,7 @@ export function sendRoomPresence(
     color?: string;
     position?: [number, number, number];
     pv?: number;
+    boat?: unknown;
   },
 ): void {
   if (!meshRef) return;
@@ -1207,6 +1218,7 @@ export function sendRoomPresence(
       color: presence.color,
       position: presence.position,
       pv: presence.pv,
+      boat: presence.boat,
     },
     ts,
   };
@@ -1225,6 +1237,7 @@ export function sendRoomPresence(
     color: presence.color,
     position: presence.position,
     pv: presence.pv,
+    boat: presence.boat,
     ts,
   };
   bucket.set(meshRef.getPeerId(), mineEntry);

@@ -32,6 +32,8 @@ export const OUT_OF_FOOD_NOTE = 'Out of food: gather fruit, fish or honey.';
 
 interface CrewState {
   role: CrewRole | null;
+  /** Fleet key of the boat this role is on ('dock' = the berth's boat). */
+  boatKey: string | null;
   selfId: string | null;
   input: CrewInput;
   /** Metres rowed since the last Food was spent. */
@@ -41,6 +43,7 @@ interface CrewState {
 
 const state: CrewState = {
   role: null,
+  boatKey: null,
   selfId: null,
   input: { wheel: 0, sail: 0, row: 0, rowTurn: 0 },
   rowedSinceFood: 0,
@@ -75,8 +78,18 @@ export function setCrewInput(patch: Partial<CrewInput>): void {
   Object.assign(state.input, patch);
 }
 
-export function takeRole(role: CrewRole, selfId: string): void {
+export function getCrewBoatKey(): string | null {
+  return state.boatKey;
+}
+
+/** The fleet re-keys the crew's boat when the dock boat becomes yours. */
+export function setCrewBoatKey(key: string | null): void {
+  state.boatKey = key;
+}
+
+export function takeRole(role: CrewRole, selfId: string, boatKey: string = 'dock'): void {
   state.role = role;
+  state.boatKey = boatKey;
   state.selfId = selfId;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   emit();
@@ -85,6 +98,7 @@ export function takeRole(role: CrewRole, selfId: string): void {
 export function leaveRole(): void {
   if (!state.role) return;
   state.role = null;
+  state.boatKey = null;
   mastHold = null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   emit();
@@ -159,6 +173,7 @@ export function chargeRowing(metres: number): boolean {
 
 export function _resetCrewForTest(): void {
   state.role = null;
+  state.boatKey = null;
   state.selfId = null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   state.rowedSinceFood = 0;

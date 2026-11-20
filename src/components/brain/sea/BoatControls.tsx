@@ -30,9 +30,7 @@ const HOLD_MS = 800;
 function sameAction(a: BoatAction | null, b: BoatAction | null): boolean {
   if (!a || !b) return a === b;
   if (a.kind !== b.kind) return false;
-  if (a.kind === 'climb') return b.kind === 'climb' && a.from === b.from;
-  if (a.kind === 'take' || a.kind === 'leave') return (b.kind === 'take' || b.kind === 'leave') && a.role === b.role;
-  return true;
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 function useBoatAction(selfId: string): BoatAction | null {
@@ -61,24 +59,26 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
   const hold = usePressAndHold(
     () => {
       const a = actionRef.current;
-      if (!a || a.kind === 'full') return;
+      if (!a || a.kind === 'full' || a.kind === 'busy') return;
       // Re-check at the moment of boarding: the boat may have filled up.
       const body = getBrainPhysics().getBody(selfId);
       const now = body ? boatActionFor(body.pos) : null;
-      if (!now || now.kind === 'full') return;
-      if (now.kind === 'take') { takeRole(now.role, selfId); return; }
+      if (!now || now.kind === 'full' || now.kind === 'busy') return;
+      if (now.kind === 'take') { takeRole(now.role, selfId, now.boatKey); return; }
       if (now.kind === 'leave') { leaveRole(); return; }
       const spot = boardingSpot(now);
-      const world = spot ? deckWorldPos(spot[0], spot[1]) : null;
+      const world = spot ? deckWorldPos(spot[0], spot[1], now.boatKey) : null;
       if (world) teleportBody(selfId, world);
     },
-    { durationMs: HOLD_MS, enabled: !!action && action.kind !== 'full' },
+    { durationMs: HOLD_MS, enabled: !!action && action.kind !== 'full' && action.kind !== 'busy' },
   );
   if (!action) return null;
-  const full = action.kind === 'full';
-  const label = full
+  const full = action.kind === 'full' || action.kind === 'busy';
+  const label = action.kind === 'full'
     ? 'Boat is full'
-    : action.kind === 'board'
+    : action.kind === 'busy'
+      ? 'Your boat is out with people aboard'
+      : action.kind === 'board'
       ? 'Hold to board'
       : action.kind === 'climb'
         ? 'Hold to climb aboard'
@@ -91,7 +91,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       {...(full ? {} : hold.bind)}
       disabled={full}
       data-testid="boat-hold"
-      aria-label={full ? 'The boat is full' : `Press and hold: ${label.replace(/^Hold to /, '')}`}
+      aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
       className="absolute z-[70] left-1/2 -translate-x-1/2 flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white select-none"
       style={{
         bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)',

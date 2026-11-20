@@ -199,7 +199,7 @@ describe('aboard the village boat', () => {
     b.pos = at; b.vel = [0, 0, 0];
     physics.setIntent('self', { fwd: 0, right: 0, yaw: 0 });
     step(30);
-    expect(boatActionFor(physics.getBody('self')!.pos)).toEqual({ kind: 'climb', from: 'ladder' });
+    expect(boatActionFor(physics.getBody('self')!.pos)).toMatchObject({ kind: 'climb', from: 'ladder' });
   });
 
   it('offers boarding on the jetty, and walks through the gate onto the deck', () => {
@@ -214,7 +214,7 @@ describe('aboard the village boat', () => {
     addWalker('self', world(fromBoatFrame(frame, -(gateX + 1.1), 0, EARTH_RADIUS), JETTY_TOP));
     step(30);
     expect(place('self').feet).toBeGreaterThan(JETTY_TOP - 0.05);
-    expect(boatActionFor(physics.getBody('self')!.pos)).toEqual({ kind: 'board' });
+    expect(boatActionFor(physics.getBody('self')!.pos)).toMatchObject({ kind: 'board' });
     // Walk across until midships, then stop.
     let walking = true;
     step(120, () => {

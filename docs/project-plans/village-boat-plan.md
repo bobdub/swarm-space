@@ -1,7 +1,7 @@
 # A boat at the village island — plan
 
-Status: **building.** Phases 1 (dock and boat), 2 (aboard) and 3 (sailing)
-are done; Phase 4 (multiplayer) is next. Captured 2026-11-18, revised 2026-11-20.
+Status: **building.** Phases 1 (dock and boat), 2 (aboard), 3 (sailing) and
+4 (multiplayer) are done; Phase 5 (polish and docs) is next. Captured 2026-11-18, revised 2026-11-20.
 
 Phase 2 as built: `sea/vessel.ts` (Archimedes heave: sink = load ÷ (ρ·A_wp),
 A_wp ≈ 12.6 m² integrated from the hull; capacity by the 0.2 m freeboard rule
@@ -30,6 +30,27 @@ turns the joystick into a ship's wheel and shows the readout. Hull basins
 between boats come with Phase 4 (only one boat exists until then); the jetty
 piles do not stop the boat yet. Head to wind the boat is "in irons" (no drive,
 no steerage); the oars turn her out.
+
+Phase 4 as built: `sea/fleet.ts` holds every boat in this world: the dock
+boat (the same boat in every world, keyed `dock`), this player's own boat
+(`mine`, claimed by taking a station on the dock boat) and other players'
+boats (`remote`). Claiming makes a fresh dock boat, hidden until the berth is
+12 m clear. A player with an older boat that still has people aboard cannot
+claim another. Presence carries `boat: {v, d, r}`: `v` is the owner's
+vessel state (centre, heading, velocity, turn rate, wheel, sail, sinkage,
+people, shared-clock time), sent at 3 Hz while moving or crewed and 1 Hz at
+rest. `d` is where the sender stands on a deck (owner peer + id + x, z), and
+`r` is a stroke from a rower on someone else's boat. Viewers dead-reckon `v`
+along the arc its turn rate gives (within 0.5 m after 1 s, tested) and fade
+the hand-over offset over 0.5 s, so the boat never lags. After 3 s of
+silence a boat drifts to a stop (τ 2 s); when its owner leaves the room it
+goes, and anyone aboard drops into the sea. Only the owner takes the wheel;
+anyone can row, and the owner's world sums remote strokes (dropped after
+1 s of quiet), while each rower pays Food on their own device. Hulls are
+capsules and bump each other and the jetty. Remote avatars standing on a
+deck are placed from their `d` spot, so they ride the boat instead of
+sliding off it between updates.
+
 The readable version is the Claude Doc "Sailing between islands: the village
 boat plan"; this file mirrors it for implementers.
 
@@ -210,7 +231,8 @@ the nearest island and back. Oars: ≈ 2 m/s for one rower in a calm, oar
 difference turns, 1 Food per 60 m, oars stop at 0 Food with the note shown.
 
 **Phase 4: multiplayer.** `vessel` / `deck` round-trip; 1 s dead reckoning
-within 0.5 m; two windows: B walks A's deck while A sails and both see each
+within 0.5 m (done in tests; a live two-window run could not link in the
+build sandbox because the mesh relay was blocked); two windows: B walks A's deck while A sails and both see each
 other, B jumps and swims, dock refills.
 
 **Phase 5: polish and docs.** Weather waves and wake, sail fill, `MiniMapHUD`

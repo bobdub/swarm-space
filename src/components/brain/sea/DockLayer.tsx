@@ -14,7 +14,7 @@
  * position and heading each frame (docs/project-plans/village-boat-plan.md).
  */
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, type Vec3 } from '@/lib/brain/earth';
@@ -29,7 +29,9 @@ import {
   type DockSite,
 } from '@/lib/brain/sea/dockSite';
 import { registerDeckSurface, straightDeck } from '@/lib/brain/sea/deckSupport';
-import { getVillageBoat, swellTiltAt } from '@/lib/brain/sea/vessel';
+import { swellTiltAt } from '@/lib/brain/sea/vessel';
+import { getFleet, type FleetBoat } from '@/lib/brain/sea/fleet';
+import { getCrewBoatKey, stopMastHold } from '@/lib/brain/sea/crew';
 import { mountVillageBoat } from '@/lib/brain/sea/villageBoat';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { windAt } from '@/lib/world/weather';
@@ -102,7 +104,6 @@ function buildJetty(site: DockSite): { planks: JettyPiece[]; piles: Pile[] } {
 export function DockLayer() {
   const site = useMemo(() => getVillageDockSite(), []);
   const earthRef = useRef<THREE.Group>(null);
-  const boatRef = useRef<THREE.Group>(null);
 
   // The jetty planks are walkable ground.
   useEffect(() => {
@@ -129,25 +130,11 @@ export function DockLayer() {
 
   const jetty = useMemo(() => (site ? buildJetty(site) : null), [site]);
 
-  const tmpQ = useMemo(() => new THREE.Quaternion(), []);
-  const tmpE = useMemo(() => new THREE.Euler(), []);
   useFrame(() => {
     const pose = getEarthPose();
     if (earthRef.current) {
       earthRef.current.position.set(pose.center[0], pose.center[1], pose.center[2]);
       earthRef.current.quaternion.set(pose.spinQuat[0], pose.spinQuat[1], pose.spinQuat[2], pose.spinQuat[3]);
-    }
-    if (boatRef.current && site) {
-      // Swell on the shared clock plus sinkage under load: the same
-      // waterline the walkable deck reads, so feet stay on the planks.
-      const t = getEarthPoseTime();
-      const boat = getVillageBoat();
-      const { roll, pitch } = swellTiltAt(t, boat.phase);
-      const { n, heading } = boat.motion;
-      boatRef.current.position.copy(at(n, boat.waterlineAt(t)));
-      tmpE.set(pitch, 0, roll);
-      tmpQ.setFromEuler(tmpE);
-      boatRef.current.quaternion.copy(frameQuat(n, heading)).multiply(tmpQ);
     }
   });
 
@@ -166,9 +153,50 @@ export function DockLayer() {
           <meshStandardMaterial color={PILE} roughness={0.95} />
         </mesh>
       ))}
-      <group ref={boatRef}>
-        <BoatMesh />
-      </group>
+      <FleetBoats />
+    </group>
+  );
+}
+
+/** Every boat in this world: the dock boat, yours, everyone else's. */
+function FleetBoats() {
+  const fleet = getFleet();
+  const [boats, setBoats] = useState<FleetBoat[]>(() => fleet.list());
+  useEffect(() => fleet.subscribe(() => setBoats(fleet.list())), [fleet]);
+  return (
+    <>
+      {boats.map((b) => (
+        <BoatView key={b.key} boat={b} />
+      ))}
+    </>
+  );
+}
+
+function BoatView({ boat }: { boat: FleetBoat }) {
+  const ref = useRef<THREE.Group>(null);
+  const tmpQ = useMemo(() => new THREE.Quaternion(), []);
+  const tmpE = useMemo(() => new THREE.Euler(), []);
+  useFrame(() => {
+    const g = ref.current;
+    if (!g) return;
+    g.visible = boat.visible;
+    if (!boat.visible) return;
+    // Swell on the shared clock plus sinkage under load: the same
+    // waterline the walkable deck reads, so feet stay on the planks.
+    const t = getEarthPoseTime();
+    const v = boat.vessel;
+    const { roll, pitch } = swellTiltAt(t, v.phase);
+    const { n, heading } = v.motion;
+    g.position.copy(at(n, v.waterlineAt(t)));
+    tmpE.set(pitch, 0, roll);
+    tmpQ.setFromEuler(tmpE);
+    g.quaternion.copy(frameQuat(n, heading)).multiply(tmpQ);
+  });
+  // Releasing the mast anywhere ends a hold begun on it.
+  useEffect(() => () => { if (getCrewBoatKey() === boat.key) stopMastHold(); }, [boat.key]);
+  return (
+    <group ref={ref}>
+      <BoatMesh vessel={boat.vessel} />
     </group>
   );
 }

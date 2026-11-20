@@ -66,6 +66,8 @@ import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
 import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
 import { getCrewRole } from '@/lib/brain/sea/crew';
+import { decodeBoatPresence, deckPointOn, getFleet } from '@/lib/brain/sea/fleet';
+import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { moveInput } from '@/lib/brain/moveInput';
 import { SurfaceBar } from '@/components/brain/SurfaceBar';
 import { PubGameLayer } from '@/components/pub/PubGameLayer';
@@ -1710,6 +1712,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
     // This way every viewer sees remote peers congregating at the one
     // apartment everyone shares, instead of orbiting their private spawn.
+    const fleet = getFleet();
     const fallbackNear = (peerId: string): [number, number, number] => {
       return spawnNearSharedVillage(peerId, pose, 10, 22);
     };
@@ -1738,6 +1741,14 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         vel: [0, 0, 0] as [number, number, number],
         meta: { attachedTo: 'earth-surface' as const },
       };
+      // Boats: this peer's own boat, and where on a deck they stand. A
+      // peer on a deck is drawn on that deck spot (deck lock), so they
+      // ride a moving boat instead of trailing its 1.5 s-old position.
+      const boatInfo = decodeBoatPresence(p.boat);
+      fleet.applyRemote(p.peerId, boatInfo?.v);
+      if (boatInfo?.r) fleet.remoteRow(p.peerId, boatInfo.r);
+      const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
+      const deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
       const existing = physics.getBody(id);
       if (existing) {
         // Only adopt the broadcast position when the peer actually sent
@@ -1746,7 +1757,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // field's surface basin owns radial placement.
         existing.mass = 0;
         existing.vel = [0, 0, 0];
-        if (broadcastPos) existing.pos = broadcastPos;
+        if (deckPos) existing.pos = deckPos;
+        else if (broadcastPos) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
@@ -1757,6 +1769,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
       }
     }
+    // Boats of peers who left go with them (anyone aboard drops in).
+    fleet.retainPeers(new Set(voicePeers.map((p) => p.peerId)));
     // Remove peers that left
     const all = physics.getBodies();
     for (const b of all) {
@@ -1774,23 +1788,37 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // pressure across the ground" the user reported.
   useEffect(() => {
     if (!ready || !selfId) return;
+    const fleet = getFleet();
+    // Boats are keyed by mesh peer id, the id other players see us by.
+    fleet.setSelfPeer(() => getLocalMeshPeerId() ?? selfId);
     let lastSent: [number, number, number] | null = null;
+    let lastAt = 0;
+    let hadBoat = false;
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
       const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
-      if (lastSent) {
-        const dx = pos[0] - lastSent[0];
-        const dy = pos[1] - lastSent[1];
-        const dz = pos[2] - lastSent[2];
-        if (Math.hypot(dx, dy, dz) < 0.05) return;
-      }
+      const now = performance.now();
+      const boat = fleet.presenceFor(pos);
+      // Boats go out at 3 Hz while moving, crewed, rowing or stood on;
+      // 1 Hz for an owned boat at anchor. Walking stays at 1.5 s.
+      const mine = fleet.mine();
+      const busy = !!boat && (!!boat.d || !!boat.r || (mine ? Math.hypot(...mine.vessel.motion.vel) > 0.05 : false));
+      const period = busy ? 333 : boat ? 1000 : 1500;
+      const moved = !lastSent || Math.hypot(pos[0] - lastSent[0], pos[1] - lastSent[1], pos[2] - lastSent[2]) >= 0.05;
+      const due = now - lastAt >= period - 5;
+      if (!due) return;
+      // Skip an idle walker's repeat, but always tell the room when a boat
+      // goes away so it disappears there too.
+      if (!moved && !boat && !hadBoat) return;
       lastSent = pos;
-      broadcastSelfPosition(pos);
+      lastAt = now;
+      hadBoat = !!boat;
+      broadcastSelfPosition(pos, boat);
     };
     // Send once immediately so peers learn our spawn point right away.
     tick();
-    const id = window.setInterval(tick, 1500);
+    const id = window.setInterval(tick, 333);
     return () => window.clearInterval(id);
   }, [ready, selfId, physics, broadcastSelfPosition]);
 

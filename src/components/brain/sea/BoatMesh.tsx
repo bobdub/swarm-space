@@ -13,7 +13,7 @@ import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import { COMPOUND_TABLE } from '@/lib/virtualHub/compoundCatalog';
 import { BOAT_DECK_Y, BOAT_GATE_HALF, BOAT_RAIL_H } from '@/lib/brain/sea/boatSpec';
-import { getVillageBoat } from '@/lib/brain/sea/vessel';
+import type { Vessel } from '@/lib/brain/sea/vessel';
 import { startMastHold, stopMastHold } from '@/lib/brain/sea/crew';
 import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
 
@@ -94,7 +94,7 @@ function buildRail(side: 1 | -1, t0: number, t1: number): THREE.TubeGeometry {
   return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 24, 0.035, 6, false);
 }
 
-export function BoatMesh() {
+export function BoatMesh({ vessel }: { vessel: Vessel }) {
   const hull = useMemo(buildHull, []);
   const deck = useMemo(buildDeck, []);
   const gateT0 = tAt(-BOAT_GATE_HALF);
@@ -146,7 +146,7 @@ export function BoatMesh() {
     return g;
   }, [boomLen, boomY]);
   useFrame(() => {
-    const boat = getVillageBoat();
+    const boat = vessel;
     if (wheelRef.current) wheelRef.current.rotation.z = -boat.cmd.wheel * 1.5 * Math.PI * 2;
     const sail = boat.cmd.sail;
     const w = boat.windOnBow();
@@ -163,7 +163,7 @@ export function BoatMesh() {
   });
   const onMastDown = (e: ThreeEvent<PointerEvent>) => {
     e.stopPropagation();
-    startMastHold(getVillageBoat().cmd.sail);
+    startMastHold(vessel.cmd.sail);
     const up = () => { stopMastHold(); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
