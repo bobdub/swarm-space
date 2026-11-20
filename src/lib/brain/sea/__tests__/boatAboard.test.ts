@@ -20,7 +20,7 @@ import { fromBoatFrame, toBoatFrame, confineInBoatFrame } from '../boatDeck';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from '../boatHull';
 import { BOAT_RAIL_H } from '../boatSpec';
 import { _resetVillageBoatForTest, getVillageBoat } from '../vessel';
-import { boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
+import { HOLD_SLACK_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
 
 const T0 = (Date.UTC(2026, 10, 20) - Date.UTC(2026, 0, 1)) / 1000;
 type P = UqrcPhysics & { tick(): void };
@@ -206,6 +206,33 @@ describe('aboard the village boat', () => {
     physics.setIntent('self', { fwd: 0, right: 0, yaw: 0 });
     step(30);
     expect(boatActionFor(physics.getBody('self')!.pos)).toMatchObject({ kind: 'climb', from: 'ladder' });
+  });
+
+  it('offers a climb anywhere beside the hull, with slack when a hold completes', () => {
+    const frame = villageBoatFrame()!;
+    // Beside the starboard bow quarter, far from the gate and the ladder.
+    const z = -2.4;
+    const x = hullHalfBeam(tAt(z)) + 1.1;
+    addWalker('self', world(fromBoatFrame(frame, x, z, EARTH_RADIUS), -SWIM_FEET_DEPTH));
+    step(30);
+    const pos = physics.getBody('self')!.pos;
+    expect(boatActionFor(pos)).toMatchObject({ kind: 'climb', from: 'starboard' });
+    // A little further out: nothing offered, but a completing hold still reaches.
+    const b = physics.getBody('self')!;
+    b.pos = world(fromBoatFrame(frame, hullHalfBeam(tAt(z)) + 2.0, z, EARTH_RADIUS), -SWIM_FEET_DEPTH);
+    b.vel = [0, 0, 0];
+    step(5);
+    expect(boatActionFor(b.pos)).toBeNull();
+    const late = boatActionFor(b.pos, HOLD_SLACK_M);
+    expect(late).toMatchObject({ kind: 'climb', from: 'starboard' });
+    // The climb lands them on deck at the starboard gate.
+    const spot = boardingSpot(late!)!;
+    b.pos = deckWorldPos(spot[0], spot[1])!;
+    b.vel = [0, 0, 0];
+    step(60);
+    const q = place('self');
+    expect(Math.hypot(q.x - 0.45, q.z)).toBeLessThan(0.1);
+    expect(q.feet).toBeGreaterThan(0.2);
   });
 
   it('offers boarding on the jetty, and walks through the gate onto the deck', () => {
