@@ -19,7 +19,7 @@ Status: **live** in the Brain world. The full design and build history is in
   aboard.
 - **Sailing** (helm, at the wheel):
   - A/D or the joystick turn the wheel.
-  - W/S raise and lower the sail. On a touch screen, press and hold the mast.
+  - Hold Raise sail or Lower sail (on screen), or W/S, or press and hold the mast.
   - She won't sail within 40° of the wind, goes best with the wind on the
     beam, and only answers the rudder once she is moving.
   - The sail bellies to leeward as it draws, and flaps when you point her
@@ -27,7 +27,8 @@ Status: **live** in the Brain world. The full design and build history is in
 - **Rowing** (oars, at the bench):
   - W/S row ahead or back; A/D turn.
   - The boat makes about 2 m/s.
-  - Rowing costs 1 Food per 60 m. With no Food the oars stop.
+  - Rowing costs 1 Food per 60 m. With no Food the oars won't pull, and the readout says so.
+  - The oars swing out when you take them and sweep with each stroke.
   - Anyone aboard can row anyone's boat; the rower pays the Food.
 - **Fishing** (a rod holder at either rail, forward of the mast):
   - Hold "Hold to take a rod", then press Cast (or F).

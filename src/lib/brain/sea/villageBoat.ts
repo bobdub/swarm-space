@@ -93,11 +93,11 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
   const fleet = getFleet();
   if (isOnDeck(p)) {
     const ownable = boat.kind === 'dock' || boat.kind === 'mine';
-    if (ownable && Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) <= STATION_REACH_M) {
+    if (ownable && Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) <= STATION_REACH_M + slack * 0.5) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
       return { kind: 'take', boatKey: boat.key, role: 'helm' };
     }
-    if (Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]) <= STATION_REACH_M) {
+    if (Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]) <= STATION_REACH_M + slack * 0.5) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
       return { kind: 'take', boatKey: boat.key, role: 'oars' };
     }

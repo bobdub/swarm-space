@@ -294,8 +294,9 @@ export function BoatMesh({ vessel, boatKey }: { vessel: Vessel; boatKey?: string
         <boxGeometry args={[hullHalfBeam(tAt(benchZ)) * 1.85, 0.08, 0.36]} />
         <meshStandardMaterial color={TRIM} roughness={0.8} />
       </mesh>
+      <OarsOut vessel={vessel} boatKey={boatKey} benchZ={benchZ} />
       {[1, -1].map((side) => (
-        <group key={`oar-${side}`} position={[side * 0.75, BOAT_DECK_Y + 0.08, 0.2]}>
+        <group key={`oar-${side}`} name="stowed-oar" position={[side * 0.75, BOAT_DECK_Y + 0.08, 0.2]}>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
             <meshStandardMaterial color={HULL} roughness={0.7} />
@@ -448,5 +449,60 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
         </mesh>
       </group>
     </>
+  );
+}
+
+/**
+ * The oars out through the rowlocks while someone rows: they sweep with
+ * the stroke (one side harder when turning). Stowed on deck otherwise.
+ */
+function OarsOut({ vessel, boatKey, benchZ }: { vessel: Vessel; boatKey?: string; benchZ: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+  const sweepRefs = useRef<(THREE.Group | null)[]>([]);
+  const phase = useRef(0);
+  const lastT = useRef(0);
+  const hb = hullHalfBeam(tAt(benchZ));
+  useFrame((_, dt) => {
+    const g = groupRef.current;
+    if (!g) return;
+    const localRower = !!boatKey && getCrewRole() === 'oars' && getCrewBoatKey() === boatKey;
+    const row = vessel.cmd.row;
+    const turn = vessel.cmd.rowTurn;
+    const pulling = Math.abs(row) > 0.05 || Math.abs(turn) > 0.05;
+    const out = localRower || pulling;
+    g.visible = out;
+    // Hide the stowed pair while the oars are out.
+    g.parent?.children.forEach((c) => { if (c.name === 'stowed-oar') c.visible = !out; });
+    if (!out) return;
+    const step = Math.min(0.1, dt || 0.016);
+    lastT.current += step;
+    if (pulling) phase.current += step * 2.6;
+    [1, -1].forEach((side, i) => {
+      const r = sweepRefs.current[i];
+      if (!r) return;
+      // Turning to starboard pulls the port oar harder, and the reverse.
+      const strength = Math.min(1, Math.abs(row - side * turn * 0.8));
+      r.rotation.y = pulling ? side * 0.45 * strength * Math.sin(phase.current) : 0;
+    });
+  });
+  return (
+    <group ref={groupRef} visible={false}>
+      {[1, -1].map((side, i) => (
+        <group key={`oar-out-${side}`} position={[side * hb, BOAT_DECK_Y + 0.35, benchZ]}>
+          <group ref={(el) => { sweepRefs.current[i] = el; }}>
+            <group rotation={[0, 0, side * -0.45]}>
+              <mesh position={[side * 0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
+                <meshStandardMaterial color={HULL} roughness={0.7} />
+              </mesh>
+              <mesh position={[side * 1.85, 0, 0]}>
+                <boxGeometry args={[0.55, 0.03, 0.16]} />
+                <meshStandardMaterial color={HULL} roughness={0.7} />
+              </mesh>
+            </group>
+          </group>
+        </group>
+      ))}
+    </group>
   );
 }
