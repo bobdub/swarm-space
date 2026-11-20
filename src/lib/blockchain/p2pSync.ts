@@ -219,6 +219,8 @@ export class BlockchainP2PSync {
             try {
               if (tx.type === "wallet_tip") {
                 if (!await chain.acceptWalletTip(tx)) continue;
+              } else if (tx.type === "infinity_vault_allocation") {
+                if (!await chain.acceptInfinityVaultAllocation(tx)) continue;
               } else chain.addTransaction(tx);
               await applyMarketTransaction(tx);
               acceptedPending++;
@@ -256,6 +258,8 @@ export class BlockchainP2PSync {
           if (!chain.hasTransaction(tx.id)) {
             if (tx.type === "wallet_tip") {
               if (!await chain.acceptWalletTip(tx)) break;
+            } else if (tx.type === "infinity_vault_allocation") {
+              if (!await chain.acceptInfinityVaultAllocation(tx)) break;
             } else chain.addTransaction(tx);
           }
           const { applyMarketTransaction } = await import("./coinMarket");

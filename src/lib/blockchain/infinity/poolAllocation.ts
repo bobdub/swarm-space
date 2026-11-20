@@ -52,9 +52,14 @@ export const nextAllocationRound = (transactions: readonly SwarmTransaction[]) =
 
 export const allocationProposalId = (round: number, day: number, units: bigint) => `alloc-r${round}-d${day}-${units}`;
 
-/** The one proposal this ledger allows for `day`, or null when caps leave nothing worth moving. */
+/** The one proposal this ledger allows for `day`, or null when switched off or caps leave nothing. */
 export function planAllocation(transactions: readonly SwarmTransaction[], day: number): AllocationPlan | null {
-  if (!INFINITY_POOL_ALLOCATION_ENABLED || !Number.isSafeInteger(day)) return null;
+  return INFINITY_POOL_ALLOCATION_ENABLED ? derivePlan(transactions, day) : null;
+}
+
+/** The caps themselves; also used to re-check historic records after the switch is turned off. */
+function derivePlan(transactions: readonly SwarmTransaction[], day: number): AllocationPlan | null {
+  if (!Number.isSafeInteger(day)) return null;
   const done = vaultAllocations(transactions);
   const last = done[done.length - 1];
   if (last && day < last.day) return null; // days never run backwards
@@ -77,7 +82,7 @@ export function buildAllocationTx(votes: readonly AllocationVote[], transactions
   if (!all.length) return null;
   const { proposalId, round, day, units } = all[0];
   if (all.some((v) => v.proposalId !== proposalId || v.round !== round || v.day !== day || v.units !== units)) return null;
-  const plan = planAllocation(transactions, day);
+  const plan = derivePlan(transactions, day);
   if (!plan || plan.proposalId !== proposalId || plan.round !== round || plan.units.toString() !== units) return null;
   const yes = all.filter((v) => v.agree === true).length;
   if (yes < ALLOCATION_MIN_YES || yes * 2 <= all.length) return null;
@@ -97,16 +102,17 @@ export function buildAllocationTx(votes: readonly AllocationVote[], transactions
 }
 
 /**
- * Accept only a record that re-derives exactly from its recorded answers and
- * this node's ledger, for the next round, and not dated in the future.
+ * A record is valid only if it re-derives exactly from its recorded answers
+ * and the ledger before it, for the next round, and is not dated after today
+ * (UTC). New records are additionally refused while the kill switch is off
+ * (see chain.acceptInfinityVaultAllocation); historic ones stay valid.
  */
 export function verifyAllocationTx(tx: SwarmTransaction, transactions: readonly SwarmTransaction[], nowMs = Date.now()): boolean {
   try {
-    if (!INFINITY_POOL_ALLOCATION_ENABLED) return false;
     const parsed = readVaultAllocation(tx);
     const votes = tx.meta?.votes;
     if (!parsed || !Array.isArray(votes) || votes.length > 1000) return false;
-    if (parsed.day > allocationDay(nowMs) + 1) return false;
+    if (parsed.day > allocationDay(nowMs)) return false;
     if (parsed.round !== nextAllocationRound(transactions)) return false;
     const expected = buildAllocationTx(votes as AllocationVote[], transactions);
     if (!expected || expected.id !== tx.id || (expected.meta!.votes as unknown[]).length !== votes.length) return false;
@@ -114,4 +120,14 @@ export function verifyAllocationTx(tx: SwarmTransaction, transactions: readonly 
     return e.units === m.units && e.day === m.day && e.proposalId === m.proposalId && e.fromBalance === m.fromBalance
       && expected.amount === tx.amount && tx.from === expected.from && tx.to === expected.to;
   } catch { return false; }
+}
+
+/** Every allocation in a ledger (block sync, chain replacement) must verify against what precedes it. */
+export function validAllocationLedger(transactions: readonly SwarmTransaction[], nowMs = Date.now()): boolean {
+  const before: SwarmTransaction[] = [];
+  for (const tx of transactions) {
+    if (tx.type === INFINITY_VAULT_ALLOCATION_TYPE && !verifyAllocationTx(tx, before, nowMs)) return false;
+    before.push(tx);
+  }
+  return true;
 }

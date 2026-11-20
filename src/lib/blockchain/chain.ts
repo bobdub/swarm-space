@@ -8,6 +8,7 @@ import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw,
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows } from "./deposits/customTokenCustody";
+import { validAllocationLedger } from "./infinity/poolAllocation";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -155,6 +156,7 @@ export class SwarmChain {
     if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
     if (isNativeMintMeDeposit(transaction)) throw new Error("MINTME custody requires verified acceptance");
     if (isCustomTokenSync(transaction)) throw new Error("Custom token custody requires verified acceptance");
+    if (transaction.type === "infinity_vault_allocation") throw new Error("Infinity vault allocations require verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
     }
@@ -248,7 +250,8 @@ export class SwarmChain {
   /** Infinity network action: capped donations → market allocation, re-derived from its recorded answers and this ledger. */
   async acceptInfinityVaultAllocation(transaction: SwarmTransaction): Promise<boolean> {
     await this.whenReady();
-    const { verifyAllocationTx } = await import("./infinity/poolAllocation");
+    const { verifyAllocationTx, INFINITY_POOL_ALLOCATION_ENABLED } = await import("./infinity/poolAllocation");
+    if (!INFINITY_POOL_ALLOCATION_ENABLED) return false;
     if (this.hasTransaction(transaction.id)) return false;
     if (!verifyAllocationTx(transaction, [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions])) return false;
     this.pendingTransactions.push(transaction);
@@ -502,6 +505,7 @@ export class SwarmChain {
     if (incoming.length === 0) return;
     if (!validCustomTokenDepositLedger(incoming.flatMap((block) => block.transactions))) throw new Error("Peer chain exceeds custom-token deposit limits");
     if (!await this.validateWalletTipLedger(incoming)) throw new Error("Invalid wallet tip in peer chain");
+    if (!validAllocationLedger(incoming.flatMap((block) => block.transactions))) throw new Error("Invalid Infinity vault allocation in peer chain");
     this.chain = incoming;
     const included = new Set(incoming.flatMap(block => block.transactions.map(tx => tx.id)));
     this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
@@ -527,6 +531,7 @@ export class SwarmChain {
 
     if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
     if (!validCustomTokenDepositLedger([...this.chain, block].flatMap((entry) => entry.transactions))) return false;
+    if (!validAllocationLedger([...this.chain, block].flatMap((entry) => entry.transactions))) return false;
 
     this.chain.push(block);
     const included = new Set(block.transactions.map(tx => tx.id));

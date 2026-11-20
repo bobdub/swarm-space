@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SwarmTransaction } from '../types';
 import {
-  ALLOCATION_FROM, ALLOCATION_TO, allocationDay, buildAllocationTx, planAllocation, verifyAllocationTx, type AllocationVote,
+  ALLOCATION_FROM, ALLOCATION_TO, allocationDay, buildAllocationTx, planAllocation, validAllocationLedger, verifyAllocationTx, type AllocationVote,
 } from '../infinity/poolAllocation';
 import { NATIVE_MINTME_CUSTODY, mintMeAmount, nativeMintMeBalanceUnits } from '../wallets/nativeMintmeLedger';
 import { InfinityPoolAllocation } from '../infinity/poolAllocationService';
@@ -80,5 +80,26 @@ describe('Infinity vault allocation', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(txs.some((t) => t.id === 'infinity-allocation-0')).toBe(true);
     expect(allocationDay(NOW)).toBe(DAY);
+  });
+});
+
+describe('Infinity vault allocation ledger checks', () => {
+  const ledger = [deposit(ALLOCATION_FROM, 100n * E18)];
+  const settle = (txs: SwarmTransaction[], day: number) => {
+    const plan = planAllocation(txs, day)!;
+    return buildAllocationTx(['a', 'b', 'c'].map((v) => vote(plan, v)), txs)!;
+  };
+
+  it('refuses a record dated tomorrow', () => {
+    const tx = settle(ledger, DAY + 1);
+    expect(verifyAllocationTx(tx, ledger, NOW)).toBe(false);
+    expect(verifyAllocationTx(tx, ledger, NOW + 86_400_000)).toBe(true);
+  });
+
+  it('rejects a forged or uncapped record arriving through block sync', () => {
+    const good = settle(ledger, DAY);
+    expect(validAllocationLedger([...ledger, good], NOW)).toBe(true);
+    const forged = { ...good, id: 'infinity-allocation-1', amount: 50, meta: { round: 1, day: DAY, units: (50n * E18).toString(), votes: [] } } as SwarmTransaction;
+    expect(validAllocationLedger([...ledger, good, forged], NOW)).toBe(false);
   });
 });
