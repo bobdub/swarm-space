@@ -13,7 +13,7 @@
 
 import { getEarthPoseTime, type Vec3 } from '../earth';
 import { PHYSICS_HZ, type UqrcPhysics } from '../uqrcPhysics';
-import { HALF_L, railHalfWidthAt } from './boatHull';
+import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from './boatHull';
 import type { BoatFrame } from './boatDeck';
 import { getCrewRole, type CrewRole } from './crew';
 import {
@@ -37,6 +37,12 @@ export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
 export const BOARD_REACH_M = 4.5;
 /** How close a swimmer must be to the ladder or a gate to climb aboard (m). */
 export const CLIMB_REACH_M = 2.2;
+/** A swimmer this close to either side of the hull (m) can climb aboard
+ *  anywhere along it; the climb lands them at that side's gate. */
+export const CLIMB_SIDE_REACH_M = 1.4;
+/** Extra reach (m) allowed when a hold completes, so a swimmer drifting
+ *  a little while holding still gets aboard. */
+export const HOLD_SLACK_M = 1.0;
 const STATION_REACH_M = 1.3;
 /** Rod holders sit by the rail, closer together than the stations. */
 const ROD_REACH_M = 0.9;
@@ -81,7 +87,7 @@ export type BoatAction =
   | { kind: 'leave'; role: CrewRole }
   | { kind: 'busy' };
 
-function actionOn(boat: FleetBoat, pos: [number, number, number], t: number): BoatAction | null {
+function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, slack = 0): BoatAction | null {
   const p = placeOn(boat, pos, t);
   if (!p) return null;
   const fleet = getFleet();
@@ -110,25 +116,34 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number): Bo
   let action: BoatAction | null = null;
   if (p.feet < -0.6) {
     const best = Math.min(dLadder, dPort, dStar);
-    if (best <= CLIMB_REACH_M) {
+    // Beside the hull anywhere along its length: climb at that side's gate.
+    const along = Math.abs(p.z) <= HALF_L - 0.3;
+    const sideGap = along ? Math.abs(p.x) - hullHalfBeam(tAt(p.z)) : Infinity;
+    if (best <= CLIMB_REACH_M + slack) {
       action = { kind: 'climb', boatKey: boat.key, from: best === dLadder ? 'ladder' : best === dPort ? 'port' : 'starboard' };
+    } else if (sideGap <= CLIMB_SIDE_REACH_M + slack) {
+      action = { kind: 'climb', boatKey: boat.key, from: p.x < 0 ? 'port' : 'starboard' };
     }
-  } else if (p.feet > -0.1 && Math.min(dPort, dStar) <= BOARD_REACH_M && Math.abs(p.aboveDeck) < 1.2) {
+  } else if (p.feet > -0.1 && Math.min(dPort, dStar) <= BOARD_REACH_M + slack && Math.abs(p.aboveDeck) < 1.2) {
     action = { kind: 'board', boatKey: boat.key };
   }
   if (action && !boat.vessel.canBoard()) return { kind: 'full', boatKey: boat.key };
   return action;
 }
 
-/** What the hold ring should offer a body at `pos`, or null for nothing. */
-export function boatActionFor(pos: [number, number, number]): BoatAction | null {
+/**
+ * What the hold ring should offer a body at `pos`, or null for nothing.
+ * `slack` (m) widens the approach reaches; a completed hold re-checks with
+ * `HOLD_SLACK_M` so drifting a little while holding doesn't lose the climb.
+ */
+export function boatActionFor(pos: [number, number, number], slack = 0): BoatAction | null {
   const role = getCrewRole();
   if (role) return { kind: 'leave', role };
   const t = getEarthPoseTime();
   let best: BoatAction | null = null;
   for (const b of getFleet().list()) {
     if (!b.visible) continue;
-    const a = actionOn(b, pos, t);
+    const a = actionOn(b, pos, t, slack);
     if (!a) continue;
     // A station or deck action beats an approach action on another boat.
     if (a.kind === 'take' || a.kind === 'busy') return a;

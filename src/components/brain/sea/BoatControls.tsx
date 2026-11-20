@@ -13,12 +13,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp } from 'lucide-react';
+import { toast } from 'sonner';
 import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { teleportBody } from '@/lib/pub/seating';
 import { leaveRole, takeRole } from '@/lib/brain/sea/crew';
 import {
+  HOLD_SLACK_M,
   boardingSpot,
   boatActionFor,
   deckWorldPos,
@@ -33,13 +35,28 @@ function sameAction(a: BoatAction | null, b: BoatAction | null): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** How long (ms) an offer stays up after the body drifts out of reach, so
+ *  a swimmer bobbing at the edge doesn't lose a hold half way. */
+const OFFER_GRACE_MS = 700;
+
 function useBoatAction(selfId: string): BoatAction | null {
   const [action, setAction] = useState<BoatAction | null>(null);
   const last = useRef<BoatAction | null>(null);
+  const lostAt = useRef<number | null>(null);
   useEffect(() => {
     const poll = () => {
       const body = getBrainPhysics().getBody(selfId);
-      const next = body ? boatActionFor(body.pos) : null;
+      let next = body ? boatActionFor(body.pos) : null;
+      // Keep an approach offer briefly when it lapses (not a station or
+      // leave offer: those follow the crew state exactly).
+      const approach = last.current && (last.current.kind === 'climb' || last.current.kind === 'board');
+      if (!next && approach && body) {
+        const now = performance.now();
+        if (lostAt.current === null) lostAt.current = now;
+        if (now - lostAt.current < OFFER_GRACE_MS) next = last.current;
+      } else {
+        lostAt.current = null;
+      }
       if (!sameAction(next, last.current)) {
         last.current = next;
         setAction(next);
@@ -61,9 +78,15 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       const a = actionRef.current;
       if (!a || a.kind === 'full' || a.kind === 'busy') return;
       // Re-check at the moment of boarding: the boat may have filled up.
+      // Reaches get a little slack, so drifting while holding still works.
       const body = getBrainPhysics().getBody(selfId);
-      const now = body ? boatActionFor(body.pos) : null;
-      if (!now || now.kind === 'full' || now.kind === 'busy') return;
+      const now = body ? boatActionFor(body.pos, HOLD_SLACK_M) : null;
+      if (!now) {
+        toast.message('Too far from the boat', { description: 'Swim to the ladder or a side of the boat and hold again.', id: 'boat-hold' });
+        return;
+      }
+      if (now.kind === 'full') { toast.message('Boat is full', { id: 'boat-hold' }); return; }
+      if (now.kind === 'busy') return;
       if (now.kind === 'take') { takeRole(now.role, selfId, now.boatKey, now.spot); return; }
       if (now.kind === 'leave') { leaveRole(); return; }
       const spot = boardingSpot(now);
@@ -104,7 +127,9 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       }}
     >
       {!full && <HoldProgressRing value={hold.progress} size={20} />}
-      <span>{hold.progress > 0 && !full ? `${Math.round(hold.progress * 100)}%` : label}</span>
+      {/* The label stays put while the ring fills: a button that shrank
+          under a held finger could slip out from under it. */}
+      <span>{label}</span>
     </button>
   );
 }
