@@ -168,6 +168,8 @@ import {
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
+import { encodeSelfPosition, localDistance, resolvePeerWorldPosition } from '@/lib/brain/peerPosition';
+import { isBrainEntryComplete, setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
@@ -193,6 +195,7 @@ import { getBuilderTopView, setBuilderTopView, getBuilderLookScale } from '@/lib
 import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
 import { enqueueMemory } from '@/lib/brain/infinityMemory';
+import { networkNow } from '@/lib/time/networkClock';
 import {
   isOverheadView,
   SPECTATOR_BACK_M,
@@ -1208,22 +1211,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   );
   const [rtcParticipants, setRtcParticipants] = useState<import('@/lib/webrtc/types').VideoParticipant[]>([]);
 
-  // ── Entry gate: avatar + mic test before spawn ────────────────────
-  // If the user has already completed the Brain entry gate (avatar + mic
-  // test) in this browser, skip the modal entirely on subsequent visits.
+  // ── Entry gate: avatar + optional mic test before spawn ───────────
+  // If the user has already completed the Brain entry gate (avatar, with
+  // or without a mic) in this browser, skip the modal on later visits.
   // Without this, the modal flashes for one frame every time you re-enter
   // /brain (or when an outer wizard navigates here right after collecting
   // the same info), because `entryOpen` defaulted to `true` unconditionally.
   const entryAlreadyComplete = (() => {
     if (isGuestUser(user) && !user.guestName?.trim()) return false;
-    try {
-      const raw = localStorage.getItem('brain-entry-complete');
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as { hasMic?: boolean } | null;
-      return Boolean(parsed?.hasMic);
-    } catch {
-      return false;
-    }
+    return isBrainEntryComplete();
   })();
   const [ready, setReady] = useState<boolean>(entryAlreadyComplete);
   const [entryOpen, setEntryOpen] = useState<boolean>(!entryAlreadyComplete);
@@ -1275,14 +1271,25 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [roomId]);
 
   // ── P2P voice chat (joined only after gate passes) ────────────────
+  // Users who entered without a mic join listen-only: they hear everyone
+  // and the mic is only requested when they press the mic button.
+  const micOn = useBrainMicChoice();
   const {
     participants: voicePeers,
     isMuted,
     toggleMute,
+    enableMic,
     sendChatLine,
     onChatLine,
     broadcastSelfPosition,
-  } = useBrainVoice(ready, roomId);
+  } = useBrainVoice(ready, roomId, { audio: micOn });
+  const onMicButton = useCallback(() => {
+    if (micOn) { toggleMute(); return; }
+    void enableMic().then((ok) => {
+      if (ok) setBrainMic(true);
+      else toast.error("Couldn't turn on your mic. Check the browser's microphone permission.");
+    });
+  }, [micOn, toggleMute, enableMic]);
   // People chatting from the main menu share this room's chat (lobby only);
   // list them beside the people in the Brain.
   const chatPeers = useNetworkChatPeers(ready, roomId);
@@ -1344,9 +1351,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // actually receive the new video SSRC.
         const existing = manager.getLocalStream();
         const hasDeadTrack = !!existing && existing.getTracks().some(t => t.readyState === 'ended');
+        // Listen-only users keep their mic off when turning the camera on.
         const stream = hasDeadTrack
-          ? await manager.refreshLocalStream(true, true)
-          : await manager.startLocalStream(true, true);
+          ? await manager.refreshLocalStream(micOn, true)
+          : await manager.startLocalStream(micOn, true);
         manager.toggleVideo(true);
         setLocalStream(stream);
         setCameraOn(true);
@@ -1366,7 +1374,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       } catch { /* ignore */ }
       setCameraOn(false);
     }
-  }, [cameraOn, user]);
+  }, [cameraOn, user, micOn]);
 
   // ── Screen share ──────────────────────────────────────────────────
   // Independent of camera and mic: sharing never touches the voice track.
@@ -1700,8 +1708,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [universeKey]);
 
   // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
+  // Presence send time last applied per peer. This effect re-runs whenever
+  // any peer changes; re-applying an old position snapped every avatar back
+  // to where it was when its last update was sent.
+  const appliedPresenceTsRef = useRef(new Map<string, number>());
   useEffect(() => {
     if (!ready) return;
+    const applied = appliedPresenceTsRef.current;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
     const pose = getEarthPose();
     // Cluster fallback spawns near the local user's spawn so peers without
@@ -1729,9 +1742,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // Phase 4A — accept the peer's broadcast position verbatim. Their
       // physics already solved the surface; reprojecting it here would
       // snap walking remote avatars off-position every render.
-      const broadcastPos = p.position
-        ? ([p.position[0], p.position[1], p.position[2]] as [number, number, number])
-        : null;
+      // Earth-local points are turned into world space with OUR Earth pose,
+      // so the avatar sits on the same patch of ground it does for them.
+      const fresh = p.presenceTs !== undefined && applied.get(p.peerId) !== p.presenceTs;
+      const broadcastPos = resolvePeerWorldPosition(p, pose);
       const initPos = broadcastPos ?? fallbackNear(p.peerId);
       // Per-peer spawn log removed — this effect re-runs every render
       // because `voicePeers` is a fresh array reference, and the log was
@@ -1758,7 +1772,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         existing.mass = 0;
         existing.vel = [0, 0, 0];
         if (deckPos) existing.pos = deckPos;
-        else if (broadcastPos) existing.pos = broadcastPos;
+        else if (broadcastPos && fresh) existing.pos = broadcastPos;
         existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
       } else {
         physics.addBody({
@@ -1768,6 +1782,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           meta: { ...init.meta, username: p.username, peerId: p.peerId, avatarId: p.avatarId },
         });
       }
+      if (broadcastPos && p.presenceTs !== undefined) applied.set(p.peerId, p.presenceTs);
+    }
+    for (const peerId of Array.from(applied.keys())) {
+      if (!seen.has(`peer-${peerId}`)) applied.delete(peerId);
     }
     // Boats of peers who left go with them (anyone aboard drops in).
     fleet.retainPeers(new Set(voicePeers.map((p) => p.peerId)));
@@ -1791,30 +1809,32 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const fleet = getFleet();
     // Boats are keyed by mesh peer id, the id other players see us by.
     fleet.setSelfPeer(() => getLocalMeshPeerId() ?? selfId);
-    let lastSent: [number, number, number] | null = null;
+    let lastLocal: [number, number, number] | null = null;
     let lastAt = 0;
     let hadBoat = false;
     const tick = () => {
       const body = physics.getBody(selfId);
       if (!body) return;
-      const pos: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
-      const now = performance.now();
-      const boat = fleet.presenceFor(pos);
+      const world: [number, number, number] = [body.pos[0], body.pos[1], body.pos[2]];
+      const now = Date.now();
+      const boat = fleet.presenceFor(world);
       // Boats go out at 3 Hz while moving, crewed, rowing or stood on;
       // 1 Hz for an owned boat at anchor. Walking stays at 1.5 s.
       const mine = fleet.mine();
       const busy = !!boat && (!!boat.d || !!boat.r || (mine ? Math.hypot(...mine.vessel.motion.vel) > 0.05 : false));
       const period = busy ? 333 : boat ? 1000 : 1500;
-      const moved = !lastSent || Math.hypot(pos[0] - lastSent[0], pos[1] - lastSent[1], pos[2] - lastSent[2]) >= 0.05;
-      const due = now - lastAt >= period - 5;
-      if (!due) return;
-      // Skip an idle walker's repeat, but always tell the room when a boat
-      // goes away so it disappears there too.
-      if (!moved && !boat && !hadBoat) return;
-      lastSent = pos;
+      if (now - lastAt < period - 5) return;
+      // Measured on the ground (Earth-local), not in world space: Earth's
+      // own motion no longer counts as walking. Idle players still refresh
+      // every ~6 s so late joiners and dropped packets catch up. A boat
+      // going away is always sent, so it disappears for the room too.
+      const { position, local } = encodeSelfPosition(world, getEarthPose());
+      const moved = !lastLocal || localDistance(local, lastLocal) >= 0.05;
+      if (!moved && !boat && !hadBoat && now - lastAt < 6000) return;
+      lastLocal = local;
       lastAt = now;
       hadBoat = !!boat;
-      broadcastSelfPosition(pos, boat);
+      broadcastSelfPosition(position, local, boat);
     };
     // Send once immediately so peers learn our spawn point right away.
     tick();
@@ -1885,7 +1905,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const line: BrainChatLine = {
       id: crypto.randomUUID(),
       author: user ? brainDisplayName(user) : 'You',
-      text, ts: Date.now(),
+      text, ts: networkNow(),
       authorId: user?.id,
       avatarRef: user?.profile?.avatarRef,
     };
@@ -1939,7 +1959,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           author: ENTITY_DISPLAY_NAME,
           authorId: ENTITY_USER_ID,
           infinityReplyTo: line.id,
-          text: pick, ts: Date.now(),
+          text: pick, ts: networkNow(),
         };
         setChatLines((prev) => [...prev, reply].slice(-100));
         // The originating opted-in client generates; peers only consume it.
@@ -2328,16 +2348,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             type="button"
             variant="outline"
             size="sm"
-            onClick={toggleMute}
+            onClick={onMicButton}
             className={
-              isMuted
+              !micOn || isMuted
                 ? 'bg-[hsla(0,70%,18%,0.7)] text-destructive ring-1 ring-destructive/40'
                 : 'bg-[hsla(265,70%,8%,0.7)]'
             }
-            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-            title={isMuted ? 'Self mic muted' : 'Mute self mic'}
+            aria-label={!micOn ? 'Turn on microphone' : isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={!micOn ? 'Mic off (listening only). Tap to turn on' : isMuted ? 'Self mic muted' : 'Mute self mic'}
           >
-            {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+            {!micOn || isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
           </Button>
           {infinityChatMode === 'audio' && <Button
             type="button"

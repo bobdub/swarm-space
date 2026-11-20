@@ -76,14 +76,14 @@ export function adoptOlderGenesis(peerGenesis: number): boolean {
   return false;
 }
 
-// ── Shy Mode (default: true) ────────────────────────────────────────
+// ── Shy Mode (default: false — nodes join in unless they opt out) ────────────────────────────────────────
 
 export function getShyMode(): boolean {
   try {
     const v = localStorage.getItem(SHY_MODE_KEY);
-    if (v === null) return true;
+    if (v === null) return false;
     return v === 'true';
-  } catch { return true; }
+  } catch { return false; }
 }
 
 export function setShyMode(value: boolean): void {

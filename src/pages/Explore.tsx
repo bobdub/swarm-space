@@ -1,4 +1,6 @@
 import { isPostUnsupported } from "@/lib/content/unsupportedPostsStore";
+import { getMyContentOnly, isPostVisibleForContentFilter } from "@/lib/feed";
+import { resolveLocalIdentity } from "@/lib/content/ownContent";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -123,12 +125,18 @@ const Explore = () => {
 
   const applyPostFilters = useCallback(
     async (input: Post[], blockedIds: string[], hiddenIds: string[]): Promise<Post[]> => {
+      // Node Dashboard → "My Content Only": strictly the local identity's posts.
+      const myContentOnly = getMyContentOnly();
+      const identity = myContentOnly
+        ? await resolveLocalIdentity(user).catch(() => ({ userId: user?.id ?? null }))
+        : null;
       const visible = input.filter((post) => {
         if (post.type === "stream" && post.stream?.visibility && post.stream.visibility !== "public") {
           return false;
         }
         if (isPostUnsupported(post.id)) return false;
-        return !blockedIds.includes(post.author) && !hiddenIds.includes(post.id);
+        if (blockedIds.includes(post.author) || hiddenIds.includes(post.id)) return false;
+        return isPostVisibleForContentFilter(post, identity, myContentOnly);
       });
       const membershipFiltered = await filterPostsByProjectMembership(visible, user?.id ?? null);
       const query = filtersRef.current.query.trim().toLowerCase();
@@ -291,14 +299,20 @@ const Explore = () => {
       }, 3000);
     };
 
+    // The My Content Only switch changes which posts belong here at all, so
+    // re-run the full load rather than the add-only incremental merge.
+    const reloadForContentToggle = () => { void loadRecentPosts(); };
+
     window.addEventListener("p2p-projects-updated", reload);
     window.addEventListener("p2p-posts-updated", reload);
+    window.addEventListener("network-content-toggle", reloadForContentToggle);
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer);
+      window.removeEventListener("network-content-toggle", reloadForContentToggle);
       window.removeEventListener("p2p-projects-updated", reload);
       window.removeEventListener("p2p-posts-updated", reload);
     };
-  }, [loadProjects, mergeIncomingPosts, p2pEnabled, p2pStats.connectedPeers]);
+  }, [loadProjects, loadRecentPosts, mergeIncomingPosts, p2pEnabled, p2pStats.connectedPeers]);
 
   const handleQueryChange = useCallback(
     (value: string) => {

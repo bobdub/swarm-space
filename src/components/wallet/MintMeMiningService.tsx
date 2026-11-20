@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { isGuestUser } from "@/lib/preview/guestAccess";
-import { getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
+import { getMintMeBridgeUrl, getMintMeMinerEnabled, onMintMeMinerEnabledChange } from "@/lib/mining/mintmeMinerPreference";
 
 /** One app-wide owner; page navigation never starts duplicate workers or stops a live miner. */
 export function MintMeMiningService() {
@@ -13,46 +13,39 @@ export function MintMeMiningService() {
     void Promise.all([
       import("@/lib/p2p/swarmMesh.standalone"),
       import("@/lib/blockchain/mintmeMiner/miner"),
-      import("@/lib/blockchain/mintmeMiner/miningCell"),
-    ]).then(([meshModule, minerModule, cellModule]) => {
+      import("@/lib/storage/providers/personalServerStore"),
+    ]).then(([meshModule, minerModule, serverStore]) => {
       if (cancelled) return;
       const mesh = meshModule.getSwarmMeshStandalone();
       const miner = minerModule.getMintMeMiner();
-      const cell = cellModule.getMintMeMiningCell();
-      let lastEndpoint: string | null = null;
       let attemptedContext = "";
       const reconcile = () => {
-        if (!getMintMeMinerEnabled()) { attemptedContext = ""; cell.stop(); miner.stop("off"); return; }
+        if (!getMintMeMinerEnabled()) { attemptedContext = ""; miner.stop("off"); return; }
+        // Mining runs only through the bridge on the user's own personal server.
+        const endpoint = getMintMeBridgeUrl();
+        if (!endpoint) {
+          attemptedContext = "";
+          miner.stop("needs-proxy", "Attach a public personal server to mine. Find it in Settings → Storage → Personal Servers.");
+          return;
+        }
         const peers = mesh.getConnectedPeers();
         if (mesh.getPhase() !== "online" || !peers.length) {
-          attemptedContext = ""; cell.stop(); miner.stop("needs-mesh", "Waiting for a mesh connection."); return;
+          attemptedContext = ""; miner.stop("needs-mesh", "Waiting for a mesh connection."); return;
         }
         const peerId = mesh.getPeerId();
         if (!peerId) return;
-        void cell.start(peerId, peers).catch(() => {
-          if (!cancelled) miner.stop("needs-proxy", "Community mining discovery is unavailable.");
-        });
-        const endpoint = cell.selectedEndpoint;
-        if (endpoint !== lastEndpoint) { miner.stop(); lastEndpoint = endpoint; }
-        const context = `${peerId}:${endpoint ?? ""}`;
+        const context = `${peerId}:${endpoint}`;
         if (attemptedContext === context) return;
+        if (attemptedContext) miner.stop();
         attemptedContext = context;
         miner.start({ peerId, mesh, proxyUrl: endpoint });
       };
-      // Cell callbacks only reconcile mining, avoiding recursive discovery starts.
-      const onEndpoint = () => {
-        const endpoint = cell.selectedEndpoint;
-        if (endpoint === lastEndpoint) return;
-        lastEndpoint = endpoint;
-        miner.stop();
-        if (getMintMeMinerEnabled() && mesh.getPhase() === "online" && mesh.getConnectedPeers().length) {
-          attemptedContext = `${mesh.getPeerId()}:${endpoint ?? ""}`;
-          miner.start({ peerId: mesh.getPeerId(), mesh, proxyUrl: endpoint });
-        }
-      };
-      const unsubs = [cell.subscribe(onEndpoint), mesh.onPeersChange(reconcile), mesh.onPhaseChange(reconcile), onMintMeMinerEnabledChange(reconcile)];
+      const unsubs = [
+        mesh.onPeersChange(reconcile), mesh.onPhaseChange(reconcile), onMintMeMinerEnabledChange(reconcile),
+        serverStore.subscribePersonalServers(reconcile),
+      ];
       reconcile();
-      cleanup = () => { unsubs.forEach(unsub => unsub()); cell.stop(); miner.stop(); };
+      cleanup = () => { unsubs.forEach(unsub => unsub()); miner.stop(); };
     });
     return () => { cancelled = true; cleanup(); };
   }, [isReady, user?.id]);

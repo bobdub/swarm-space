@@ -22,7 +22,10 @@ import {
   SignalLow,
   SignalZero,
   Search,
+  Copy,
+  Check,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { Avatar } from "@/components/Avatar";
 import { getFeatureFlags } from "@/config/featureFlags";
@@ -34,6 +37,16 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
+
+function shortId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+function formatSeen(date: Date): string {
+  if (Number.isNaN(date.getTime())) return "unknown";
+  if (Date.now() - date.getTime() < 60_000) return "just now";
+  return formatDistanceToNow(date, { addSuffix: true });
+}
 
 const HIDDEN_NODES_KEY = "p2p:hiddenNodes";
 const MUTED_NODES_KEY = "p2p:mutedNodes";
@@ -96,6 +109,19 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
         return b.lastSeen.getTime() - a.lastSeen.getTime();
       });
   }, [activeConnections, connectedIds, discoveredPeers, hiddenNodes]);
+
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyPeerId = async (peerId: string) => {
+    try {
+      await navigator.clipboard.writeText(peerId);
+      setCopiedId(peerId);
+      toast.success("Peer ID copied");
+      window.setTimeout(() => setCopiedId((current) => (current === peerId ? null : current)), 1500);
+    } catch {
+      toast.error("Could not copy peer ID");
+    }
+  };
 
   const handleBlock = (peerId: string) => {
     blockPeer(peerId, "all", "Blocked from connections panel");
@@ -174,16 +200,16 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
   const connectedCount = activeConnections.length;
 
   return (
-    <Card className="p-4 border-foreground/10 bg-card/60">
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+    <Card className="p-3 sm:p-4 border-foreground/10 bg-card/60">
+      <div className="space-y-3 sm:space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             {connectedCount > 0 ? (
               <Wifi className="h-4 w-4 text-emerald-400" />
             ) : (
               <WifiOff className="h-4 w-4 text-foreground/40" />
             )}
-            <span className="text-sm font-semibold tracking-wide">
+            <span className="text-sm font-semibold tracking-wide truncate">
               {title ?? (isSwarmMode ? "Discovered Mesh Peers" : "Discovered Peer Inventory")}
             </span>
           </div>
@@ -213,64 +239,94 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
         </div>
 
         {peers.length > 0 ? (
-          <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-[28rem] overflow-y-auto sm:pr-1">
             {peers.map((peer) => {
-              const label = peer.profile?.displayName ?? peer.profile?.username ?? peer.userId ?? peer.peerId;
-              const username = peer.profile?.username ? `@${peer.profile.username}` : null;
+              const username = peer.profile?.username ?? null;
+              const label =
+                peer.profile?.displayName ??
+                (username ? username : null) ??
+                (peer.userId && peer.userId !== peer.peerId ? peer.userId : null) ??
+                "Unknown peer";
+              const showHandle = Boolean(username) && username !== label;
               const isMuted = mutedNodes.has(peer.peerId);
+              const lastSeen = new Date(peer.lastSeen);
 
               return (
                 <div
                   key={peer.peerId}
-                  className={`group flex items-center justify-between p-2.5 rounded-lg border transition-colors duration-150 ${
+                  className={`group flex items-start gap-2.5 p-2 sm:p-2.5 rounded-lg border transition-colors duration-150 ${
                     isMuted
                       ? "border-foreground/5 bg-foreground/[0.02] opacity-60"
                       : "border-foreground/10 bg-background/40 hover:border-foreground/20"
                   }`}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="relative shrink-0">
                     <Avatar
-                      username={peer.profile?.username ?? peer.peerId}
+                      username={username ?? peer.peerId}
                       displayName={peer.profile?.displayName}
                       avatarRef={peer.profile?.avatarRef}
                       size="sm"
-                      className="shrink-0"
                     />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate" title={label}>
-                          {label}
+                    <span
+                      className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background ${
+                        peer.isConnected ? "bg-emerald-400" : "bg-foreground/25"
+                      }`}
+                      aria-label={peer.isConnected ? "Connected" : "Discovered"}
+                    />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-sm font-medium truncate" title={label}>
+                        {label}
+                      </span>
+                      {showHandle && (
+                        <span className="text-xs text-foreground/50 truncate">@{username}</span>
+                      )}
+                      {isMuted && <VolumeX className="h-3 w-3 text-foreground/30 shrink-0" />}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPeerId(peer.peerId)}
+                      className="mt-0.5 inline-flex max-w-full items-center gap-1 rounded text-[0.65rem] font-mono text-foreground/50 hover:text-foreground/80 focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                      title={`Copy peer ID ${peer.peerId}`}
+                      aria-label="Copy peer ID"
+                    >
+                      <span className="truncate sm:hidden">{shortId(peer.peerId)}</span>
+                      <span className="truncate hidden sm:inline">{peer.peerId}</span>
+                      {copiedId === peer.peerId ? (
+                        <Check className="h-3 w-3 shrink-0 text-emerald-400" />
+                      ) : (
+                        <Copy className="h-3 w-3 shrink-0" />
+                      )}
+                    </button>
+
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.65rem] text-foreground/40">
+                      <span>{peer.sharedCount} shared</span>
+                      {peer.isConnected && peer.connection?.avgRttMs != null && (
+                        <span className="text-foreground/50">
+                          Trust {Math.round((peer.connection.avgRttMs < 200 ? 0.95 : peer.connection.avgRttMs < 500 ? 0.7 : 0.4) * 100)}%
                         </span>
-                        {isMuted && <VolumeX className="h-3 w-3 text-foreground/30 shrink-0" />}
-                      </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[0.65rem] text-foreground/50">
-                        {username && <span className="truncate">{username}</span>}
-                        <span className="font-mono truncate max-w-[12rem]">{peer.peerId}</span>
-                      </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[0.65rem] text-foreground/40">
-                        <span>{peer.sharedCount} shared {peer.sharedCount === 1 ? "item" : "items"}</span>
-                        {peer.isConnected && peer.connection?.avgRttMs != null && (
-                          <span className="text-foreground/50">
-                            Trust {Math.round((peer.connection.avgRttMs < 200 ? 0.95 : peer.connection.avgRttMs < 500 ? 0.7 : 0.4) * 100)}%
-                          </span>
-                        )}
-                        <span>Seen {new Date(peer.lastSeen).toLocaleString()}</span>
-                      </div>
+                      )}
+                      <span title={lastSeen.toLocaleString()}>Seen {formatSeen(lastSeen)}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {getQualityIcon(peer.connection?.avgRttMs, peer.isConnected)}
-                    {getConnectionBadge(peer.isConnected)}
+                  <div className="flex items-center gap-1 shrink-0 self-center">
+                    <span className="hidden sm:inline-flex">{getQualityIcon(peer.connection?.avgRttMs, peer.isConnected)}</span>
+                    <span className="hidden sm:inline-flex">{getConnectionBadge(peer.isConnected)}</span>
 
                     <Button
                       variant={peer.isConnected ? "outline" : "default"}
                       size="sm"
-                      className="h-8"
+                      className="h-8 w-8 p-0 sm:w-auto sm:px-3"
                       onClick={() => peer.isConnected ? handleDisconnect(peer.peerId) : handleConnect(peer.peerId)}
+                      aria-label={peer.isConnected ? "Disconnect" : "Connect"}
+                      title={peer.isConnected ? "Disconnect" : "Connect"}
                     >
-                      {peer.isConnected ? <Unplug className="h-3.5 w-3.5 mr-1" /> : <Plug className="h-3.5 w-3.5 mr-1" />}
-                      {peer.isConnected ? "Disconnect" : "Connect"}
+                      {peer.isConnected ? <Unplug className="h-3.5 w-3.5 sm:mr-1" /> : <Plug className="h-3.5 w-3.5 sm:mr-1" />}
+                      <span className="hidden sm:inline">{peer.isConnected ? "Disconnect" : "Connect"}</span>
                     </Button>
 
                     <DropdownMenu>
@@ -278,12 +334,17 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="h-8 w-7 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                          aria-label="More actions"
                         >
                           <MoreVertical className="h-3.5 w-3.5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem onClick={() => handleCopyPeerId(peer.peerId)}>
+                          <Copy className="h-3.5 w-3.5 mr-2" />
+                          Copy peer ID
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => handleMute(peer.peerId)}>
                           <VolumeX className="h-3.5 w-3.5 mr-2" />
                           {isMuted ? "Unmute" : "Mute"}

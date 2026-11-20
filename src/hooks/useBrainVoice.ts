@@ -11,6 +11,7 @@ import {
   getRoomPresences,
   helloRoom,
   onRoomPresenceRemoved,
+  getLocalMeshPeerId,
   type RoomPresence,
   type RoomChatMessage,
 } from "@/lib/streaming/webrtcSignalingBridge.standalone";
@@ -33,6 +34,10 @@ export interface BrainVoicePeer {
   color?: string;
   /** Last broadcast world-space position, if the peer published one. */
   position?: [number, number, number];
+  /** Same position in Earth's spinning frame (see `lib/brain/peerPosition`). */
+  local?: [number, number, number];
+  /** Send time of the presence that carried the position; changes only when a new one arrives. */
+  presenceTs?: number;
   /** Brain physics protocol version reported by the peer (undefined = pre-versioning / v0). */
   pv?: number;
   /** Boat state from presence (owned boat, deck spot, oar stroke); validate
@@ -70,6 +75,7 @@ export function useBrainVoice(
   const [joined, setJoined] = useState(false);
   const joinedRef = useRef(false);
   const lastSelfPosRef = useRef<[number, number, number] | undefined>(undefined);
+  const lastSelfLocalRef = useRef<[number, number, number] | undefined>(undefined);
   const userRef = useRef(user);
   useEffect(() => { userRef.current = user; }, [user]);
 
@@ -87,6 +93,7 @@ export function useBrainVoice(
           username: brainDisplayName(user),
           avatarId: live?.avatarId,
           position: lastSelfPosRef.current,
+          local: lastSelfLocalRef.current,
           pv: BRAIN_PHYSICS_VERSION,
         });
       } catch (err) {
@@ -95,18 +102,15 @@ export function useBrainVoice(
     };
 
     const unsub = manager.onMessage((msg) => {
-      if (
-        msg.type === "peer-joined" ||
-        msg.type === "peer-left" ||
-        msg.type === "peer-media-state" ||
-        msg.type === "room-updated"
-      ) {
-        setRawParticipants(manager.getParticipants());
-        // Re-broadcast our presence so late joiners (and reconnects) learn
-        // our avatar selection right away.
-        if (msg.type === "peer-joined" && joinedRef.current) {
-          broadcastSelfPresence();
-        }
+      // Refresh on every call event, like the audio layer does. Peers that
+      // reach us through an offer (common for someone who entered listen-only)
+      // are added without a peer-joined event, so filtering on event type
+      // left them out of the avatar list while their voice still played.
+      setRawParticipants(manager.getParticipants());
+      // Re-broadcast our presence so late joiners (and reconnects) learn
+      // our avatar selection right away.
+      if (msg.type === "peer-joined" && joinedRef.current) {
+        broadcastSelfPresence();
       }
     });
 
@@ -230,7 +234,7 @@ export function useBrainVoice(
   // changes — consumers keying effects on `participants` would
   // otherwise re-run every render.
   const participants: BrainVoicePeer[] = useMemo(() => {
-    return rawParticipants.map((p) => {
+    const fromCall = rawParticipants.map((p) => {
       const pres = presenceById[p.peerId];
       return {
         peerId: p.peerId,
@@ -238,12 +242,36 @@ export function useBrainVoice(
         avatarId: pres?.avatarId,
         color: pres?.color,
         position: pres?.position,
+        local: pres?.local,
+        presenceTs: pres?.ts,
         pv: pres?.pv,
         boat: pres?.boat,
         cameraOn: p.isVideoEnabled,
         muted: p.isMuted,
       };
     });
+    // Avatars come from room presence, not from the voice call. Someone whose
+    // presence reached us before (or without) a call connection is still in
+    // the room and must still be drawn. Presence entries are dropped by the
+    // bridge when a peer leaves or goes quiet.
+    const self = (() => { try { return getLocalMeshPeerId(); } catch { return null; } })();
+    const inCall = new Set(rawParticipants.map((p) => p.peerId));
+    const presenceOnly = Object.values(presenceById)
+      .filter((pres) => pres.peerId !== self && !inCall.has(pres.peerId))
+      .map((pres) => ({
+        peerId: pres.peerId,
+        username: pres.username || pres.peerId.slice(0, 8),
+        avatarId: pres.avatarId,
+        color: pres.color,
+        position: pres.position,
+        local: pres.local,
+        presenceTs: pres.ts,
+        pv: pres.pv,
+        boat: pres.boat,
+        cameraOn: false,
+        muted: true,
+      }));
+    return presenceOnly.length > 0 ? [...fromCall, ...presenceOnly] : fromCall;
   }, [rawParticipants, presenceById]);
 
   // Record a "brain" activity point the first time a peer shares the room
@@ -270,13 +298,36 @@ export function useBrainVoice(
   }, [isMuted, user]);
 
   /**
+   * Turn the mic on for a user who entered listen-only. Asks the browser
+   * for the mic (call from a click so the prompt is allowed), slots the
+   * track into every open call and unmutes. Resolves false when the mic
+   * was blocked or is unavailable; listening keeps working either way.
+   */
+  const enableMic = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
+    const manager = getWebRTCManager(user.id, user.username);
+    const prefs = (() => { try { return loadHubPrefs(); } catch { return null; } })();
+    try {
+      await manager.startLocalStream(true, false, { audioInputId: prefs?.audioInputId });
+    } catch {
+      // The saved mic may be gone; fall back to the default one.
+      try { await manager.startLocalStream(true, false); } catch { return false; }
+    }
+    if (!manager.hasLiveAudioTrack()) return false;
+    manager.toggleAudio(true);
+    setIsMuted(false);
+    return true;
+  }, [user]);
+
+  /**
    * Push the local avatar's world-space position into the next presence
    * broadcast. Call from a low-frequency throttled tick (e.g. every 1.5 s)
    * — every call performs a mesh broadcast, so do not call per-frame.
    */
   const broadcastSelfPosition = useCallback(
-    (position: [number, number, number], boat?: unknown) => {
+    (position: [number, number, number], local?: [number, number, number], boat?: unknown) => {
       lastSelfPosRef.current = position;
+      lastSelfLocalRef.current = local;
       const u = userRef.current;
       if (!u || !joinedRef.current) return;
       try {
@@ -286,6 +337,7 @@ export function useBrainVoice(
           username: brainDisplayName(u),
           avatarId: prefs?.avatarId,
           position,
+          local,
           pv: BRAIN_PHYSICS_VERSION,
           boat,
         });
@@ -357,6 +409,7 @@ export function useBrainVoice(
     participants,
     isMuted,
     toggleMute,
+    enableMic,
     joined,
     sendChatLine,
     onChatLine,
