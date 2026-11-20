@@ -496,6 +496,7 @@ export class Fleet {
 
   /** Forget everything from a peer that left. */
   dropPeer(peer: string): void {
+    this.rowStamps.delete(peer);
     for (const b of this.list()) {
       if (b.kind === 'remote' && b.owner === peer) this.remove(b.key);
       b.rowers.delete(peer);
@@ -507,12 +508,25 @@ export class Fleet {
     for (const b of this.list()) {
       if (b.kind === 'remote' && b.owner && !peers.has(b.owner)) this.remove(b.key);
     }
+    for (const peer of Array.from(this.rowStamps.keys())) if (!peers.has(peer)) this.rowStamps.delete(peer);
   }
 
-  /** A stroke from a rower in another world (owner side). */
-  remoteRow(peer: string, r: RowWire, now = getEarthPoseTime()): void {
+  /** Presence stamp of the last stroke taken from each remote rower. */
+  private rowStamps = new Map<string, number>();
+
+  /**
+   * A stroke from a rower in another world (owner side). `stamp` is the
+   * presence's send time: a stroke is taken once per presence, so a rower
+   * who goes quiet is not kept pulling by replays of their last presence,
+   * and their stroke lapses after ROWER_TIMEOUT_S.
+   */
+  remoteRow(peer: string, r: RowWire, now = getEarthPoseTime(), stamp?: number): void {
     const mine = this.mine();
     if (!mine || r.o !== this.selfPeer() || r.id !== mine.wireId) return;
+    if (stamp !== undefined) {
+      if (this.rowStamps.get(peer) === stamp) return;
+      this.rowStamps.set(peer, stamp);
+    }
     mine.rowers.set(peer, { s: r.s, tn: r.tn, at: now });
   }
 
@@ -747,6 +761,7 @@ export class Fleet {
   reset(): void {
     this.detachAllDecks();
     this.boats.clear();
+    this.rowStamps.clear();
     this.dockSeq = 0;
     this.tickCount = 0;
     this.wind = [0, 0, 0];
