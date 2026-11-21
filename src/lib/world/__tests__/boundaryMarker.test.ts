@@ -28,6 +28,7 @@ import { tangentToSurfaceLocal } from '../landPermissions';
 import {
   BLOCK_PRICE_SWARM,
   claimBlockWithMarker,
+  blockTouchesPond,
   installLandClaimRules,
   loadDeeds,
   migrateLegacyPlots,
@@ -380,5 +381,15 @@ describe('water rule on claims already stored', () => {
     expect(getLandClaim(95, 1)).toBeNull();
     expect(getLandClaim(5, 1)?.ownerId).toBe(bob.id);
     expect(JSON.parse(localStorage.getItem('brain-land-claims-v1') ?? '[]')).toHaveLength(1);
+  });
+});
+
+describe('the village pond is water', () => {
+  it('marks blocks over the pond and leaves the meadow alone', () => {
+    // Pond centre (0, -30) m sits in block (0, -12) at 2.5 m per block.
+    expect(blockTouchesPond(0, -12)).toBe(true);
+    expect(blockTouchesPond(-3, -12)).toBe(true);
+    expect(blockTouchesPond(0, 0)).toBe(false);
+    expect(blockTouchesPond(10, -12)).toBe(false);
   });
 });
