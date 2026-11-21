@@ -165,10 +165,17 @@ export async function migrateLegacyPlots(
       }
     }
     const signed = await signAs(deps, ownerId, unsigned);
-    if (!signed) return cells; // key locked — keep the rest for later
-    recordLocalLandClaims(signed, deps.now());
-    cells += signed.length;
-    migrated.add(plot.id);
+    if (!signed) break; // key locked — keep the rest for later
+    cells += recordLocalLandClaims(signed, deps.now()).length;
+    // Drop the legacy record only once every one of its cells is held
+    // by this owner (a full store or an earlier rival claim keeps it).
+    let complete = true;
+    for (let cz = cz0; cz < cz1 && complete; cz++) {
+      for (let cx = cx0; cx < cx1; cx++) {
+        if (getLandClaim(cx, cz)?.ownerId !== ownerId) { complete = false; break; }
+      }
+    }
+    if (complete) migrated.add(plot.id);
   }
   if (migrated.size > 0) {
     try {

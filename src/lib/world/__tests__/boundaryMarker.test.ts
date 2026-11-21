@@ -24,6 +24,7 @@ import {
   replaceLegacyLandPlots,
   type LandPlot,
 } from '../landPlots';
+import { tangentToSurfaceLocal } from '../landPermissions';
 import {
   BLOCK_PRICE_SWARM,
   claimBlockWithMarker,
@@ -237,5 +238,35 @@ describe('migrateLegacyPlots', () => {
     expect(n).toBe(0);
     expect(loadLegacyLandPlots()).toHaveLength(1);
     expect(getPlotAtCell(0, 0)?.ownerId).toBe(alice.id);
+  });
+});
+
+describe('migrateLegacyPlots keeps what it cannot replace', () => {
+  it('keeps the legacy plot when a rival already holds one of its cells', async () => {
+    recordLocalLandClaims([await claimFor(bob, 41, 40, 100)], 2000);
+    const own: LandPlot = {
+      id: 'plot:contested', ownerId: alice.id, cellRect: { cx0: 40, cz0: 40, cx1: 42, cz1: 41 },
+      anchorId: 'swarm-shared-village', priceSwarm: 6, claimedAt: 500, unlocksLandmarks: true, kind: 'private',
+    };
+    replaceLegacyLandPlots([own]);
+    await migrateLegacyPlots(alice.id, depsFor(alice));
+    expect(getLandClaim(40, 40)?.ownerId).toBe(alice.id);
+    expect(getLandClaim(41, 40)?.ownerId).toBe(bob.id);
+    expect(loadLegacyLandPlots().map((p) => p.id)).toEqual(['plot:contested']);
+  });
+});
+
+describe('land grid projection', () => {
+  it('draws a block exactly where ownership reads it, far from the origin', () => {
+    const ref = {
+      normal: [0, 1, 0] as [number, number, number],
+      right: [1, 0, 0] as [number, number, number],
+      forward: [0, 0, 1] as [number, number, number],
+    };
+    for (const [tx, tz] of [[0, 0], [37.5, -12.5], [1000, 0], [-640, 820]]) {
+      const p = tangentToSurfaceLocal(tx, tz, 0.05, ref);
+      expect(p[0]).toBeCloseTo(tx, 6);
+      expect(p[2]).toBeCloseTo(tz, 6);
+    }
   });
 });

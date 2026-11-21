@@ -20,14 +20,12 @@ import {
   earthLocalToWorld,
   getEarthPose,
   getEarthLocalSiteFrame,
-  EARTH_RADIUS,
   type Vec3,
 } from '@/lib/brain/earth';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { PLOT_CELL, tangentToCell } from '@/lib/world/landPlots';
-import { worldPointToTangent } from '@/lib/world/landPermissions';
+import { tangentToSurfaceLocal, worldPointToTangent } from '@/lib/world/landPermissions';
 import { getHeldTool, subscribeHeldTool } from '@/lib/world/heldToolStore';
 import {
   BLOCK_PRICE_SWARM,
@@ -59,15 +57,7 @@ function sameCell(a: Cell | null, b: Cell | null): boolean {
 }
 
 function tangentToWorld(tx: number, tz: number, lift: number): Vec3 {
-  const pose = getEarthPose();
-  const ref = getEarthLocalSiteFrame(WORLD_GRID_ORIGIN_ANCHOR);
-  const nx = ref.normal[0] + (ref.right[0] * tx + ref.forward[0] * tz) / EARTH_RADIUS;
-  const ny = ref.normal[1] + (ref.right[1] * tx + ref.forward[1] * tz) / EARTH_RADIUS;
-  const nz = ref.normal[2] + (ref.right[2] * tx + ref.forward[2] * tz) / EARTH_RADIUS;
-  const nLen = Math.hypot(nx, ny, nz) || 1;
-  const un: Vec3 = [nx / nLen, ny / nLen, nz / nLen];
-  const r = EARTH_RADIUS + sampleSurfaceLift(un) + lift;
-  return earthLocalToWorld([un[0] * r, un[1] * r, un[2] * r], pose);
+  return earthLocalToWorld(tangentToSurfaceLocal(tx, tz, lift), getEarthPose());
 }
 
 function cellAtWorld(point: Vec3): Cell | null {
