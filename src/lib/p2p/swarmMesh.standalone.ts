@@ -279,6 +279,8 @@ const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const MARKET_SYNC_INTERVAL = 60_000;
 const HEARTBEAT_INTERVAL = 8_000;
+const CLOCK_BURST_PINGS = 4;
+const CLOCK_BURST_GAP_MS = 250;
 const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
 const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
@@ -2118,6 +2120,13 @@ export class StandaloneSwarmMesh {
       }
 
       this.connections.set(rId, conn);
+      // Cadence Clock: a quick burst of ping-pongs calibrates this peer's clock now.
+      for (let i = 0; i < CLOCK_BURST_PINGS; i++) {
+        setTimeout(() => {
+          if (this.connections.get(rId) !== conn || !conn.open) return;
+          try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+        }, i * CLOCK_BURST_GAP_MS);
+      }
       this.peerData.set(rId, {
         peerId: rId,
         connectedAt: now(),

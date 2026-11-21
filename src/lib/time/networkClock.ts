@@ -15,9 +15,12 @@
  *
  * Cadence Clock (mesh agreement): every mesh ping reply also carries the
  * sender's corrected clock. We correct each reading for half the round trip
- * (Cristian's algorithm), drop slow round trips, and take the median across
- * peers. The site's server stays the anchor: once it has answered, the mesh
- * may only refine our clock within the server's own precision window, so a
+ * (Cristian's algorithm), drop slow round trips, average each peer's last 4
+ * readings, and take the median across peers. A burst of 4 pings goes out
+ * when a channel opens so a new peer is calibrated within a second.
+ *
+ * The site's server stays the anchor: once it has answered, the mesh may
+ * only refine our clock within the server's own precision window, so a
  * group of wrong peers can't pull us away from real time. When the server
  * can't be reached, the mesh median is used on its own.
  *
@@ -65,7 +68,20 @@ interface PeerClockSample {
   rtt: number;
   at: number;
 }
-const peerSamples = new Map<string, PeerClockSample>();
+/** Readings kept per peer; the peer's offset is their average. */
+export const SAMPLES_PER_PEER = 4;
+const peerSamples = new Map<string, PeerClockSample[]>();
+
+/** Average offset of a peer's fresh readings, or null with none. */
+function peerOffset(peerId: string, at: number): number | null {
+  const list = (peerSamples.get(peerId) ?? []).filter((sample) => at - sample.at <= SAMPLE_TTL_MS);
+  if (list.length === 0) {
+    peerSamples.delete(peerId);
+    return null;
+  }
+  peerSamples.set(peerId, list);
+  return list.reduce((sum, sample) => sum + sample.offset, 0) / list.length;
+}
 
 function perfNow(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -76,9 +92,9 @@ function perfNow(): number {
 /** Median of the fresh peer readings, or null with none. */
 export function meshClockOffset(at: number = Date.now()): number | null {
   const fresh: number[] = [];
-  for (const [peerId, sample] of peerSamples) {
-    if (at - sample.at > SAMPLE_TTL_MS) peerSamples.delete(peerId);
-    else fresh.push(sample.offset);
+  for (const peerId of [...peerSamples.keys()]) {
+    const offset = peerOffset(peerId, at);
+    if (offset !== null) fresh.push(offset);
   }
   if (fresh.length === 0) return null;
   fresh.sort((a, b) => a - b);
@@ -157,10 +173,9 @@ export function recordPeerClockSample(peerId: string, sentAt: number, peerNow: n
   const offset = offsetFromPeerReply(sentAt, peerNow, receivedAt);
   if (offset === null || !peerId) return;
   const rtt = receivedAt - sentAt;
-  const prev = peerSamples.get(peerId);
-  // Prefer the tighter round trip unless the older reading has gone stale.
-  if (prev && prev.rtt < rtt && receivedAt - prev.at < SAMPLE_TTL_MS / 2) return;
-  peerSamples.set(peerId, { offset, rtt, at: receivedAt });
+  // Average the last few ping-pongs: smooths out one-off jitter.
+  const list = [...(peerSamples.get(peerId) ?? []), { offset, rtt, at: receivedAt }];
+  peerSamples.set(peerId, list.slice(-SAMPLES_PER_PEER));
   restoredTarget = null;
   saveSession();
 }

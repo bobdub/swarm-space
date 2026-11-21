@@ -119,3 +119,17 @@ describe('cadence clock (reload and failed server checks)', () => {
     expect(measureServerOffset(new Date(now).toUTCString(), now, now + 50)).toBe(0);
   });
 });
+
+describe('cadence clock (averaging ping-pongs)', () => {
+  afterEach(() => setNetworkClockOffset(0));
+
+  it("averages a peer's last 4 readings", () => {
+    const t = Date.now();
+    // Readings of +10, +20, +30, +40 s (each corrected for a 40 ms round trip).
+    [10_000, 20_000, 30_000, 40_000].forEach((x) => recordPeerClockSample('a', t - 40, t + x - 20, t));
+    expect(meshClockOffset(t)).toBe(25_000);
+    // A fifth reading pushes out the oldest.
+    recordPeerClockSample('a', t - 40, t + 50_000 - 20, t);
+    expect(meshClockOffset(t)).toBe(35_000);
+  });
+});
