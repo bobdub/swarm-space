@@ -150,6 +150,13 @@ export function hookableShark(n: Vec3, depth: number, t: number, nowMs: number):
   return nearestShark(n, t, nowMs, SHARK_HOOK_RANGE_M, () => true)?.c.id ?? null;
 }
 
+/** True when shark `id` could still take a bait cast over `depth` m at `n`. */
+export function sharkStillHookable(id: string, n: Vec3, depth: number, t: number, nowMs: number): boolean {
+  if (depth < SHARK_CATCH_DEPTH || sharkGone(id, nowMs)) return false;
+  const c = seaLifeNear(n, SHARK_HOOK_RANGE_M, 'shark').find((x) => x.id === id);
+  return !!c && arcMetres(n, seaPoseAt(c, t).n) <= SHARK_HOOK_RANGE_M;
+}
+
 /** A landed shark: gone from the sea for everyone for a while. */
 export function recordSharkCaught(id: string, nowMs = Date.now()): void {
   calmUntil.delete(id);

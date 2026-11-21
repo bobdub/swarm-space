@@ -151,3 +151,48 @@ describe('catching a shark', () => {
     expect(sharkGone(c.id, NOW + 1000)).toBe(true);
   });
 });
+
+describe('the saved shark is checked again', () => {
+  it('no shark bite if it was caught or left reach while waiting, and none landed if caught mid-fight', async () => {
+    const { setSharkCheck } = await import('../fishing');
+    const c = aShark();
+    let there = false;
+    setSharkCheck(() => there);
+    setFishingRandom(() => 0.05);
+    cast(0, 30, false, c.id);
+    let t = 0;
+    while (getFishing().phase === 'waiting' && t < 60) { t += 0.1; updateFishing(t, 0); }
+    expect(getFishing().on).toBe('fish');
+    // Hooked while there, then caught by someone else before we land it.
+    reel(t);
+    updateFishing(t + 5, 0); updateFishing(t + 20, 0);
+    there = true;
+    cast(100, 30, false, c.id);
+    t = 100;
+    while (getFishing().phase === 'waiting' && t < 200) { t += 0.1; updateFishing(t, 0); }
+    expect(getFishing().on).toBe('shark');
+    setFishingRandom(() => 0.5);
+    let food = 0;
+    setFishingReward((f) => { food += f; });
+    reel(t);
+    there = false;
+    let r: string | null = null;
+    for (let i = 0; i < SHARK_FIGHT_HITS; i++) {
+      while (!markerInZone(t)) t += 0.002;
+      r = strike(t);
+    }
+    expect(r).toBe('lost');
+    expect(food).toBe(0);
+  });
+
+  it('sharkStillHookable checks depth, reach and the shared catch', async () => {
+    const { sharkStillHookable } = await import('../sharks');
+    const c = aShark();
+    const p = seaPoseAt(c, T);
+    expect(sharkStillHookable(c.id, p.n, 30, T, NOW)).toBe(true);
+    expect(sharkStillHookable(c.id, p.n, 5, T, NOW)).toBe(false);
+    expect(sharkStillHookable(c.id, travel(p.n, p.heading, 400), 30, T, NOW)).toBe(false);
+    recordSharkCaught(c.id, NOW);
+    expect(sharkStillHookable(c.id, p.n, 30, T, NOW + 1000)).toBe(false);
+  });
+});

@@ -46,10 +46,11 @@ import {
   getFishing,
   markerAt,
   setFishingReward,
+  setSharkCheck,
   subscribeFishing,
   type FishingState,
 } from '@/lib/brain/sea/fishing';
-import { fishingDepth, fishingSchoolNear, fishingShark, myBoatAground, pushOffMyBoat } from '@/lib/brain/sea/villageBoat';
+import { fishingDepth, fishingSchoolNear, fishingShark, fishingSharkStillThere, myBoatAground, pushOffMyBoat } from '@/lib/brain/sea/villageBoat';
 import { recordSharkCaught } from '@/lib/brain/sea/sharks';
 
 /** The one press at a rod: cast, hook, strike or wind in. */
@@ -204,7 +205,8 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       // A landed shark is gone from the sea for everyone for a while.
       if (kind === 'shark' && sharkId) recordSharkCaught(sharkId);
     });
-    return () => { setFoodPurse(null); setFishingReward(null); };
+    setSharkCheck(fishingSharkStillThere);
+    return () => { setFoodPurse(null); setFishingReward(null); setSharkCheck(null); };
   }, []);
   const fishing = useFishing();
 

@@ -117,6 +117,8 @@ const state: FishingState = { phase: 'idle', since: 0, biteAt: Infinity, tooFast
 let rng: () => number = Math.random;
 type Reward = (food: number, kind: CatchKind, sharkId: string | null) => void;
 let reward: Reward = () => {};
+/** Is the saved shark still there to take the bait (deep water, near, not caught)? */
+let sharkStillThere: (id: string) => boolean = () => true;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -137,6 +139,15 @@ export function getFishing(): Readonly<FishingState> {
 /** Where a catch goes (the scene credits Food and records a shark); swapped in tests. */
 export function setFishingReward(fn: Reward | null): void {
   reward = fn ?? (() => {});
+}
+
+/**
+ * How to check, when the bait is taken and when a shark is landed, that
+ * the shark saved at the cast is still hookable from where the boat is now
+ * (the scene checks depth, distance and the shared catch record).
+ */
+export function setSharkCheck(fn: ((id: string) => boolean) | null): void {
+  sharkStillThere = fn ?? (() => true);
 }
 
 /** Random source for bite times; swapped in tests. */
@@ -240,6 +251,12 @@ export function strike(t: number): 'hit' | 'miss' | 'landed' | 'lost' | null {
   f.last = 'hit';
   f.lastAt = t;
   if (f.hits >= f.need) {
+    // Someone else landed this shark mid-fight: the line comes up empty.
+    if (state.on === 'shark' && (!state.sharkId || !sharkStillThere(state.sharkId))) {
+      f.last = 'miss';
+      to('missed', t);
+      return 'lost';
+    }
     state.catches++;
     const shark = state.on === 'shark';
     try { reward(shark ? SHARK_FOOD : FISH_FOOD, state.on, shark ? state.sharkId : null); } catch { /* ignore */ }
@@ -268,7 +285,8 @@ export function updateFishing(t: number, speed: number): void {
     if (fast) state.biteAt = Math.max(state.biteAt, t + 1.5);
     else if (t >= state.biteAt) {
       // A shark about takes the bait now and then.
-      state.on = state.sharkId && rng() < SHARK_BITE_CHANCE ? 'shark' : 'fish';
+      const id = state.sharkId;
+      state.on = id && rng() < SHARK_BITE_CHANCE && sharkStillThere(id) ? 'shark' : 'fish';
       to('bite', t);
     }
   } else if (state.phase === 'bite' && t - state.since > BITE_WINDOW_S) {
@@ -294,6 +312,7 @@ export function _resetFishingForTest(): void {
   state.fight = null;
   state.on = 'fish';
   state.sharkId = null;
+  sharkStillThere = () => true;
   rng = Math.random;
   reward = () => {};
 }
