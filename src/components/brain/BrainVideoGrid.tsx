@@ -216,7 +216,10 @@ export function BrainVideoGrid({
       </div>
 
       {expanded && (
-        <div className="pointer-events-auto fixed inset-0 z-50 flex flex-col bg-black/85 p-4 backdrop-blur-sm">
+        // Opaque and without backdrop-filter on purpose: a blur over the live
+        // WebGL scene makes the compositor re-blur the whole viewport on every
+        // frame, under a full-size video, for as long as the viewer is open.
+        <div className="pointer-events-auto fixed inset-0 z-50 flex flex-col bg-black p-4">
           <div className="mb-2 flex items-center justify-between text-sm text-white">
             <span className="flex items-center gap-2 truncate">
               <MonitorUp className="h-4 w-4 text-cyan-300" />

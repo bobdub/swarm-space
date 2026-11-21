@@ -116,10 +116,12 @@ export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
       role="region"
       aria-label="Brain screen share"
       className={cn(
-        'fixed z-40 flex flex-col overflow-hidden border border-border bg-card/95 shadow-xl backdrop-blur',
+        'fixed z-40 flex flex-col overflow-hidden border border-border shadow-xl',
+        // Full size stays opaque: a backdrop blur that large is recomputed
+        // on every frame behind the video.
         expanded
-          ? 'inset-4 rounded-lg'
-          : 'bottom-4 right-4 w-[min(22rem,calc(100vw-2rem))] rounded-lg',
+          ? 'inset-4 rounded-lg bg-card'
+          : 'bottom-4 right-4 w-[min(22rem,calc(100vw-2rem))] rounded-lg bg-card/95 backdrop-blur',
       )}
     >
       <div className="flex items-center gap-1 border-b border-border px-2 py-1 text-xs">
