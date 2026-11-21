@@ -47,6 +47,12 @@ async function flush(times = 5) {
   for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
 }
 
+/** Yield to the event loop for `ms` of real time (performance is not faked). */
+async function settleFor(ms: number) {
+  const end = performance.now() + ms;
+  while (performance.now() < end) await new Promise((r) => setImmediate(r));
+}
+
 describe("TorrentSwarm download queue", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
@@ -118,7 +124,9 @@ describe("TorrentSwarm download queue", () => {
         expect(b.getProgress(m2.id)?.state).toBe("queued");
       }
       vi.advanceTimersByTime(2_000);
-      await flush(20);
+      // Give WebCrypto hashing real time to finish; under a loaded test run a
+      // fixed number of ticks was not always enough.
+      await settleFor(100);
     }
 
     expect(order).toEqual(["first", "second"]);
