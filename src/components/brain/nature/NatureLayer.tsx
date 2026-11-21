@@ -824,8 +824,8 @@ function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string 
   const craterR = organ.craterRadius;
   return (
     <group ref={groupRef}>
-      {/* Molten crater floor — pressure-reactive crust. */}
-      <VolcanoLavaPool radius={craterR * 0.95} />
+      {/* Lava lake fed by the deep magma conduit (seen down the neck). */}
+      <VolcanoLavaPool radius={craterR * 0.95} organ={organ} />
       {/* Heat comes from the molten crust; no hovering solid orange ball. */}
       <VolcanoAshPlume organ={organ} altitude={lavaR - EARTH_RADIUS} />
     </group>
