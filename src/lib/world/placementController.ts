@@ -35,6 +35,8 @@ export interface PlaceAtHitInput {
   localNormal?: Vec3;
   localForward?: Vec3;
   localRight?: Vec3;
+  /** Skip the placement labour credit (putting a carried tool down is not building). */
+  noLabour?: boolean;
 }
 
 function gridKey(p: Vec3, step = 0.25): string {
@@ -130,13 +132,15 @@ export function placePrefabAtHit(input: PlaceAtHitInput): PlacedHandle | null {
 
   // Labour weight for placement is small but non-zero — credits the
   // placer through coin.bus' world.mutation subscription.
-  emitWorldMutation({
-    actorId: input.actorId,
-    targetKey: block.bodyId,
-    effectiveCut: 0,
-    resistance: 0,
-    laborWeight: Math.max(0.01, prefab.mass * 0.01),
-  });
+  if (!input.noLabour) {
+    emitWorldMutation({
+      actorId: input.actorId,
+      targetKey: block.bodyId,
+      effectiveCut: 0,
+      resistance: 0,
+      laborWeight: Math.max(0.01, prefab.mass * 0.01),
+    });
+  }
 
   return {
     placementId,

@@ -543,6 +543,38 @@ export async function removeLocalPlacement(placementId: string): Promise<void> {
 }
 
 /**
+ * Retire a placement because a shared world fact ended it (an NPC picked
+ * up a dropped tool, or an unwanted tool vanished; see droppedToolsStore).
+ * Every peer holding the fact calls this, so it is not gated on
+ * ownership. It writes an ordinary tombstone, so the placement leaves the
+ * view, physics and storage, is never seeded to newcomers again, and a
+ * stale copy is refused. The tombstone is stamped no earlier than the
+ * record's own createdAt, so a dropper whose clock runs ahead still loses
+ * the tool. Only the owner's device relays the tombstone itself (as on a
+ * normal delete), which also clears it for peers without the fact store.
+ */
+export function retirePlacement(placementId: string, universeKey: string, at: number): boolean {
+  const existing = records.get(placementId);
+  const deletedAt = Math.max(at, existing?.createdAt ?? 0);
+  const tomb: PlacementTombstone = {
+    placementId,
+    universeKey: existing ? scopeOf(existing) : (universeKey || 'global'),
+    deletedAt,
+  };
+  if (!applyTombstone(tomb, { persist: true })) return false;
+  try { chan()?.postMessage({ __delete: tomb }); } catch { /* noop */ }
+  if (existing && ownsPlacement(existing, getCurrentUser()?.id)) {
+    try { deleteGossipBridge?.(tomb); } catch (err) { console.warn('[worldPlacements] delete gossip error', err); }
+  }
+  return true;
+}
+
+/** Every placement held on this device, in every universe scope. */
+export function listAllPlacementRecords(): PlacementRecord[] {
+  return [...records.values()];
+}
+
+/**
  * Author refresh: mark an owned placement active now and gossip it, so
  * peers that let it go idle in the Main Brain pick it back up.
  */

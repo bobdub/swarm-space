@@ -11,6 +11,12 @@
  * Gathered counts climb on their own (and differently on every device
  * running the village), so they never matched what the player harvested.
  *
+ * Tools an NPC picked up (see npc/npcTools) make the same work go
+ * further: an axe fells 2 wood, a knife dresses 2 food from every
+ * catch, a bucket carries 2 water. Only the NPC's own stores grow; the
+ * labour weight sent to the ledger is unchanged, so payouts stay as they
+ * were.
+ *
  * No direct field writes; no Math.random in branching (deterministic
  * skill gate via npcSkills).
  */
@@ -18,6 +24,7 @@ import { emitWorldMutation } from './world.bus';
 import { harvestSite, type ResourceSite } from './baseResources';
 import { deposit, consume } from '@/lib/brain/npc/npcChemistry';
 import type { Npc, NpcDrive } from '@/lib/brain/npc/npcTypes';
+import type { NpcToolKind } from '@/lib/brain/npc/npcTools';
 
 export interface WetWorkOutcome {
   ok: boolean;
@@ -25,7 +32,11 @@ export interface WetWorkOutcome {
   verb: NpcDrive;
   /** Yield collected this tick, if any. */
   gained?: { kind: 'water' | 'food' | 'wood'; qty: number };
+  /** The owned tool kind that did the work, if one did. */
+  usedTool?: NpcToolKind;
 }
+
+const NO_TOOLS: ReadonlySet<NpcToolKind> = new Set();
 
 /**
  * Apply one interaction between `npc` and `site` for the chosen drive.
@@ -36,6 +47,7 @@ export function interact(
   npc: Npc,
   drive: NpcDrive,
   site: ResourceSite,
+  tools: ReadonlySet<NpcToolKind> = NO_TOOLS,
 ): WetWorkOutcome {
   const huntSkill = npc.skills?.['hunt'] ?? 0.5;
 
@@ -48,9 +60,11 @@ export function interact(
   if (site.kind === 'water' && (drive === 'drink' || drive === 'fish')) {
     if (!harvestSite(site.id)) return { ok: false, verb: drive };
     if (drive === 'drink') {
-      deposit(npc.id, 'water', 1);
+      const bucket = tools.has('carry');
+      const qty = bucket ? 2 : 1;
+      deposit(npc.id, 'water', qty);
       emit(npc.id, site, 0.4, 0.2, 1.0);
-      return { ok: true, verb: 'drink', gained: { kind: 'water', qty: 1 } };
+      return { ok: true, verb: 'drink', gained: { kind: 'water', qty }, ...(bucket ? { usedTool: 'carry' as const } : {}) };
     }
     deposit(npc.id, 'food', 1);
     emit(npc.id, site, 0.5, 0.5, 1.2);
@@ -59,19 +73,25 @@ export function interact(
 
   if (site.kind === 'wood' && (drive === 'gather' || drive === 'craft')) {
     if (!harvestSite(site.id)) return { ok: false, verb: drive };
-    deposit(npc.id, 'wood', 1);
+    const axe = tools.has('chop');
+    const qty = axe ? 2 : 1;
+    deposit(npc.id, 'wood', qty);
     emit(npc.id, site, 0.8, 0.6, 1.4);
-    return { ok: true, verb: drive, gained: { kind: 'wood', qty: 1 } };
+    return { ok: true, verb: drive, gained: { kind: 'wood', qty }, ...(axe ? { usedTool: 'chop' as const } : {}) };
   }
 
   if (site.kind === 'animal' && drive === 'hunt') {
     // Skill gate — low-skill hunters miss occasionally, but deterministically:
     // we still attempt the harvest, but yield is halved at skill < 0.4.
     if (!harvestSite(site.id)) return { ok: false, verb: 'hunt' };
-    const qty = huntSkill < 0.4 ? 1 : 2;
+    const knife = tools.has('whittle');
+    const skilledQty = huntSkill < 0.4 ? 1 : 2;
+    // A knife dresses the full catch even for a clumsy hunter. Labour
+    // follows the skill-based catch, so the knife never changes payouts.
+    const qty = knife ? 2 : skilledQty;
     deposit(npc.id, 'food', qty);
-    emit(npc.id, site, 1.0, 0.9, 1.6 * qty);
-    return { ok: true, verb: 'hunt', gained: { kind: 'food', qty } };
+    emit(npc.id, site, 1.0, 0.9, 1.6 * skilledQty);
+    return { ok: true, verb: 'hunt', gained: { kind: 'food', qty }, ...(knife ? { usedTool: 'whittle' as const } : {}) };
   }
 
   return { ok: false, verb: drive };

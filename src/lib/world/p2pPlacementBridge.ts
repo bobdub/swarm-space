@@ -67,6 +67,13 @@ import {
   type LandClaim,
 } from '@/lib/world/landClaimsStore';
 import { installLandClaimRules } from '@/lib/world/boundaryMarker';
+import {
+  attachDroppedToolGossip,
+  acceptPeerDroppedToolFact,
+  listDroppedToolFacts,
+  mergeDroppedToolFacts,
+  type DroppedToolFact,
+} from '@/lib/world/droppedToolsStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -87,6 +94,11 @@ const NATURE_SYNC_RESPONSE = 'nature:events:sync-response';
 const FIRE_CHANNEL = 'fire:event';
 const FIRE_SYNC_REQUEST = 'fire:events:sync-request';
 const FIRE_SYNC_RESPONSE = 'fire:events:sync-response';
+const TOOL_FATE_CHANNEL = 'world:tool:fate';
+const TOOL_FATE_SYNC_REQUEST = 'world:tool:fates:sync-request';
+const TOOL_FATE_SYNC_RESPONSE = 'world:tool:fates:sync-response';
+/** Dropped-tool fates are backfilled in pages so one message never gets huge. */
+const TOOL_FATE_SYNC_PAGE = 500;
 const LAND_CLAIM_CHANNEL = 'land:claim';
 const LAND_SYNC_REQUEST = 'land:claims:sync-request';
 const LAND_SYNC_RESPONSE = 'land:claims:sync-response';
@@ -175,6 +187,14 @@ export function bootPlacementGossipBridge(): void {
     // Fire pits: wood put on a fire, so every peer sees the same flames.
     attachFireGossip((evt: FireEvent) => {
       try { mesh!.broadcast(FIRE_CHANNEL, evt); } catch { /* noop */ }
+    });
+    // Dropped tools: which NPC picked one up, or that it vanished unwanted,
+    // so every peer removes it and only one villager ever holds it.
+    attachDroppedToolGossip((fact: DroppedToolFact) => {
+      void isAcceptableScope(fact.universeKey).then((ok) => {
+        if (!ok) return;
+        try { mesh!.broadcast(TOOL_FATE_CHANNEL, fact); } catch { /* noop */ }
+      });
     });
     // Land: signed single-block claims, so every peer agrees who owns what.
     attachLandClaimGossip((claim: LandClaim) => {
@@ -283,6 +303,32 @@ export function bootPlacementGossipBridge(): void {
       try { mergeFireEvents(payload); } catch { /* noop */ }
     });
 
+    // ── Dropped-tool fates: live gossip + newcomer backfill ──────────
+    mesh.onMessage(TOOL_FATE_CHANNEL, (_peerId, payload) => {
+      const fact = payload as DroppedToolFact | undefined;
+      if (!fact || typeof fact !== 'object') return;
+      void isAcceptableScope(fact.universeKey).then((ok) => {
+        if (!ok) return;
+        try { acceptPeerDroppedToolFact(fact); } catch { /* noop */ }
+      });
+    });
+    mesh.onMessage(TOOL_FATE_SYNC_REQUEST, (peerId) => {
+      try {
+        // Project-scoped fates stay with live gossip, like placements.
+        const list = listDroppedToolFacts().filter((f) => !f.universeKey.startsWith('project-'));
+        for (let i = 0; i < list.length; i += TOOL_FATE_SYNC_PAGE) {
+          void mesh!.send(TOOL_FATE_SYNC_RESPONSE, peerId, list.slice(i, i + TOOL_FATE_SYNC_PAGE));
+        }
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(TOOL_FATE_SYNC_RESPONSE, (_peerId, payload) => {
+      if (!Array.isArray(payload)) return;
+      try {
+        mergeDroppedToolFacts(payload.filter((f) =>
+          typeof f?.universeKey !== 'string' || !f.universeKey.startsWith('project-')));
+      } catch { /* noop */ }
+    });
+
     // ── Land claims: live gossip + newcomer backfill ────────────────
     mesh.onMessage(LAND_CLAIM_CHANNEL, (_peerId, payload) => {
       void acceptPeerLandClaim(payload).catch(() => false);
@@ -343,6 +389,7 @@ export function bootPlacementGossipBridge(): void {
           void mesh!.send(NATURE_SYNC_REQUEST, id, {});
           void mesh!.send(FIRE_SYNC_REQUEST, id, {});
           void mesh!.send(LAND_SYNC_REQUEST, id, {});
+          void mesh!.send(TOOL_FATE_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
@@ -358,10 +405,11 @@ export function bootPlacementGossipBridge(): void {
           void mesh!.send(NATURE_SYNC_REQUEST, id, {});
           void mesh!.send(FIRE_SYNC_REQUEST, id, {});
           void mesh!.send(LAND_SYNC_REQUEST, id, {});
+          void mesh!.send(TOOL_FATE_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     }, NATURE_RESYNC_MS);
 
-    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables + land claims)');
+    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables + land claims + dropped-tool fates)');
   })();
 }

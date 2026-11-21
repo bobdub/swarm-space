@@ -3,8 +3,9 @@
  * held in the player's hand. Exposes:
  *   • Use   — applies the tool's verb to the currently selected
  *             placement (selectedBlockId in builder state).
- *   • Drop  — re-places the tool back into the world at its original
- *             hit point and clears the hand slot.
+ *   • Drop  — puts the tool down in front of the player and clears the
+ *             hand slot. A village NPC without that kind of tool may
+ *             walk over and collect it.
  *
  * Pure UI seam; physics + verb logic live in `toolActions.ts`.
  */
@@ -18,8 +19,7 @@ import {
   type HeldTool,
 } from '@/lib/world/heldToolStore';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
-import { applyToolToTarget } from '@/lib/world/toolActions';
+import { applyToolToTarget, dropHeldToolOnGround } from '@/lib/world/toolActions';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import {
@@ -56,11 +56,8 @@ export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
   };
 
   const onDrop = async () => {
-    // Re-place at original hit point so the tool comes back into the world.
-    await recordLocalPlacement({
-      ...held.source,
-      createdAt: Date.now(),
-    });
+    // Put it down at the player's feet; village NPCs may come for it.
+    await dropHeldToolOnGround(held, selfId);
     setHeldTool(null);
     setToolTarget(null);
   };
