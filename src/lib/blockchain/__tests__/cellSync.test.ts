@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { computeUserId, genIdentityKeyPair } from "@/lib/crypto";
 import { signerFromKeys } from "../blockHeader";
 import { endorsementSignerFromKeys } from "../endorsements";
+import { planCatchup } from "../chainCatchup";
 import { memoryCellChainStorage } from "../cellChain/cellChain";
 import { CellChains } from "../cellChain/cellChains";
 import { CellSession, type CellSigners, type CellTransport } from "../cellChain/cellSync";
@@ -167,5 +168,27 @@ describe("cell chain sync", () => {
     await owner.session.tick();
     await settle();
     expect((await bob.chains.chain(CELL))!.getChain()).toHaveLength(1);
+  });
+
+  it("collects every catch-up page before fork choice, so a winning fork longer than one page is adopted", async () => {
+    const clockA = { t: T0 + 30_000 };
+    const clockB = { t: T0 + 31_000 };
+    const net = new Net();
+    const ownerSigners = await newSigners();
+    const a = node(net, "peer-a", ownerSigners, clockA);
+    const b = node(net, "peer-b", ownerSigners, clockB);
+    await a.chains.ensureOwned(CELL, "Garden Club", ownerSigners.text, T0);
+    await b.chains.setGenesis(CELL, a.chains.genesis(CELL)!);
+    const chainA = (await a.chains.chain(CELL))!;
+    const chainB = (await b.chains.chain(CELL))!;
+    // A has 75 blocks of its own; B grew a longer fork (100 blocks) from the genesis.
+    for (let i = 0; i < 75; i++) { clockA.t += 30_000; await chainA.mine(ownerSigners.block); }
+    for (let i = 0; i < 100; i++) { clockB.t += 30_000; await chainB.mine(ownerSigners.block); }
+    clockA.t = clockB.t;
+    const pages = planCatchup(chainB.getChain(), null);
+    expect(pages.length).toBeGreaterThan(1);
+    const takeSync = (a.session as unknown as { takeSync(from: string, msg: unknown, chain: unknown): Promise<void> }).takeSync.bind(a.session);
+    for (const page of pages) await takeSync("peer-b", JSON.parse(JSON.stringify({ t: "sync-response", chain: chainA.chainId, ...page })), chainA);
+    expect(chainA.getLatestBlock().hash).toBe(chainB.getLatestBlock().hash);
   });
 });

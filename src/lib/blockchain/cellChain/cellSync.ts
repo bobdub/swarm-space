@@ -79,6 +79,8 @@ export class CellSession {
   private verified = new Map<string, string>();
   private challenges = new Map<string, string>();
   private marks = new Map<string, ChainMark>();
+  /** Sync pages collected per peer until the last one arrives. */
+  private syncPages = new Map<string, { fromIndex: number; blocks: SwarmBlock[] }>();
   private seenBlocks = new Set<string>();
   private seenTx = new Set<string>();
   private seenEndorsements = new Set<string>();
@@ -249,20 +251,34 @@ export class CellSession {
   private async takeSync(from: string, msg: Msg, chain: CellChain): Promise<void> {
     const blocks = msg.blocks as SwarmBlock[] | undefined;
     const fromIndex = Number(msg.fromIndex);
+    const page = Number.isInteger(msg.page) ? Number(msg.page) : 0;
+    const pages = Number.isInteger(msg.pages) ? Number(msg.pages) : 1;
+    if (!Array.isArray(blocks) || !Number.isInteger(fromIndex) || fromIndex < 0) return;
+    // As on the mesh: collect the pages, then offer the whole picture to fork
+    // choice once the last one is in. A winning fork longer than one page
+    // would lose if each page were judged against our chain on its own.
+    if (page === 0 || !this.syncPages.has(from)) this.syncPages.set(from, { fromIndex, blocks: [] });
+    const collected = this.syncPages.get(from)!;
+    if (collected.blocks.length + blocks.length > 20_000) return void this.syncPages.delete(from);
+    collected.blocks.push(...blocks);
+    if (page < pages - 1) return;
+    this.syncPages.delete(from);
+    // Remember their tip only once we've taken in everything up to it.
     const tip = msg.tip as ChainMark | null | undefined;
     if (tip && Number.isInteger(tip.index) && typeof tip.hash === "string") this.marks.set(from, tip);
-    if (!Array.isArray(blocks) || blocks.length === 0 || !Number.isInteger(fromIndex) || fromIndex < 0) return;
+    if (collected.blocks.length === 0) return;
     const local = chain.getChain();
     let candidate: SwarmBlock[];
-    if (fromIndex === 0) {
-      candidate = blocks;
+    if (collected.fromIndex === 0) {
+      candidate = collected.blocks;
     } else {
-      const attachAt = local[fromIndex - 1];
-      if (!attachAt || blocks[0]?.previousHash !== attachAt.hash) {
+      const attachAt = local[collected.fromIndex - 1];
+      if (!attachAt || collected.blocks[0]?.previousHash !== attachAt.hash) {
+        this.marks.delete(from);
         this.transport.send(from, { t: "sync-request", chain: chain.chainId, since: null });
         return;
       }
-      candidate = [...local.slice(0, fromIndex), ...blocks];
+      candidate = [...local.slice(0, collected.fromIndex), ...collected.blocks];
     }
     const appended = candidate.length === local.length + 1 && await chain.appendPeerBlock(candidate[candidate.length - 1]);
     if (!appended) await chain.adoptPeerChain(candidate);
