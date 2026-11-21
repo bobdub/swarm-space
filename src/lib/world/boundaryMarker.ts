@@ -227,6 +227,14 @@ function saveDeeds(ownerId: string, deeds: LandDeed[]): void {
   try { globalThis.localStorage?.setItem(deedsKey(ownerId), JSON.stringify(deeds)); } catch { /* storage blocked */ }
 }
 
+/** Write one deed back by id against current storage (never a stale snapshot). */
+function updateDeed(ownerId: string, deed: LandDeed): void {
+  const deeds = loadDeeds(ownerId);
+  const i = deeds.findIndex((d) => d.id === deed.id);
+  if (i >= 0) deeds[i] = deed; else deeds.push(deed);
+  saveDeeds(ownerId, deeds);
+}
+
 function addDeeds(ownerId: string, add: LandDeed[]): void {
   const deeds = loadDeeds(ownerId);
   const ids = new Set(deeds.map((d) => d.id));
@@ -283,9 +291,8 @@ export async function reconcileDeeds(
     const isWater = deps.isWater ?? isWaterBlock;
     const deeds = loadDeeds(ownerId);
     const taken = new Set<string>();
-    let changed = false;
     for (const deed of deeds) {
-      if (heldBy(deed.cx, deed.cz, ownerId)) continue;
+      if (heldBy(deed.cx, deed.cz, ownerId) && !isWater(deed.cx, deed.cz)) continue;
       // 1. Our own spot, at our own claim time.
       if (!isWater(deed.cx, deed.cz)) {
         const signed = await signAs(deps, ownerId, [{
@@ -307,12 +314,13 @@ export async function reconcileDeeds(
         deed.cz = spot.cz;
         deed.claimedAt = at;
         deed.moves = (deed.moves ?? 0) + 1;
+        // Persist each move at once, so an early exit (locked key) or a
+        // purchase made meanwhile can never be overwritten or replayed.
+        updateDeed(ownerId, deed);
         taken.add(`${spot.cx}:${spot.cz}`);
-        changed = true;
         out.moved += 1;
       }
     }
-    if (changed) saveDeeds(ownerId, deeds);
     return out;
   } finally {
     reconciling = false;

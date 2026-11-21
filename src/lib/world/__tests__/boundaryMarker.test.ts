@@ -341,3 +341,44 @@ describe('land grid projection', () => {
     }
   });
 });
+
+describe('deeds survive interruptions', () => {
+  it('keeps finished moves when the key locks midway, so a retry never claims extra blocks', async () => {
+    const deps = depsFor(alice);
+    await claimBlockWithMarker({ cx: 20, cz: 20, ownerId: alice.id }, deps);
+    await claimBlockWithMarker({ cx: 30, cz: 30, ownerId: alice.id }, deps);
+    await acceptPeerLandClaim(await claimFor(bob, 20, 20, 500));
+    await acceptPeerLandClaim(await claimFor(bob, 30, 30, 500));
+
+    // Deed 1: restore attempt + move = 2 signatures; then the key locks.
+    let calls = 0;
+    const flaky = { ...deps, getPrivateKey: async () => (++calls <= 2 ? alice.privateKey : null) };
+    expect((await reconcileDeeds(alice.id, flaky)).moved).toBe(1);
+    await reconcileDeeds(alice.id, deps);
+    expect(listLandClaims().filter((c) => c.ownerId === alice.id)).toHaveLength(2);
+  });
+
+  it('keeps a deed bought while a reconcile is waiting on the key', async () => {
+    const deps = depsFor(alice);
+    await claimBlockWithMarker({ cx: 50, cz: 50, ownerId: alice.id }, deps);
+    await acceptPeerLandClaim(await claimFor(bob, 50, 50, 500));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const slow = { ...deps, getPrivateKey: async () => { await gate; return alice.privateKey; } };
+    const pending = reconcileDeeds(alice.id, slow);
+    await claimBlockWithMarker({ cx: 60, cz: 60, ownerId: alice.id }, deps);
+    release();
+    await pending;
+    expect(loadDeeds(alice.id)).toHaveLength(2);
+  });
+});
+
+describe('water rule on claims already stored', () => {
+  it('drops stored water claims when the rule is installed', async () => {
+    recordLocalLandClaims([await claimFor(bob, 95, 1, 1000), await claimFor(bob, 5, 1, 1000)], 2000);
+    installLandClaimRules((cx) => cx >= 90);
+    expect(getLandClaim(95, 1)).toBeNull();
+    expect(getLandClaim(5, 1)?.ownerId).toBe(bob.id);
+    expect(JSON.parse(localStorage.getItem('brain-land-claims-v1') ?? '[]')).toHaveLength(1);
+  });
+});

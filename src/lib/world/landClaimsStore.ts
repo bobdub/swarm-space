@@ -176,6 +176,7 @@ function hydrate(): void {
     // Stored claims were verified when they arrived; shape-check only.
     for (const c of list) {
       if (!isLandClaimShape(c)) continue;
+      if (!passesRules(c)) continue;
       const k = landCellKey(c.cx, c.cz);
       const prev = claims.get(k);
       if (!prev || claimBeats(c, prev)) claims.set(k, c);
@@ -203,6 +204,18 @@ function notify(): void {
  */
 export function setLandClaimValidator(fn: ((c: UnsignedLandClaim) => boolean) | null): void {
   validator = fn;
+  if (!fn) return;
+  // Claims stored or accepted before the rule existed must obey it too,
+  // or this peer would keep (and backfill) land that others refuse.
+  hydrate();
+  let dropped = 0;
+  for (const [k, c] of claims) {
+    if (!passesRules(c)) { claims.delete(k); dropped += 1; }
+  }
+  if (dropped > 0) {
+    persist();
+    notify();
+  }
 }
 
 function passesRules(c: LandClaim): boolean {
