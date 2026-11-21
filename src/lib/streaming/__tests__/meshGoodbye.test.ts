@@ -52,6 +52,21 @@ describe('mesh goodbye reaches rooms, calls and chat', () => {
     offSig(); offRemoved();
   });
 
+  it('a peer silent on our direct link but still heard through a relay stays in the room', () => {
+    const a = makeMesh('A', ['C']);
+    startSignalingBridge(a.mesh);
+    announceJoinRoom('brain', 'uA', 'A');
+    a.deliver('C', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: 41, hops: 1 });
+    const leaves: string[] = [];
+    const offSig = onSignal((e) => { if (e.msgType === 'leave-room') leaves.push(e.from); });
+    a.depart('B', 'silent');
+    expect(leaves).toEqual([]);
+    expect(isRoomPeerPresent('brain', 'B')).toBe(true);
+    a.depart('B', 'goodbye'); // a real goodbye still removes them
+    expect(leaves).toEqual(['B']);
+    offSig();
+  });
+
   it('a fresh join after a goodbye brings the peer back', () => {
     const a = makeMesh('A', ['B']);
     startSignalingBridge(a.mesh);

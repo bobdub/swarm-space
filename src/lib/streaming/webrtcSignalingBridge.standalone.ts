@@ -912,6 +912,17 @@ function sendChatHistoryRequest(roomId: string, peerIds: string[]): void {
 
 let unsubDepartures: (() => void) | null = null;
 
+/** Mirrors the mesh's PEER_GONE_AFTER_SILENCE_MS: room traffic newer than this keeps a peer. */
+const MESH_SILENT_DEPARTURE_MS = 5 * 60_000;
+
+/** True if anything from `peerId` (direct or relayed) reached any room since `since`. */
+function heardInRoomsSince(peerId: string, since: number): boolean {
+  for (const [key, at] of lastHeardAt) {
+    if (at >= since && key.endsWith(`|${peerId}`)) return true;
+  }
+  return (networkRoomHeardAt.get(peerId) ?? 0) >= since;
+}
+
 /**
  * A mesh peer is gone (said goodbye when switching the mesh off, or nothing
  * heard for minutes): drop them from every room, the call and the shared
@@ -967,7 +978,12 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
   const offBeforeStop = mesh.onBeforeStop?.(() => announceMeshGoodbye());
-  const offDeparted = mesh.onPeerDeparted?.((peerId) => handleMeshPeerDeparted(peerId));
+  const offDeparted = mesh.onPeerDeparted?.((peerId, reason) => {
+    // Silence on our direct link is not silence in the room: room members
+    // need not share an edge, and their relayed traffic proves they are here.
+    if (reason === 'silent' && heardInRoomsSince(peerId, Date.now() - MESH_SILENT_DEPARTURE_MS)) return;
+    handleMeshPeerDeparted(peerId);
+  });
   unsubDepartures = () => { offBeforeStop?.(); offDeparted?.(); };
   // Seed snapshot so the first poll diff doesn't fire for already-known peers.
   knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
