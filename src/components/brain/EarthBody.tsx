@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Text } from './SafeText';
 import {
   EARTH_RADIUS,
   EARTH_SPHERE_RINGS,
@@ -332,15 +331,6 @@ export function EarthBody() {
           depthWrite={false}
         />
       </mesh>
-      <Text
-        position={[0, EARTH_RADIUS + 0.6 * WORLD_SCALE, 0]}
-        fontSize={0.35 * WORLD_SCALE}
-        color="hsl(200, 90%, 90%)"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Earth
-      </Text>
       {/* Moon — orbits Earth, lit by the same Sun, gives the dark side
           of Earth a celestial reference + faint reflected fill light */}
       <group ref={moonGroupRef} position={initialMoonPos}>
