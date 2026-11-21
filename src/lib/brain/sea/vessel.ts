@@ -45,6 +45,7 @@ import { groundElevationAt } from '../groundHeight';
 import { BOAT_BEAM, BOAT_DECK_Y, BOAT_DRAFT, BOAT_LENGTH } from './boatSpec';
 import { WATERPLANE_AREA } from './boatHull';
 import { getVillageDockSite, starboardOf, travel } from './dockSite';
+import { tideAt } from './seaSurface';
 
 /** Sea water density (kg/m³). */
 export const WATER_DENSITY = 1025;
@@ -553,9 +554,10 @@ export class Vessel {
     this.sea += (this.seaTarget - this.sea) * (1 - Math.exp(-dt / SEA_TAU_S));
   }
 
-  /** Waterline offset of the boat frame at time t (m): swell − load sink. */
+  /** Waterline offset of the boat frame at time t (m): tide + swell − load
+   *  sink. The tide is the shared one the sea is drawn at (`seaSurface`). */
   waterlineAt(t: number): number {
-    return swellAt(t, this.phase, this.sea) - this.heave.sink;
+    return tideAt(this.motion.n, t) + swellAt(t, this.phase, this.sea) - this.heave.sink;
   }
 
   /** Drawn roll and pitch now (rad). */

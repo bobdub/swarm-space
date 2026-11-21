@@ -75,6 +75,10 @@ Status: **live** in the Brain world. The full design and build history is in
   builds with the wind and more under rain, from gentle in a calm to about
   3.5× in a squall. It builds and lies down over several seconds, and the
   deck carries you with it.
+- **Tides.** The sea rises and falls with the Moon and Sun: two high waters
+  each in-game day (about every 1.7 real hours), a few tens of centimetres,
+  stronger or weaker as the Sun's pull lines up with the Moon's or not.
+  Boats, swimmers and the drawn water all ride the same tide.
 - **Wake.** A moving boat leaves a widening, fading wake behind her stern.
 - **Mini map.** The map shows the jetty and every boat as an arrow along her
   heading: gold for yours, tan for the jetty boat, white for other
@@ -112,8 +116,12 @@ Rules worth keeping:
   (`stepMotion`) inside the fleet tick, which runs after each physics tick.
   Riders are carried kinematically: sideways with the hull, and up and down
   with the deck's swell, so the support settle never lags a rough sea.
-- **Shared clock.** Swell, tilt and dead reckoning use `getEarthPoseTime()`,
-  never local elapsed time.
+- **Shared clock.** Swell, tilt, tide and dead reckoning use
+  `getEarthPoseTime()`, never local elapsed time.
+- **One sea surface.** `sea/seaSurface.ts` owns the tide (`tideAt`) and the
+  visual swell GLSL. The water shader, `supportElevationAt` (swimmers) and
+  `Vessel.waterlineAt` (hulls and decks) all read it, so never offset the
+  water anywhere else. Aground checks still use mean sea level.
 - **Presence `boat`.** The wire format is `{v, d, r}`, validated by
   `decodeBoatPresence`. It is opaque to the signaling bridge and
   `useBrainVoice`, which only pass it along.

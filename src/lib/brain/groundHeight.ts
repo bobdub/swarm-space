@@ -2,12 +2,13 @@ import { BODY_CENTER_HEIGHT, FEET_SHELL_RADIUS, FOOT_CUSHION } from './earth';
 import { sampleTerrainLift } from './terrainMesh';
 import { deckElevationAt } from './sea/deckSupport';
 import { WATER_WADE_DEPTH, WATER_WALK_SCALE } from './surfaceProfile';
+import { seaLevelAt } from './sea/seaSurface';
 
 /** Water drag follows the same baked ground as the walker and renderer. */
 export function groundWalkScaleAt(localN: [number, number, number], feet?: number): number {
   // Planks are dry: full walking speed on a jetty or deck.
   if (deckElevationAt(localN, feet) > -Infinity) return 1;
-  const t = Math.min(1, Math.max(0, (groundElevationAt(localN) - 0.05) / (WATER_WADE_DEPTH - 0.05)));
+  const t = Math.min(1, Math.max(0, (groundElevationAt(localN) - seaLevelAt(localN) - 0.05) / (WATER_WADE_DEPTH - 0.05)));
   const dry = t * t * (3 - 2 * t);
   return WATER_WALK_SCALE + (1 - WATER_WALK_SCALE) * dry;
 }
@@ -39,7 +40,8 @@ export const SWIM_FEET_DEPTH = SWIM_BODY_DEPTH + BODY_CENTER_HEIGHT + FOOT_CUSHI
 
 /**
  * Elevation (m above sea level) that supports a walker's feet: the solid
- * ground, the water's buoyancy in deep water, or a deck standing over the
+ * ground, the water's buoyancy in deep water (riding the shared tide,
+ * `sea/seaSurface.ts`, the same surface the sea is drawn at), or a deck standing over the
  * sea (the jetty, `sea/deckSupport.ts`) — whichever is highest. Land and
  * shallows: you stand on the ground. Deep water: you float and swim at
  * the surface with your head out. On a deck: you walk on its planks.
@@ -49,12 +51,12 @@ export const SWIM_FEET_DEPTH = SWIM_BODY_DEPTH + BODY_CENTER_HEIGHT + FOOT_CUSHI
  * so a swimmer under the jetty or beside a hull stays in the water.
  */
 export function supportElevationAt(localN: [number, number, number], feet?: number): number {
-  return Math.max(groundElevationAt(localN), -SWIM_FEET_DEPTH, deckElevationAt(localN, feet));
+  return Math.max(groundElevationAt(localN), seaLevelAt(localN) - SWIM_FEET_DEPTH, deckElevationAt(localN, feet));
 }
 
 /** True when the walker at this point is swimming rather than standing. */
 export function isSwimmingAt(localN: [number, number, number], feet?: number): boolean {
-  return groundElevationAt(localN) < -SWIM_FEET_DEPTH && deckElevationAt(localN, feet) === -Infinity;
+  return groundElevationAt(localN) < seaLevelAt(localN) - SWIM_FEET_DEPTH && deckElevationAt(localN, feet) === -Infinity;
 }
 
 /**
