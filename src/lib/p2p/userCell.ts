@@ -118,7 +118,21 @@ export async function createUserCell(name?: string): Promise<UserCell> {
   const record = readCells();
   record[cellId] = cell;
   writeCells(record);
+  void ensureCellGenesis(cell);
   return cell;
+}
+
+/**
+ * Owner's device: sign the cell's genesis (its first member list) if it has
+ * none. Needs the unlocked vault; with it locked this retries on next entry.
+ */
+async function ensureCellGenesis(cell: UserCell): Promise<void> {
+  try {
+    const { ensureOwnedCellGenesis } = await import('../blockchain/cellChain/rosterStore');
+    await ensureOwnedCellGenesis(cell);
+  } catch (err) {
+    console.warn('[userCell] cell genesis not written', err);
+  }
 }
 
 export function listUserCells(): UserCell[] {
@@ -134,6 +148,9 @@ export function deleteUserCell(cellId: string): void {
   if (!record[cellId]) return;
   delete record[cellId];
   writeCells(record);
+  void import('../blockchain/cellChain/rosterStore')
+    .then(({ getCellRosterStore }) => getCellRosterStore().forget(cellId))
+    .catch(() => { /* best effort */ });
   if (getActiveUserCellId() === cellId) {
     void exitUserCell();
   }
@@ -176,6 +193,9 @@ export async function enterUserCell(cellId: string): Promise<UserCell> {
   const me = getCurrentUser();
   if (cell.ownerUserId && me?.id !== cell.ownerUserId) {
     void dialCellOwner(cell);
+  } else if (cell.ownerUserId && me?.id === cell.ownerUserId) {
+    // Cells made before signed rosters get their genesis the next time the owner enters.
+    void ensureCellGenesis(cell);
   }
   notifyActive(cell);
   return cell;
