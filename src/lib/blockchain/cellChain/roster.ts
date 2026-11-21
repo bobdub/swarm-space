@@ -90,9 +90,14 @@ export async function signRosterRecord(record: RosterRecord, signer: TextSigner)
   return { record, signer: signer.userId, publicKey: signer.publicKey, signature };
 }
 
-/** The record's id: invites are accepted by this hash, and a genesis's hash is the cell chain's id. */
+/**
+ * The record's id: invites are accepted by it, replays are caught by it, and
+ * a genesis's id is the cell chain's id. It covers what was signed (record,
+ * signer, key) but not the signature bytes: an ECDSA signature can be
+ * re-encoded into another valid one, which must not make an old record new.
+ */
 export function rosterRecordHash(s: SignedRosterRecord): Promise<string> {
-  return sha256Async(canonical(s));
+  return sha256Async(canonical({ record: s.record, signer: s.signer, publicKey: s.publicKey }));
 }
 
 const isId = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 128;

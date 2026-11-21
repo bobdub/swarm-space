@@ -14,6 +14,7 @@ import {
   removeRecord,
   rosterSignerFromKeys,
   signRosterRecord,
+  rosterRecordHash,
   verifyRosterRecord,
   type SignedRosterRecord,
   type TextSigner,
@@ -50,7 +51,7 @@ export class CellChains {
     if (genesis?.record?.kind !== "genesis" || genesis.record.cellId !== cellId) return false;
     if (!await verifyRosterRecord(genesis) || genesis.signer !== genesis.record.owner) return false;
     const existing = this.genesis(cellId);
-    if (existing && existing.signature !== genesis.signature) return false;
+    if (existing && await rosterRecordHash(existing) !== await rosterRecordHash(genesis)) return false;
     try { this.store?.setItem(GENESIS_PREFIX + cellId, JSON.stringify(genesis)); } catch { return false; }
     return !!this.store;
   }

@@ -190,6 +190,28 @@ describe("a cell chain", () => {
     expect(chain.getRoster().isMember(bob.userId)).toBe(true);
   });
 
+  it("treats a re-encoded signature as the same record, so an old leave can't come back that way", async () => {
+    const owner = await newMember();
+    const bob = await newMember();
+    const { chain, clock: c } = await openCell(owner);
+    const join = async () => {
+      const invite = await signRosterRecord(inviteRecord(chain.chainId, bob.userId, c.now()), owner.text);
+      await chain.queueRosterRecord(invite);
+      await chain.queueRosterRecord(await signRosterRecord(await acceptRecord(invite, c.now()), bob.text));
+      await mineBeats(chain, c, owner, 1);
+    };
+    await join();
+    const leave = await signRosterRecord(leaveRecord(chain.chainId, c.now()), bob.text);
+    await chain.queueRosterRecord(leave);
+    await mineBeats(chain, c, owner, 1);
+    await join();
+    // A fresh, valid signature over the same leave (as a re-encoded one would be).
+    const resigned = await signRosterRecord(leave.record, bob.text);
+    expect(resigned.signature).not.toBe(leave.signature);
+    expect(await chain.queueRosterRecord(resigned)).toBe(false);
+    expect(chain.getRoster().isMember(bob.userId)).toBe(true);
+  });
+
   it("reloads its blocks from storage", async () => {
     const owner = await newMember();
     const storage = memoryCellChainStorage();
