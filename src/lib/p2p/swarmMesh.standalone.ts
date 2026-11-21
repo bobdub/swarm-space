@@ -10,6 +10,7 @@ import {
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
+import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -278,6 +279,8 @@ const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const MARKET_SYNC_INTERVAL = 60_000;
 const HEARTBEAT_INTERVAL = 8_000;
+const CLOCK_BURST_PINGS = 4;
+const CLOCK_BURST_GAP_MS = 250;
 const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
 const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
 /**
@@ -2151,6 +2154,13 @@ export class StandaloneSwarmMesh {
       }
 
       this.connections.set(rId, conn);
+      // Cadence Clock: a quick burst of ping-pongs calibrates this peer's clock now.
+      for (let i = 0; i < CLOCK_BURST_PINGS; i++) {
+        setTimeout(() => {
+          if (this.connections.get(rId) !== conn || !conn.open) return;
+          try { conn.send(JSON.stringify({ type: 'ping', from: this.peerId, ts: now() })); } catch { /* ignore */ }
+        }, i * CLOCK_BURST_GAP_MS);
+      }
       this.peerData.set(rId, {
         peerId: rId,
         connectedAt: now(),
@@ -3178,13 +3188,16 @@ export class StandaloneSwarmMesh {
 
   private handlePing(from: string, msg: Record<string, unknown>): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts, peerNow: networkNow() })); } catch { /* ignore */ }
   }
 
   private handlePong(from: string, msg: Record<string, unknown>): void {
     const echoTs = msg.echoTs as number | undefined;
     if (typeof echoTs !== 'number') return;
-    const rtt = now() - echoTs;
+    const receivedAt = now();
+    const rtt = receivedAt - echoTs;
+    // Cadence Clock: newer peers also send their clock; older ones don't.
+    if (typeof msg.peerNow === 'number') recordPeerClockSample(from, echoTs, msg.peerNow, receivedAt);
     const p = this.peerData.get(from);
     if (p) {
       p.lastRttMs = rtt;
