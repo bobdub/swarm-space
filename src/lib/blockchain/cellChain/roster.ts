@@ -15,9 +15,9 @@
  * - `leave`: signed by a member about itself. The owner can't leave.
  * - `remove`: signed by the owner about another member.
  *
- * A record that doesn't verify, or doesn't fit the roster at that point, is
- * rejected and the fold stops there: Phase 1 puts these records in cell chain
- * blocks, and a block with a bad record is invalid as a whole.
+ * Records ride inside cell chain blocks (see cellChain.ts) and apply in block
+ * order. A block with a record that doesn't verify, or doesn't fit the roster
+ * at that point, is invalid as a whole.
  *
  * Each cell is its own chain with its own coin (ticker from the cell name),
  * mined by its members. Mining a cell never creates SWARM: the shared chain's
@@ -90,9 +90,14 @@ export async function signRosterRecord(record: RosterRecord, signer: TextSigner)
   return { record, signer: signer.userId, publicKey: signer.publicKey, signature };
 }
 
-/** The record's id: invites are accepted by this hash, and a genesis's hash is the cell chain's id. */
+/**
+ * The record's id: invites are accepted by it, replays are caught by it, and
+ * a genesis's id is the cell chain's id. It covers what was signed (record,
+ * signer, key) but not the signature bytes: an ECDSA signature can be
+ * re-encoded into another valid one, which must not make an old record new.
+ */
 export function rosterRecordHash(s: SignedRosterRecord): Promise<string> {
-  return sha256Async(canonical(s));
+  return sha256Async(canonical({ record: s.record, signer: s.signer, publicKey: s.publicKey }));
 }
 
 const isId = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 128;
@@ -149,10 +154,17 @@ export function rosterSignerFromKeys(userId: string, publicKey: string, privateK
 
 interface OpenInvite { invitee: string; expiresAt: number }
 
+/**
+ * The member list at one point of a cell chain. Records apply in block
+ * order, and each takes its time from the block that carries it: the block's
+ * timestamp is held to the chain's tick, epoch and mesh-clock checks, so a
+ * record's own stamp is never trusted on its own.
+ */
 export class CellRoster {
   readonly members = new Set<string>();
   private invites = new Map<string, OpenInvite>();
-  private lastAt = 0;
+  /** Hashes of every record applied, so none can be replayed in a later block. */
+  private applied = new Set<string>();
 
   private constructor(
     /** Hash of the genesis record: the cell chain's id. */
@@ -162,26 +174,27 @@ export class CellRoster {
     /** The cell coin's ticker, fixed at genesis. */
     readonly ticker: string,
     readonly owner: string,
-    at: number,
+    /** The genesis record's stamp: the cell chain's genesis block time. */
+    readonly createdAt: number,
   ) {
     this.members.add(owner);
-    this.lastAt = at;
   }
 
   /** Start a roster from a genesis record. Null when it isn't a valid, signed genesis. */
   static async fromGenesis(s: SignedRosterRecord): Promise<CellRoster | null> {
     const r = s?.record;
     if (r?.kind !== "genesis" || !await verifyRosterRecord(s) || s.signer !== r.owner) return null;
-    return new CellRoster(await rosterRecordHash(s), r.cellId, r.name, r.ticker, r.owner, r.at);
+    const roster = new CellRoster(await rosterRecordHash(s), r.cellId, r.name, r.ticker, r.owner, r.at);
+    roster.applied.add(roster.chainId);
+    return roster;
   }
 
-  /** Fold a whole record list, genesis first. Null when any record is rejected. */
-  static async fold(records: SignedRosterRecord[]): Promise<CellRoster | null> {
-    if (records.length === 0) return null;
-    const roster = await CellRoster.fromGenesis(records[0]);
-    if (!roster) return null;
-    for (const s of records.slice(1)) if (!await roster.apply(s)) return null;
-    return roster;
+  clone(): CellRoster {
+    const copy = new CellRoster(this.chainId, this.cellId, this.name, this.ticker, this.owner, this.createdAt);
+    for (const m of this.members) copy.members.add(m);
+    for (const [k, v] of this.invites) copy.invites.set(k, { ...v });
+    for (const h of this.applied) copy.applied.add(h);
+    return copy;
   }
 
   isMember(userId: string): boolean {
@@ -193,53 +206,54 @@ export class CellRoster {
     return [...this.members].sort();
   }
 
-  /** The record would apply at this point, without applying it. */
-  async check(s: SignedRosterRecord): Promise<boolean> {
-    return (await this.plan(s)) !== null;
+  /** The record would apply in a block stamped at `blockMs`, without applying it. */
+  async check(s: SignedRosterRecord, blockMs: number): Promise<boolean> {
+    return (await this.plan(s, blockMs)) !== null;
   }
 
-  /** Apply one record. Returns false, leaving the roster unchanged, when it doesn't fit. */
-  async apply(s: SignedRosterRecord): Promise<boolean> {
-    const step = await this.plan(s);
+  /** Apply one record carried by a block stamped at `blockMs`. False, leaving the roster unchanged, when it doesn't fit. */
+  async apply(s: SignedRosterRecord, blockMs: number): Promise<boolean> {
+    const step = await this.plan(s, blockMs);
     if (!step) return false;
     step();
     return true;
   }
 
-  private async plan(s: SignedRosterRecord): Promise<(() => void) | null> {
+  private async plan(s: SignedRosterRecord, blockMs: number): Promise<(() => void) | null> {
     const r = s?.record;
-    if (!r || r.kind === "genesis" || r.chain !== this.chainId) return null;
-    // Records only move forward in time, so an old invite can't be replayed later in the list.
-    if (r.at < this.lastAt) return null;
+    if (!r || r.kind === "genesis" || r.chain !== this.chainId || !Number.isFinite(blockMs)) return null;
+    // A record is signed before the block that carries it, and never before the cell existed.
+    if (r.at > blockMs || r.at < this.createdAt) return null;
     if (!await verifyRosterRecord(s)) return null;
-    const at = r.at;
+    const id = await rosterRecordHash(s);
+    if (this.applied.has(id)) return null;
+    const done = () => { this.applied.add(id); };
     switch (r.kind) {
       case "invite": {
         if (s.signer !== this.owner || this.members.has(r.invitee)) return null;
-        const id = await rosterRecordHash(s);
-        if (this.invites.has(id)) return null;
-        return () => { this.invites.set(id, { invitee: r.invitee, expiresAt: r.expiresAt }); this.lastAt = at; };
+        return () => { this.invites.set(id, { invitee: r.invitee, expiresAt: r.expiresAt }); done(); };
       }
       case "accept": {
         const invite = this.invites.get(r.invite);
-        if (!invite || invite.invitee !== s.signer || r.at > invite.expiresAt) return null;
+        // The invite's expiry is judged by the block's time, not the acceptance's own stamp.
+        if (!invite || invite.invitee !== s.signer || blockMs > invite.expiresAt) return null;
         if (this.members.has(s.signer) || this.members.size >= MAX_CELL_MEMBERS) return null;
         return () => {
           this.invites.delete(r.invite);
           this.members.add(s.signer);
-          this.lastAt = at;
+          done();
         };
       }
       case "leave": {
         if (!this.members.has(s.signer) || s.signer === this.owner) return null;
-        return () => { this.members.delete(s.signer); this.lastAt = at; };
+        return () => { this.members.delete(s.signer); done(); };
       }
       case "remove": {
         if (s.signer !== this.owner || r.member === this.owner || !this.members.has(r.member)) return null;
         return () => {
           this.members.delete(r.member);
-          for (const [id, inv] of this.invites) if (inv.invitee === r.member) this.invites.delete(id);
-          this.lastAt = at;
+          for (const [inviteId, inv] of this.invites) if (inv.invitee === r.member) this.invites.delete(inviteId);
+          done();
         };
       }
       default:
