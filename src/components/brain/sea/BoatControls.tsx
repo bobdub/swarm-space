@@ -17,6 +17,7 @@ import { ArrowUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { usePressAndHold } from '@/hooks/usePressAndHold';
 import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
+import { Button } from '@/components/ui/button';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { teleportBody } from '@/lib/pub/seating';
 import { leaveRole, takeRole } from '@/lib/brain/sea/crew';
@@ -113,36 +114,39 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
         : action.kind === 'take'
           ? action.role === 'helm' ? 'Hold to take the wheel' : action.role === 'oars' ? 'Hold to take the oars' : 'Hold to take a rod'
           : action.role === 'helm' ? 'Hold to let go of the wheel' : action.role === 'oars' ? 'Hold to let go of the oars' : 'Hold to put the rod down';
+  const displayLabel = mobile && leaving
+    ? action.role === 'helm' ? 'Leave wheel' : action.role === 'oars' ? 'Leave oars' : 'Put rod down'
+    : label;
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       {...(full ? {} : hold.bind)}
       disabled={full}
       data-testid="boat-hold"
       aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
-      className={`absolute z-[70] flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold text-white select-none ${leaving ? '' : 'left-1/2 -translate-x-1/2'}`}
+      title={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
+      className={`absolute z-[70] flex items-center rounded-full border bg-background/80 text-foreground select-none touch-none ${full ? 'border-destructive/60' : 'border-accent/50'} ${mobile && leaving ? 'h-9 w-28 gap-1 px-2 py-0 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal' : 'h-auto gap-2 px-4 py-2 text-sm font-semibold'} ${leaving ? '' : 'left-1/2 -translate-x-1/2'}`}
       style={{
         // Letting go of a station sits out of the way at the lower right
         // (above the joystick on a phone); boarding and taking a station
         // stay centred where you are looking.
         ...(leaving
           ? mobile
-            ? { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14.75rem)' }
+            ? { right: '0.5rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14.5rem)' }
             : { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9.5rem)' }
           : { bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }),
-        background: 'hsla(265,70%,8%,0.85)',
-        borderColor: full ? 'hsla(0,70%,60%,0.6)' : 'hsla(180,80%,60%,0.55)',
         opacity: full ? 0.8 : 1,
         touchAction: 'none',
         WebkitTouchCallout: 'none',
         cursor: full ? 'default' : 'pointer',
       }}
     >
-      {!full && <HoldProgressRing value={hold.progress} size={20} />}
+      {!full && <HoldProgressRing value={hold.progress} size={mobile && leaving ? 16 : 20} />}
       {/* The label stays put while the ring fills: a button that shrank
           under a held finger could slip out from under it. */}
-      <span>{label}</span>
-    </button>
+      <span>{displayLabel}</span>
+    </Button>
   );
 }
 

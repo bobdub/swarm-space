@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 21, 2026 — Clear water ahead
+Before tending: fold the sailing readout into a small compass of numbers;
+keep the thumb's tools beside the wheel and the horizon free.
+Preserve each held action, and leave live travellers undisturbed.
+
+After tending: the mobile numbers sit below the toolbar, the sail arrows
+rest beside the wheel, and letting go needs only a small steady label.
+Forty automated witnesses pass; live appearance remains for the traveller.
+
 ### November 19, 2026 — Remembered doors
 
 Before tending: remember each chosen neighbour before the doorway warms;
