@@ -15,6 +15,7 @@
  */
 
 import type { MeshTransportAdapter } from "./torrentSwarm.standalone";
+import { isCallActive } from "./callActivity";
 import type { StandaloneSwarmMesh } from "./swarmMesh.standalone";
 import type { StandaloneBuilderMode } from "./builderMode.standalone-archived";
 
@@ -41,6 +42,15 @@ export function createMeshTorrentAdapter(
 
     getConnectedPeerIds(): string[] {
       return mesh.getConnectedPeerIds();
+    },
+
+    isCallActive(): boolean {
+      return isCallActive();
+    },
+
+    getBufferedAmount(peerId: string): number {
+      const m = mesh as AnyMesh & { getBufferedAmount?: (id: string) => number };
+      return typeof m.getBufferedAmount === "function" ? m.getBufferedAmount(peerId) : 0;
     },
   };
 }

@@ -4637,6 +4637,20 @@ export class StandaloneSwarmMesh {
     } catch { return false; }
   }
 
+  /**
+   * Bytes waiting to go out to a peer: the browser's data-channel buffer
+   * plus PeerJS's own send queue. Bulk senders (torrents) hold back while
+   * this is high so chat, signaling and calls are not stuck behind them.
+   */
+  getBufferedAmount(peerId: string): number {
+    const conn = this.connections.get(peerId) as (import('peerjs').DataConnection & { bufferSize?: number }) | undefined;
+    if (!conn) return 0;
+    const channelBuffered = conn.dataChannel?.bufferedAmount ?? 0;
+    // PeerJS chunks large strings and queues them itself once the channel is full.
+    const peerjsQueued = typeof conn.bufferSize === 'number' ? conn.bufferSize * 16 * 1024 : 0;
+    return channelBuffered + peerjsQueued;
+  }
+
   broadcast(channel: string, payload: unknown): void {
     for (const peerId of this.getConnectedPeerIds()) {
       void this.send(channel, peerId, payload);

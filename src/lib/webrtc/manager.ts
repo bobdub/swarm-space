@@ -1,4 +1,5 @@
 import type { VideoRoom, VideoParticipant, WebRTCSignal, VideoRoomMessage } from './types';
+import { applyHighMediaPriority, registerCallActivityProbe } from '@/lib/p2p/callActivity';
 import { startCallQualityMonitor } from './callQuality';
 import {
   sendSignalViaMesh,
@@ -112,6 +113,13 @@ export class WebRTCManager {
     this.userId = userId;
     this.username = username;
     this.setupSignalListener();
+    // Torrents throttle themselves while any call connection is live.
+    registerCallActivityProbe(() => {
+      for (const pc of this.connections.values()) {
+        if (pc.connectionState !== 'closed' && pc.connectionState !== 'failed') return true;
+      }
+      return false;
+    });
     // A refresh or tab close is a disconnect, never a resume: drop every
     // call connection so peers see us leave instead of a frozen avatar.
     if (typeof window !== 'undefined') {
@@ -1064,7 +1072,12 @@ export class WebRTCManager {
     if (!this.stopCallQuality) {
       this.stopCallQuality = startCallQualityMonitor(() => this.connections, () => this.currentRoomId);
     }
-    pc.onsignalingstatechange = () => this.drainNegotiation(peerId, pc);
+    pc.onsignalingstatechange = () => {
+      // Every settled negotiation (including a late screen share) gets its
+      // senders marked high priority ahead of bulk mesh data.
+      if (pc.signalingState === 'stable') void applyHighMediaPriority(pc);
+      this.drainNegotiation(peerId, pc);
+    };
 
     // Always create audio + video transceivers up front in `sendrecv`.
     // This guarantees the SDP advertises receive directions on BOTH sides
@@ -1220,6 +1233,7 @@ export class WebRTCManager {
       if (pc.connectionState === 'connected') {
         console.log(`[WebRTC] ✅ Media connected with ${peerId}`);
         registerMediaPeerConnection(peerId);
+        void applyHighMediaPriority(pc);
         // Clear any pending recovery timers — connection is healthy
         this.clearDisconnectTimer(peerId);
         this.clearReconnectTimer(peerId);
@@ -1841,6 +1855,7 @@ export class WebRTCManager {
     this.messageHandlers.clear();
     this.disconnectTimers.forEach(t => clearTimeout(t));
     this.reconnectTimers.forEach(t => clearTimeout(t));
+    registerCallActivityProbe(null);
   }
 }
 
