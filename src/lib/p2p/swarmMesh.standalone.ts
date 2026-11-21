@@ -469,7 +469,12 @@ export class StandaloneSwarmMesh {
   private seenChainBlocks = new Set<string>();
   /** Shared chain: sync pages collected per peer until the last one arrives. */
   private chainSyncPages = new Map<string, { fromIndex: number; blocks: Record<string, unknown>[] }>();
-  private pendingBlockVotes = new Map<string, { blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean }>();
+  private pendingBlockVotes = new Map<string, {
+    blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean;
+    /** The shared-chain block this round produced; only signed endorsements of it confirm the round. */
+    chainHash?: string;
+  }>();
+  private seenEndorsements = new Set<string>();
   private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
 
   // ── General cell-based retry timer ─────────────────────────────────
@@ -1119,9 +1124,6 @@ export class StandaloneSwarmMesh {
 
       this.miningStats.contentMultiplier = contentMultiplier;
 
-      // ── Shared chain: the block reward is the only payout (Bitcoin-style) ──
-      void this.mineChainBlock(isHollow);
-
       // ── Stage 1: Record block production ──
       this.miningStats.blocksMinedTotal += 1;
       this.miningStats.lastBlockMinedAt = now();
@@ -1144,6 +1146,10 @@ export class StandaloneSwarmMesh {
         totalPeers,
         isHollow,
       });
+
+      // ── Shared chain: the block reward is the only payout (Bitcoin-style).
+      // The round is confirmed by signed endorsements of the block it mines.
+      void this.mineChainBlock(isHollow, blockId);
 
       console.debug(
         `[SwarmMesh][Mining] ⛏️ BLOCK #${this.miningStats.blocksMinedTotal} MINED (PENDING) — ` +
@@ -1228,9 +1234,10 @@ export class StandaloneSwarmMesh {
    * younger than the cadence spacing, so the mesh keeps one block per beat
    * instead of racing siblings.
    */
-  private async mineChainBlock(hollow: boolean): Promise<void> {
-    if (this.chainMiningBusy) return;
+  private async mineChainBlock(hollow: boolean, roundId?: string): Promise<void> {
+    if (this.chainMiningBusy) { this.dropRound(roundId); return; }
     this.chainMiningBusy = true;
+    let mined = false;
     try {
       const [{ getSwarmChain }, { getLocalBlockSigner }] = await Promise.all([
         import('../blockchain/chain'),
@@ -1245,6 +1252,9 @@ export class StandaloneSwarmMesh {
       if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
       const block = await chain.minePendingTransactions(signer.userId, undefined, { allowEmpty: true, hollow, signer });
       if (block) {
+        mined = true;
+        const round = roundId ? this.pendingBlockVotes.get(roundId) : undefined;
+        if (round) round.chainHash = block.hash;
         this.announceChainBlock(block);
         void import('../blockchain/miningRewards').then((m) => m.recordBlockPoolShare()).catch(() => { /* non-fatal */ });
       }
@@ -1252,7 +1262,72 @@ export class StandaloneSwarmMesh {
       console.debug('[SwarmMesh][Mining] chain block not mined', e);
     } finally {
       this.chainMiningBusy = false;
+      if (!mined) this.dropRound(roundId);
     }
+  }
+
+  /** A CREATOR round that produced no chain block (beat taken, vault locked) isn't a block: undo its count. */
+  private dropRound(roundId?: string): void {
+    const round = roundId ? this.pendingBlockVotes.get(roundId) : undefined;
+    if (!round) return;
+    this.pendingBlockVotes.delete(roundId!);
+    this.miningStats.pendingBlocks = Math.max(0, this.miningStats.pendingBlocks - 1);
+    this.miningStats.blocksMinedTotal = Math.max(0, this.miningStats.blocksMinedTotal - 1);
+    if (round.isHollow) this.miningStats.hollowBlocks = Math.max(0, this.miningStats.hollowBlocks - 1);
+    this.saveMiningStats();
+  }
+
+  /**
+   * Check a live block and sign our verdict with the vault's identity key.
+   * We agree to at most one block per height, claimed in storage before the
+   * endorsement leaves. No key (vault locked): we stay silent, counted as missing.
+   */
+  private async endorseChainBlock(block: SwarmBlockShape, agree: boolean): Promise<void> {
+    try {
+      const { claimHeight, getCertificateBook, getLocalEndorsementSigner, signEndorsement } = await import('../blockchain/endorsements');
+      const signer = await getLocalEndorsementSigner();
+      if (!signer || signer.userId === block.miner) return;
+      if (agree && !claimHeight(block.index, block.hash)) return;
+      const endorsement = await signEndorsement(block as never, agree, signer, Math.round(networkNow()));
+      getCertificateBook().add(endorsement, typeof block.miner === 'string' ? block.miner : undefined);
+      this.seenEndorsements.add(`${endorsement.blockHash}:${endorsement.voter}`);
+      this.broadcastInternal({ type: 'chain-endorse', endorsement, producer: block.miner });
+    } catch (e) {
+      console.debug('[SwarmMesh][Mining] endorsement not sent', e);
+    }
+  }
+
+  /** A peer's signed endorsement: verify, keep it with the block, count it toward our round, pass it on. */
+  private handleChainEndorse(from: string, msg: Record<string, unknown>): void {
+    const e = msg.endorsement as { blockHash?: unknown; voter?: unknown } | undefined;
+    if (!e || typeof e.blockHash !== 'string' || typeof e.voter !== 'string') return;
+    const key = `${e.blockHash}:${e.voter}`;
+    if (this.seenEndorsements.has(key)) return;
+    void (async () => {
+      const { getCertificateBook, verifyEndorsement } = await import('../blockchain/endorsements');
+      // Mark seen only once verified, so a forged copy can't shadow the real one.
+      if (!await verifyEndorsement(msg.endorsement) || this.seenEndorsements.has(key)) return;
+      this.seenEndorsements.add(key);
+      if (this.seenEndorsements.size > 5_000) {
+        const oldest = this.seenEndorsements.values().next().value;
+        if (oldest !== undefined) this.seenEndorsements.delete(oldest);
+      }
+      const endorsement = msg.endorsement as import('../blockchain/endorsements').Endorsement;
+      const producer = typeof msg.producer === 'string' ? msg.producer : undefined;
+      if (!getCertificateBook().add(endorsement, producer)) return;
+      // Our own round: a majority of the peers connected when we mined must sign.
+      for (const round of this.pendingBlockVotes.values()) {
+        if (round.chainHash !== endorsement.blockHash) continue;
+        round.votes.set(endorsement.voter, endorsement.agree);
+        const signed = Array.from(round.votes.values()).filter(Boolean).length;
+        if (signed >= Math.floor(round.totalPeers / 2) + 1) this.confirmBlock(round.blockId);
+      }
+      const relay = JSON.stringify({ type: 'chain-endorse', endorsement, producer });
+      for (const [peerId, conn] of this.connections) {
+        if (peerId === from) continue;
+        try { conn.send(relay); } catch { /* ignore */ }
+      }
+    })().catch(() => { /* ignore */ });
   }
 
   /** Confirm a pending block after consensus or solo mining */
@@ -3342,6 +3417,7 @@ export class StandaloneSwarmMesh {
         case 'chain-sync-request': this.handleChainSyncRequest(from, msg); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
         case 'chain-block': this.handleChainBlock(from, msg); break;
+        case 'chain-endorse': this.handleChainEndorse(from, msg); break;
         case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
         case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
@@ -3597,10 +3673,9 @@ export class StandaloneSwarmMesh {
       const pendingBlockId = msg.pendingBlockId as string | undefined;
       const minerBlockHeight = msg.minerBlockHeight as number | undefined;
       if (pendingBlockId && typeof minerBlockHeight === 'number') {
-        // Vote: agree if their proposed height seems sequential
-        const peerInfo = this.peerData.get(from);
-        const lastKnownHeight = peerInfo?.lastMinedBlock ? 1 : 0; // We trust if they're active
-        const agree = minerBlockHeight > 0; // Basic validation: height must be positive
+        // Unsigned votes no longer confirm anything: agreement is a signed
+        // endorsement of the actual chain block (see endorseChainBlock).
+        const agree = false;
         try {
           conn.send(JSON.stringify({
             type: 'block-vote',
@@ -3619,30 +3694,10 @@ export class StandaloneSwarmMesh {
     }
   }
 
-  /**
-   * Handle incoming block-vote from a peer responding to our mined block.
-   * Checks if majority consensus is reached to confirm the block.
-   */
-  private handleBlockVote(from: string, msg: Record<string, unknown>): void {
-    const pendingBlockId = msg.pendingBlockId as string | undefined;
-    const agree = msg.agree as boolean | undefined;
-    if (!pendingBlockId) return;
-
-    const pending = this.pendingBlockVotes.get(pendingBlockId);
-    if (!pending) {
-      return;
-    }
-
-    pending.votes.set(from, agree === true);
-    const agreeCount = Array.from(pending.votes.values()).filter(v => v).length;
-    const needed = Math.floor(pending.totalPeers / 2) + 1;
-
-    void agree;
-
-    // Check consensus: majority of connected peers agree
-    if (agreeCount >= needed) {
-      this.confirmBlock(pendingBlockId);
-    }
+  /** Legacy unsigned block-vote: ignored (kept so older peers' messages are recognised). */
+  private handleBlockVote(_from: string, _msg: Record<string, unknown>): void {
+    // Unsigned block-votes (from older app versions) no longer confirm a round.
+    // Rounds are confirmed only by signed endorsements: see handleChainEndorse.
   }
 
   /**
@@ -3856,13 +3911,21 @@ export class StandaloneSwarmMesh {
         const { getSwarmChain } = await import('../blockchain/chain');
         const chain = getSwarmChain();
         await chain.whenReady();
+        const extendsTip = block.previousHash === chain.getLatestBlock().hash;
         if (await chain.appendPeerBlock(block as never)) {
           this.refreshPoolFromChain();
+          void this.endorseChainBlock(block, true);
           const payload = JSON.stringify({ type: 'chain-block', block, from: this.peerId });
           for (const [peerId, conn] of this.connections) {
             if (peerId === from) continue;
             try { conn.send(payload); } catch { /* ignore */ }
           }
+          return;
+        }
+        // It built on our tip and still failed our checks: say so, signed.
+        // (A rival for a height we already filled isn't a verdict: stay silent.)
+        if (extendsTip && chain.getLatestBlock().hash === block.previousHash) {
+          void this.endorseChainBlock(block, false);
           return;
         }
         if (block.index > chain.getLatestBlock().index) {
