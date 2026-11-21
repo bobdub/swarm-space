@@ -79,7 +79,11 @@ Status: **live** in the Brain world. The full design and build history is in
   each in-game day (about every 1.7 real hours), a few tens of centimetres,
   stronger or weaker as the Sun's pull lines up with the Moon's or not.
   Boats, swimmers and the drawn water all ride the same tide.
-- **Wake.** A moving boat leaves a widening, fading wake behind her stern.
+- **Wake.** A moving boat leaves a widening, fading wake behind her stern,
+  and rings of ripples spread from her bow. Each ring grows at a third of
+  the speed she had when she left it, so together they fan into the Kelvin
+  V (about 19.5° either side of her track); crests run outward through each
+  ring and fade with distance and age. Faster boats make longer ripples.
 - **Mini map.** The map shows the jetty and every boat as an arrow along her
   heading: gold for yours, tan for the jetty boat, white for other
   players' boats.

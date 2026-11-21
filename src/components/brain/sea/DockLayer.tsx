@@ -34,7 +34,14 @@ import { getCrewBoatKey, stopMastHold } from '@/lib/brain/sea/crew';
 import { mountVillageBoat } from '@/lib/brain/sea/villageBoat';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { weatherCurvatureBoost, windAt } from '@/lib/world/weather';
-import { WAKE_MAX_POINTS, WakeTrail } from '@/lib/brain/sea/wake';
+import {
+  RIPPLE_INDICES,
+  RIPPLE_VERTS,
+  WAKE_MAX_POINTS,
+  WakeTrail,
+  rippleIndices,
+} from '@/lib/brain/sea/wake';
+import { makeRippleMaterial } from './rippleMaterial';
 import { BoatMesh } from './BoatMesh';
 
 const PLANK = '#8a6640';
@@ -204,7 +211,8 @@ function BoatView({ boat }: { boat: FleetBoat }) {
   );
 }
 
-/** The trail on the water behind a moving boat (drawn in Earth-local space). */
+/** The trail on the water behind a moving boat, and the rings of ripples
+ *  spreading from her bow into a Kelvin V (drawn in Earth-local space). */
 function BoatWake({ boat }: { boat: FleetBoat }) {
   const trail = useMemo(() => new WakeTrail(), []);
   const { geo, pos, alpha, rgba } = useMemo(() => {
@@ -224,10 +232,33 @@ function BoatWake({ boat }: { boat: FleetBoat }) {
     return { geo: g, pos: p, alpha: a, rgba: c };
   }, []);
   useEffect(() => () => geo.dispose(), [geo]);
+  const ripples = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const p = new Float32Array(WAKE_MAX_POINTS * RIPPLE_VERTS * 3);
+    const o = new Float32Array(WAKE_MAX_POINTS * RIPPLE_VERTS * 2);
+    const r = new Float32Array(WAKE_MAX_POINTS * RIPPLE_VERTS * 4);
+    g.setIndex(rippleIndices(WAKE_MAX_POINTS));
+    g.setAttribute('position', new THREE.BufferAttribute(p, 3));
+    g.setAttribute('aOff', new THREE.BufferAttribute(o, 2));
+    g.setAttribute('aRing', new THREE.BufferAttribute(r, 4));
+    g.setDrawRange(0, 0);
+    return { geo: g, pos: p, off: o, ring: r, mat: makeRippleMaterial() };
+  }, []);
+  useEffect(() => () => { ripples.geo.dispose(); ripples.mat.dispose(); }, [ripples]);
   const meshRef = useRef<THREE.Mesh>(null);
+  const rippleRef = useRef<THREE.Mesh>(null);
   useFrame(() => {
     const t = getEarthPoseTime();
     if (boat.visible) trail.sample(frameOf(boat), boat.vessel.speed(), t, EARTH_RADIUS);
+    // Ripples sit just under the ribbon so the foam reads on top.
+    const rk = trail.ripples(t, EARTH_RADIUS, 0.05, ripples.pos, ripples.off, ripples.ring);
+    ripples.geo.setDrawRange(0, rk * RIPPLE_INDICES);
+    if (rk > 0) {
+      (ripples.geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      (ripples.geo.attributes.aOff as THREE.BufferAttribute).needsUpdate = true;
+      (ripples.geo.attributes.aRing as THREE.BufferAttribute).needsUpdate = true;
+    }
+    if (rippleRef.current) rippleRef.current.visible = rk > 0;
     const k = trail.ribbon(t, EARTH_RADIUS, 0.06, pos, alpha);
     for (let i = 0; i < 2 * k; i++) rgba[i * 4 + 3] = alpha[i];
     geo.setDrawRange(0, Math.max(0, k - 1) * 6);
@@ -237,9 +268,12 @@ function BoatWake({ boat }: { boat: FleetBoat }) {
     if (meshRef.current) meshRef.current.visible = k > 1;
   });
   return (
-    <mesh ref={meshRef} geometry={geo} frustumCulled={false} renderOrder={2}>
-      <meshBasicMaterial vertexColors transparent depthWrite={false} side={THREE.DoubleSide} />
-    </mesh>
+    <>
+      <mesh ref={rippleRef} geometry={ripples.geo} material={ripples.mat} frustumCulled={false} renderOrder={2} visible={false} />
+      <mesh ref={meshRef} geometry={geo} frustumCulled={false} renderOrder={3}>
+        <meshBasicMaterial vertexColors transparent depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
+    </>
   );
 }
 
