@@ -194,7 +194,7 @@ export class SwarmChain {
     if (isNativeMintMeTip(transaction)) {
       const units = nativeMintMeUnits(transaction);
       if (units === null || nativeMintMeBalanceUnits(transactions, transaction.from) < units) return false;
-    } else if (this.getBalance(transaction.from) < (transaction.amount ?? 0)) return false;
+    } else if (this.getSpendableBalance(transaction.from) < (transaction.amount ?? 0)) return false;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
@@ -314,10 +314,19 @@ export class SwarmChain {
       meta: { reward: true, chainId: resolvedChainId, ...(options.hollow ? { hollow: true } : {}) },
     };
 
+    // Only carry payments peers will accept: one funded by a local-only mint
+    // or an unripe reward stays pending instead of poisoning the block.
     const transactions = [...carried, rewardTransaction];
+    const draft = { index: this.chain.length, timestamp: new Date(networkNow()).toISOString() };
+    while (!await this.validateWalletTipLedger([...this.chain, { ...draft, transactions } as SwarmBlock])) {
+      const last = transactions.map((tx) => tx.type).lastIndexOf("wallet_tip");
+      if (last < 0) break;
+      transactions.splice(last, 1);
+    }
+    if (transactions.length === 1 && !options.allowEmpty) return null;
     const block: SwarmBlock = {
       index: this.chain.length,
-      timestamp: new Date(networkNow()).toISOString(),
+      timestamp: draft.timestamp,
       transactions,
       previousHash: this.getLatestBlock().hash,
       hash: "",
@@ -461,6 +470,17 @@ export class SwarmChain {
     }
 
     return Math.max(0, balance);
+  }
+
+  /**
+   * Balance a signed payment may spend on the shared chain: leaves out
+   * self-issued mints, which stay on this device and never reach a block.
+   */
+  getSpendableBalance(address: string): number {
+    const local = this.pendingTransactions
+      .filter((tx) => isSelfIssuedSwarmMint(tx))
+      .reduce((sum, tx) => sum + this.applyTransactionToBalance(tx, address), 0);
+    return Math.max(0, this.getBalance(address) - local);
   }
 
   /** Block rewards paid to `address` that are not yet spendable. */
@@ -674,7 +694,16 @@ export class SwarmChain {
     const seen = new Set<string>();
     const accepted: SwarmTransaction[] = [];
     const nonces = new Set<string>();
+    // Rewards from blocks under the new issuance rules wait to mature before they can be spent.
+    const maturing: { index: number; to: string; amount: number }[] = [];
     for (const block of blocks) {
+      for (let i = maturing.length - 1; i >= 0; i--) {
+        if (!isRewardMature(maturing[i].index, block.index)) continue;
+        const { to, amount } = maturing[i];
+        balances.set(to, (balances.get(to) ?? 0) + amount);
+        maturing.splice(i, 1);
+      }
+      const holdRewards = blockForbidsSelfMints(block);
       for (const tx of block.transactions) {
         if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return false;
         if (isCustomTokenSync(tx) && (seen.has(tx.id) || !await verifyCustomTokenSync(tx, accepted))) return false;
@@ -690,6 +719,10 @@ export class SwarmChain {
         }
         seen.add(tx.id);
         accepted.push(tx);
+        if (holdRewards && tx.type === "mining_reward") {
+          maturing.push({ index: block.index, to: tx.to, amount: this.applyTransactionToBalance(tx, tx.to) });
+          continue;
+        }
         for (const address of new Set([tx.from, tx.to])) {
           balances.set(address, (balances.get(address) ?? 0) + this.applyTransactionToBalance(tx, address));
         }

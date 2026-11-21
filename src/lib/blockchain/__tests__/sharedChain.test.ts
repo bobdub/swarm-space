@@ -5,6 +5,8 @@ vi.mock("../chainHealthBridge", () => ({ recordBlockAccepted: () => {}, bootstra
 
 const { SwarmChain } = await import("../chain");
 const { calculateMerkleRoot } = await import("../crypto");
+const { genIdentityKeyPair, computeUserId } = await import("@/lib/crypto");
+const { signWalletTip } = await import("../wallets/tipSignature");
 type Chain = InstanceType<typeof SwarmChain>;
 
 const tx = (id: string) => ({
@@ -112,5 +114,45 @@ describe("block reward is the only issuance", () => {
     const chain = await minedChain(1, "me");
     expect(chain.getBalance("me")).toBe(0);
     expect(chain.getImmatureRewards("me")).toBe(50);
+  }, 60_000);
+});
+
+describe("rewards and local mints can't fund shared-chain payments early", () => {
+  const later = "2026-12-01T00:00:00.000Z";
+  type Block = ReturnType<Chain["getChain"]>[number];
+  const mine = (c: Chain, b: unknown) => (c as unknown as { mineBlock: (x: unknown) => Promise<Block> }).mineBlock(b);
+
+  async function tipFrom(keys: { publicKey: string; privateKey: string }, from: string, id: string) {
+    return signWalletTip({ id, type: "wallet_tip", from, to: "aabbccddeeff0011", amount: 10, fee: 0, nonce: 1,
+      publicKey: keys.publicKey, signature: "", timestamp: later, meta: { assetId: "chain:SWARM" } } as never, keys.privateKey);
+  }
+
+  it("refuses a peer block that spends a reward from the block before it", async () => {
+    const keys = await genIdentityKeyPair();
+    const me = await computeUserId(keys.publicKey);
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    const genesis = peer.getChain()[0];
+    const reward = { ...tx("r1"), type: "mining_reward", from: "system", to: me, amount: 50 };
+    const b1 = await mine(peer, { index: 1, timestamp: later, transactions: [reward], previousHash: genesis.hash, hash: "", nonce: 0,
+      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot([reward] as never) });
+    const spend = [await tipFrom(keys, me, "spend"), { ...reward, id: "r2" }];
+    const b2 = await mine(peer, { index: 2, timestamp: later, transactions: spend, previousHash: b1.hash, hash: "", nonce: 0,
+      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot(spend as never) });
+    const local = new SwarmChain();
+    await local.whenReady();
+    expect(await local.appendPeerBlock(b1)).toBe(true);
+    expect(await local.appendPeerBlock(b2)).toBe(false);
+  }, 60_000);
+
+  it("won't accept a payment funded only by a local self-issued mint", async () => {
+    const keys = await genIdentityKeyPair();
+    const me = await computeUserId(keys.publicKey);
+    const chain = new SwarmChain();
+    await chain.whenReady();
+    chain.addTransaction({ ...tx("local"), type: "token_mint", from: "system", to: me, amount: 100 } as never);
+    expect(chain.getBalance(me)).toBe(100);
+    expect(chain.getSpendableBalance(me)).toBe(0);
+    expect(await chain.acceptWalletTip(await tipFrom(keys, me, "pay"))).toBe(false);
   }, 60_000);
 });
