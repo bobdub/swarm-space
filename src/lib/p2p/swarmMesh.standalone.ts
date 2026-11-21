@@ -9,6 +9,7 @@ import {
 } from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
+import { getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 
@@ -2240,7 +2241,9 @@ export class StandaloneSwarmMesh {
 
       // ── Request blockchain chain sync for full coin/ledger access ──
       try {
-        conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId }));
+        // Catch-up: tell the peer which of its blocks we already have, so it
+        // only sends what came after (older peers ignore `since`).
+        conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: getChainMark(rId) }));
       } catch { /* ignore */ }
 
       // ── Request Creator Token market snapshots so peers see each other's markets ──
@@ -3065,7 +3068,7 @@ export class StandaloneSwarmMesh {
         case 'mining-ack': this.handleMiningAck(from, msg); break;
         case 'block-vote': this.handleBlockVote(from, msg); break;
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
-        case 'chain-sync-request': this.handleChainSyncRequest(from); break;
+        case 'chain-sync-request': this.handleChainSyncRequest(from, msg); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
         case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
         case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
@@ -3422,33 +3425,54 @@ export class StandaloneSwarmMesh {
   // BLOCKCHAIN CHAIN SYNC — full chain exchange across peers
   // ═══════════════════════════════════════════════════════════════════
 
-  private handleChainSyncRequest(from: string): void {
+  private handleChainSyncRequest(from: string, msg: Record<string, unknown> = {}): void {
     try {
       import('../blockchain/chain').then(({ getSwarmChain }) => {
         const chain = getSwarmChain();
         const blocks = chain.getChain();
         const conn = this.connections.get(from);
-        if (conn) {
+        if (!conn) return;
+        const since = msg.since as ChainMark | null | undefined;
+        const pages = planCatchup(blocks, since);
+        for (const page of pages) {
           conn.send(JSON.stringify({
             type: 'chain-sync-response',
-            chain: blocks,
+            // `chain` keeps its name so older peers still read the blocks.
+            chain: page.blocks,
+            fromIndex: page.fromIndex,
+            totalLength: page.totalLength,
+            tip: page.tip,
+            page: page.page,
+            pages: page.pages,
+            full: page.full,
             from: this.peerId,
           }));
-          console.log(`[SwarmMesh] ⛓️ Sent chain (${blocks.length} blocks) to ${from.slice(0, 16)}…`);
         }
+        const sent = blocks.length - (pages[0]?.fromIndex ?? 0);
+        console.log(
+          `[SwarmMesh] ⛓️ Sent ${sent} of ${blocks.length} blocks to ${from.slice(0, 16)}… ` +
+          `(${pages[0]?.full ? 'full chain' : `from #${pages[0]?.fromIndex}`}, ${pages.length} page(s))`,
+        );
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   }
 
   private handleChainSyncResponse(_from: string, msg: Record<string, unknown>): void {
     const receivedChain = msg.chain as unknown[] | undefined;
-    if (!Array.isArray(receivedChain) || receivedChain.length === 0) return;
+    if (!Array.isArray(receivedChain)) return;
+    // Older peers send one full chain with no paging fields.
+    const page = typeof msg.page === 'number' ? msg.page : 0;
+    const pages = typeof msg.pages === 'number' ? msg.pages : 1;
+    const totalLength = typeof msg.totalLength === 'number' ? msg.totalLength : receivedChain.length;
+    const isLastPage = page >= pages - 1;
+    if (receivedChain.length === 0 && !isLastPage) return;
     try {
       import('../blockchain/chain').then(({ getSwarmChain }) => {
         const chain = getSwarmChain();
         const localChain = chain.getChain();
-        if (receivedChain.length > localChain.length) {
-          console.log(`[SwarmMesh] ⛓️ Received longer chain from ${_from.slice(0, 16)}… (${receivedChain.length} vs ${localChain.length}) — adopting`);
+        const harvest = totalLength > localChain.length;
+        if (harvest && receivedChain.length > 0) {
+          console.log(`[SwarmMesh] ⛓️ Received ${receivedChain.length} block(s) from ${_from.slice(0, 16)}… (their chain ${totalLength} vs ours ${localChain.length}) — adopting`);
           // Add missing transactions from received chain
           for (const block of receivedChain as any[]) {
             if (block.transactions) {
@@ -3463,6 +3487,10 @@ export class StandaloneSwarmMesh {
             }
           }
         }
+        if (!isLastPage) return;
+        // Remember their tip only once we've taken in everything up to it,
+        // so next time they send just what's newer.
+        if (harvest) saveChainMark(_from, msg.tip as ChainMark | undefined);
         // Markets are derivable from chain history — rebuild anything missing.
         import('../blockchain/marketSync')
           .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
