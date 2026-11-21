@@ -17,8 +17,14 @@ import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, worldPosToLocalNormal, ty
 import { groundElevationAt } from '@/lib/brain/groundHeight';
 import { arcMetres } from '@/lib/brain/sea/seaLife';
 import {
+  EGG_HATCH_MS,
+  broodChickPoseAt,
+  broodChicks,
+  broodEggOffset,
   chickPoseAt,
   eggOffset,
+  flockOf,
+  nestEggs,
   getHens,
   henLifeAt,
   henPoseAt,
@@ -30,9 +36,9 @@ import {
 
 /** Draw distance (m) and most hens drawn at once. */
 const VIEW_M = 90;
-const MAX_HENS = 64;
+const MAX_HENS = 96;
 const MAX_NESTS = 24;
-const MAX_EGGS = 48;
+const MAX_EGGS = 72;
 /** Seconds between re-picking which hens are near. */
 const PICK_EVERY_S = 1;
 
@@ -78,15 +84,133 @@ function henGeometries() {
   plume.translate(0, 0.18, 0);
   plume.rotateX(0.9);
   plume.translate(0, 0.36, 0.14);
-  // The nest: a low ring of straw. The egg: a little ovoid.
-  const nest = new THREE.TorusGeometry(0.2, 0.07, 6, 14);
-  nest.rotateX(Math.PI / 2);
-  nest.scale(1, 0.7, 1);
-  nest.translate(0, 0.04, 0);
+  const nest = nestGeometry();
   const egg = new THREE.SphereGeometry(1, 10, 8);
   egg.scale(0.045, 0.06, 0.045);
   egg.translate(0, 0.07, 0);
   return { body, tail, head, comb, beak, leg, bigComb, wattle, plume, nest, egg };
+}
+
+/** Small deterministic PRNG (mulberry32), so every peer builds the same nest. */
+function rand(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const STRAW = ['#c9a45c', '#b48a45', '#d8bd7a', '#9c7a3c', '#e0c98f', '#a88a52'].map((c) => new THREE.Color(c));
+
+/**
+ * The nest, built in code from plain shapes: a woven bowl of straw about
+ * 0.55 m across with a soft, pale lining of down, dozens of loose straws
+ * wrapped round its rim, and a few strays poking out onto the ground.
+ * Every piece carries its own straw colour, merged into one geometry so
+ * all the nests in view still draw in a single call.
+ */
+function nestGeometry(): THREE.BufferGeometry {
+  const r = rand(0x5e57);
+  const parts: { g: THREE.BufferGeometry; color: (i: number) => THREE.Color }[] = [];
+
+  // The bowl: a lathe of a rounded rim, shallow hollow in the middle,
+  // each ring nudged in and out so the edge is never a perfect circle.
+  const profile = [
+    [0.0, 0.012], [0.06, 0.016], [0.11, 0.03], [0.155, 0.06], [0.19, 0.095],
+    [0.215, 0.11], [0.245, 0.1], [0.27, 0.07], [0.28, 0.035], [0.272, 0.0],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+  const bowl = new THREE.LatheGeometry(profile, 28).toNonIndexed();
+  const bp = bowl.getAttribute('position');
+  for (let i = 0; i < bp.count; i++) {
+    const x = bp.getX(i);
+    const z = bp.getZ(i);
+    const a = Math.atan2(z, x);
+    const k = 1 + 0.05 * Math.sin(a * 5 + 1.3) + 0.03 * Math.sin(a * 11);
+    bp.setXYZ(i, x * k, bp.getY(i) * (1 + 0.12 * Math.sin(a * 7)), z * k);
+  }
+  bowl.computeVertexNormals();
+  // Darker straw under the rim, sun-bleached on top, mottled face by face.
+  const dark = new THREE.Color('#8f6d36');
+  const light = new THREE.Color('#d9bf80');
+  const tint = new THREE.Color();
+  const bpos = bowl.getAttribute('position');
+  parts.push({
+    g: bowl,
+    color: (f) => {
+      const y = (bpos.getY(f * 3) + bpos.getY(f * 3 + 1) + bpos.getY(f * 3 + 2)) / 3;
+      const n = ((Math.imul(f + 1, 2654435761) >>> 0) % 1000) / 1000;
+      return tint.copy(dark).lerp(light, Math.min(1, y / 0.1) * 0.7 + n * 0.3).clone();
+    },
+  });
+
+  // The lining: a pale disc of down in the hollow, where the eggs lie.
+  const lining = new THREE.CircleGeometry(0.13, 16).toNonIndexed();
+  lining.rotateX(-Math.PI / 2);
+  lining.translate(0, 0.02, 0);
+  const down = new THREE.Color('#efe6d2');
+  parts.push({ g: lining, color: () => down });
+
+  // Straws woven round the rim: thin flat strips laid along the circle,
+  // each tilted and turned a little.
+  for (let i = 0; i < 170; i++) {
+    const len = 0.1 + 0.14 * r();
+    const strip = new THREE.BoxGeometry(0.009, 0.004, len).toNonIndexed();
+    const a = r() * Math.PI * 2;
+    const rad = 0.15 + 0.13 * r();
+    const y = 0.03 + 0.085 * r() * (1 - Math.abs(rad - 0.22) * 3);
+    const m = new THREE.Matrix4().compose(
+      new THREE.Vector3(Math.cos(a) * rad, Math.max(0.01, y), Math.sin(a) * rad),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler((r() - 0.5) * 0.7, -a + (r() - 0.5) * 0.6, (r() - 0.5) * 0.5)),
+      new THREE.Vector3(1, 1, 1),
+    );
+    strip.applyMatrix4(m);
+    const c = STRAW[Math.floor(r() * STRAW.length)];
+    parts.push({ g: strip, color: () => c });
+  }
+
+  // A few strays sticking out onto the ground round the nest.
+  for (let i = 0; i < 14; i++) {
+    const len = 0.12 + 0.12 * r();
+    const strip = new THREE.BoxGeometry(0.008, 0.004, len).toNonIndexed();
+    const a = r() * Math.PI * 2;
+    const rad = 0.27 + 0.06 * r();
+    const m = new THREE.Matrix4().compose(
+      new THREE.Vector3(Math.cos(a) * rad, 0.006, Math.sin(a) * rad),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, -a + Math.PI / 2 + (r() - 0.5) * 1.2, 0)),
+      new THREE.Vector3(1, 1, 1),
+    );
+    strip.applyMatrix4(m);
+    const c = STRAW[Math.floor(r() * STRAW.length)];
+    parts.push({ g: strip, color: () => c });
+  }
+
+  // Merge every part (all non-indexed) into one geometry with vertex colours.
+  let total = 0;
+  for (const p of parts) total += p.g.getAttribute('position').count;
+  const pos = new Float32Array(total * 3);
+  const nor = new Float32Array(total * 3);
+  const col = new Float32Array(total * 3);
+  let o = 0;
+  for (const p of parts) {
+    const pa = p.g.getAttribute('position');
+    const na = p.g.getAttribute('normal');
+    for (let i = 0; i < pa.count; i++) {
+      pos.set([pa.getX(i), pa.getY(i), pa.getZ(i)], (o + i) * 3);
+      nor.set([na.getX(i), na.getY(i), na.getZ(i)], (o + i) * 3);
+      const c = p.color(Math.floor(i / 3));
+      col.set([c.r, c.g, c.b], (o + i) * 3);
+    }
+    o += pa.count;
+    p.g.dispose();
+  }
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return out;
 }
 
 /** Neck pivot and hip positions in the hen's frame. */
@@ -117,7 +241,7 @@ export function ChickenLayer() {
       bigComb: make(geo.bigComb, new THREE.MeshStandardMaterial({ color: '#d1271f', roughness: 0.7 }), MAX_HENS, false),
       wattle: make(geo.wattle, new THREE.MeshStandardMaterial({ color: '#c41e1a', roughness: 0.7 }), MAX_HENS, false),
       plume: make(geo.plume, new THREE.MeshStandardMaterial({ color: '#16302a', roughness: 0.4, metalness: 0.35 }), MAX_HENS * 3, false),
-      nest: make(geo.nest, new THREE.MeshStandardMaterial({ color: '#b99a5b', roughness: 1 }), MAX_NESTS, false),
+      nest: make(geo.nest, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide }), MAX_NESTS, false),
       egg: make(geo.egg, new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAX_EGGS, true),
     };
   }, [geo]);
@@ -190,44 +314,28 @@ export function ChickenLayer() {
       return tmp.frame;
     };
 
-    for (const h of nr.hens) {
-      // One nest per flock, at its home.
-      if (!nests.has(h.flock) && nk < MAX_NESTS && arcMetres(viewN, h.nest) <= VIEW_M) {
-        nests.add(h.flock);
-        meshes.nest.setMatrixAt(nk++, place(h.nest, 0, h.e1, 1));
+    const drawEgg = (n: Vec3, heading: Vec3, rock: number, color: THREE.Color, seed: number) => {
+      if (ek >= MAX_EGGS) return;
+      place(n, 0, heading, 1);
+      if (rock > 0) {
+        tmp.q2.setFromAxisAngle(tmp.zAxis, 0.25 * Math.sin(now * 14 + seed) * rock);
+        tmp.local.makeRotationFromQuaternion(tmp.q2);
+        tmp.m.multiplyMatrices(tmp.frame, tmp.local);
+        meshes.egg.setMatrixAt(ek, tmp.m);
+      } else {
+        meshes.egg.setMatrixAt(ek, tmp.frame);
       }
-      const life = henLifeAt(h, wall);
-      if (life.stage === 'gone') continue;
+      meshes.egg.setColorAt(ek, color);
+      ek++;
+    };
 
-      if (life.stage === 'egg') {
-        if (ek >= MAX_EGGS) continue;
-        const [ox, oz] = eggOffset(h.slot);
-        const en = nestPoint(h.nest, ox, oz);
-        place(en, 0, h.e1, 1);
-        // Rocks a little in its last half minute, as the chick pecks out.
-        const left = (1 - life.progress) * 240;
-        if (left < 30) {
-          tmp.q2.setFromAxisAngle(tmp.zAxis, 0.25 * Math.sin(now * 14 + h.slot) * (1 - left / 30));
-          tmp.local.makeRotationFromQuaternion(tmp.q2);
-          tmp.m.multiplyMatrices(tmp.frame, tmp.local);
-          meshes.egg.setMatrixAt(ek, tmp.m);
-        } else {
-          meshes.egg.setMatrixAt(ek, tmp.frame);
-        }
-        meshes.egg.setColorAt(ek, EGG_COLORS[h.plumage] ?? EGG_COLORS[0]);
-        ek++;
-        continue;
-      }
-
-      if (k >= MAX_HENS) continue;
-      const chick = life.stage === 'chick';
-      const hp: HenPose = chick ? chickPoseAt(h, t, life.progress) : henPoseAt(h, t);
-      if (arcMetres(viewN, hp.n) > VIEW_M) continue;
-      const grown = chick ? life.progress : 1;
-      const adultCol = (h.rooster ? ROOSTER_PLUMAGE : PLUMAGE)[h.plumage] ?? PLUMAGE[0];
+    const drawBird = (hp: HenPose, scale: number, rooster: boolean, plumage: number, chick: boolean, grown: number) => {
+      if (k >= MAX_HENS) return;
+      if (arcMetres(viewN, hp.n) > VIEW_M) return;
+      const adultCol = (rooster ? ROOSTER_PLUMAGE : PLUMAGE)[plumage] ?? PLUMAGE[0];
       // Yellow fluff until halfway, then the adult feathers come through.
       const col = chick ? tmp.col.copy(CHICK).lerp(adultCol, Math.max(0, (grown - 0.5) * 2)) : adultCol;
-      const size = h.scale * (chick ? 0.3 + 0.7 * grown : 1);
+      const size = scale * (chick ? 0.3 + 0.7 * grown : 1);
 
       // Walking: a little bob, legs swinging, head jerking forward.
       // Pecking: head dips to the ground a few times. Chicks scurry faster.
@@ -239,8 +347,7 @@ export function ChickenLayer() {
       meshes.tail.setMatrixAt(k, tmp.frame);
       meshes.body.setColorAt(k, col);
       meshes.tail.setColorAt(k, col);
-      const showPlumes = h.rooster && grown > 0.7;
-      if (showPlumes) {
+      if (rooster && grown > 0.7) {
         for (let i = 0; i < 3 && pk < MAX_HENS * 3; i++) {
           tmp.q2.setFromAxisAngle(tmp.zAxis, (i - 1) * 0.35);
           tmp.local.compose(tmp.p.set(0, 0, 0), tmp.q2, tmp.s.set(1, 1 - 0.15 * Math.abs(i - 1), 1));
@@ -260,7 +367,7 @@ export function ChickenLayer() {
       meshes.beak.setMatrixAt(k, headM);
       // Hens and young roosters wear the small comb; chicks have none yet.
       const combScale = chick && grown < 0.6 ? 0.001 : 1;
-      if (h.rooster && grown > 0.7) {
+      if (rooster && grown > 0.7) {
         meshes.bigComb.setMatrixAt(rk, headM);
         meshes.wattle.setMatrixAt(rk, headM);
         rk++;
@@ -279,6 +386,40 @@ export function ChickenLayer() {
         meshes.legs.setMatrixAt(k * 2 + side, tmp.m);
       }
       k++;
+    };
+
+    for (const h of nr.hens) {
+      // One nest per flock, at its home, with the eggs the hens laid in it
+      // and the chicks that hatched from them.
+      if (!nests.has(h.flock) && nk < MAX_NESTS && arcMetres(viewN, h.nest) <= VIEW_M) {
+        nests.add(h.flock);
+        meshes.nest.setMatrixAt(nk++, place(h.nest, 0, h.e1, 1));
+        const flock = flockOf(h);
+        for (const e of nestEggs(flock, wall)) {
+          const [ox, oz] = broodEggOffset(e);
+          const left = (e.layAt + EGG_HATCH_MS - wall) / 1000;
+          const rock = e.fertile && left < 30 ? 1 - left / 30 : 0;
+          drawEgg(nestPoint(h.nest, ox, oz), h.e1, rock, EGG_COLORS[e.mother.plumage] ?? EGG_COLORS[0], e.layAt % 97);
+        }
+        for (const c of broodChicks(flock, wall)) {
+          // Brood chicks stay chick-sized: they leave before they are grown.
+          drawBird(broodChickPoseAt(c, t), c.egg.mother.scale, false, c.egg.mother.plumage, true, c.progress * 0.55);
+        }
+      }
+      const life = henLifeAt(h, wall);
+      if (life.stage === 'gone') continue;
+
+      if (life.stage === 'egg') {
+        const [ox, oz] = eggOffset(h.slot);
+        // Rocks a little in its last half minute, as the chick pecks out.
+        const left = (1 - life.progress) * (EGG_HATCH_MS / 1000);
+        drawEgg(nestPoint(h.nest, ox, oz), h.e1, left < 30 ? 1 - left / 30 : 0, EGG_COLORS[h.plumage] ?? EGG_COLORS[0], h.slot);
+        continue;
+      }
+
+      const chick = life.stage === 'chick';
+      const hp: HenPose = chick ? chickPoseAt(h, t, life.progress) : henPoseAt(h, t);
+      drawBird(hp, h.scale, h.rooster, h.plumage, chick, chick ? life.progress : 1);
     }
     const counts: Record<keyof typeof meshes, number> = {
       body: k, tail: k, head: k, comb: k, beak: k, legs: k * 2,
