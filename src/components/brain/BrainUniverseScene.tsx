@@ -34,7 +34,7 @@ import { useBrainBuilder, type PendingPlot } from '@/lib/brain/useBrainBuilder';
 import { claimLandPlot, ownedFootprintSpanM, subscribeLandPlots } from '@/lib/world/landPlots';
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { getSwarmBalance, burnSwarm } from '@/lib/blockchain/token';
-import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { getWebRTCManager, SCREEN_CAPTURE_CONSTRAINTS } from '@/lib/webrtc/manager';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
@@ -1417,7 +1417,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         // The native picker is the very first operation — before any await —
         // so the request still carries the trusted click activation.
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        stream = await navigator.mediaDevices.getDisplayMedia(SCREEN_CAPTURE_CONSTRAINTS);
       } catch (error) {
         const err = error as DOMException;
         // Keep the real error visible for diagnosis instead of guessing.
