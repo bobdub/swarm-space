@@ -41,3 +41,5 @@
 - [x] Restore invite/call connectivity (no stacked dials, TURN fallback, bounded friend redials, no call-audio fallback muting) and re-add Test Connect with mesh comparison in Settings
 - [x] Add local-solar-elevation sunsets, twilight and dark starry skies while preserving Moon phases and the existing pose clock; 107 focused automated checks pass and preview compilation is clean. Live Brain viewing remains for users.
 - [x] Compact mobile sailing readout, sail rocker and station-release control; preserve desktop arrangement and hold actions. 40 focused automated checks pass and preview compilation is clean; live mobile appearance left to user testing.
+- [x] Correct volcano normals, basalt detail, terrain-aligned lava and buoyant wind-driven ash; 62 focused automated checks pass. Live Brain viewing remains with the user; effects approximate physics rather than solve full fluid dynamics.
+- [x] Unify reciprocal peer-library handoff across app connections, persist guest contacts, share ten-day sightings and correct disconnected chat guidance; 236 automated checks pass and preview compilation is clean. Live mobile/desktop reconnection remains for user testing.

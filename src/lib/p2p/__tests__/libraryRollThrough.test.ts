@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StandaloneSwarmMesh, SAVED_CONTACT_SHARE_WINDOW_MS, type LibraryPeer } from '../swarmMesh.standalone';
-import { FADEOUT_WINDOW_MS } from '../contentLifecycle';
 
 type Harness = {
   connections: Map<string, { open: boolean; send: (data: string) => void }>;
@@ -35,15 +34,15 @@ describe('saved libraries roll through the mesh', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('uses the same 15-day window as content fadeout', () => {
-    expect(SAVED_CONTACT_SHARE_WINDOW_MS).toBe(FADEOUT_WINDOW_MS);
+  it('uses exactly the requested 10-day sharing window', () => {
+    expect(SAVED_CONTACT_SHARE_WINDOW_MS).toBe(10 * DAY);
   });
 
-  it('first contact hands on live peers and saved contacts seen within 15 days', () => {
+  it('first contact hands on live peers and saved contacts seen within 10 days', () => {
     const b = createMesh('b', [
       contact('peer-live', NOW),
       contact('peer-friend', NOW - 3 * DAY, { displayName: 'Friend', userId: 'u-friend' }),
-      contact('peer-gone', NOW - 16 * DAY),
+      contact('peer-gone', NOW - 10 * DAY - 1),
       contact('peer-never', 0),
     ]);
     b.harness.connections.set('peer-live', { open: true, send: vi.fn() });

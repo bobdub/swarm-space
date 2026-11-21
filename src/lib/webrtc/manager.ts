@@ -11,6 +11,7 @@ import {
   getLocalMeshPeerId,
   isBridgeActive,
   isRoomPeerPresent,
+  registerMediaPeerConnection,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
 import { spikeHealth } from '@/lib/uqrc/withHealth';
@@ -1218,6 +1219,7 @@ export class WebRTCManager {
 
       if (pc.connectionState === 'connected') {
         console.log(`[WebRTC] ✅ Media connected with ${peerId}`);
+        registerMediaPeerConnection(peerId);
         // Clear any pending recovery timers — connection is healthy
         this.clearDisconnectTimer(peerId);
         this.clearReconnectTimer(peerId);

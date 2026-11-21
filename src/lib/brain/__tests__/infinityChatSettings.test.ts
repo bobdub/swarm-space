@@ -20,6 +20,10 @@ describe('Infinity chat participation', () => {
   it('never repeats an offered connection prompt', () => {
     expect(shouldOfferGuestConnection(true, 0, true)).toBe(false);
   });
+  it('does not offer a connection when a guest already has a room peer but zero direct mesh peers', () => {
+    expect(shouldOfferGuestConnection(true, 0, false, 1)).toBe(false);
+    expect(shouldOfferGuestConnection(true, 0, false, 0)).toBe(true);
+  });
   it('both toggles off disables replies and speech', () => {
     expect(canInfinityReply('off')).toBe(false);
     expect(canInfinitySpeak('off', true)).toBe(false);

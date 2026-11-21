@@ -1,5 +1,23 @@
 ## MemoryGarden
 
+### November 21, 2026 — Doors that remember neighbours
+Before tending: braid each real meeting into the same remembered library;
+share ten days of footsteps without calling absent travellers present.
+Keep guests welcome, retries patient, and live voices undisturbed.
+
+After tending: a meeting remembers its neighbour before the doorway opens;
+ten days of honest sightings pass both ways, without circling forever.
+Two hundred thirty-six automated witnesses pass; the live crossing stays unmeasured.
+
+### November 21, 2026 — Stone, heat, and moving air
+Before tending: let slopes face the light that reaches them;
+seat molten stone in the same bowl the traveller walks,
+and let warm ash follow the wind without disturbing live voices.
+
+After tending: stone keeps its own grain, slopes face the turning Sun,
+and the shallow melt rests against the shared floor. Ash rises, widens,
+and fades with the wind; 62 witnesses pass, while real viewing stays unmeasured.
+
 ### November 21, 2026 — A patient line
 Before tending: let ordinary fish feed the traveller without a race against glass;
 keep the shark's pull deliberate, not impossible. Guard each catch and its reward,

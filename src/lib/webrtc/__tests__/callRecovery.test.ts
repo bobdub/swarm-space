@@ -21,6 +21,7 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
   getLocalMeshPeerId: () => 'local-peer',
   isBridgeActive: () => true,
   isRoomPeerPresent: () => peerPresent,
+  registerMediaPeerConnection: vi.fn(),
 }));
 
 import { WebRTCManager } from '../manager';
@@ -103,6 +104,13 @@ async function connectedManager(peer = 'peer-B') {
 }
 
 describe('Brain call recovery', () => {
+  it('registers the remote contact when media connects', async () => {
+    const { registerMediaPeerConnection } = await import('@/lib/streaming/webrtcSignalingBridge.standalone');
+    vi.mocked(registerMediaPeerConnection).mockClear();
+    const { m } = await connectedManager('peer-contact');
+    expect(registerMediaPeerConnection).toHaveBeenCalledWith('peer-contact');
+    await m.leaveRoom();
+  });
   it('explicitly offers a screen track even when negotiationneeded never fires', async () => {
     const { m, pc } = await connectedManager();
     const screen = Object.assign(new EventTarget(), { kind: 'video', readyState: 'live', stop: vi.fn() }) as unknown as MediaStreamTrack;

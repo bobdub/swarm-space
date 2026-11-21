@@ -23,6 +23,16 @@ function makeMesh(id: string, connected: string[]) {
 afterEach(() => stopSignalingBridge());
 
 describe('room signal relay (A - B - C)', () => {
+  it.each(['join-room', 'room-hello', 'presence'])('registers a relayed %s contact through the shared durable handoff', (msgType) => {
+    const b = makeMesh('B', ['A']);
+    const registerPeerConnection = vi.fn(() => true);
+    startSignalingBridge({ ...b.mesh, registerPeerConnection });
+    announceJoinRoom('handoff', 'uB', 'B');
+    b.deliver('A', { msgType, from: 'C', roomId: 'handoff', data: {}, ts: 100 });
+    b.deliver('A', { msgType, from: 'C', roomId: 'handoff', data: {}, ts: 101 });
+    expect(registerPeerConnection.mock.calls).toEqual([['C']]);
+    announceLeaveRoom('handoff');
+  });
   it('bus-dials missing room peers from a sync once, never the manual path', () => {
     const b = makeMesh('B', ['A']);
     const dialViaBus = vi.fn(() => true);

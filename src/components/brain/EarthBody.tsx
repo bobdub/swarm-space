@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Text } from './SafeText';
 import {
   EARTH_RADIUS,
   EARTH_SPHERE_RINGS,
@@ -14,14 +13,17 @@ import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOr
 import { buildTerrainGeometry } from '@/lib/brain/terrainGeometry';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
+import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
+import { getMantlePressure } from '@/lib/brain/lavaMantle';
 
 /**
- * Procedural blue-green Earth — no textures, no day/night cycle. The
+ * Procedural blue-green Earth with shared-pose solar lighting. The
  * shader colours land/ocean from a low-frequency noise of the sphere's
  * unit-vector position so it looks alive without external assets.
  */
 const earthVertex = /* glsl */ `
   varying vec3 vNormalLocal;
+  varying vec3 vNormalWorld;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
   varying float vContinents;
@@ -36,6 +38,8 @@ const earthVertex = /* glsl */ `
 
   void main() {
     vNormalLocal = normalize(position);
+    // Baked slope normals, rotated into the same frame as Sun and position.
+    vNormalWorld = normalize(mat3(modelMatrix) * normal);
     vContinents = aContinents;
     vVolcano = aVolcano;
     vLocalPos = position;
@@ -47,12 +51,16 @@ const earthVertex = /* glsl */ `
 
 const earthFragment = /* glsl */ `
   varying vec3 vNormalLocal;
+  varying vec3 vNormalWorld;
   varying vec3 vWorldPos;
   varying vec3 vLocalPos;
   varying float vContinents;
   varying float vVolcano;
   uniform float uTime;
   uniform vec3 uSunPos;
+  uniform vec3 uLavaPos;
+  uniform vec3 uLavaColor;
+  uniform float uLavaPower;
   // Observation-channel palette (Vector B). Physics classifies the
   // surface; the channel decides RGB. Hard-coded literals are *gone*
   // from the fragment so e.g. a volcano over an ocean reads volcLand,
@@ -128,8 +136,6 @@ const earthFragment = /* glsl */ `
       float micro2 = noise(vLocalPos * 4.0);
       float micro3 = noise(vLocalPos * 18.0);
       float micro = micro1 * 0.5 + micro2 * 0.3 + micro3 * 0.2;
-      // Stripe-like "grass row" pattern catches walking motion visually.
-      float stripes = sin(vLocalPos.x * 1.4) * sin(vLocalPos.z * 1.4) * 0.5 + 0.5;
       // Ground micro-variation tinted by the channel's land color so
       // grass/dirt match the orbit-distance land color exactly.
       vec3 grassDark = uColLand * 0.55;
@@ -137,11 +143,14 @@ const earthFragment = /* glsl */ `
       vec3 dirt = uColShore;
       vec3 groundCol = mix(grassDark, grassLight, micro);
       groundCol = mix(groundCol, dirt, smoothstep(0.65, 0.85, micro2));
-      groundCol *= 0.85 + stripes * 0.3;
       // Where the planet shader said "land", paint ground. Out at sea the
       // terrain is the sea floor under the see-through water surface.
       vec3 seaBed = seaFloor * (0.75 + micro * 0.4);
-      vec3 surfaceCol = mix(seaBed, groundCol, max(landMask, volcMask));
+      // Basalt/ash retains its volcanic material even at walking distance.
+      vec3 volcanicStone = uColVolc * (0.55 + micro * 0.65);
+      vec3 surfaceCol = mix(seaBed, groundCol, landMask);
+      surfaceCol = mix(surfaceCol, volcanicStone, volcMask);
+      surfaceCol = mix(surfaceCol, uColIce * (0.85 + micro * 0.15), polar);
       col = mix(col, surfaceCol, nearMix);
     }
 
@@ -149,14 +158,15 @@ const earthFragment = /* glsl */ `
     // no abstract sky box, no painted sun. The lit hemisphere of Earth
     // matches wherever the <pointLight> actually is.
     vec3 lightDir = normalize(uSunPos - vWorldPos);
-    float diff = max(dot(n, lightDir), 0.0);
+    float diff = max(dot(normalize(vNormalWorld), lightDir), 0.0);
     float ambient = 0.25;
     col *= (ambient + diff * 1.1);
-
-    // Atmosphere rim
-    vec3 viewDir = normalize(cameraPosition - vWorldPos);
-    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.5);
-    col += vec3(0.3, 0.55, 0.95) * rim * 0.6;
+    // Custom terrain shaders do not receive scene point lights automatically.
+    // Add local incandescent fill with Lambert incidence and inverse-square falloff.
+    vec3 toLava = uLavaPos - vWorldPos;
+    float lavaDistanceSq = max(dot(toLava, toLava), 0.01);
+    float lavaIncidence = max(dot(normalize(vNormalWorld), normalize(toLava)), 0.0);
+    col += uLavaColor * uColVolc * lavaIncidence * uLavaPower / lavaDistanceSq;
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -173,6 +183,12 @@ export function EarthBody() {
   // Without this, EarthBody renders at world origin until useFrame's
   // first tick — which is the "spawn in space" flash.
   const initialPose = useMemo(() => getEarthPose(), []);
+  const lavaSite = useMemo(() => {
+    const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+    return new THREE.Vector3(...organ.centerNormal).multiplyScalar(volcanoLavaRadius(organ) + 0.3);
+  }, []);
+  const lavaPosition = useMemo(() => new THREE.Vector3(), []);
+  const lavaSpin = useMemo(() => new THREE.Quaternion(), []);
   const terrainGeometry = useMemo(() => buildTerrainGeometry(), []);
   useEffect(() => () => terrainGeometry.dispose(), [terrainGeometry]);
   const seaGeometry = useMemo(() => new THREE.SphereGeometry(EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS), []);
@@ -199,6 +215,9 @@ export function EarthBody() {
         // Sourced from the shared-epoch pose Sun (updated each frame) so shader,
         // scene light, and daylight-biased spawn can never disagree.
         uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
+        uLavaPos: { value: lavaSite.clone().applyQuaternion(new THREE.Quaternion(...initialPose.spinQuat)).add(new THREE.Vector3(...initialPose.center)) },
+        uLavaColor: { value: new THREE.Color('hsl(20, 100%, 58%)') },
+        uLavaPower: { value: 8 },
         // Volcano organ — same descriptor as collision + mantle vent.
         uVolcCenter: {
           value: new THREE.Vector3(
@@ -232,7 +251,7 @@ export function EarthBody() {
         uColIce:   { value: v3(palette.ice) },
       };
     },
-    [initialPose],
+    [initialPose, lavaSite],
   );
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
@@ -270,6 +289,13 @@ export function EarthBody() {
     // its live position.
     if (matRef.current) {
       (matRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);
+      lavaSpin.set(...pose.spinQuat);
+      lavaPosition.copy(lavaSite).applyQuaternion(lavaSpin);
+      lavaPosition.x += pose.center[0];
+      lavaPosition.y += pose.center[1];
+      lavaPosition.z += pose.center[2];
+      (matRef.current.uniforms.uLavaPos.value as THREE.Vector3).copy(lavaPosition);
+      matRef.current.uniforms.uLavaPower.value = 6 + Math.max(0, Math.min(1, getMantlePressure())) * 14;
     }
     if (moonMatRef.current) {
       (moonMatRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);
@@ -321,26 +347,6 @@ export function EarthBody() {
           depthWrite={false}
         />
       </mesh>
-      {/* Soft glow halo */}
-      <mesh>
-        <sphereGeometry args={[EARTH_RADIUS * 1.08, 32, 24]} />
-        <meshBasicMaterial
-          color="hsl(200, 90%, 70%)"
-          transparent
-          opacity={0.08}
-          side={THREE.BackSide}
-          depthWrite={false}
-        />
-      </mesh>
-      <Text
-        position={[0, EARTH_RADIUS + 0.6 * WORLD_SCALE, 0]}
-        fontSize={0.35 * WORLD_SCALE}
-        color="hsl(200, 90%, 90%)"
-        anchorX="center"
-        anchorY="middle"
-      >
-        Earth
-      </Text>
       {/* Moon — orbits Earth, lit by the same Sun, gives the dark side
           of Earth a celestial reference + faint reflected fill light */}
       <group ref={moonGroupRef} position={initialMoonPos}>

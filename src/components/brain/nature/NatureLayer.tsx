@@ -34,6 +34,8 @@ import { getStoneMine, HITS_TO_BREAK, BREAK_MS } from '@/lib/world/stoneMineStor
 import { buildBoulderGeometry } from '@/lib/brain/nature/boulderGeometry';
 
 import { VolcanoLavaPool } from '@/components/brain/VolcanoLavaPool';
+import { VolcanoAshPlume } from '@/components/brain/VolcanoAshPlume';
+import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
 
 /**
  * Phase 2 — NatureLayer
@@ -792,60 +794,40 @@ function Mountain({ color, height }: { color: string; height: number }) {
 /**
  * Overlay anchored to the unified Volcano Organ. The cone itself is
  * Earth geometry (vertex displacement in `EarthBody`); this only renders
- * the bits that belong above the crater: a glowing vent, an ash plume,
+ * the bits that belong above the crater: a molten pool, an ash plume,
  * and a warm point light. Position is recomputed per-frame from the live
  * Earth pose so the overlay rotates with the planet.
  */
 function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string }) {
   const groupRef = useRef<THREE.Group>(null);
   const organ = useMemo(() => getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID), []);
+  const lavaR = useMemo(() => volcanoLavaRadius(organ), [organ]);
+  const localOrientation = useMemo(() => new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0), new THREE.Vector3(...organ.centerNormal),
+  ), [organ]);
+  const spin = useMemo(() => new THREE.Quaternion(), []);
   // Compute the local "up" tangent so the overlay points outward.
   useFrame(() => {
     if (!groupRef.current) return;
     const pose = getEarthPose();
     // Rotate Earth-local centre normal into world space.
     const worldN = quatRotate(pose.spinQuat, organ.centerNormal);
-    // Peak of the displaced cone: visible ground + height.
-    const peakR = EARTH_RADIUS + organ.height - organ.craterDepth * 0.5;
-    const x = pose.center[0] + worldN[0] * peakR;
-    const y = pose.center[1] + worldN[1] * peakR;
-    const z = pose.center[2] + worldN[2] * peakR;
+    // Actual baked crater floor + shallow melt depth, including land lift.
+    const x = pose.center[0] + worldN[0] * lavaR;
+    const y = pose.center[1] + worldN[1] * lavaR;
+    const z = pose.center[2] + worldN[2] * lavaR;
     groupRef.current.position.set(x, y, z);
     // Orient local +Y to align with the outward world normal.
-    const up = new THREE.Vector3(worldN[0], worldN[1], worldN[2]);
-    const q = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      up,
-    );
-    groupRef.current.quaternion.copy(q);
+    spin.set(...pose.spinQuat);
+    groupRef.current.quaternion.copy(spin).multiply(localOrientation);
   });
   const craterR = organ.craterRadius;
   return (
     <group ref={groupRef}>
       {/* Molten crater floor — pressure-reactive crust. */}
       <VolcanoLavaPool radius={craterR * 0.95} />
-      {/* Glowing vent — sits inside the crater bowl. */}
-      <mesh position={[0, 0.4, 0]}>
-        <sphereGeometry args={[craterR * 0.55, 16, 12]} />
-        <meshStandardMaterial
-          color="hsl(18, 95%, 55%)"
-          emissive="hsl(18, 95%, 55%)"
-          emissiveIntensity={1.4}
-        />
-      </mesh>
-
-      {/* Lazy ash plume — translucent cone stack. */}
-      {[0, 1, 2].map((i) => (
-        <mesh key={`plume-${i}`} position={[0, 2.5 + i * 2.4, 0]}>
-          <coneGeometry args={[craterR * (1.1 + i * 0.5), 3.0, 12]} />
-          <meshStandardMaterial
-            color="hsl(0, 0%, 32%)"
-            roughness={1}
-            transparent
-            opacity={0.32 - i * 0.08}
-          />
-        </mesh>
-      ))}
+      {/* Heat comes from the molten crust; no hovering solid orange ball. */}
+      <VolcanoAshPlume organ={organ} altitude={lavaR - EARTH_RADIUS} />
     </group>
   );
 }

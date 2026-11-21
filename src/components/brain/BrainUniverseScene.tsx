@@ -1911,7 +1911,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
   // ── Chat send: feed field, optionally call Infinity ───────────────
   const handleSend = useCallback((text: string) => {
-    if (shouldOfferGuestConnection(isGuestUser(user), meshStats.connectedPeers, guestConnectionOfferedRef.current)) {
+    if (shouldOfferGuestConnection(isGuestUser(user), meshStats.connectedPeers, guestConnectionOfferedRef.current, voicePeers.length + chatPeers.length)) {
       guestConnectionOfferedRef.current = true;
       setGuestConnectionOffered(true);
     }
@@ -1995,7 +1995,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       const fusion = getSharedNeuralEngine().getDualLearning();
       fusion.ingestContentEvent({ text, reactions: 0, comments: 1, shares: 0, trustScore: 95, peerId: selfId, timestamp: line.ts });
     } catch { /* learner optional */ }
-  }, [physics, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers]);
+  }, [physics, roomId, selfId, capabilities.infinityAlwaysReplies, sendChatLine, user, meshStats.connectedPeers, voicePeers.length, chatPeers.length]);
 
   // ── Drop a portal at the player's current position ────────────────
   // If `hitPoint` is provided (raycast cast from AssetCaster), the portal
@@ -2600,7 +2600,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           onInfinityChatModeChange={changeInfinityChatMode}
           infinitySyncRequested={infinitySyncRequested}
           onInfinitySyncChoice={chooseInfinitySync}
-          guestConnectionOffered={guestConnectionOffered}
+          guestConnectionOffered={guestConnectionOffered && meshStats.connectedPeers === 0 && voicePeers.length === 0 && chatPeers.length === 0}
         />
       )}
 

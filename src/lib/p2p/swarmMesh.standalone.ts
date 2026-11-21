@@ -331,11 +331,10 @@ const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
 const CELL_FRESHNESS_WINDOW = 75_000;
 /**
  * Saved contacts roll through the mesh in every library exchange while they
- * were seen within this window. It matches the content fadeout window
- * (FADEOUT_WINDOW_MS in contentLifecycle.ts): a user unseen for 15 days is
- * treated as gone, so they stop being handed on.
+ * were seen within the last ten days. This discovery window is independent
+ * of content retention; old saved contacts remain local, not handed on.
  */
-export const SAVED_CONTACT_SHARE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
+export const SAVED_CONTACT_SHARE_WINDOW_MS = 10 * 24 * 60 * 60 * 1000;
 /** Upper bound on saved contacts sent in one exchange (newest first). */
 const MAX_SHARED_SAVED_CONTACTS = 200;
 /** Saved (manual/library) friends stay dialable this long after last presence. */
@@ -419,6 +418,7 @@ export class StandaloneSwarmMesh {
   // ── PeerJS ────────────────────────────────────────────────────────
   private peer: import('peerjs').default | null = null;
   private connections = new Map<string, import('peerjs').DataConnection>();
+  private librarySentConnections = new WeakSet<import('peerjs').DataConnection>();
   private peerData = new Map<string, SwarmPeer>();
 
   // ── State Machine ─────────────────────────────────────────────────
@@ -624,6 +624,7 @@ export class StandaloneSwarmMesh {
   }
 
   private expandOnlineMesh(reason: string, preferredPeerIds: string[] = []): void {
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     const dialBudget = this.getAutoDialBudget();
     if (dialBudget === 0) return;
 
@@ -1298,6 +1299,8 @@ export class StandaloneSwarmMesh {
       if (source === 'manual') {
         existing.source = 'manual';
         existing.autoConnect = true;
+      } else if (source === 'library' && existing.source !== 'manual') {
+        existing.source = 'library';
       }
       // Preserve profile data from prior profile-exchange
       this.saveLibrary();
@@ -2545,6 +2548,16 @@ export class StandaloneSwarmMesh {
     return started;
   }
 
+  /** Remember an app-level meeting before readiness checks; never override dial policy. */
+  registerPeerConnection(remotePeerId: string): boolean {
+    remotePeerId = remotePeerId.trim();
+    if (!remotePeerId || remotePeerId === this.peerId || this.blockedPeers.has(remotePeerId)) return false;
+    this.addToLibrary(remotePeerId, 'library');
+    if (!this.toggles.autoConnect || !this.library.get(remotePeerId)?.autoConnect) return false;
+    if (this.getAutoDialBudget() === 0) return false;
+    return this.dialViaBus(remotePeerId);
+  }
+
   disconnectPeer(remotePeerId: string): void {
     const conn = this.connections.get(remotePeerId);
     if (conn) {
@@ -2575,7 +2588,7 @@ export class StandaloneSwarmMesh {
   }> {
     const activeSeenAt = now();
     return Array.from(this.connections.keys())
-      .filter(peerId => peerId !== this.peerId && !this.blockedPeers.has(peerId))
+      .filter(peerId => this.connections.get(peerId)?.open && peerId !== this.peerId && !this.blockedPeers.has(peerId))
       .map(peerId => {
         const entry = this.library.get(peerId);
         const nodeId = entry?.nodeId ?? peerId.replace(/^peer-/, '');
@@ -2609,7 +2622,7 @@ export class StandaloneSwarmMesh {
     const saved = Array.from(this.library.values())
       .filter(entry => entry.peerId !== this.peerId
         && !this.blockedPeers.has(entry.peerId)
-        && !this.connections.has(entry.peerId)
+        && !this.connections.get(entry.peerId)?.open
         && entry.lastSeenAt > 0
         && entry.lastSeenAt >= cutoff)
       .sort((a, b) => b.lastSeenAt - a.lastSeenAt)
@@ -2636,6 +2649,7 @@ export class StandaloneSwarmMesh {
   }
 
   private sendLibraryExchange(conn: import('peerjs').DataConnection): void {
+    if (!this.toggles.libraryExchange || !conn.open) return;
     const localTrust = this.getLocalTrustScore();
     const shareable = this.getSharedLibraryPeers();
     try {
@@ -2646,12 +2660,18 @@ export class StandaloneSwarmMesh {
         networkGenesis: getNetworkGenesisTimestamp(),
         senderTrustScore: localTrust,
       }));
+      this.librarySentConnections.add(conn);
     } catch { /* ignore */ }
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
+    if (!this.toggles.libraryExchange || fromPeerId === this.peerId || this.blockedPeers.has(fromPeerId)) return;
     const remote = msg.peers as Array<{ peerId: string; active?: boolean; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
     if (!Array.isArray(remote)) return;
+
+    // A real data edge is durable even when the sender shares an empty library.
+    const senderConnection = this.connections.get(fromPeerId);
+    if (senderConnection?.open && !this.library.has(fromPeerId)) this.addToLibrary(fromPeerId, 'library');
 
     // ── Adopt older network genesis from peer (rebirth, not new brain) ──
     const peerGenesis = msg.networkGenesis as number | undefined;
@@ -2784,7 +2804,8 @@ export class StandaloneSwarmMesh {
       console.log(`[SwarmMesh] 📚 Active-peer exchange from ${fromPeerId}: added=${added}, refreshed=${refreshed}`);
 
       // Rebroadcast our active peer view so other connected peers can expand too
-      if (this.toggles.libraryExchange) {
+      // Liveness refreshes alone must not circulate snapshots forever in triangles.
+      if (added > 0 || metadataChanged) {
         this.rebroadcastLibrary(fromPeerId);
       }
     }
@@ -2795,6 +2816,11 @@ export class StandaloneSwarmMesh {
       this.scheduleMeshExpansion('library-exchange-followup', preferred, 2_000);
       this.scheduleMeshExpansion('library-exchange-followup', preferred, 5_000);
     }
+    // Reciprocate once per actual channel, including an empty guest library.
+    // Mark only successful sends; a replacement channel gets a fresh handshake.
+    if (senderConnection?.open && !this.librarySentConnections.has(senderConnection)) {
+      this.sendLibraryExchange(senderConnection);
+    }
   }
 
   /**
@@ -2803,13 +2829,14 @@ export class StandaloneSwarmMesh {
    * A rebroadcasts to B so B discovers C and dials them.
    */
   private rebroadcastLibrary(excludePeerId?: string): void {
+    if (!this.toggles.libraryExchange) return;
     const shareable = this.getSharedLibraryPeers();
 
     if (shareable.length === 0) return;
 
     let sent = 0;
     for (const [peerId, conn] of this.connections) {
-      if (peerId === excludePeerId) continue;
+      if (peerId === excludePeerId || !conn.open) continue;
       try {
         conn.send(JSON.stringify({
           type: 'library-exchange',
@@ -2817,6 +2844,7 @@ export class StandaloneSwarmMesh {
           from: this.peerId,
           networkGenesis: getNetworkGenesisTimestamp(),
         }));
+        this.librarySentConnections.add(conn);
         sent++;
       } catch { /* ignore */ }
     }

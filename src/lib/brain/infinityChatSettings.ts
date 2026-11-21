@@ -10,8 +10,8 @@ export function resolveGuestInfinityChatMode(value: unknown): InfinityChatMode {
   return value === 'off' || value === 'audio' || value === 'text' ? value : 'text';
 }
 
-export function shouldOfferGuestConnection(guest: boolean, connectedPeers: number, alreadyOffered: boolean): boolean {
-  return guest && connectedPeers === 0 && !alreadyOffered;
+export function shouldOfferGuestConnection(guest: boolean, connectedPeers: number, alreadyOffered: boolean, roomPeers = 0): boolean {
+  return guest && connectedPeers === 0 && roomPeers === 0 && !alreadyOffered;
 }
 
 export function canInfinityReply(mode: InfinityChatMode): boolean {

@@ -121,6 +121,7 @@ interface MeshLike {
   getConnectedPeerIds(): string[];
   getPeerId(): string;
   dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
+  registerPeerConnection?(peerId: string): boolean;
 }
 
 import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
@@ -136,12 +137,18 @@ let unsubChannel: (() => void) | null = null;
 const roomDialAt = new Map<string, number>();
 
 function dialRoomPeer(peerId: string): void {
-  if (!meshRef || peerId === meshRef.getPeerId() || meshRef.getConnectedPeerIds().includes(peerId)) return;
+  if (!meshRef || !peerId || peerId === meshRef.getPeerId()) return;
   if (loadBlocklistFromStorage().some(entry => entry.peerId === peerId)) return;
   const last = roomDialAt.get(peerId);
   if (last !== undefined && Date.now() - last < 12000) return;
   roomDialAt.set(peerId, Date.now());
-  meshRef.dialViaBus?.(peerId);
+  if (meshRef.registerPeerConnection) meshRef.registerPeerConnection(peerId);
+  else if (!meshRef.getConnectedPeerIds().includes(peerId)) meshRef.dialViaBus?.(peerId);
+}
+
+/** All calls (Brain and streams) share the same durable, backoff-respecting handoff. */
+export function registerMediaPeerConnection(peerId: string): void {
+  dialRoomPeer(peerId);
 }
 let meshExpansionTimer: ReturnType<typeof setInterval> | null = null;
 let knownPeerSnapshot: Set<string> = new Set();
@@ -641,6 +648,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       const known = bucket.get(envelope.from);
       if (known && (envelope.ts ?? 0) < known.ts) return;
       bucket.set(envelope.from, presence);
+      if (joinedRooms.has(envelope.roomId)) dialRoomPeer(envelope.from);
       for (const handler of roomPresenceHandlers) {
         try { handler(presence); } catch { /* ignore */ }
       }
@@ -655,6 +663,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       if (room && myPeerId && room.has(myPeerId)) {
         const alreadyKnown = room.has(envelope.from);
         room.add(envelope.from);
+        dialRoomPeer(envelope.from);
         sendDirected({
           msgType: 'room-sync',
           from: myPeerId,

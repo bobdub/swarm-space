@@ -78,6 +78,46 @@ describe('durable targeted connections and bounded reconnection', () => {
     mesh.dialViaBus('peer-exchange');
     expect(mesh.getLibrary()[0].source).toBe('exchange');
   });
+  it('persists a guest room contact before signaling is ready and reconnects after reload', () => {
+    localStorage.setItem('me', JSON.stringify({ _guest: true, guestName: 'Guest Mike' }));
+    const { mesh, h } = setup(); h.phase = 'connecting'; h.peer = null;
+    expect(mesh.registerPeerConnection('peer-friend')).toBe(false);
+    const saved = new StandaloneSwarmMesh().getLibrary();
+    expect(saved).toEqual([expect.objectContaining({ peerId: 'peer-friend', source: 'library', lastSeenAt: 1_000_000 })]);
+    const restored = setup(saved);
+    restored.h.autoConnectLibrary();
+    expect(restored.h.dialPeer).toHaveBeenCalledWith('peer-friend', 'library');
+  });
+  it('promotes a real meeting from gossip to a saved friend without overwriting identity', () => {
+    const { mesh } = setup([{ ...contact('exchange'), displayName: 'Friend' }]);
+    mesh.registerPeerConnection('peer-exchange');
+    expect(mesh.getLibrary()[0]).toMatchObject({ source: 'library', displayName: 'Friend', lastSeenAt: 1_000_000 });
+  });
+  it('room handoffs preserve cooldowns, pending dials and per-contact opt-outs', () => {
+    const { mesh, h } = setup([{ ...contact('exchange'), autoConnect: false }]);
+    h.peerCooldowns.set('peer-cooling', 2_000_000);
+    h.pendingDials.set('peer-pending', 1_000_000);
+    mesh.registerPeerConnection('peer-cooling');
+    mesh.registerPeerConnection('peer-pending');
+    mesh.registerPeerConnection('peer-exchange');
+    expect(h.dialPeer).not.toHaveBeenCalled();
+    expect(h.peerCooldowns.get('peer-cooling')).toBe(2_000_000);
+    expect(mesh.getLibrary().find(p => p.peerId === 'peer-exchange')?.autoConnect).toBe(false);
+  });
+  it('room handoffs remember contacts but do not dial when automatic connection is disabled', () => {
+    const { mesh, h } = setup(); h.toggles.autoConnect = false;
+    mesh.registerPeerConnection('peer-friend');
+    expect(mesh.getLibrary()[0].peerId).toBe('peer-friend');
+    expect(h.dialPeer).not.toHaveBeenCalled();
+  });
+  it('room handoffs reject self and blocked peers and respect capacity', () => {
+    const { mesh, h } = setup(); mesh.blockPeer('peer-blocked');
+    mesh.registerPeerConnection('peer-self'); mesh.registerPeerConnection('peer-blocked');
+    expect(mesh.getLibrary()).toEqual([]);
+    for (let i = 0; i < 20; i++) h.connections.set(`peer-live-${i}`, {});
+    mesh.registerPeerConnection('peer-friend');
+    expect(h.dialPeer).not.toHaveBeenCalled();
+  });
   it('uses a 10-minute presence window for saved friends', () => {
     expect(SAVED_FRIEND_FRESHNESS_WINDOW).toBe(600_000);
   });
