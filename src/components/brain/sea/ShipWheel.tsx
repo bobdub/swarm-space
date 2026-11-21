@@ -41,16 +41,22 @@ import { getEarthPoseTime } from '@/lib/brain/earth';
 import { toast } from 'sonner';
 import {
   BITE_WINDOW_S,
-  FIGHT_HITS,
   FIGHT_MISSES,
   castOrReel,
   getFishing,
   markerAt,
   setFishingReward,
+  setSharkCheck,
   subscribeFishing,
   type FishingState,
 } from '@/lib/brain/sea/fishing';
-import { fishingDepth, fishingSchoolNear, myBoatAground, pushOffMyBoat } from '@/lib/brain/sea/villageBoat';
+import { fishingDepth, fishingSchoolNear, fishingShark, fishingSharkStillThere, myBoatAground, pushOffMyBoat } from '@/lib/brain/sea/villageBoat';
+import { recordSharkCaught } from '@/lib/brain/sea/sharks';
+
+/** The one press at a rod: cast, hook, strike or wind in. */
+function rodPress(): void {
+  castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear(), fishingShark());
+}
 
 function useFishing(): FishingState {
   const [f, setF] = useState<FishingState>({ ...getFishing() });
@@ -59,10 +65,11 @@ function useFishing(): FishingState {
 }
 
 function fishingLine(f: FishingState): string {
-  if (f.phase === 'caught') return 'Caught a fish! +1 Food';
+  const shark = f.on === 'shark';
+  if (f.phase === 'caught') return shark ? 'You landed a shark! +5 Food' : 'Caught a fish! +1 Food';
   if (f.phase === 'missed') return 'It got away.';
-  if (f.phase === 'bite') return 'Fish on! Hook it!';
-  if (f.phase === 'fight') return 'Fighting! Strike while the marker is in the gold zone.';
+  if (f.phase === 'bite') return shark ? 'Something big took it! Hook it!' : 'Fish on! Hook it!';
+  if (f.phase === 'fight') return shark ? 'A shark! Strike five times in the gold zone.' : 'Fighting! Strike while the marker is in the gold zone.';
   if (f.phase === 'waiting') return f.tooFast ? 'Too fast: the line trails. Slow below 1.5 m/s.' : 'Line out. Waiting for a bite…';
   return 'Cast your line.';
 }
@@ -102,14 +109,14 @@ function FightBar({ fishing, mobile }: { fishing: FishingState; mobile: boolean 
       style={{ bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 19.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 13.5rem)' }}
     >
       <div className="flex gap-3 text-xs text-white" aria-live="polite">
-        <span data-testid="fight-hits">{'🐟'.repeat(f.hits)}{'·'.repeat(FIGHT_HITS - f.hits)} {f.hits}/{FIGHT_HITS}</span>
+        <span data-testid="fight-hits">{(fishing.on === 'shark' ? '🦈' : '🐟').repeat(f.hits)}{'·'.repeat(Math.max(0, f.need - f.hits))} {f.hits}/{f.need}</span>
         <span className="text-rose-300" data-testid="fight-misses">{'✕'.repeat(f.misses)}{'·'.repeat(FIGHT_MISSES - f.misses)}</span>
       </div>
       <button
         type="button"
         data-testid="fight-bar"
         aria-label="Strike while the marker is in the gold zone"
-        onPointerDown={(e) => { e.preventDefault(); castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear()); }}
+        onPointerDown={(e) => { e.preventDefault(); rodPress(); }}
         className="relative h-7 rounded-full border overflow-hidden"
         style={{
           width: mobile ? 240 : 300,
@@ -184,7 +191,7 @@ export function CrewJoystickSkin() {
 export function ShipControls({ mobile }: { mobile: boolean }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
-  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false, aground: false });
+  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
 
   // Food comes out of the gathered inventory on this device, and a fish
   // goes into it.
@@ -193,8 +200,13 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       has: () => materialTotals().food > 0,
       spendOne: () => spendMaterials({ food: 1 }),
     });
-    setFishingReward(() => recordHarvestForResource('food', 1));
-    return () => { setFoodPurse(null); setFishingReward(null); };
+    setFishingReward((food, kind, sharkId) => {
+      recordHarvestForResource('food', food);
+      // A landed shark is gone from the sea for everyone for a while.
+      if (kind === 'shark' && sharkId) recordSharkCaught(sharkId);
+    });
+    setSharkCheck(fishingSharkStillThere);
+    return () => { setFoodPurse(null); setFishingReward(null); setSharkCheck(null); };
   }, []);
   const fishing = useFishing();
 
@@ -205,7 +217,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       if (e.code !== 'KeyF' || e.repeat) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear());
+      rodPress();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -263,6 +275,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
           out: isOutOfFood(),
           mast: getMastHold(),
           school: role === 'rod' && fishingSchoolNear(),
+          shark: role === 'rod' && !!fishingShark(),
           aground: myBoatAground(),
         });
       }
@@ -294,7 +307,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
     <button
       type="button"
       data-testid="fishing-cast"
-      onPointerDown={(e) => { e.preventDefault(); castOrReel(getEarthPoseTime(), fishingDepth(), fishingSchoolNear()); }}
+      onPointerDown={(e) => { e.preventDefault(); rodPress(); }}
       className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
       style={{
         bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)',
@@ -396,6 +409,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
         <div className={hot ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
           {fishingLine(fishing)}
         </div>
+      )}
+      {role === 'rod' && readout.shark && (
+        <div className="text-slate-300" data-testid="fishing-shark">Deep water with a shark about: a big bite could be it.</div>
       )}
       {role === 'rod' && readout.school && (
         <div className="text-sky-300" data-testid="fishing-school">A school of fish is under the boat. Bites come fast here.</div>

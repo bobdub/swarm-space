@@ -1,7 +1,8 @@
 /**
  * natureEventsStore — the shared record of what players did to nature that
- * every peer must agree on: which trees were felled and when the honey
- * hive was chopped.
+ * every peer must agree on: which trees were felled, when the honey
+ * hive was chopped, and which sharks were caught (a caught shark is gone
+ * from the sea for everyone for a while, see `sea/sharks.ts`).
  *
  * Each event is a small immutable fact. Peers gossip new ones over the
  * mesh and hand a newcomer the full list (see p2pPlacementBridge), so the
@@ -14,8 +15,9 @@
  * history must stay whole for peers to agree. Only a size cap applies,
  * far above what a village sees.
  *
- * The one exception is `hen-caught`: a caught hen is back with her flock
- * after a few minutes, so once a catch is older than `HEN_EVENT_TTL_MS` it
+ * The exceptions are `hen-caught` and `shark-caught`: a caught hen is back
+ * with her flock after a few minutes and a caught shark after ten, so once
+ * a catch is older than `HEN_EVENT_TTL_MS` it
  * no longer changes anything and every peer drops it (and refuses it from
  * a backfill), keeping the list small however many hens are hunted.
  *
@@ -24,7 +26,7 @@
  * Peers drop events they already hold, so the relay stops by itself.
  */
 
-export type NatureEventKind = 'fell' | 'hive-down' | 'hen-caught';
+export type NatureEventKind = 'fell' | 'hive-down' | 'hen-caught' | 'shark-caught';
 
 /** Hen catches older than this are forgotten (well past any respawn). */
 export const HEN_EVENT_TTL_MS = 60 * 60_000;
@@ -59,7 +61,7 @@ function isEvent(v: unknown): v is NatureEvent {
   const e = v as NatureEvent | null;
   return !!e
     && typeof e.id === 'string'
-    && (e.kind === 'fell' || e.kind === 'hive-down' || e.kind === 'hen-caught')
+    && (e.kind === 'fell' || e.kind === 'hive-down' || e.kind === 'hen-caught' || e.kind === 'shark-caught')
     && typeof e.blockId === 'string' && e.blockId.length > 0 && e.blockId.length < 200
     && typeof e.anchorPeerId === 'string' && e.anchorPeerId.length < 200
     && Number.isFinite(e.at)
@@ -92,7 +94,7 @@ function persist(): void {
 
 function prune(now = Date.now()): void {
   for (const e of events.values()) {
-    if (e.kind === 'hen-caught' && now - e.at > HEN_EVENT_TTL_MS) events.delete(e.id);
+    if ((e.kind === 'hen-caught' || e.kind === 'shark-caught') && now - e.at > HEN_EVENT_TTL_MS) events.delete(e.id);
   }
   if (events.size > MAX_EVENTS) {
     const oldest = [...events.values()].sort((a, b) => a.at - b.at).slice(0, events.size - MAX_EVENTS);
@@ -111,7 +113,7 @@ function add(e: NatureEvent, now: number): boolean {
   // Ignore anything claiming to come from the future.
   if (e.at - now > 5 * 60_000) return false;
   // A long-past hen catch changes nothing: the hen is back.
-  if (e.kind === 'hen-caught' && now - e.at > HEN_EVENT_TTL_MS) return false;
+  if ((e.kind === 'hen-caught' || e.kind === 'shark-caught') && now - e.at > HEN_EVENT_TTL_MS) return false;
   events.set(e.id, e);
   prune(now);
   persist();
@@ -179,6 +181,16 @@ export function felledAt(blockId: string): number | undefined {
   let best: number | undefined;
   for (const e of events.values()) {
     if (e.kind === 'fell' && e.blockId === blockId && (best === undefined || e.at < best)) best = e.at;
+  }
+  return best;
+}
+
+/** Latest time `blockId` was caught (sharks), if it was. */
+export function lastCaughtAt(blockId: string): number | undefined {
+  hydrate();
+  let best: number | undefined;
+  for (const e of events.values()) {
+    if (e.kind === 'shark-caught' && e.blockId === blockId && (best === undefined || e.at > best)) best = e.at;
   }
   return best;
 }

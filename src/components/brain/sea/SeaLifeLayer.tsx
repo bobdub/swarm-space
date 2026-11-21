@@ -7,8 +7,10 @@
  * tail), sharks from a small pool of meshes with the dorsal fin cutting
  * the surface.
  *
- * Sharks are mild: they never touch anyone. A swimmer who comes close
- * gets a warning to get out of the water, on their own device only.
+ * Sharks (`sea/sharks.ts`): a swimmer who comes within 12 m gets a
+ * warning; within 3 m the shark bites once (−2 Food and a shove) and then
+ * dives away for a while. A knifed shark dives away too. A caught shark is
+ * gone from the sea for everyone for ten minutes.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -20,16 +22,25 @@ import {
   EARTH_RADIUS,
   getEarthPose,
   getEarthPoseTime,
+  quatRotate,
   worldPosToLocalNormal,
   type Vec3,
 } from '@/lib/brain/earth';
 import { isSwimmingAt } from '@/lib/brain/groundHeight';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
+import { teleportBody } from '@/lib/pub/seating';
+import { materialTotals, spendMaterials } from '@/lib/world/materials';
+import {
+  SHARK_BITE_FOOD,
+  sharkDiveAt,
+  sharkGone,
+  threateningShark,
+  trySharkBite,
+} from '@/lib/brain/sea/sharks';
 import {
   SHARK_WARN_M,
   arcMetres,
   getSeaLife,
-  nearestDistance,
   seaLifeNear,
   seaPoseAt,
   type SeaCreature,
@@ -274,13 +285,16 @@ export function SeaLifeLayer({ selfId }: { selfId: string }) {
     let s = 0;
     for (const c of nr.sharks) {
       if (s >= MAX_SHARKS) break;
+      if (sharkGone(c.id, Date.now())) continue;
       const sp = seaPoseAt(c, t);
       if (arcMetres(viewN, sp.n) > SHARK_VIEW_M) continue;
       const g = sharkRefs.current[s];
       if (!g) break;
       g.visible = true;
       const bob = 0.04 * Math.sin(t * 0.9 + c.p1);
-      g.position.set(sp.n[0], sp.n[1], sp.n[2]).multiplyScalar(EARTH_RADIUS - c.depth + bob);
+      // A shark keeping away (after a bite, or knifed) dives out of reach.
+      const dive = sharkDiveAt(c.id, t);
+      g.position.set(sp.n[0], sp.n[1], sp.n[2]).multiplyScalar(EARTH_RADIUS - c.depth - dive + bob);
       frameQuat(sp.n, sp.heading, tmp.q);
       tmp.q2.setFromAxisAngle(tmp.yAxis, 0.06 * Math.sin(t * 2.2 + c.p2));
       g.quaternion.copy(tmp.q).multiply(tmp.q2);
@@ -293,21 +307,37 @@ export function SeaLifeLayer({ selfId }: { selfId: string }) {
       if (g) g.visible = false;
     }
 
-    // ── A mild warning for a swimmer near a shark (this device only) ──
+    // ── A swimmer near a shark: a warning, then a bite (this device) ──
     const w = warn.current;
     if (now >= w.checkAt) {
-      w.checkAt = now + 0.5;
-      if (nr.sharks.length && now - w.lastAt > WARN_COOLDOWN_S) {
+      w.checkAt = now + 0.25;
+      if (nr.sharks.length) {
         const body = getBrainPhysics().getBody(selfId);
         if (body) {
           const n = worldPosToLocalNormal(body.pos, pose);
           const dx = body.pos[0] - pose.center[0];
           const dy = body.pos[1] - pose.center[1];
           const dz = body.pos[2] - pose.center[2];
-          const feet = Math.hypot(dx, dy, dz) - EARTH_RADIUS - BODY_CENTER_HEIGHT;
-          if (isSwimmingAt(n, feet) && nearestDistance(n, t, 'shark', SHARK_WARN_M) <= SHARK_WARN_M) {
-            w.lastAt = now;
-            toast.warning('Shark nearby! Swim for a boat or the shore.', { id: 'shark-warning' });
+          const r = Math.hypot(dx, dy, dz);
+          const feet = r - EARTH_RADIUS - BODY_CENTER_HEIGHT;
+          if (isSwimmingAt(n, feet)) {
+            const nowMs = Date.now();
+            const bite = trySharkBite(n, t, nowMs);
+            if (bite) {
+              const have = materialTotals().food;
+              const lost = Math.min(SHARK_BITE_FOOD, Math.max(0, Math.floor(have)));
+              if (lost > 0) spendMaterials({ food: lost });
+              const p = quatRotate(pose.spinQuat, [bite.shoveTo[0] * r, bite.shoveTo[1] * r, bite.shoveTo[2] * r]);
+              teleportBody(selfId, [p[0] + pose.center[0], p[1] + pose.center[1], p[2] + pose.center[2]]);
+              w.lastAt = now;
+              toast.error('A shark bit you!', {
+                id: 'shark-warning',
+                description: lost > 0 ? `You lost ${lost} Food. Get out of the water, or swing your knife at it.` : 'Get out of the water, or swing your knife at it.',
+              });
+            } else if (now - w.lastAt > WARN_COOLDOWN_S && threateningShark(n, t, nowMs, SHARK_WARN_M)) {
+              w.lastAt = now;
+              toast.warning('Shark nearby! Swim for a boat or the shore, or ready your knife.', { id: 'shark-warning' });
+            }
           }
         }
       }

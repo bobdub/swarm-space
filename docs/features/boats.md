@@ -55,12 +55,20 @@ Status: **live** in the Brain world. The full design and build history is in
   - Nothing bites while the boat makes more than 1.5 m/s.
   - Fishing doesn't claim the boat, so you can fish from the jetty boat or
     from anyone's boat.
+  - Sharks: in water 15 m deep or more with a shark within 120 m, about one
+    bite in ten is the shark (the readout says when one is about). It
+    fights harder: five good strikes, with a smaller zone (20% down to 9%)
+    and a quicker marker. Landing it gives +5 Food, and that shark is gone
+    from the sea for everyone for ten minutes.
 - **Sea life.** Schools of fish swim just under the surface all over the
   sea, with a few close to the jetty, and now and then one leaps clear.
   Sharks patrol deep water well out past the shelf, their fins cutting the
-  surface. Sharks never hurt anyone: swim within about 12 m of one and you
-  get a warning to head for a boat or the shore. Everyone sees the same fish
-  and sharks in the same places.
+  surface. Everyone sees the same fish and sharks in the same places.
+- **Sharks and swimmers.** Swim within about 12 m of a shark and you get a
+  warning. Within 3 m it bites once: you lose 2 Food (whatever you have, up
+  to 2) and get shoved 2 m away, and that shark dives away for 30 s. Swing
+  the Stone Knife with a shark's body within 1.5 m and it dives away for a
+  minute.
 - **Swimming.** Space or the round arrow button jumps about a metre: clear
   the rail and you're in the sea.
 - **Weather.** The boat feels the same wind the clouds ride. The swell
@@ -90,6 +98,7 @@ Status: **live** in the Brain world. The full design and build history is in
 | Crew roles (helm, oars, rod) and Food | `crew.ts` |
 | Fishing | `fishing.ts` |
 | Fish schools and sharks | `seaLife.ts`, drawn by `components/brain/sea/SeaLifeLayer.tsx` |
+| Shark bites, the knife, hooking a shark | `sharks.ts` (knife hook-in: `world/toolActions.ts`) |
 | Wake | `wake.ts` |
 | Drawing | `components/brain/sea/DockLayer.tsx`, `BoatMesh.tsx` |
 | Controls | `components/brain/sea/BoatControls.tsx`, `ShipWheel.tsx` |
@@ -111,6 +120,10 @@ Rules worth keeping:
 - **Sea life is never sent.** Every school and shark has a home picked from
   shared terrain (only where the whole loop is in deep enough water) and a
   path on the shared clock, so every peer computes the same creatures.
+  The one shared fact is a caught shark: a `shark-caught` nature event
+  (`world/natureEventsStore.ts`) gossiped like a felled tree. A shark
+  backing off after a bite or fleeing a knife is local to the player it
+  met; other peers keep seeing it on its path.
 - **Local things stay local.** Food spends, fishing bites and catches, the
   wake and sail fill are worked out on each device and never sent.
 - **Version bump.** Changing deck or boat physics in a way older peers would
