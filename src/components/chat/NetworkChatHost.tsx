@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
 import { isBrainScenePath, setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
-import { networkNow } from '@/lib/time/networkClock';
+import { causalNow } from '@/lib/time/networkClock';
 
 /**
  * Global host for the network chat panel opened from the main menu.
@@ -66,7 +66,7 @@ function NetworkChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
         id: crypto.randomUUID(),
         author: user ? brainDisplayName(user) : 'You',
         text,
-        ts: networkNow(),
+        ts: causalNow(),
         authorId: user?.id,
         avatarRef: user?.profile?.avatarRef,
       };

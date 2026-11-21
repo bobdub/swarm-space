@@ -64,6 +64,7 @@ import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
 import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { networkNow } from '@/lib/time/networkClock';
+import { causalOrder } from '@/lib/chat/chatOrder';
 
 export interface BrainChatLine {
   id: string;
@@ -323,7 +324,7 @@ export function BrainChatPanel({
     const map = new Map<string, BrainChatLine>();
     for (const l of seededLines) map.set(l.id, l);
     for (const l of lines) map.set(l.id, l);
-    return [...map.values()].sort((a, b) => a.ts - b.ts);
+    return causalOrder([...map.values()], (l) => ({ id: l.id, ts: l.ts, replyToId: l.replyTo?.id }));
   }, [seededLines, lines]);
 
   // ── Mute / Block ─────────────────────────────────────────────────
