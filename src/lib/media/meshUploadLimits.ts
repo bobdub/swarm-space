@@ -3,11 +3,11 @@
  *
  * Posts travel peer to peer over WebRTC data channels with no CDN relay,
  * and every peer that fetches a file holds its chunks in memory while it
- * reassembles them. 25 MB keeps a single post attachment within what the
+ * reassembles them. 50 MB keeps a single post attachment within what the
  * mesh carries reliably (manual re-seed tops out at 15 MB, personal-server
- * chunks at 20 MiB) while leaving room for short compressed videos.
+ * chunks at 20 MiB) while leaving headroom for compressed videos.
  */
-export const MESH_POST_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+export const MESH_POST_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 
 /** Human label for a byte limit, e.g. "25 MB" or "1 GB". */
 export function formatUploadLimit(bytes: number): string {

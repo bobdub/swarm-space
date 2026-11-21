@@ -57,9 +57,9 @@ describe("FileUpload queue", () => {
         <FileUpload onFilesReady={vi.fn()} maxFileSize={MESH_POST_UPLOAD_LIMIT_BYTES} />
       </TooltipProvider>
     );
-    expect(screen.getByText(/up to 25 MB each \(mesh limit\)/)).toBeInTheDocument();
-    drop(container, [video("huge.mp4", 40 * 1024 * 1024)]);
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("limited to 25 MB"));
+    expect(screen.getByText(/up to 50 MB each \(mesh limit\)/)).toBeInTheDocument();
+    drop(container, [video("huge.mp4", 60 * 1024 * 1024)]);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("limited to 50 MB"));
     expect(started).toEqual([]);
   });
 
