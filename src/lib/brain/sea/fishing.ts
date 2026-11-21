@@ -8,7 +8,11 @@
  * highlighted zone. Three good strikes land it (+1 Food, credited like
  * any other gathered Food via `recordHarvestForResource`); two bad ones
  * and it throws the hook. Each good strike makes the zone narrower and
- * the marker quicker. Miss the bite and it gets away. Deeper water bites sooner than the shallows, and a boat making
+ * the marker quicker. Miss the bite and it gets away.
+ *
+ * Over deep water with a shark about (`sharks.ts`), about one bite in ten
+ * is the shark: a harder fight (five strikes, a smaller and faster zone)
+ * for +5 Food, and a landed shark is gone from the sea for everyone. Deeper water bites sooner than the shallows, and a boat making
  * more than 1.5 m/s trails the line too fast for anything to take it.
  *
  * The bite times are drawn per cast from an injectable random source, on
@@ -18,6 +22,7 @@
  */
 
 import { railHalfWidthAt } from './boatHull';
+import { SHARK_BITE_CHANCE } from './sharks';
 
 /** Rod holders (boat frame x, z): port and starboard, forward of the mast. */
 const ROD_Z = -1.8;
@@ -41,6 +46,13 @@ export const FIGHT_MISSES = 2;
 export const FIGHT_ZONES: readonly number[] = [0.3, 0.22, 0.16];
 /** Seconds for the marker to sweep across the bar and back, first round. */
 export const FIGHT_SWEEP_S = 2.2;
+/** A shark fights harder: more strikes, a smaller zone, a quicker marker. */
+export const SHARK_FIGHT_HITS = 5;
+export const SHARK_FIGHT_ZONES: readonly number[] = [0.2, 0.16, 0.13, 0.11, 0.09];
+export const SHARK_FIGHT_SWEEP_S = 1.6;
+/** Food for a fish and for a shark. */
+export const FISH_FOOD = 1;
+export const SHARK_FOOD = 5;
 /** Each good strike speeds the marker up by this factor. */
 const FIGHT_SPEEDUP = 0.8;
 /** A round with no strike for this long counts as a bad one. */
@@ -52,7 +64,12 @@ const NOTE_S = 2.5;
 
 export type FishingPhase = 'idle' | 'waiting' | 'bite' | 'fight' | 'caught' | 'missed';
 
+export type CatchKind = 'fish' | 'shark';
+
 export interface FishFight {
+  /** Good strikes needed, and the zone width for each round. */
+  need: number;
+  zones: readonly number[];
   hits: number;
   misses: number;
   /** Highlighted zone: centre and width as fractions of the bar. */
@@ -77,6 +94,10 @@ export interface FishingState {
   /** True while the boat is too fast for a bite. */
   tooFast: boolean;
   catches: number;
+  /** What is on the line (bite, fight, caught): a fish or a shark. */
+  on: CatchKind;
+  /** The shark on the line, or the one about that could take the bait. */
+  sharkId: string | null;
   /** The fight while a fish is on (phase 'fight'), else null. */
   fight: FishFight | null;
 }
@@ -92,9 +113,10 @@ export function meanBiteWait(depth: number, schoolNear = false): number {
   return BITE_WAIT_SHALLOW_S + (BITE_WAIT_DEEP_S - BITE_WAIT_SHALLOW_S) * u;
 }
 
-const state: FishingState = { phase: 'idle', since: 0, biteAt: Infinity, tooFast: false, catches: 0, fight: null };
+const state: FishingState = { phase: 'idle', since: 0, biteAt: Infinity, tooFast: false, catches: 0, on: 'fish', sharkId: null, fight: null };
 let rng: () => number = Math.random;
-let reward: () => void = () => {};
+type Reward = (food: number, kind: CatchKind, sharkId: string | null) => void;
+let reward: Reward = () => {};
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -112,8 +134,8 @@ export function getFishing(): Readonly<FishingState> {
   return state;
 }
 
-/** Where a catch goes (the scene credits Food); swapped in tests. */
-export function setFishingReward(fn: (() => void) | null): void {
+/** Where a catch goes (the scene credits Food and records a shark); swapped in tests. */
+export function setFishingReward(fn: Reward | null): void {
   reward = fn ?? (() => {});
 }
 
@@ -130,8 +152,13 @@ function to(phase: FishingPhase, t: number): void {
   emit();
 }
 
-/** Cast at shared time `t` over `depth` metres of water. */
-export function cast(t: number, depth: number, schoolNear = false): void {
+/**
+ * Cast at shared time `t` over `depth` metres of water. `sharkId` is a
+ * shark close enough to take the bait (`sharks.hookableShark`), if any.
+ */
+export function cast(t: number, depth: number, schoolNear = false, sharkId: string | null = null): void {
+  state.sharkId = sharkId;
+  state.on = 'fish';
   // Exponential wait: bites come at random, more often in deep water.
   const u = Math.min(0.999999, Math.max(1e-6, rng()));
   state.biteAt = t + 1.5 - Math.log(1 - u) * meanBiteWait(depth, schoolNear);
@@ -142,7 +169,7 @@ export function cast(t: number, depth: number, schoolNear = false): void {
 
 /** A new round of the fight: a fresh zone, the marker set off from an end. */
 function newRound(f: FishFight, t: number): void {
-  const w = FIGHT_ZONES[Math.min(f.hits, FIGHT_ZONES.length - 1)];
+  const w = f.zones[Math.min(f.hits, f.zones.length - 1)];
   f.zoneW = w;
   f.zoneC = w / 2 + 0.05 + rng() * (1 - w - 0.1);
   f.roundAt = t;
@@ -171,7 +198,15 @@ export function markerInZone(t: number, f: FishFight | null = state.fight): bool
  */
 export function reel(t: number): boolean {
   if (state.phase === 'bite' && t - state.since <= BITE_WINDOW_S) {
-    const f: FishFight = { hits: 0, misses: 0, zoneC: 0.5, zoneW: FIGHT_ZONES[0], roundAt: t, sweep: FIGHT_SWEEP_S, start: 0, last: null, lastAt: t };
+    const shark = state.on === 'shark';
+    const zones = shark ? SHARK_FIGHT_ZONES : FIGHT_ZONES;
+    const f: FishFight = {
+      need: shark ? SHARK_FIGHT_HITS : FIGHT_HITS,
+      zones,
+      hits: 0, misses: 0, zoneC: 0.5, zoneW: zones[0], roundAt: t,
+      sweep: shark ? SHARK_FIGHT_SWEEP_S : FIGHT_SWEEP_S,
+      start: 0, last: null, lastAt: t,
+    };
     newRound(f, t);
     state.fight = f;
     to('fight', t);
@@ -204,9 +239,10 @@ export function strike(t: number): 'hit' | 'miss' | 'landed' | 'lost' | null {
   f.hits++;
   f.last = 'hit';
   f.lastAt = t;
-  if (f.hits >= FIGHT_HITS) {
+  if (f.hits >= f.need) {
     state.catches++;
-    try { reward(); } catch { /* ignore */ }
+    const shark = state.on === 'shark';
+    try { reward(shark ? SHARK_FOOD : FISH_FOOD, state.on, shark ? state.sharkId : null); } catch { /* ignore */ }
     to('caught', t);
     return 'landed';
   }
@@ -217,10 +253,10 @@ export function strike(t: number): 'hit' | 'miss' | 'landed' | 'lost' | null {
 }
 
 /** The one press: cast, hook, strike, or wind in, as the moment needs. */
-export function castOrReel(t: number, depth: number, schoolNear = false): void {
+export function castOrReel(t: number, depth: number, schoolNear = false, sharkId: string | null = null): void {
   if (state.phase === 'fight') strike(t);
   else if (state.phase === 'waiting' || state.phase === 'bite') reel(t);
-  else cast(t, depth, schoolNear);
+  else cast(t, depth, schoolNear, sharkId);
 }
 
 /** Advance at shared time `t` with the boat making `speed` m/s. */
@@ -230,7 +266,11 @@ export function updateFishing(t: number, speed: number): void {
   if (state.phase === 'waiting') {
     // A fast boat drags the bite time along with it.
     if (fast) state.biteAt = Math.max(state.biteAt, t + 1.5);
-    else if (t >= state.biteAt) to('bite', t);
+    else if (t >= state.biteAt) {
+      // A shark about takes the bait now and then.
+      state.on = state.sharkId && rng() < SHARK_BITE_CHANCE ? 'shark' : 'fish';
+      to('bite', t);
+    }
   } else if (state.phase === 'bite' && t - state.since > BITE_WINDOW_S) {
     to('missed', t);
   } else if (state.phase === 'fight' && state.fight && t - state.fight.roundAt > FIGHT_ROUND_S) {
@@ -252,6 +292,8 @@ export function _resetFishingForTest(): void {
   state.tooFast = false;
   state.catches = 0;
   state.fight = null;
+  state.on = 'fish';
+  state.sharkId = null;
   rng = Math.random;
   reward = () => {};
 }

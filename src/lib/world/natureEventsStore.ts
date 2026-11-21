@@ -1,7 +1,8 @@
 /**
  * natureEventsStore — the shared record of what players did to nature that
- * every peer must agree on: which trees were felled and when the honey
- * hive was chopped.
+ * every peer must agree on: which trees were felled, when the honey
+ * hive was chopped, and which sharks were caught (a caught shark is gone
+ * from the sea for everyone for a while, see `sea/sharks.ts`).
  *
  * Each event is a small immutable fact. Peers gossip new ones over the
  * mesh and hand a newcomer the full list (see p2pPlacementBridge), so the
@@ -19,7 +20,7 @@
  * Peers drop events they already hold, so the relay stops by itself.
  */
 
-export type NatureEventKind = 'fell' | 'hive-down';
+export type NatureEventKind = 'fell' | 'hive-down' | 'shark-caught';
 
 export interface NatureEvent {
   /** Unique: `${kind}:${blockId}:${at}`. */
@@ -51,7 +52,7 @@ function isEvent(v: unknown): v is NatureEvent {
   const e = v as NatureEvent | null;
   return !!e
     && typeof e.id === 'string'
-    && (e.kind === 'fell' || e.kind === 'hive-down')
+    && (e.kind === 'fell' || e.kind === 'hive-down' || e.kind === 'shark-caught')
     && typeof e.blockId === 'string' && e.blockId.length > 0 && e.blockId.length < 200
     && typeof e.anchorPeerId === 'string' && e.anchorPeerId.length < 200
     && Number.isFinite(e.at)
@@ -166,6 +167,16 @@ export function felledAt(blockId: string): number | undefined {
   let best: number | undefined;
   for (const e of events.values()) {
     if (e.kind === 'fell' && e.blockId === blockId && (best === undefined || e.at < best)) best = e.at;
+  }
+  return best;
+}
+
+/** Latest time `blockId` was caught (sharks), if it was. */
+export function lastCaughtAt(blockId: string): number | undefined {
+  hydrate();
+  let best: number | undefined;
+  for (const e of events.values()) {
+    if (e.kind === 'shark-caught' && e.blockId === blockId && (best === undefined || e.at > best)) best = e.at;
   }
   return best;
 }

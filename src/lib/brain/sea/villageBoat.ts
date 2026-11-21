@@ -30,6 +30,7 @@ import { setFocusBoatResolver } from './vessel';
 import { ROD_SPOTS } from './fishing';
 import { groundElevationAt } from '../groundHeight';
 import { schoolNear } from './seaLife';
+import { hookableShark } from './sharks';
 
 export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
 
@@ -200,6 +201,13 @@ export function fishingSchoolNear(): boolean {
   const b = getFleet().focus();
   if (!b) return false;
   return schoolNear(b.vessel.motion.n, getEarthPoseTime());
+}
+
+/** A shark close enough to take a bait cast from this player's boat, if any. */
+export function fishingShark(): string | null {
+  const b = getFleet().focus();
+  if (!b) return null;
+  return hookableShark(b.vessel.motion.n, fishingDepth(), getEarthPoseTime(), Date.now());
 }
 
 /** Water depth (m) under this player's boat, for a cast. */

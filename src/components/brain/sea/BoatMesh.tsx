@@ -385,6 +385,7 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
   useEffect(() => () => geo.dispose(), [geo]);
   const line = useMemo(() => new THREE.Line(geo, new THREE.LineBasicMaterial({ color: '#f4f1e6' })), [geo]);
   const fishRef = useRef<THREE.Group>(null);
+  const sharkRef = useRef<THREE.Group>(null);
   useFrame(() => {
     const f = getFishing();
     const mine = !!boatKey && getCrewRole() === 'rod' && getCrewBoatKey() === boatKey;
@@ -395,7 +396,10 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
     const now = performance.now() / 1000;
     // The fish: thrashing under the float while it's on, then swung up
     // out of the water to the rod tip when you land it.
-    const fish = fishRef.current;
+    const isShark = f.on === 'shark';
+    const fish = isShark ? sharkRef.current : fishRef.current;
+    const other = isShark ? fishRef.current : sharkRef.current;
+    if (other) other.visible = false;
     if (fish) {
       const landed = mine && f.phase === 'caught' ? getEarthPoseTime() - f.since : -1;
       const on = f.phase === 'bite' || f.phase === 'fight';
@@ -406,8 +410,8 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
         const fz0 = tip[2] - 0.4;
         if (on) {
           // Hooked, it runs wider and harder than when it first takes.
-          const run = f.phase === 'fight' ? 0.45 : 0.1;
-          fish.position.set(fx0 + run * Math.sin(now * 3.1), -0.35, fz0 + run * Math.cos(now * 2.3));
+          const run = (f.phase === 'fight' ? 0.45 : 0.1) * (isShark ? 2.5 : 1);
+          fish.position.set(fx0 + side * (isShark ? 1 : 0) + run * Math.sin(now * 3.1), isShark ? -0.6 : -0.35, fz0 + run * Math.cos(now * 2.3));
           fish.rotation.set(0, now * 4, 0);
         } else {
           const u = Math.min(1, landed / 0.8);
@@ -449,6 +453,21 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
         <mesh position={[0, 0, 0.27]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.35, 1.2, 1]}>
           <coneGeometry args={[0.09, 0.16, 4]} />
           <meshStandardMaterial color="#c9d6e3" roughness={0.5} side={THREE.DoubleSide} />
+        </mesh>
+      </group>
+      {/* A shark on the line: a young one, about 1.4 m. */}
+      <group ref={sharkRef} visible={false}>
+        <mesh scale={[0.16, 0.18, 0.68]}>
+          <sphereGeometry args={[1, 12, 8]} />
+          <meshStandardMaterial color="#6b7783" roughness={0.6} />
+        </mesh>
+        <mesh position={[0, 0.25, 0.05]} rotation={[-0.5, 0, 0]} scale={[0.25, 1, 1]}>
+          <coneGeometry args={[0.12, 0.3, 4]} />
+          <meshStandardMaterial color="#6b7783" roughness={0.6} />
+        </mesh>
+        <mesh position={[0, 0.08, 0.75]} rotation={[-Math.PI / 2, 0, 0]} scale={[0.25, 1.6, 1]}>
+          <coneGeometry args={[0.14, 0.3, 4]} />
+          <meshStandardMaterial color="#6b7783" roughness={0.6} side={THREE.DoubleSide} />
         </mesh>
       </group>
     </>

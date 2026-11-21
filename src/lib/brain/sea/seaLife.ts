@@ -274,7 +274,8 @@ export function seaLifeNear(n: Vec3, radiusM: number, kind?: SeaCreatureKind): S
   const out: SeaCreature[] = [];
   for (const c of getSeaLife()) {
     if (kind && c.kind !== kind) continue;
-    const reach = radiusM + Math.max(c.ax, c.az) * 1.05;
+    // The loop stays in the box ±ax × ±az, so its corners are the farthest out.
+    const reach = radiusM + Math.hypot(c.ax, c.az) * 1.02;
     if (arcMetres(n, c.home) <= reach) out.push(c);
   }
   return out;

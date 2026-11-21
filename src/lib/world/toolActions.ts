@@ -5,7 +5,7 @@ import { getToolAny } from '@/lib/brain/toolCatalog';
 import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
-import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, quatRotate, worldPosToLocalNormal, type Vec3 } from '@/lib/brain/earth';
 import {
   HITS_TO_FELL,
   TOPPLE_MS,
@@ -346,7 +346,24 @@ export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): Tool
   };
 }
 
+/**
+ * A knife swung with a shark in reach drives it off (it dives away for a
+ * minute; see `sea/sharks.ts`). True when it did.
+ */
+async function knifeAtShark(toolPrefabId: string, selfId?: string): Promise<boolean> {
+  if (!toolPrefabId.startsWith('tool_knife') || !selfId) return false;
+  const body = getBrainPhysics().getBody(selfId);
+  if (!body) return false;
+  const n = worldPosToLocalNormal(body.pos, getEarthPose());
+  // Loaded on demand: the sea modules pull in terrain and sea life.
+  const { knifeShark } = await import('@/lib/brain/sea/sharks');
+  if (!knifeShark(n, getEarthPoseTime(), Date.now())) return false;
+  toast.success('You drove the shark off!', { id: 'shark-warning', description: 'It dives away and keeps clear for a minute.' });
+  return true;
+}
+
 export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget | null, selfId?: string): Promise<boolean> {
+  if (await knifeAtShark(toolPrefabId, selfId)) return true;
   if (!target) target = resolveNearbyTarget(toolPrefabId, selfId);
   if (!target) return swingToolInAir(toolPrefabId, selfId);
   if (target.kind === 'placement') return applyToolToPlacement(toolPrefabId, target.placement, selfId);
@@ -924,6 +941,7 @@ async function digShell(
 export async function swingToolInAir(toolPrefabId: string, selfId?: string): Promise<boolean> {
   const prefab = getPrefab(toolPrefabId);
   if (!prefab) return false;
+  if (await knifeAtShark(toolPrefabId, selfId)) return true;
   const reach = toolPrefabId.startsWith('tool_knife') ? 0.95 : toolPrefabId.startsWith('tool_bucket') ? 1.45 : 1.25;
   const swing = pointInFrontOfSelf(selfId, reach);
   if (!swing) {
