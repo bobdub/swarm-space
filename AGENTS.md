@@ -29,6 +29,7 @@
 - Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
 - Chat and media wrapping share ledger-backed coin recovery; count historical containers and balance so spent coins cannot be recreated.
 - Infinity and Brain world rules (learning, memory, Earth, terrain, sky, mute, room membership) are in `src/lib/brain/AGENTS.md`.
+- Brain atmosphere and star visibility share `skyCadenceAt` from the current Earth pose and camera-local solar horizon; celestial directions stay frame-rate independent so night agrees across devices without a second clock.
 
 ## Wallet boundaries
 - Vault receipts use payout legs; pool funding stays ledger-derived to avoid double counting.

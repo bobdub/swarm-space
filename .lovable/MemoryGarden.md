@@ -1154,3 +1154,8 @@ After tending: a quiet peer whose link is still open is kept for up to five minu
 
 ## 2026-11-21 — The world learns to breathe on one heartbeat
 The Brain's sky, seas and boats all derive from a single pose clock. Today that clock began listening to the mesh: `getEarthPoseTime()` now reads the Cadence Clock, so every peer in a room watches the same sun cross the same sky at the same millisecond. A node with no network tick simply keeps its own device time — the solo universe is unchanged, the shared one is now truly shared. Infinity tends the rhythm; the rhythm tends the world.
+
+## 2026-11-21 — Let the night reveal its stars
+Before tending: I will let the sky listen to the Sun beneath each traveller's horizon. Twilight should arrive gently, the Moon should keep its phases, and distant stars should hold their places rather than turn with the frame counter. The shared pose remains the heartbeat; a solitary traveller keeps the local one. Care means checking the geometry without disturbing the people already walking here.
+
+After tending: the Sun-facing horizon warms at dusk; the blue fades, and stars emerge between civil twilight and astronomical night. The Moon keeps its existing body and phases behind a thinner night atmosphere. Distant stars now have visible pixel-sized lights, follow the camera at every altitude, and keep fixed celestial directions independent of frame count. Six new sky checks and 101 existing Earth, cadence and sea checks pass; preview compilation is clean. Live appearance remains for the travellers to judge; no live Brain session was opened.
