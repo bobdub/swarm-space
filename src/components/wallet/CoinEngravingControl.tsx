@@ -31,6 +31,17 @@ export function CoinEngravingControl({ userId }: { userId: string }) {
   const items = coin?.payloadEntries?.length ?? 0;
   const files = coin?.payloadEntries?.reduce((n, e) => n + (e.media?.length ?? 0), 0) ?? 0;
   const load = Math.min(100, bytes / ENGRAVING_CAPACITY_BYTES * 100);
+  // Harvested goods engraved on this coin, summed across harvest entries.
+  const harvested: Record<string, number> = {};
+  for (const e of coin?.payloadEntries ?? []) {
+    if (e.type !== "harvest" || !e.harvest) continue;
+    for (const [kind, qty] of Object.entries(e.harvest)) {
+      const label = kind === "animal" ? "food" : kind;
+      harvested[label] = (harvested[label] ?? 0) + qty;
+    }
+  }
+  const harvestLine = Object.entries(harvested).sort(([a], [b]) => a.localeCompare(b))
+    .map(([kind, qty]) => `${qty} ${kind}`).join(" · ");
   const seal = async () => {
     if (!coin || busy) return;
     setBusy(true);
@@ -63,6 +74,9 @@ export function CoinEngravingControl({ userId }: { userId: string }) {
         <span>{(bytes / ENGRAVING_MB).toFixed(2)} MB / 1 GiB · {items} {items === 1 ? "item" : "items"}, {files} {files === 1 ? "file" : "files"}</span>
         <span>{coin ? "Minimum seal: 1 MB" : "No open coin"}</span>
       </div>
+      {harvestLine && (
+        <p className="text-xs text-muted-foreground">Harvest engraved: <span className="tabular-nums text-foreground">{harvestLine}</span></p>
+      )}
     </section>
   );
 }

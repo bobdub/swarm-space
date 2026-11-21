@@ -9,6 +9,11 @@
  * natural tier; 1 GiB remains the hard ceiling. No hollow coin → nothing
  * flips, posting is never blocked, and the next mined coin picks it up.
  *
+ * The player's harvests are engraved too: each pass appends one "harvest"
+ * entry holding everything harvested since the last one (see
+ * harvestJournal), so gathered goods are recorded on the coin alongside
+ * posts and comments.
+ *
  * Entries are engraved NFT-style: token metadata (name, description, type,
  * tags) plus a pointer to each attached file (file id, MIME, size, chunk refs
  * and a content hash). The meter counts each file's full size. Files are
@@ -20,6 +25,9 @@ import { get, getAll, put } from "../store";
 import { applySeal } from "./coinFill";
 import type { CoinPayloadEntry, CoinPayloadMedia, SwarmCoin } from "./types";
 import { canSealEngraving, ENGRAVING_CAPACITY_BYTES } from "./engravingTiers";
+import {
+  readEngravedHarvest, readHarvestTally, unengraved, writeEngravedHarvest,
+} from "../remix/harvestJournal";
 
 export const COIN_PAYLOAD_CAPACITY_BYTES = ENGRAVING_CAPACITY_BYTES;
 export const COIN_PAYLOAD_SEAL_RATIO = 1;
@@ -87,6 +95,32 @@ export async function buildPayloadEntry(store: PayloadStore, item: LoadableConte
   };
 }
 
+const HARVEST_LABEL: Record<string, string> = {
+  wood: "Wood", stone: "Stone", water: "Water", fibre: "Fibre", food: "Food", animal: "Food",
+};
+
+/** One engraving entry for a batch of harvested goods. */
+export async function buildHarvestEntry(
+  userId: string, batch: Record<string, number>, events: number, at: string,
+): Promise<CoinPayloadEntry> {
+  const merged: Record<string, number> = {};
+  for (const [kind, qty] of Object.entries(batch)) {
+    const label = HARVEST_LABEL[kind] ?? kind;
+    merged[label] = (merged[label] ?? 0) + qty;
+  }
+  const parts = Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)).map(([label, qty]) => `+${qty} ${label}`);
+  const description = `Harvested ${parts.join(", ")}`;
+  const id = `harvest-${userId}-${events}`;
+  const body = { id, userId, harvest: batch, events, at };
+  return {
+    id, type: "harvest", v: 2,
+    sizeBytes: encoder.encode(JSON.stringify(body)).byteLength,
+    hash: await sha256Hex(JSON.stringify(body)),
+    metadata: { name: description, description, createdAt: at, tags: ["harvest", ...Object.keys(batch).sort()] },
+    harvest: { ...batch },
+  };
+}
+
 /**
  * Relocate engraved files into the coin without copying: the file record
  * gains `_coinId`, so it now belongs to that coin. Bytes stay in chunk
@@ -103,6 +137,7 @@ async function anchorMedia(entry: CoinPayloadEntry, coinId: string): Promise<voi
 }
 
 function needsUpgrade(entry: CoinPayloadEntry): boolean {
+  if (entry.type === "harvest") return false;
   return entry.v !== 2 || (entry.pendingMediaIds?.length ?? 0) > 0;
 }
 
@@ -280,6 +315,47 @@ async function pack(userId: string): Promise<number> {
     flipped += 1;
     coin = next.fillState === "sealed" ? coins.shift() : next;
   }
+  if (coin) {
+    try {
+      if (await engraveHarvest(userId, coin, coins)) flipped += 1;
+    } catch (err) { console.warn("[contentPayload] harvest engraving failed", err); }
+  }
   if (flipped || upgradedAny) notify();
   return flipped;
+}
+
+/**
+ * Append everything harvested since the last engraving as one entry.
+ * The engraved tally is only advanced after the coin is written, and an
+ * entry already present on an open coin (an interrupted earlier pass) is
+ * never appended twice.
+ */
+async function engraveHarvest(userId: string, coin: SwarmCoin, spare: SwarmCoin[]): Promise<boolean> {
+  const tally = await readHarvestTally(userId);
+  const engraved = await readEngravedHarvest(userId);
+  if (tally.events <= engraved.events) return false;
+  const batch = unengraved(tally, engraved);
+  if (Object.keys(batch).length === 0) {
+    await writeEngravedHarvest(userId, tally.totals, tally.events);
+    return false;
+  }
+  const entry = await buildHarvestEntry(userId, batch, tally.events, tally.lastAt ?? new Date().toISOString());
+  const already = [coin, ...spare].some((c) => (c.payloadEntries ?? []).some((e) => e.id === entry.id));
+  if (!already) {
+    let target: SwarmCoin | undefined = coin;
+    if ((target.sealBytes ?? 0) + entry.sizeBytes > COIN_PAYLOAD_CAPACITY_BYTES) {
+      target = spare.find((c) => (c.sealBytes ?? 0) + entry.sizeBytes <= COIN_PAYLOAD_CAPACITY_BYTES);
+    }
+    if (!target) return false;
+    let next: SwarmCoin = {
+      ...target, fillState: "filling", payloadEntries: [...(target.payloadEntries ?? []), entry],
+      sealBytes: (target.sealBytes ?? 0) + entry.sizeBytes,
+      lastPayloadLoadAt: new Date().toISOString(),
+    };
+    next.fill = Math.min(1, (next.sealBytes ?? 0) / COIN_PAYLOAD_CAPACITY_BYTES);
+    if ((next.sealBytes ?? 0) >= COIN_PAYLOAD_CAPACITY_BYTES) next = await sealPayload(next);
+    await put("swarmCoins", next);
+  }
+  await writeEngravedHarvest(userId, tally.totals, tally.events);
+  return !already;
 }

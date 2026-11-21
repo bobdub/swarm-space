@@ -25,11 +25,16 @@ export function LabourPayoutsPanel() {
     return () => { unsub(); };
   }, []);
 
-  const sortedActors = Object.entries(snap.totals)
+  const myTotal = user ? (snap.totals[user.id] ?? 0) : 0;
+  // The player is always listed first: busy NPCs out-earn one person
+  // quickly, and a top-12 cut used to push "You" off the list entirely.
+  const others = Object.entries(snap.totals)
+    .filter(([actorId]) => actorId !== user?.id)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 12);
-
-  const myTotal = user ? (snap.totals[user.id] ?? 0) : 0;
+  const sortedActors: [string, number][] = user && myTotal > 0
+    ? [[user.id, myTotal], ...others]
+    : others;
 
   return (
     <Card className="border-primary/20">
@@ -41,7 +46,7 @@ export function LabourPayoutsPanel() {
               Labour Payouts
             </CardTitle>
             <CardDescription>
-              Cross-scaffolding coin.fill credits from world labour and NPC activity.
+              Labour credits from your harvesting, chopping, digging and building, and from NPC work.
             </CardDescription>
           </div>
           {user && (
@@ -54,7 +59,7 @@ export function LabourPayoutsPanel() {
       <CardContent>
         {sortedActors.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm">
-            No labour credits yet. Sculpt, mine or let an NPC work the field.
+            No labour credits yet. Harvest, chop, dig or let an NPC work the field.
           </div>
         ) : (
           <div className="space-y-4">
@@ -62,7 +67,7 @@ export function LabourPayoutsPanel() {
               {sortedActors.map(([actorId, total]) => (
                 <div
                   key={actorId}
-                  className="flex items-center justify-between p-2 border rounded-md hover:bg-accent/30"
+                  className={`flex items-center justify-between p-2 border rounded-md hover:bg-accent/30${actorId === user?.id ? " border-primary/40 bg-primary/5" : ""}`}
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">
