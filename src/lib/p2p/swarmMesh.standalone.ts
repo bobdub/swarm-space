@@ -13,6 +13,7 @@ import { CADENCE_SPACING_MS, FUTURE_LIMIT_MS, getChainMark, planCatchup, saveCha
 import { isSelfIssuedSwarmMint } from '@/lib/blockchain/issuance';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
+import { getAppVersionWatch } from './appVersion';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -2541,6 +2542,12 @@ export class StandaloneSwarmMesh {
         }).catch(() => { /* ignore */ });
       } catch { /* ignore */ }
 
+      // Build handoff: both sides swap build stamps so an older tab learns a
+      // newer build is live (verified against its own host, never trusted).
+      try {
+        conn.send(JSON.stringify({ type: 'app-version', from: this.peerId, build: getAppVersionWatch().getLocalBuild() }));
+      } catch { /* ignore */ }
+
       // Presence hints and deletion tombstones go before the inventory so the
       // peer drops dead content instead of offering it back to us.
       this.sendLifecycleState(conn);
@@ -3468,6 +3475,7 @@ export class StandaloneSwarmMesh {
             .catch(() => { /* invalid tombstones are dropped */ });
           break;
         case 'author-presence': this.lifecycle?.receivePresenceHints(msg.hints); break;
+        case 'app-version': getAppVersionWatch().notePeerBuild(msg.build); break;
         default: break;
       }
     } catch (e) {
