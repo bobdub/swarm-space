@@ -122,13 +122,23 @@ export function startCallQualityMonitor(
 ): () => void {
   const prevCounters = new Map<string, CallCounters>();
   const lastTarget = new Map<string, number | null>();
+  /** Which connection the caches above belong to, per peer. */
+  const cachedFor = new Map<string, RTCPeerConnection>();
   let stopped = false;
 
   const tick = async () => {
     const connections = getConnections();
     for (const id of [...prevCounters.keys()]) if (!connections.has(id)) prevCounters.delete(id);
     for (const id of [...lastTarget.keys()]) if (!connections.has(id)) lastTarget.delete(id);
+    for (const id of [...cachedFor.keys()]) if (!connections.has(id)) cachedFor.delete(id);
     for (const [peerId, pc] of connections) {
+      if (cachedFor.get(peerId) !== pc) {
+        // A reconnect replaced this peer's connection: start its numbers fresh
+        // so the new receivers get their own buffer target.
+        prevCounters.delete(peerId);
+        lastTarget.delete(peerId);
+        cachedFor.set(peerId, pc);
+      }
       if (stopped || pc.connectionState !== 'connected') continue;
       try {
         const report = await pc.getStats();
@@ -137,7 +147,7 @@ export function startCallQualityMonitor(
         latestQuality.set(peerId, quality);
 
         const target = playoutTargetMs(quality);
-        if (lastTarget.get(peerId) !== target) {
+        if (!lastTarget.has(peerId) || lastTarget.get(peerId) !== target) {
           lastTarget.set(peerId, target);
           for (const receiver of pc.getReceivers()) {
             if (receiver.track?.kind !== 'audio' || !('jitterBufferTarget' in receiver)) continue;

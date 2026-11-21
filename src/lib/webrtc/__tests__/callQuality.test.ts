@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { callHealthReward, MAX_PLAYOUT_TARGET_MS, playoutTargetMs, summarizeCallStats } from '../callQuality';
 
 const report = (over: { jitter?: number; received?: number; lost?: number; delay?: number; emitted?: number; rtt?: number } = {}) => [
@@ -40,5 +40,35 @@ describe('call quality', () => {
     expect(callHealthReward({ jitterMs: 5, lossPct: 0, rttMs: 60, bufferDelayMs: 20 })).toBeGreaterThan(0);
     expect(callHealthReward({ jitterMs: 50, lossPct: 4, rttMs: 60, bufferDelayMs: 20 })).toBeLessThan(0);
     expect(callHealthReward({ jitterMs: 5, lossPct: 15, rttMs: 60, bufferDelayMs: 20 })).toBe(-0.4);
+  });
+});
+
+describe('call quality monitor', () => {
+  it('gives a replacement connection its own buffer target', async () => {
+    const { startCallQualityMonitor } = await import('../callQuality');
+    const shakyStats = report({ jitter: 0.03 });
+    const makePc = () => {
+      const receiver = { track: { kind: 'audio' }, jitterBufferTarget: null as number | null };
+      return {
+        receiver,
+        pc: {
+          connectionState: 'connected',
+          getStats: async () => shakyStats,
+          getReceivers: () => [receiver],
+        } as unknown as RTCPeerConnection,
+      };
+    };
+    const first = makePc();
+    const connections = new Map<string, RTCPeerConnection>([['peer-a', first.pc]]);
+    vi.useFakeTimers();
+    const stop = startCallQualityMonitor(() => connections, () => 'room', 1000);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(first.receiver.jitterBufferTarget).toBe(120);
+    const second = makePc();
+    connections.set('peer-a', second.pc);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(second.receiver.jitterBufferTarget).toBe(120);
+    stop();
+    vi.useRealTimers();
   });
 });
