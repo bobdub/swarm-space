@@ -55,6 +55,8 @@ let appliedMs = 0;
 let lastApplyPerf = 0;
 let lastReturned = 0;
 let wallMinusPerf = NaN;
+/** Correction restored after a reload; used until fresh peer readings arrive. */
+let restoredTarget: number | null = null;
 let syncing: Promise<number> | null = null;
 let lastSyncAt = 0;
 
@@ -86,7 +88,7 @@ export function meshClockOffset(at: number = Date.now()): number | null {
 
 /** The offset the clock is heading toward: the server anchor, refined by the mesh. */
 export function targetClockOffset(at: number = Date.now()): number {
-  const mesh = meshClockOffset(at);
+  const mesh = meshClockOffset(at) ?? restoredTarget;
   if (mesh === null) return offsetMs;
   if (!originSynced) return Math.max(-MAX_CORRECTION_MS, Math.min(MAX_CORRECTION_MS, mesh));
   // The server is right to within MIN_CORRECTION_MS; let the mesh refine inside that.
@@ -101,6 +103,7 @@ function stepApplied(): void {
     // Device clock was changed, or the device slept: old peer readings are
     // relative to the old clock, so drop them and re-check against the server.
     peerSamples.clear();
+    restoredTarget = null;
     lastReturned = 0;
     wallMinusPerf = drift;
     void syncNetworkClock();
@@ -158,6 +161,7 @@ export function recordPeerClockSample(peerId: string, sentAt: number, peerNow: n
   // Prefer the tighter round trip unless the older reading has gone stale.
   if (prev && prev.rtt < rtt && receivedAt - prev.at < SAMPLE_TTL_MS / 2) return;
   peerSamples.set(peerId, { offset, rtt, at: receivedAt });
+  restoredTarget = null;
   saveSession();
 }
 
@@ -185,7 +189,10 @@ export function restoreNetworkClockSession(): void {
     const saved = JSON.parse(raw) as { offset?: number; originSynced?: boolean; target?: number; savedAt?: number };
     if (typeof saved.savedAt !== 'number' || Math.abs(Date.now() - saved.savedAt) > SESSION_MAX_AGE_MS) return;
     if (typeof saved.offset === 'number' && Number.isFinite(saved.offset)) offsetMs = saved.offset;
-    if (typeof saved.target === 'number' && Number.isFinite(saved.target)) appliedMs = saved.target;
+    if (typeof saved.target === 'number' && Number.isFinite(saved.target)) {
+      appliedMs = saved.target;
+      restoredTarget = saved.target;
+    }
     originSynced = saved.originSynced === true;
   } catch { /* storage unavailable or corrupt */ }
 }
@@ -195,12 +202,21 @@ export function restoreNetworkClockSession(): void {
  * `sentAt`/`receivedAt` are local Date.now() around the request.
  */
 export function offsetFromServerDate(serverDate: string | null, sentAt: number, receivedAt: number): number {
-  if (!serverDate) return 0;
+  return measureServerOffset(serverDate, sentAt, receivedAt) ?? 0;
+}
+
+/**
+ * Like offsetFromServerDate, but null when the header is missing, unreadable
+ * or absurd, so a failed check is not mistaken for "the device clock is fine".
+ */
+export function measureServerOffset(serverDate: string | null, sentAt: number, receivedAt: number): number | null {
+  if (!serverDate) return null;
   const server = Date.parse(serverDate);
-  if (!Number.isFinite(server)) return 0;
+  if (!Number.isFinite(server)) return null;
   // The header truncates to the second: the true instant is ~500 ms later on average.
   const raw = server + 500 - (sentAt + receivedAt) / 2;
-  if (Math.abs(raw) < MIN_CORRECTION_MS || Math.abs(raw) > MAX_CORRECTION_MS) return 0;
+  if (Math.abs(raw) > MAX_CORRECTION_MS) return null;
+  if (Math.abs(raw) < MIN_CORRECTION_MS) return 0;
   return Math.round(raw);
 }
 
@@ -213,6 +229,7 @@ export function setNetworkClockOffset(ms: number, opts: { originSynced?: boolean
   lastReturned = 0;
   wallMinusPerf = NaN;
   peerSamples.clear();
+  restoredTarget = null;
   lastSyncAt = Date.now();
 }
 
@@ -237,13 +254,15 @@ export function syncNetworkClock(): Promise<number> {
       const receivedAt = Date.now();
       // A slow round trip makes the midpoint guess unreliable.
       if (receivedAt - sentAt < 10_000) {
-        const next = offsetFromServerDate(res.headers.get('date'), sentAt, receivedAt);
-        if (next !== offsetMs && next !== 0) {
-          console.info(`[NetworkClock] device clock is off by ${Math.round(next / 1000)}s; correcting chat timestamps`);
+        const next = measureServerOffset(res.headers.get('date'), sentAt, receivedAt);
+        if (next !== null) {
+          if (next !== offsetMs && next !== 0) {
+            console.info(`[NetworkClock] device clock is off by ${Math.round(next / 1000)}s; correcting chat timestamps`);
+          }
+          offsetMs = next;
+          originSynced = true;
+          saveSession();
         }
-        offsetMs = next;
-        originSynced = true;
-        saveSession();
       }
     } catch {
       /* offline or blocked: keep the last known offset */

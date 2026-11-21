@@ -3,7 +3,9 @@ import {
   MAX_SAMPLE_RTT_MS,
   MIN_CORRECTION_MS,
   STEP_THRESHOLD_MS,
+  measureServerOffset,
   meshClockOffset,
+  restoreNetworkClockSession,
   networkClockOffset,
   networkNow,
   offsetFromPeerReply,
@@ -93,5 +95,27 @@ describe('cadence clock (mesh agreement)', () => {
       prev = next;
     }
     expect(networkClockOffset()).toBeGreaterThan(-STEP_THRESHOLD_MS);
+  });
+});
+
+describe('cadence clock (reload and failed server checks)', () => {
+  afterEach(() => {
+    setNetworkClockOffset(0);
+    try { sessionStorage.clear(); } catch { /* none */ }
+  });
+
+  it('keeps a restored mesh correction until fresh readings arrive', () => {
+    sessionStorage.setItem('swarm-network-clock', JSON.stringify({
+      offset: 0, originSynced: false, target: HOUR, savedAt: Date.now(),
+    }));
+    restoreNetworkClockSession();
+    expect(Math.abs(networkNow() - (Date.now() + HOUR))).toBeLessThan(50);
+  });
+
+  it('treats a missing or broken Date header as no measurement', () => {
+    const now = Date.UTC(2026, 10, 20, 5, 0, 0);
+    expect(measureServerOffset(null, now, now)).toBeNull();
+    expect(measureServerOffset('not a date', now, now)).toBeNull();
+    expect(measureServerOffset(new Date(now).toUTCString(), now, now + 50)).toBe(0);
   });
 });
