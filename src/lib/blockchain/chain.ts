@@ -294,7 +294,8 @@ export class SwarmChain {
       type: "mining_reward",
       from: "system",
       to: minerAddress,
-      amount: this.miningReward,
+      // From the block's height, the same rule peers check it against.
+      amount: this.rewardAtHeight(this.chain.length),
       timestamp: new Date(networkNow()).toISOString(),
       signature: "",
       publicKey: "",
@@ -304,7 +305,9 @@ export class SwarmChain {
       meta: { reward: true, chainId: resolvedChainId },
     };
 
-    const transactions = [...this.pendingTransactions, rewardTransaction];
+    // A block pays exactly one reward: its own. Rewards from other blocks
+    // (orphaned or copied from a peer's chain) never ride along.
+    const transactions = [...this.pendingTransactions.filter((tx) => tx.type !== "mining_reward"), rewardTransaction];
     const block: SwarmBlock = {
       index: this.chain.length,
       timestamp: new Date(networkNow()).toISOString(),
@@ -330,7 +333,7 @@ export class SwarmChain {
 
       // Clear the mined transactions (keep any that arrived while mining).
       const mined = new Set(minedBlock.transactions.map((tx) => tx.id));
-      this.pendingTransactions = this.pendingTransactions.filter((tx) => !mined.has(tx.id));
+      this.pendingTransactions = this.pendingTransactions.filter((tx) => !mined.has(tx.id) && tx.type !== "mining_reward");
 
       // Check for halving
       if (this.chain.length % SWARM_CONFIG.halvingInterval === 0) {
@@ -550,6 +553,8 @@ export class SwarmChain {
   private async readmitTransaction(tx: SwarmTransaction): Promise<boolean> {
     try {
       if (this.hasTransaction(tx.id)) return false;
+      // A dropped block's reward dies with the block; the next block pays its own.
+      if (tx.type === "mining_reward") return false;
       if (tx.type === "wallet_tip") return await this.acceptWalletTip(tx);
       if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
       if (isCustomTokenSync(tx)) return await this.acceptCustomTokenDeposit(tx);

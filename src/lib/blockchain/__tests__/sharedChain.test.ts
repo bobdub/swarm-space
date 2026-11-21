@@ -4,6 +4,7 @@ vi.mock("../storage", () => ({ getChainState: async () => null, saveChainState: 
 vi.mock("../chainHealthBridge", () => ({ recordBlockAccepted: () => {}, bootstrapChainBridge: () => {}, resolveFork: () => "keep" }));
 
 const { SwarmChain } = await import("../chain");
+const { calculateMerkleRoot } = await import("../crypto");
 type Chain = InstanceType<typeof SwarmChain>;
 
 const tx = (id: string) => ({
@@ -42,9 +43,12 @@ describe("shared chain safety", () => {
   it("rejects a block that pays itself more than the mining reward", async () => {
     const peer = new SwarmChain();
     await peer.whenReady();
-    (peer as unknown as { miningReward: number }).miningReward = 1_000_000;
     peer.addTransaction(tx("t") as never);
-    const block = await peer.minePendingTransactions("greedy");
+    const honest = (await peer.minePendingTransactions("greedy"))!;
+    const transactions = honest.transactions.map((t) => (t.type === "mining_reward" ? { ...t, amount: 1_000_000 } : t));
+    const forged = { ...honest, transactions, nonce: 0, hash: "", merkleRoot: await calculateMerkleRoot(transactions) };
+    const block = await (peer as unknown as { mineBlock: (b: unknown) => Promise<typeof honest> }).mineBlock(forged);
+    (peer as unknown as { chain: unknown[] }).chain[1] = block;
     const local = new SwarmChain();
     await local.whenReady();
     expect(await local.appendPeerBlock(block!)).toBe(false);
@@ -59,5 +63,19 @@ describe("shared chain safety", () => {
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(local.getChain()).toHaveLength(2);
     expect(await local.isValidPeerChain(local.getChain())).toBe(true);
+  }, 60_000);
+});
+
+describe("one reward per block", () => {
+  it("never carries a stray reward into a mined block, so peers accept it", async () => {
+    const miner = new SwarmChain();
+    await miner.whenReady();
+    miner.addTransaction({ ...tx("stray"), type: "mining_reward", from: "system", to: "someone", amount: 50 } as never);
+    miner.addTransaction(tx("real") as never);
+    const block = await miner.minePendingTransactions("me");
+    expect(block!.transactions.filter((t) => t.type === "mining_reward")).toHaveLength(1);
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    expect(await peer.appendPeerBlock(block!)).toBe(true);
   }, 60_000);
 });
