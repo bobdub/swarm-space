@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 21, 2026 — A patient line
+Before tending: let ordinary fish feed the traveller without a race against glass;
+keep the shark's pull deliberate, not impossible. Guard each catch and its reward,
+and leave the living room to those already sailing there.
+
+After tending: fish offer at least 690 milliseconds per crossing; sharks keep
+400 to 600, with twelve seconds to watch a round. Nineteen automated witnesses
+guard catches and unchanged food; real phone feel stays with the traveller.
+
 ### November 21, 2026 — Clear water ahead
 Before tending: fold the sailing readout into a small compass of numbers;
 keep the thumb's tools beside the wheel and the horizon free.

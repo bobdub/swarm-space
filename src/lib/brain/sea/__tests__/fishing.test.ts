@@ -63,6 +63,41 @@ function waitFor(t0: number, speed: number, limit: number): number {
 }
 
 describe('a line over the rail', () => {
+  it('keeps food fishing relaxed through every round, including a delayed reaction', () => {
+    setFishingRandom(() => 0.25);
+    let food = 0;
+    setFishingReward((amount) => { food += amount; });
+    cast(0, 20);
+    reel(waitFor(0, 0, 60));
+    const widths = [0.4, 0.36, 0.32];
+    for (let i = 0; i < 3; i++) {
+      const f = getFishing().fight;
+      if (!f) throw new Error('Expected a fish fight');
+      expect(f.need).toBe(3);
+      expect(f.zoneW).toBe(widths[i]);
+      expect(f.sweep).toBeCloseTo(4.8 * 0.95 ** i, 8);
+      // Even the final zone remains open for at least 690 ms per crossing.
+      expect(f.zoneW * f.sweep / 2).toBeGreaterThanOrEqual(0.69);
+      const entry = f.roundAt + (f.zoneC - f.zoneW / 2) * f.sweep / 2;
+      expect(strike(entry + 0.5)).toBe(i === 2 ? 'landed' : 'hit');
+    }
+    expect(getFishing().phase).toBe('caught');
+    expect(food).toBe(1);
+  });
+
+  it('allows twelve seconds to watch each round before counting an idle miss', () => {
+    setFishingRandom(() => 0.25);
+    cast(0, 20);
+    // An integer hook time keeps this exact boundary independent of float rounding.
+    const bite = Math.ceil(waitFor(0, 0, 60));
+    reel(bite);
+    expect(FIGHT_ROUND_S).toBe(12);
+    updateFishing(bite + 12, 0);
+    expect(getFishing().fight?.misses).toBe(0);
+    updateFishing(bite + 12.01, 0);
+    expect(getFishing().fight?.misses).toBe(1);
+  });
+
   it('bites sooner in deep water than in the shallows', () => {
     expect(meanBiteWait(1)).toBe(BITE_WAIT_SHALLOW_S);
     expect(meanBiteWait(40)).toBe(BITE_WAIT_DEEP_S);
