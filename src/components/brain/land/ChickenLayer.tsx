@@ -112,7 +112,7 @@ const STRAW = ['#c9a45c', '#b48a45', '#d8bd7a', '#9c7a3c', '#e0c98f', '#a88a52']
  * Every piece carries its own straw colour, merged into one geometry so
  * all the nests in view still draw in a single call.
  */
-export function nestGeometry(): THREE.BufferGeometry {
+function nestGeometry(): THREE.BufferGeometry {
   const r = rand(0x5e57);
   const parts: { g: THREE.BufferGeometry; color: (i: number) => THREE.Color }[] = [];
 
