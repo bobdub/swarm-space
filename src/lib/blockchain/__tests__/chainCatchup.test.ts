@@ -42,3 +42,11 @@ describe('chain catch-up sync', () => {
     expect(getChainMark('peer-a')).toBeNull();
   });
 });
+
+describe('chain catch-up sync (older peers)', () => {
+  it('can send the whole chain as one unpaged message', () => {
+    const pages = planCatchup(chainOf(300), undefined, Infinity);
+    expect(pages).toHaveLength(1);
+    expect(pages[0].blocks).toHaveLength(300);
+  });
+});
