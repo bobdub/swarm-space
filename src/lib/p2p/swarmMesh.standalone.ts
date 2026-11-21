@@ -473,6 +473,8 @@ export class StandaloneSwarmMesh {
     blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean;
     /** The shared-chain block this round produced; only signed endorsements of it confirm the round. */
     chainHash?: string;
+    /** userIds of the peers connected when the round opened: the only voters who count. */
+    witnesses?: Set<string>;
   }>();
   private seenEndorsements = new Set<string>();
   private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
@@ -1145,6 +1147,7 @@ export class StandaloneSwarmMesh {
         votes: new Map(),
         totalPeers,
         isHollow,
+        witnesses: this.connectedWitnesses(),
       });
 
       // ── Shared chain: the block reward is the only payout (Bitcoin-style).
@@ -1297,6 +1300,26 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  /** The account behind each live connection, as told to us in that peer's own profile exchange. */
+  private connectedWitnesses(): Set<string> {
+    const ids = new Set<string>();
+    for (const peerId of this.connections.keys()) {
+      const userId = this.library.get(peerId)?.userId;
+      if (userId) ids.add(userId);
+    }
+    return ids;
+  }
+
+  /** Who produced a block we hold, read from our own validated chain (recent blocks only). */
+  private async chainBlockProducer(blockHash: string): Promise<string | undefined> {
+    const { getSwarmChain } = await import('../blockchain/chain');
+    const blocks = getSwarmChain().getChain();
+    for (let i = blocks.length - 1; i >= Math.max(0, blocks.length - 200); i--) {
+      if (blocks[i].hash === blockHash) return typeof blocks[i].miner === 'string' ? blocks[i].miner : undefined;
+    }
+    return undefined;
+  }
+
   /** A peer's signed endorsement: verify, keep it with the block, count it toward our round, pass it on. */
   private handleChainEndorse(from: string, msg: Record<string, unknown>): void {
     const e = msg.endorsement as { blockHash?: unknown; voter?: unknown } | undefined;
@@ -1305,19 +1328,24 @@ export class StandaloneSwarmMesh {
     if (this.seenEndorsements.has(key)) return;
     void (async () => {
       const { getCertificateBook, verifyEndorsement } = await import('../blockchain/endorsements');
-      // Mark seen only once verified, so a forged copy can't shadow the real one.
-      if (!await verifyEndorsement(msg.endorsement) || this.seenEndorsements.has(key)) return;
+      if (!await verifyEndorsement(msg.endorsement)) return;
+      const endorsement = msg.endorsement as import('../blockchain/endorsements').Endorsement;
+      // The producer comes from the block we validated, never from the relay's envelope.
+      // A block we don't hold yet: drop without marking seen, so a later copy still lands.
+      const producer = await this.chainBlockProducer(endorsement.blockHash);
+      // Mark seen only once accepted, so a forged or early copy can't shadow the real one.
+      if (!producer || this.seenEndorsements.has(key)) return;
       this.seenEndorsements.add(key);
       if (this.seenEndorsements.size > 5_000) {
         const oldest = this.seenEndorsements.values().next().value;
         if (oldest !== undefined) this.seenEndorsements.delete(oldest);
       }
-      const endorsement = msg.endorsement as import('../blockchain/endorsements').Endorsement;
-      const producer = typeof msg.producer === 'string' ? msg.producer : undefined;
       if (!getCertificateBook().add(endorsement, producer)) return;
-      // Our own round: a majority of the peers connected when we mined must sign.
+      // Our own round: a majority of the peers connected when we mined must sign,
+      // and only those peers count. Relayed signatures from anyone else are kept but not counted.
       for (const round of this.pendingBlockVotes.values()) {
         if (round.chainHash !== endorsement.blockHash) continue;
+        if (!round.witnesses?.has(endorsement.voter)) continue;
         round.votes.set(endorsement.voter, endorsement.agree);
         const signed = Array.from(round.votes.values()).filter(Boolean).length;
         if (signed >= Math.floor(round.totalPeers / 2) + 1) this.confirmBlock(round.blockId);
