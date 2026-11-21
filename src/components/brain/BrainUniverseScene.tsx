@@ -198,7 +198,7 @@ import { getSeatPose } from '@/lib/pub/seatStore';
 import { seatedTransform } from '@/lib/pub/seatLock';
 import { selfLearnable } from '@/lib/brain/agent/learnConsent';
 import { enqueueMemory } from '@/lib/brain/infinityMemory';
-import { networkNow } from '@/lib/time/networkClock';
+import { causalNow, networkNow } from '@/lib/time/networkClock';
 import {
   isOverheadView,
   SPECTATOR_BACK_M,
@@ -1917,7 +1917,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const line: BrainChatLine = {
       id: crypto.randomUUID(),
       author: user ? brainDisplayName(user) : 'You',
-      text, ts: networkNow(),
+      text, ts: causalNow(),
       authorId: user?.id,
       avatarRef: user?.profile?.avatarRef,
     };

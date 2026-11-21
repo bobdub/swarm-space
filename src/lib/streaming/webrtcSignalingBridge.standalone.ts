@@ -16,7 +16,8 @@
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
-import { networkNow, reconcileLiveTimestamp, syncNetworkClock } from '@/lib/time/networkClock';
+import { causalNow, observeCausalTimestamp, reconcileLiveTimestamp, syncNetworkClock } from '@/lib/time/networkClock';
+import { causalOrder } from '@/lib/chat/chatOrder';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -714,6 +715,7 @@ function appendRoomChatMessage(message: RoomChatMessage): void {
     return;
   }
   existing.push(message);
+  observeCausalTimestamp(message.ts);
   if (existing.length > MAX_CHAT_MESSAGES_PER_ROOM) {
     existing.splice(0, existing.length - MAX_CHAT_MESSAGES_PER_ROOM);
   }
@@ -745,7 +747,7 @@ export function buildChatHistoryPackets(
 ): RoomChatMessage[][] {
   const picked: RoomChatMessage[] = [];
   let total = 0;
-  const sorted = [...messages].sort((a, b) => a.ts - b.ts);
+  const sorted = causalOrder(messages);
   for (let i = sorted.length - 1; i >= 0; i -= 1) {
     const m = sorted[i]!;
     if (have.has(m.id) || isBlockedSender(m, blocked)) continue;
@@ -860,7 +862,9 @@ export function mergeRoomChatHistory(roomId: string, messages: RoomChatMessage[]
     added += 1;
   }
   if (added === 0) return 0;
-  existing.sort((a, b) => a.ts - b.ts);
+  for (const m of messages) observeCausalTimestamp(m.ts);
+  const ordered = causalOrder(existing);
+  existing.splice(0, existing.length, ...ordered);
   if (existing.length > MAX_CHAT_MESSAGES_PER_ROOM) {
     existing.splice(0, existing.length - MAX_CHAT_MESSAGES_PER_ROOM);
   }
@@ -1156,7 +1160,8 @@ export function sendRoomChatMessage(
     senderUsername: username,
     senderAvatarRef: avatarRef,
     text: trimmed,
-    ts: networkNow(),
+    // Later than every line we've seen, so a reply sorts after its parent.
+    ts: causalNow(),
     replyToId: replyTo?.id,
     replyToUsername: replyTo?.username,
     replyToPreview: replyTo?.preview,
@@ -1194,7 +1199,7 @@ export function onRoomChatMessage(handler: RoomChatHandler): () => void {
 }
 
 export function getRoomChatMessages(roomId: string): RoomChatMessage[] {
-  return [...(roomChatLog.get(roomId) ?? [])].sort((a, b) => a.ts - b.ts);
+  return causalOrder(roomChatLog.get(roomId) ?? []);
 }
 
 /**

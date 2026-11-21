@@ -312,3 +312,34 @@ if (typeof window !== 'undefined') {
     });
   } catch { /* no document */ }
 }
+
+// ── Causal stamps (hybrid logical clock) ─────────────────────────────
+//
+// A chat line must sort after every line its sender had already seen, even
+// when two clocks disagree by a few milliseconds. `causalNow()` is the mesh
+// clock, but never at or before the newest stamp we've seen or sent, so a
+// reply typed after its parent arrived always carries a later stamp. The
+// wire format stays a plain epoch-ms number, so older peers read it as is.
+
+let causalLast = 0;
+
+/** A timestamp later than anything this peer has seen or sent. */
+export function causalNow(): number {
+  const t = Math.max(networkNow(), causalLast + 1);
+  causalLast = t;
+  return t;
+}
+
+/**
+ * Note a stamp we received. Stamps far in the future are capped, so one bad
+ * peer can push our stamps ahead by at most LIVE_SKEW_LIMIT_MS.
+ */
+export function observeCausalTimestamp(ts: number, now: number = networkNow()): void {
+  if (!Number.isFinite(ts)) return;
+  causalLast = Math.max(causalLast, Math.min(ts, now + LIVE_SKEW_LIMIT_MS));
+}
+
+/** Test/internal: forget seen stamps. */
+export function resetCausalClock(): void {
+  causalLast = 0;
+}
