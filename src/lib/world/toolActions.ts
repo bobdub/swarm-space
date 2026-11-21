@@ -42,6 +42,7 @@ import {
 } from '@/lib/world/carvedCellsStore';
 import { getToolTarget, setToolTarget } from '@/lib/world/toolTargetStore';
 import { weatherCurvatureBoost } from '@/lib/world/weather';
+import { tryCatchNearbyHen } from '@/lib/world/henHunting';
 
 
 export type ToolVerb = 'chop' | 'whittle' | 'dig' | 'mine' | 'gather' | 'sharpen' | 'none';
@@ -347,6 +348,9 @@ export function resolveNearbyTarget(toolPrefabId: string, selfId?: string): Tool
 }
 
 export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget | null, selfId?: string): Promise<boolean> {
+  // A knife swung within reach of a free-range hen catches her, unless it
+  // is aimed at something the player built.
+  if (target?.kind !== 'placement' && tryCatchNearbyHen(toolPrefabId, selfId)) return true;
   if (!target) target = resolveNearbyTarget(toolPrefabId, selfId);
   if (!target) return swingToolInAir(toolPrefabId, selfId);
   if (target.kind === 'placement') return applyToolToPlacement(toolPrefabId, target.placement, selfId);

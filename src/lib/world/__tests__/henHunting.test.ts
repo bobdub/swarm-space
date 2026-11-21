@@ -1,0 +1,52 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), message: vi.fn(), warning: vi.fn() } }));
+const self = vi.hoisted(() => ({ pos: [0, 0, 0] as [number, number, number] }));
+vi.mock('@/lib/brain/uqrcPhysics', () => ({
+  getBrainPhysics: () => ({ getBody: () => ({ pos: self.pos }) }),
+}));
+vi.mock('@/lib/world/swingFxBus', () => ({ emitImpactFx: vi.fn(), emitSwingFx: vi.fn() }));
+
+import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { groundElevationAt } from '@/lib/brain/groundHeight';
+import { FOOD_PER_HEN, _resetChickensForTest, getHens, henPoseAt, isHenAway } from '@/lib/brain/land/chickens';
+import { _resetHarvestedForTest } from '@/lib/remix/harvestedInventory';
+import { materialTotals } from '@/lib/world/materials';
+import { _resetNatureEventsForTest, listNatureEvents } from '@/lib/world/natureEventsStore';
+import { tryCatchNearbyHen } from '@/lib/world/henHunting';
+
+function standAt(n: Vec3): void {
+  const pose = getEarthPose();
+  const r = EARTH_RADIUS + groundElevationAt(n) + 0.9;
+  const w = quatRotate(pose.spinQuat, [n[0] * r, n[1] * r, n[2] * r]);
+  self.pos = [pose.center[0] + w[0], pose.center[1] + w[1], pose.center[2] + w[2]];
+}
+
+beforeEach(() => {
+  _resetNatureEventsForTest();
+  _resetChickensForTest();
+  _resetHarvestedForTest();
+});
+
+describe('hunting hens with a knife', () => {
+  it('a knife next to a hen catches her for Food, and she is gone for everyone', () => {
+    const hen = getHens()[0];
+    standAt(henPoseAt(hen, getEarthPoseTime()).n);
+    const before = materialTotals().food ?? 0;
+    expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(true);
+    expect((materialTotals().food ?? 0) - before).toBe(FOOD_PER_HEN);
+    const caught = listNatureEvents('chickens');
+    expect(caught.length).toBe(1);
+    expect(caught[0].kind).toBe('hen-caught');
+    expect(isHenAway(caught[0].blockId)).toBe(true);
+  });
+
+  it('other tools, or no hen in reach, leave the swing alone', () => {
+    const hen = getHens()[0];
+    standAt(henPoseAt(hen, getEarthPoseTime()).n);
+    expect(tryCatchNearbyHen('tool_axe_stone', 'me')).toBe(false);
+    standAt([0, -1, 0]);
+    expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(false);
+    expect(listNatureEvents('chickens').length).toBe(0);
+  });
+});
