@@ -265,7 +265,8 @@ export function poolDeltaFromTx(tx: SwarmTransaction): number {
     case "creator_token_earnings_withdraw":
       return meta.closed === true ? numberFrom(meta.dissolved) : 0;
     case "mining_reward":
-      return numberFrom(meta.poolTax);
+      // The pool's share of a block reward is the output paid to the pool.
+      return tx.to === "community-pool" ? numberFrom(tx.amount) : numberFrom(meta.poolTax);
     default:
       return 0;
   }
