@@ -3433,7 +3433,11 @@ export class StandaloneSwarmMesh {
         const conn = this.connections.get(from);
         if (!conn) return;
         const since = msg.since as ChainMark | null | undefined;
-        const pages = planCatchup(blocks, since);
+        // Older peers don't send `since` and don't understand pages: they
+        // compare one response's length with their own chain, so give them
+        // the whole chain in a single message, as before.
+        const legacy = !('since' in msg);
+        const pages = planCatchup(blocks, since, legacy ? Infinity : undefined);
         for (const page of pages) {
           conn.send(JSON.stringify({
             type: 'chain-sync-response',
