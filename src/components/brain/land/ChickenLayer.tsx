@@ -17,8 +17,14 @@ import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, worldPosToLocalNormal, ty
 import { groundElevationAt } from '@/lib/brain/groundHeight';
 import { arcMetres } from '@/lib/brain/sea/seaLife';
 import {
+  EGG_HATCH_MS,
+  broodChickPoseAt,
+  broodChicks,
+  broodEggOffset,
   chickPoseAt,
   eggOffset,
+  flockOf,
+  nestEggs,
   getHens,
   henLifeAt,
   henPoseAt,
@@ -30,9 +36,9 @@ import {
 
 /** Draw distance (m) and most hens drawn at once. */
 const VIEW_M = 90;
-const MAX_HENS = 64;
+const MAX_HENS = 96;
 const MAX_NESTS = 24;
-const MAX_EGGS = 48;
+const MAX_EGGS = 72;
 /** Seconds between re-picking which hens are near. */
 const PICK_EVERY_S = 1;
 
@@ -190,44 +196,28 @@ export function ChickenLayer() {
       return tmp.frame;
     };
 
-    for (const h of nr.hens) {
-      // One nest per flock, at its home.
-      if (!nests.has(h.flock) && nk < MAX_NESTS && arcMetres(viewN, h.nest) <= VIEW_M) {
-        nests.add(h.flock);
-        meshes.nest.setMatrixAt(nk++, place(h.nest, 0, h.e1, 1));
+    const drawEgg = (n: Vec3, heading: Vec3, rock: number, color: THREE.Color, seed: number) => {
+      if (ek >= MAX_EGGS) return;
+      place(n, 0, heading, 1);
+      if (rock > 0) {
+        tmp.q2.setFromAxisAngle(tmp.zAxis, 0.25 * Math.sin(now * 14 + seed) * rock);
+        tmp.local.makeRotationFromQuaternion(tmp.q2);
+        tmp.m.multiplyMatrices(tmp.frame, tmp.local);
+        meshes.egg.setMatrixAt(ek, tmp.m);
+      } else {
+        meshes.egg.setMatrixAt(ek, tmp.frame);
       }
-      const life = henLifeAt(h, wall);
-      if (life.stage === 'gone') continue;
+      meshes.egg.setColorAt(ek, color);
+      ek++;
+    };
 
-      if (life.stage === 'egg') {
-        if (ek >= MAX_EGGS) continue;
-        const [ox, oz] = eggOffset(h.slot);
-        const en = nestPoint(h.nest, ox, oz);
-        place(en, 0, h.e1, 1);
-        // Rocks a little in its last half minute, as the chick pecks out.
-        const left = (1 - life.progress) * 240;
-        if (left < 30) {
-          tmp.q2.setFromAxisAngle(tmp.zAxis, 0.25 * Math.sin(now * 14 + h.slot) * (1 - left / 30));
-          tmp.local.makeRotationFromQuaternion(tmp.q2);
-          tmp.m.multiplyMatrices(tmp.frame, tmp.local);
-          meshes.egg.setMatrixAt(ek, tmp.m);
-        } else {
-          meshes.egg.setMatrixAt(ek, tmp.frame);
-        }
-        meshes.egg.setColorAt(ek, EGG_COLORS[h.plumage] ?? EGG_COLORS[0]);
-        ek++;
-        continue;
-      }
-
-      if (k >= MAX_HENS) continue;
-      const chick = life.stage === 'chick';
-      const hp: HenPose = chick ? chickPoseAt(h, t, life.progress) : henPoseAt(h, t);
-      if (arcMetres(viewN, hp.n) > VIEW_M) continue;
-      const grown = chick ? life.progress : 1;
-      const adultCol = (h.rooster ? ROOSTER_PLUMAGE : PLUMAGE)[h.plumage] ?? PLUMAGE[0];
+    const drawBird = (hp: HenPose, scale: number, rooster: boolean, plumage: number, chick: boolean, grown: number) => {
+      if (k >= MAX_HENS) return;
+      if (arcMetres(viewN, hp.n) > VIEW_M) return;
+      const adultCol = (rooster ? ROOSTER_PLUMAGE : PLUMAGE)[plumage] ?? PLUMAGE[0];
       // Yellow fluff until halfway, then the adult feathers come through.
       const col = chick ? tmp.col.copy(CHICK).lerp(adultCol, Math.max(0, (grown - 0.5) * 2)) : adultCol;
-      const size = h.scale * (chick ? 0.3 + 0.7 * grown : 1);
+      const size = scale * (chick ? 0.3 + 0.7 * grown : 1);
 
       // Walking: a little bob, legs swinging, head jerking forward.
       // Pecking: head dips to the ground a few times. Chicks scurry faster.
@@ -239,8 +229,7 @@ export function ChickenLayer() {
       meshes.tail.setMatrixAt(k, tmp.frame);
       meshes.body.setColorAt(k, col);
       meshes.tail.setColorAt(k, col);
-      const showPlumes = h.rooster && grown > 0.7;
-      if (showPlumes) {
+      if (rooster && grown > 0.7) {
         for (let i = 0; i < 3 && pk < MAX_HENS * 3; i++) {
           tmp.q2.setFromAxisAngle(tmp.zAxis, (i - 1) * 0.35);
           tmp.local.compose(tmp.p.set(0, 0, 0), tmp.q2, tmp.s.set(1, 1 - 0.15 * Math.abs(i - 1), 1));
@@ -260,7 +249,7 @@ export function ChickenLayer() {
       meshes.beak.setMatrixAt(k, headM);
       // Hens and young roosters wear the small comb; chicks have none yet.
       const combScale = chick && grown < 0.6 ? 0.001 : 1;
-      if (h.rooster && grown > 0.7) {
+      if (rooster && grown > 0.7) {
         meshes.bigComb.setMatrixAt(rk, headM);
         meshes.wattle.setMatrixAt(rk, headM);
         rk++;
@@ -279,6 +268,40 @@ export function ChickenLayer() {
         meshes.legs.setMatrixAt(k * 2 + side, tmp.m);
       }
       k++;
+    };
+
+    for (const h of nr.hens) {
+      // One nest per flock, at its home, with the eggs the hens laid in it
+      // and the chicks that hatched from them.
+      if (!nests.has(h.flock) && nk < MAX_NESTS && arcMetres(viewN, h.nest) <= VIEW_M) {
+        nests.add(h.flock);
+        meshes.nest.setMatrixAt(nk++, place(h.nest, 0, h.e1, 1));
+        const flock = flockOf(h);
+        for (const e of nestEggs(flock, wall)) {
+          const [ox, oz] = broodEggOffset(e);
+          const left = (e.layAt + EGG_HATCH_MS - wall) / 1000;
+          const rock = e.fertile && left < 30 ? 1 - left / 30 : 0;
+          drawEgg(nestPoint(h.nest, ox, oz), h.e1, rock, EGG_COLORS[e.mother.plumage] ?? EGG_COLORS[0], e.layAt % 97);
+        }
+        for (const c of broodChicks(flock, wall)) {
+          // Brood chicks stay chick-sized: they leave before they are grown.
+          drawBird(broodChickPoseAt(c, t), c.egg.mother.scale, false, c.egg.mother.plumage, true, c.progress * 0.55);
+        }
+      }
+      const life = henLifeAt(h, wall);
+      if (life.stage === 'gone') continue;
+
+      if (life.stage === 'egg') {
+        const [ox, oz] = eggOffset(h.slot);
+        // Rocks a little in its last half minute, as the chick pecks out.
+        const left = (1 - life.progress) * (EGG_HATCH_MS / 1000);
+        drawEgg(nestPoint(h.nest, ox, oz), h.e1, left < 30 ? 1 - left / 30 : 0, EGG_COLORS[h.plumage] ?? EGG_COLORS[0], h.slot);
+        continue;
+      }
+
+      const chick = life.stage === 'chick';
+      const hp: HenPose = chick ? chickPoseAt(h, t, life.progress) : henPoseAt(h, t);
+      drawBird(hp, h.scale, h.rooster, h.plumage, chick, chick ? life.progress : 1);
     }
     const counts: Record<keyof typeof meshes, number> = {
       body: k, tail: k, head: k, comb: k, beak: k, legs: k * 2,

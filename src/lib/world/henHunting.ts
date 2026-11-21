@@ -20,8 +20,11 @@ import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
   EGG_LAY_MS,
+  FOOD_PER_EGG,
   FOOD_PER_HEN,
   FOOD_PER_ROOSTER,
+  NEST_REACH_M,
+  nearestNestEgg,
   HEN_CATCH_REACH_M,
   HEN_EVENT_ANCHOR,
   HEN_RESPAWN_MS,
@@ -83,5 +86,36 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
     prefab?.label ?? 'Stone Knife',
     `Caught a ${found.hen.rooster ? 'rooster' : 'hen'} · +${food} Food. ${next}`,
   );
+  return true;
+}
+
+/**
+ * If the player stands at a flock's nest with an egg in it, take the
+ * oldest egg for Food. Any held tool will do: it is a hand's work. The
+ * take is shared, so the egg is gone from the nest for everyone and will
+ * not hatch. Returns false when there is no egg within reach.
+ */
+export function tryTakeNestEgg(toolPrefabId: string, selfId?: string, now = Date.now()): boolean {
+  if (!selfId) return false;
+  const body = getBrainPhysics().getBody(selfId);
+  if (!body) return false;
+  const pose = getEarthPose();
+  const selfN = worldPosToLocalNormal(body.pos, pose);
+  const r = Math.hypot(body.pos[0] - pose.center[0], body.pos[1] - pose.center[1], body.pos[2] - pose.center[2]);
+  if (r - EARTH_RADIUS - groundElevationAt(selfN) > 2.5) return false;
+  const found = nearestNestEgg(selfN, now, NEST_REACH_M);
+  if (!found) return false;
+
+  recordNatureEvent('egg-taken', found.egg.id, HEN_EVENT_ANCHOR, 0, 0, now);
+  recordPlayerHarvest('food', FOOD_PER_EGG);
+
+  const n = found.egg.mother.nest;
+  const lift = EARTH_RADIUS + groundElevationAt(n) + 0.15;
+  const rot = quatRotate(pose.spinQuat, [n[0] * lift, n[1] * lift, n[2] * lift]);
+  const point: Vec3 = [pose.center[0] + rot[0], pose.center[1] + rot[1], pose.center[2] + rot[2]];
+  const up = quatRotate(pose.spinQuat, n);
+  emitImpactFx({ point, up, color: '#f4ecdc', radius: 0.6, intensity: 0.2, label: 'egg', success: true, material: 'flora' });
+  const prefab = getPrefab(toolPrefabId);
+  swingSuccess(toolPrefabId, prefab?.label ?? 'Nest', `Took an egg from the nest · +${FOOD_PER_EGG} Food.`);
   return true;
 }
