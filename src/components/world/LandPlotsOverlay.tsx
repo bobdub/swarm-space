@@ -147,7 +147,9 @@ export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverla
   useFrame((state) => {
     if (!visible) return;
     const now = state.clock.elapsedTime;
-    if (now - lastCull.current < 0.5) return;
+    // The render clock restarts at 0 after a pause; don't wait for it to catch up.
+    const since = now - lastCull.current;
+    if (since >= 0 && since < 0.5) return;
     lastCull.current = now;
     const pose = getEarthPose();
     const cam = state.camera.position;

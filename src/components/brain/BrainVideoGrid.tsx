@@ -14,6 +14,8 @@ interface BrainVideoGridProps {
   localScreenStream?: MediaStream | null;
   /** Names resolved from Brain presence, keyed by peer id. */
   nameByPeerId?: Record<string, string>;
+  /** Called when a screen opens or closes full size. */
+  onExpandedChange?: (open: boolean) => void;
 }
 
 interface Tile {
@@ -51,12 +53,25 @@ export function TileVideo({
     return () => {
       stream.removeEventListener("addtrack", kick);
       stream.removeEventListener(LOCAL_INPUT_SWITCHED_EVENT, rebind);
+      // Release the decoder now rather than whenever the element is collected.
+      // The tracks belong to the call, so they are not stopped here.
+      el.pause();
+      el.srcObject = null;
     };
   }, [stream]);
   return <video ref={ref} autoPlay playsInline muted={muted} className={className} />;
 }
 
-function VideoTile({ tile, onExpand }: { tile: Tile; onExpand: (key: string) => void }) {
+function VideoTile({
+  tile,
+  onExpand,
+  suspended = false,
+}: {
+  tile: Tile;
+  onExpand: (key: string) => void;
+  /** True while this tile is shown full size, so only one element decodes it. */
+  suspended?: boolean;
+}) {
   return (
     <div
       className={cn(
@@ -66,15 +81,21 @@ function VideoTile({ tile, onExpand }: { tile: Tile; onExpand: (key: string) => 
           : "border border-[hsla(180,80%,60%,0.3)]",
       )}
     >
-      <TileVideo
-        stream={tile.stream}
-        muted
-        className={cn(
-          "block bg-black",
-          tile.isScreen ? "object-contain" : "object-cover",
-          "h-[72px] w-[96px] sm:h-[96px] sm:w-[128px]",
-        )}
-      />
+      {suspended ? (
+        <div className="flex h-[72px] w-[96px] items-center justify-center bg-black text-[10px] text-white/60 sm:h-[96px] sm:w-[128px]">
+          Watching
+        </div>
+      ) : (
+        <TileVideo
+          stream={tile.stream}
+          muted
+          className={cn(
+            "block bg-black",
+            tile.isScreen ? "object-contain" : "object-cover",
+            "h-[72px] w-[96px] sm:h-[96px] sm:w-[128px]",
+          )}
+        />
+      )}
       {tile.isScreen && (
         <button
           type="button"
@@ -108,6 +129,7 @@ export function BrainVideoGrid({
   cameraOn,
   localScreenStream = null,
   nameByPeerId,
+  onExpandedChange,
 }: BrainVideoGridProps) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -181,6 +203,13 @@ export function BrainVideoGrid({
     if (expandedKey && !tiles.some((t) => t.key === expandedKey)) setExpandedKey(null);
   }, [expandedKey, tiles]);
 
+  const isOpen = expanded !== null;
+  useEffect(() => {
+    onExpandedChange?.(isOpen);
+  }, [isOpen, onExpandedChange]);
+  // Closing on unmount too, so the scene never stays paused.
+  useEffect(() => () => onExpandedChange?.(false), [onExpandedChange]);
+
   if (tiles.length === 0) return null;
 
   return (
@@ -192,12 +221,15 @@ export function BrainVideoGrid({
         )}
       >
         {tiles.map((t) => (
-          <VideoTile key={t.key} tile={t} onExpand={setExpandedKey} />
+          <VideoTile key={t.key} tile={t} onExpand={setExpandedKey} suspended={t.key === expanded?.key} />
         ))}
       </div>
 
       {expanded && (
-        <div className="pointer-events-auto fixed inset-0 z-50 flex flex-col bg-black/85 p-4 backdrop-blur-sm">
+        // Opaque and without backdrop-filter on purpose: a blur over the live
+        // WebGL scene makes the compositor re-blur the whole viewport on every
+        // frame, under a full-size video, for as long as the viewer is open.
+        <div className="pointer-events-auto fixed inset-0 z-50 flex flex-col bg-black p-4">
           <div className="mb-2 flex items-center justify-between text-sm text-white">
             <span className="flex items-center gap-2 truncate">
               <MonitorUp className="h-4 w-4 text-cyan-300" />
