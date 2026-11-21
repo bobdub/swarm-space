@@ -761,6 +761,8 @@ class GlobalCell {
     const mesh = getSwarmMeshStandalone();
     const stats = mesh.getStats();
     if (stats.phase !== 'online') return;
+    // Cell discovery is automatic dialing: honour the Auto-connect switch.
+    if (!mesh.isAutoConnectEnabled()) return;
 
     const nowTs = Date.now();
     const staleCutoff = nowTs - GLOBAL_CELL_STALE_THRESHOLD;
