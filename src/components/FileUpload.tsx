@@ -1,17 +1,34 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { X, Upload, File, Image as ImageIcon } from "lucide-react";
+import { X, Upload, File, Image as ImageIcon, Clock } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption";
 import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { formatUploadLimit, VIDEO_TRANSCODE_WAIT_TOOLTIP } from "@/lib/media/meshUploadLimits";
 
 /** Extract natural width/height from an image or video File */
 function getMediaDimensions(file: File): Promise<{ width: number; height: number } | null> {
-  return new Promise((resolve) => {
+  return new Promise((raw) => {
     const url = URL.createObjectURL(file);
+    // Files are processed one at a time, so a codec that never reports
+    // metadata must not hold up the rest of the queue.
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      raw(null);
+    }, 5000);
+    const resolve = (v: { width: number; height: number } | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      raw(v);
+    };
     if (file.type.startsWith("image/")) {
       const img = new Image();
       img.onload = () => { resolve({ width: img.naturalWidth, height: img.naturalHeight }); URL.revokeObjectURL(url); };
@@ -39,12 +56,18 @@ interface FileUploadProps {
 }
 
 interface FileWithProgress {
+  id: string;
   file: File;
   progress: number;
-  status: "pending" | "encrypting" | "done" | "error";
+  /** "queued" = waiting for the file ahead of it to finish encrypting. */
+  status: "queued" | "encrypting" | "done" | "error";
   manifest?: Manifest;
   error?: string;
+  /** Local blob: URL so queued videos can be watched before they are processed. */
+  previewUrl?: string;
 }
+
+const isVideo = (file: File) => file.type.startsWith("video/");
 
 export const FileUpload = ({
   onFilesReady,
@@ -57,6 +80,25 @@ export const FileUpload = ({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { announceContent } = useP2PContext();
+
+  // One file is chunked/encrypted at a time, in the order it was added. A
+  // second drop joins the same line instead of encrypting alongside the
+  // first, so only one video is ever being processed at once.
+  const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingRef = useRef(0);
+  const cancelledRef = useRef(new Set<string>());
+  const previewUrlsRef = useRef(new Set<string>());
+  const nextIdRef = useRef(0);
+
+  useEffect(() => {
+    const urls = previewUrlsRef.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
+
+  const limitLabel = formatUploadLimit(maxFileSize);
 
   const handleFileSelect = async (selectedFiles: FileList | null) => {
     if (!selectedFiles) return;
@@ -74,98 +116,99 @@ export const FileUpload = ({
     for (const file of fileArray) {
       // Check file size
       if (file.size > maxFileSize) {
-        const limitLabel = maxFileSize >= 1024 * 1024 * 1024
-          ? `${(maxFileSize / (1024 * 1024 * 1024)).toFixed(0)}GB`
-          : `${Math.round(maxFileSize / (1024 * 1024))}MB`;
-        toast.error(`${file.name} exceeds ${limitLabel} limit`);
+        toast.error(
+          `${file.name} is ${formatFileSize(file.size)}. Files are limited to ${limitLabel} so peers can carry them over the mesh.`
+        );
         continue;
       }
 
+      let previewUrl: string | undefined;
+      if (isVideo(file)) {
+        previewUrl = URL.createObjectURL(file);
+        previewUrlsRef.current.add(previewUrl);
+      }
+
       newFiles.push({
+        id: `upload-${nextIdRef.current++}`,
         file,
         progress: 0,
-        status: "pending"
+        status: "queued",
+        previewUrl,
       });
     }
 
+    if (newFiles.length === 0) return;
     setFiles(prev => [...prev, ...newFiles]);
 
-    // Start encryption process
-    processFiles(newFiles);
+    for (const item of newFiles) enqueue(item);
   };
 
-  const processFiles = async (filesToProcess: FileWithProgress[]) => {
-    const manifests: Manifest[] = [];
-    onEncryptingChange?.(true);
+  const enqueue = (item: FileWithProgress) => {
+    pendingRef.current += 1;
+    if (pendingRef.current === 1) onEncryptingChange?.(true);
+    queueRef.current = queueRef.current
+      .then(() => processFile(item))
+      .catch((err) => {
+        console.error("[FileUpload] queue step crashed:", err);
+      })
+      .finally(() => {
+        pendingRef.current -= 1;
+        if (pendingRef.current === 0) onEncryptingChange?.(false);
+      });
+  };
+
+  const updateFile = (id: string, patch: Partial<FileWithProgress>) => {
+    setFiles(prev => prev.map(f => (f.id === id ? { ...f, ...patch } : f)));
+  };
+
+  const processFile = async (item: FileWithProgress) => {
+    if (cancelledRef.current.has(item.id)) {
+      cancelledRef.current.delete(item.id);
+      return;
+    }
     try {
+      updateFile(item.id, { status: "encrypting" });
 
-    for (const fileWithProgress of filesToProcess) {
-      try {
-        // Update status to encrypting
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "encrypting" as const }
-            : f
-        ));
+      // Generate file key and encrypt
+      const fileKey = await genFileKey();
+      const manifest = await chunkAndEncryptFile(
+        item.file,
+        fileKey,
+        getAdaptiveChunkSize(item.file.size),
+        (progress) => updateFile(item.id, { progress })
+      );
 
-        // Generate file key and encrypt
-        const fileKey = await genFileKey();
-        const manifest = await chunkAndEncryptFile(
-          fileWithProgress.file,
-          fileKey,
-          getAdaptiveChunkSize(fileWithProgress.file.size),
-          (progress) => {
-            setFiles(prev => prev.map(f => 
-              f.file === fileWithProgress.file 
-                ? { ...f, progress }
-                : f
-            ));
-          }
-        );
-
-        // Capture media dimensions for images/videos to prevent layout shift
-        const dims = await getMediaDimensions(fileWithProgress.file);
-        if (dims) {
-          manifest.mediaWidth = dims.width;
-          manifest.mediaHeight = dims.height;
-        }
-
-        // Mark as done
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "done" as const, manifest, progress: 100 }
-            : f
-        ));
-
-        // Announce to P2P network
-        announceContent(manifest.fileId);
-        
-        manifests.push(manifest);
-      } catch (error) {
-        console.error("Encryption error:", error);
-        setFiles(prev => prev.map(f => 
-          f.file === fileWithProgress.file 
-            ? { ...f, status: "error" as const, error: "Encryption failed" }
-            : f
-        ));
-        toast.error(`Failed to encrypt ${fileWithProgress.file.name}`);
+      // Capture media dimensions for images/videos to prevent layout shift
+      const dims = await getMediaDimensions(item.file);
+      if (dims) {
+        manifest.mediaWidth = dims.width;
+        manifest.mediaHeight = dims.height;
       }
-    }
 
-    if (manifests.length > 0) {
-      onFilesReady(manifests);
-      toast.success(`${manifests.length} file(s) encrypted and ready`);
-    }
-    } catch (err) {
-      console.error("[FileUpload] processFiles crashed:", err);
-      toast.error("File processing failed unexpectedly");
-    } finally {
-      onEncryptingChange?.(false);
+      updateFile(item.id, { status: "done", manifest, progress: 100 });
+
+      // Announce to P2P network
+      announceContent(manifest.fileId);
+
+      onFilesReady([manifest]);
+      toast.success(`${item.file.name} encrypted and ready`);
+    } catch (error) {
+      console.error("Encryption error:", error);
+      updateFile(item.id, { status: "error", error: "Encryption failed" });
+      toast.error(`Failed to encrypt ${item.file.name}`);
     }
   };
 
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+  const removeFile = (id: string) => {
+    setFiles(prev => {
+      const target = prev.find(f => f.id === id);
+      if (target?.status === "queued") cancelledRef.current.add(id);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+        previewUrlsRef.current.delete(target.previewUrl);
+      }
+      return prev.filter(f => f.id !== id);
+    });
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -216,7 +259,7 @@ export const FileUpload = ({
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
         <p className="text-sm text-muted-foreground">
-          Max {maxFiles} files, up to {maxFileSize >= 1024 * 1024 * 1024 ? (maxFileSize / (1024 * 1024 * 1024)).toFixed(0) + "GB" : Math.round(maxFileSize / (1024 * 1024)) + "MB"} each
+          Max {maxFiles} files, up to {limitLabel} each (mesh limit)
         </p>
         <input
           ref={fileInputRef}
@@ -234,8 +277,8 @@ export const FileUpload = ({
       {/* File list */}
       {files.length > 0 && (
         <div className="space-y-2">
-          {files.map((fileWithProgress, index) => (
-            <Card key={index} className="p-4">
+          {files.map((fileWithProgress) => (
+            <Card key={fileWithProgress.id} className="p-4">
               <div className="flex items-start gap-3">
                 <div className="mt-1">{getFileIcon(fileWithProgress.file)}</div>
                 
@@ -245,7 +288,7 @@ export const FileUpload = ({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => removeFile(index)}
+                      onClick={() => removeFile(fileWithProgress.id)}
                       disabled={fileWithProgress.status === "encrypting"}
                     >
                       <X className="w-4 h-4" />
@@ -254,11 +297,39 @@ export const FileUpload = ({
                   
                   <p className="text-sm text-muted-foreground mb-2">
                     {formatFileSize(fileWithProgress.file.size)}
+                    {fileWithProgress.status === "queued" && !isVideo(fileWithProgress.file) && " • Queued"}
                     {fileWithProgress.status === "encrypting" && " • Encrypting..."}
                     {fileWithProgress.status === "done" && " • Encrypted ✓"}
                     {fileWithProgress.status === "error" && ` • ${fileWithProgress.error}`}
                   </p>
                   
+                  {fileWithProgress.status === "queued" && isVideo(fileWithProgress.file) && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span
+                          tabIndex={0}
+                          className="mb-2 inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+                        >
+                          <Clock className="h-3 w-3" />
+                          Waiting to transcode
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        {VIDEO_TRANSCODE_WAIT_TOOLTIP}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
+
+                  {fileWithProgress.previewUrl && (
+                    <video
+                      src={fileWithProgress.previewUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="mb-2 max-h-48 w-full rounded-md bg-black"
+                    />
+                  )}
+
                   {(fileWithProgress.status === "encrypting" || fileWithProgress.status === "done") && (
                     <Progress value={fileWithProgress.progress} className="h-1" />
                   )}
