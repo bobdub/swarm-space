@@ -9,7 +9,7 @@
  * its own leads to a refresh notice:
  *
  * - A fake or foreign stamp from a peer can never force a refresh; at most
- *   it triggers one throttled `version.json` read.
+ *   it triggers one `version.json` read a day.
  * - A peer on a newer build that this host has not deployed yet (another
  *   host, a preview, a dev server) changes nothing, so a refresh can never
  *   land on the same old build and loop.
@@ -42,12 +42,16 @@ export const LOCAL_BUILD: BuildStamp = (() => {
 
 /** Seconds of notice before an automatic refresh. */
 export const UPDATE_COUNTDOWN_MS = 30_000;
-/** At most one `version.json` read per this gap, whatever peers claim. */
-export const VERSION_CHECK_MIN_GAP_MS = 60_000;
+/**
+ * At most one `version.json` read per device per day, whatever peers claim.
+ * The time of the last read survives reloads (localStorage).
+ */
+export const VERSION_CHECK_MIN_GAP_MS = 24 * 60 * 60_000;
 /** Stamps further than this into the future are refused as spoofed. */
 export const MAX_FUTURE_SKEW_MS = 10 * 60_000;
 
 const RELOAD_ATTEMPT_KEY = 'swarm-app-reload-attempt';
+const LAST_CHECK_KEY = 'swarm-app-version-last-check';
 const MAX_ID_LENGTH = 64;
 
 export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null {
@@ -85,6 +89,8 @@ export interface AppVersionDeps {
   reload: () => void;
   isCallActive: () => boolean;
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
+  /** Device-wide store for the last host check time (localStorage). */
+  persist?: Pick<Storage, 'getItem' | 'setItem'> | null;
   setTimer: (fn: () => void, ms: number) => unknown;
   clearTimer: (handle: unknown) => void;
 }
@@ -103,6 +109,11 @@ export class AppVersionWatch {
   private timer: unknown = null;
 
   constructor(private readonly deps: AppVersionDeps) {
+    try {
+      const saved = Number(deps.persist?.getItem(LAST_CHECK_KEY));
+      // A saved time in the future (clock change) is ignored.
+      if (Number.isFinite(saved) && saved > 0 && saved <= deps.now()) this.lastCheckAt = saved;
+    } catch { /* no device storage: per-tab throttle only */ }
     this.clearSucceededAttempt();
   }
 
@@ -150,6 +161,7 @@ export class AppVersionWatch {
     if (this.checking) return;
     this.checking = true;
     this.lastCheckAt = this.deps.now();
+    try { this.deps.persist?.setItem(LAST_CHECK_KEY, String(this.lastCheckAt)); } catch { /* ignore */ }
     let deployed: BuildStamp | null = null;
     try {
       deployed = parseBuildStamp(await this.deps.fetchDeployed(), this.deps.now());
@@ -187,18 +199,34 @@ export class AppVersionWatch {
         this.setState({ ...this.state, mode: 'manual', deadline: null, reason: 'call' });
         return;
       }
-      this.refreshNow();
+      // Auto-refresh only once the loop guard is really stored; a guard that
+      // cannot be written could let a stale cache reload this tab again.
+      if (!this.recordAttempt()) {
+        this.setState({ ...this.state, mode: 'manual', deadline: null, reason: 'no-guard' });
+        return;
+      }
+      this.deps.reload();
     }, UPDATE_COUNTDOWN_MS);
   }
 
-  /** Refresh into the deployed build (button or countdown). */
+  /** The person pressed Refresh now: reload even if the guard cannot be stored. */
   refreshNow(): void {
     if (this.state.status !== 'available') return;
     this.cancelTimer();
-    try {
-      this.deps.storage?.setItem(RELOAD_ATTEMPT_KEY, String(this.state.deployed.builtAt));
-    } catch { /* manual refresh still works */ }
+    this.recordAttempt();
     this.deps.reload();
+  }
+
+  /** Store the loop guard for the offered build; true only if it reads back. */
+  private recordAttempt(): boolean {
+    if (this.state.status !== 'available' || !this.deps.storage) return false;
+    const value = String(this.state.deployed.builtAt);
+    try {
+      this.deps.storage.setItem(RELOAD_ATTEMPT_KEY, value);
+      return this.deps.storage.getItem(RELOAD_ATTEMPT_KEY) === value;
+    } catch {
+      return false;
+    }
   }
 
   /** "Not now": hide the notice for this build in this tab. */
@@ -258,6 +286,10 @@ function browserStorage(): AppVersionDeps['storage'] {
   }
 }
 
+function deviceStorage(): AppVersionDeps['persist'] {
+  try { return window.localStorage; } catch { return null; }
+}
+
 async function fetchDeployedBuild(): Promise<unknown> {
   const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/';
   const url = `${base.endsWith('/') ? base : `${base}/`}version.json?t=${Date.now()}`;
@@ -277,6 +309,7 @@ export function getAppVersionWatch(): AppVersionWatch {
       reload: () => window.location.reload(),
       isCallActive,
       storage: typeof window === 'undefined' ? null : browserStorage(),
+      persist: typeof window === 'undefined' ? null : deviceStorage(),
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     });

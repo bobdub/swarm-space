@@ -127,6 +127,27 @@ describe('app version handoff', () => {
     expect(w.getState()).toMatchObject({ status: 'available', mode: 'auto' });
   });
 
+  it('checks the host at most once a day per device, across reloads', async () => {
+    const persist = memoryStorage();
+    const first = harness({ deployed: OLD });
+    first.deps.persist = persist;
+    first.watch().notePeerBuild(NEW);
+    await first.advance(0);
+    expect(first.deps.fetchDeployed).toHaveBeenCalledTimes(1);
+
+    // A reload an hour later still respects the day; the claim waits for it.
+    const second = harness();
+    second.deps.persist = persist;
+    await second.advance(3_600_000);
+    const w = second.watch();
+    expect(w.notePeerBuild(NEW)).toBe(false);
+    await second.advance(VERSION_CHECK_MIN_GAP_MS - 3_600_000 - 1);
+    expect(second.deps.fetchDeployed).not.toHaveBeenCalled();
+    await second.advance(1_000);
+    expect(second.deps.fetchDeployed).toHaveBeenCalledTimes(1);
+    expect(w.getState()).toMatchObject({ status: 'available', mode: 'auto' });
+  });
+
   it('never loops: after one refresh for a build, the old build coming back stays manual', async () => {
     const storage = memoryStorage();
     const first = harness({ storage });
@@ -159,6 +180,20 @@ describe('app version handoff', () => {
     await h.advance(UPDATE_COUNTDOWN_MS * 2);
     expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'no-guard' });
     expect(h.deps.reload).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a manual notice when the loop guard cannot be written at countdown end', async () => {
+    const storage = memoryStorage();
+    const h = harness({ storage });
+    const w = h.watch();
+    w.notePeerBuild(NEW);
+    await h.advance(0);
+    storage.setItem = () => { throw new Error('QuotaExceededError'); };
+    await h.advance(UPDATE_COUNTDOWN_MS);
+    expect(h.deps.reload).not.toHaveBeenCalled();
+    expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'no-guard' });
+    w.refreshNow();
+    expect(h.deps.reload).toHaveBeenCalledTimes(1);
   });
 
   it('waits for the person during a call, including one that starts mid-countdown', async () => {
