@@ -16,7 +16,7 @@ describe('Infinity profile opt-in flow', () => {
     fireEvent.click(screen.getByRole('switch'));
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Infinity' }), { target: { value: 'Explain the UQRC operator' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    await waitFor(() => expect(screen.getByRole('log').textContent).toContain('𝒪_UQRC(u) = ν Δ u + ℛ u + L_S u'));
+    await waitFor(() => expect(screen.getByRole('log').textContent).toContain('𝒪_UQRC(u) := ν Δu + ℛu + L_Su'));
     fireEvent.click(screen.getByRole('button', { name: 'Clear conversation' }));
     expect(screen.getByRole('log').textContent).not.toContain('Explain the UQRC operator');
     fireEvent.click(screen.getByRole('switch'));
@@ -29,6 +29,6 @@ describe('Infinity profile opt-in flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
     fireEvent.click(screen.getByRole('switch'));
     await new Promise(resolve => setTimeout(resolve, 20));
-    expect(screen.getByRole('log').textContent).not.toContain('𝒪_UQRC(u) =');
+    expect(screen.getByRole('log').textContent).not.toContain('𝒪_UQRC(u) :=');
   });
 });
