@@ -283,8 +283,13 @@ describe('NPCs work with the tools they own', () => {
   });
 
   it('a knife dresses a full catch and a bucket carries more water', () => {
+    const weights: number[] = [];
+    const off = onWorldMutation((evt) => weights.push(evt.laborWeight));
     expect(interact(npc, 'hunt', site('animal')).gained?.qty).toBe(1);
     expect(interact(npc, 'hunt', site('animal'), new Set<NpcToolKind>(['whittle'])).gained?.qty).toBe(2);
+    off();
+    // The knife's extra food never raises the labour weight.
+    expect(weights[1]).toBe(weights[0]);
     expect(interact(npc, 'drink', site('water'), new Set<NpcToolKind>(['carry'])).gained?.qty).toBe(2);
     // A tool for other work changes nothing here.
     expect(interact(npc, 'drink', site('water'), new Set<NpcToolKind>(['chop'])).gained?.qty).toBe(1);

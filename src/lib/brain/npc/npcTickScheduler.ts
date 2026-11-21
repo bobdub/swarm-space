@@ -106,6 +106,11 @@ function looseToolsFor(anchorId: string): LooseTool[] {
   return list;
 }
 
+/** Let go of any tool this NPC was walking to. */
+function releaseFetch(npcId: string): void {
+  for (const [placementId, id] of _fetching) if (id === npcId) _fetching.delete(placementId);
+}
+
 function localRecorderId(): string {
   const id = resolveLocalAnchorId('self');
   return id && id !== 'self' ? id : 'local';
@@ -197,6 +202,7 @@ function tickOne(npc: Npc, dtSeconds: number): void {
   // A dropped tool nearby that this NPC has no kind of yet: go and get it,
   // unless thirst or hunger can't wait. Picking it up counts as gathering.
   const urgent = sig.hydrationDeficit >= FETCH_DEFICIT_LIMIT || sig.energyDeficit >= FETCH_DEFICIT_LIMIT;
+  if (urgent) releaseFetch(npc.id);
   const fetched = urgent ? null : fetchTool(npc, owned, dtSeconds);
   if (fetched) {
     const moved: Npc = {
@@ -307,6 +313,9 @@ function tickAll(): void {
 
   // One scan of the ground per tick; NPCs share it.
   _looseTools = new Map();
+  // A walker that died or left can't keep a tool reserved.
+  const alive = new Set(roster.map((n) => n.id));
+  for (const [placementId, npcId] of _fetching) if (!alive.has(npcId)) _fetching.delete(placementId);
   if (now - _lastVanishSweepAt >= VANISH_SWEEP_MS) {
     _lastVanishSweepAt = now;
     try {

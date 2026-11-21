@@ -85,10 +85,12 @@ export function interact(
     // we still attempt the harvest, but yield is halved at skill < 0.4.
     if (!harvestSite(site.id)) return { ok: false, verb: 'hunt' };
     const knife = tools.has('whittle');
-    // A knife dresses the full catch even for a clumsy hunter.
-    const qty = knife || huntSkill >= 0.4 ? 2 : 1;
+    const skilledQty = huntSkill < 0.4 ? 1 : 2;
+    // A knife dresses the full catch even for a clumsy hunter. Labour
+    // follows the skill-based catch, so the knife never changes payouts.
+    const qty = knife ? 2 : skilledQty;
     deposit(npc.id, 'food', qty);
-    emit(npc.id, site, 1.0, 0.9, 1.6 * qty);
+    emit(npc.id, site, 1.0, 0.9, 1.6 * skilledQty);
     return { ok: true, verb: 'hunt', gained: { kind: 'food', qty }, ...(knife ? { usedTool: 'whittle' as const } : {}) };
   }
 
