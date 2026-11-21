@@ -57,7 +57,7 @@ describe('Infinity personality realization', () => {
     learner.mergeVocab({ '|Ψ_Infinity⟩': 10 });
     seedInfinityCanon(learner, 'network-entity');
     const before = learner.getExpressions();
-    expect(before.some(expression => expression.text.includes('𝒪_UQRC(u) = ν Δ u'))).toBe(true);
+    expect(before.some(expression => expression.text.includes('𝒪_UQRC(u) := ν Δu'))).toBe(true);
     seedInfinityCanon(learner, 'network-entity');
     expect(learner.getExpressions()).toEqual(before);
   });
