@@ -298,3 +298,68 @@ describe('known peers rejoin without a presence beacon', () => {
     expect(b.dialPeer).toHaveBeenCalledWith('peer-aaa', 'library');
   });
 });
+
+describe('goodbye on disable and the 5-minute silence rule', () => {
+  beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); vi.setSystemTime(1_000_000); });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  it('disabling says goodbye on every open link before the Peer is torn down', () => {
+    const { mesh, h } = setup('peer-self');
+    const destroy = vi.fn();
+    h.peer = { destroyed: false, disconnected: false, removeAllListeners: vi.fn(), destroy };
+    const sent: Array<{ to: string; msg: Record<string, unknown> }> = [];
+    for (const id of ['peer-x', 'peer-y']) {
+      const c = new FakeConn(id); c.open = true;
+      c.send = ((raw: string) => { sent.push({ to: id, msg: JSON.parse(raw) }); }) as never;
+      h.connections.set(id, c);
+    }
+    const order: string[] = [];
+    mesh.onBeforeStop(() => order.push(`before-stop, links=${h.connections.size}`));
+    mesh.stop();
+    expect(order).toEqual(['before-stop, links=2']);
+    expect(sent.map(s => s.to).sort()).toEqual(['peer-x', 'peer-y']);
+    expect(sent.every(s => s.msg.type === 'goodbye' && s.msg.from === 'peer-self')).toBe(true);
+    expect(h.phase).toBe('off');
+    expect(destroy).not.toHaveBeenCalled(); // goodbyes get a moment to leave
+    vi.advanceTimersByTime(400);
+    expect(destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('a goodbye drops the link at once, without a redial, and reports the departure', () => {
+    const { mesh, h } = setup('peer-self');
+    h.peer = { destroyed: false, disconnected: false };
+    h.dialPeer = vi.fn(() => true);
+    const conn = new FakeConn('peer-friend');
+    h.handleConnection(conn, 'library');
+    conn.fireOpen();
+    const departed: string[] = [];
+    mesh.onPeerDeparted((id, reason) => departed.push(`${id}:${reason}`));
+    conn.emit('data', JSON.stringify({ type: 'goodbye', from: 'peer-friend' }));
+    expect(h.connections.has('peer-friend')).toBe(false);
+    expect(departed).toEqual(['peer-friend:goodbye']);
+    vi.advanceTimersByTime(30_000);
+    expect(h.noteDroppedPeer).not.toHaveBeenCalled();
+    h.rejoinKnownPeers('tick');
+    expect(h.dialPeer).not.toHaveBeenCalled(); // paused: they switched off on purpose
+  });
+
+  it('a peer silent for 5 minutes is treated as disconnected even if a link lingers', () => {
+    const { mesh, h } = setup('peer-self');
+    const conn = new FakeConn('peer-quiet');
+    h.handleConnection(conn, 'exchange');
+    conn.fireOpen();
+    const departed: string[] = [];
+    mesh.onPeerDeparted((id, reason) => departed.push(`${id}:${reason}`));
+    vi.advanceTimersByTime(4 * 60_000);
+    h.sweepSilentPeers(Date.now());
+    expect(departed).toEqual([]);
+    conn.emit('data', JSON.stringify({ type: 'heartbeat', from: 'peer-quiet' })); // a heartbeat resets the clock
+    vi.advanceTimersByTime(4 * 60_000);
+    h.sweepSilentPeers(Date.now());
+    expect(departed).toEqual([]);
+    vi.advanceTimersByTime(60_001);
+    h.sweepSilentPeers(Date.now());
+    expect(departed).toEqual(['peer-quiet:silent']);
+    expect(h.connections.has('peer-quiet')).toBe(false);
+  });
+});

@@ -15,7 +15,7 @@
  */
 
 import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
-import { isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
+import { BRAIN_ROOM_ID, isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
 import { causalNow, observeCausalTimestamp, reconcileLiveTimestamp, syncNetworkClock } from '@/lib/time/networkClock';
 import { causalOrder } from '@/lib/chat/chatOrder';
 
@@ -122,6 +122,10 @@ interface MeshLike {
   getPeerId(): string;
   dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
   registerPeerConnection?(peerId: string): boolean;
+  /** Runs just before the mesh is switched off, while links are still open. */
+  onBeforeStop?(handler: () => void): () => void;
+  /** A peer said goodbye or went silent for minutes: it is gone. */
+  onPeerDeparted?(handler: (peerId: string, reason: 'goodbye' | 'silent') => void): () => void;
 }
 
 import { loadBlocklistFromStorage } from '../p2p/blocklistStore';
@@ -211,7 +215,7 @@ export function onRoomPresenceRemoved(handler: (roomId: string, peerId: string) 
 }
 
 /** Forget a peer in a room everywhere and tell local listeners. */
-function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'): void {
+function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent' | 'local'): void {
   joinedRooms.get(roomId)?.delete(peerId);
   roomPresenceLog.get(roomId)?.delete(peerId);
   lastHeardAt.delete(roomKey(roomId, peerId));
@@ -226,7 +230,9 @@ function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'
     }
   } else {
     silentAt.delete(roomKey(roomId, peerId));
-    departedAt.set(roomKey(roomId, peerId), Date.now());
+    // 'local': we are the one going offline. Forget them without marking a
+    // departure, so they are welcome back the moment our mesh returns.
+    if (reason === 'left') departedAt.set(roomKey(roomId, peerId), Date.now());
   }
   for (const h of presenceRemovedHandlers) {
     try { h(roomId, peerId); } catch { /* ignore */ }
@@ -904,6 +910,54 @@ function sendChatHistoryRequest(roomId: string, peerIds: string[]): void {
 
 // ── Public API ─────────────────────────────────────────────────────────
 
+let unsubDepartures: (() => void) | null = null;
+
+/**
+ * A mesh peer is gone (said goodbye when switching the mesh off, or nothing
+ * heard for minutes): drop them from every room, the call and the shared
+ * chat now, exactly as if they had left each room themselves.
+ */
+export function handleMeshPeerDeparted(peerId: string, reason: 'left' | 'local' = 'left'): void {
+  const rooms = new Set<string>([...joinedRooms.keys(), ...roomPresenceLog.keys()]);
+  for (const roomId of rooms) {
+    const key = roomKey(roomId, peerId);
+    const known = joinedRooms.get(roomId)?.has(peerId) || roomPresenceLog.get(roomId)?.has(peerId) || lastHeardAt.has(key) || silentAt.has(key);
+    if (!known) continue;
+    if (joinedRooms.has(roomId)) {
+      evictRoomPeer(roomId, peerId, reason);
+    } else {
+      roomPresenceLog.get(roomId)?.delete(peerId);
+      for (const h of presenceRemovedHandlers) { try { h(roomId, peerId); } catch { /* ignore */ } }
+    }
+    for (const h of signalHandlers) {
+      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason: 'left' } }); } catch { /* ignore */ }
+    }
+  }
+  networkRoomHeardAt.delete(peerId);
+  if (chatHerePeers.delete(peerId)) emitChatHere();
+}
+
+/**
+ * We are switching the mesh off: tell every room and the shared chat we are
+ * leaving while the links are still open, then let go of everyone locally
+ * (calls close, avatars go). Our own membership is kept so switching the mesh
+ * back on rejoins the same room.
+ */
+export function announceMeshGoodbye(): void {
+  if (!meshRef) return;
+  const myPeerId = meshRef.getPeerId();
+  for (const [roomId, members] of joinedRooms) {
+    if (!members.has(myPeerId)) continue;
+    meshRef.broadcast(SIGNAL_CHANNEL, { msgType: 'leave-room', from: myPeerId, roomId, ts: Date.now() } satisfies SignalEnvelope);
+  }
+  meshRef.broadcast(SIGNAL_CHANNEL, { msgType: 'chat-here', from: myPeerId, roomId: BRAIN_ROOM_ID, data: { open: false }, ts: Date.now() } satisfies SignalEnvelope);
+  const others = new Set<string>();
+  for (const members of joinedRooms.values()) for (const peerId of members) if (peerId !== myPeerId) others.add(peerId);
+  for (const presences of roomPresenceLog.values()) for (const peerId of presences.keys()) if (peerId !== myPeerId) others.add(peerId);
+  for (const peerId of chatHerePeers.keys()) others.add(peerId);
+  for (const peerId of others) handleMeshPeerDeparted(peerId, 'local');
+}
+
 export function startSignalingBridge(mesh: MeshLike): () => void {
   // Measure the device clock once so outgoing chat lines carry true time.
   void syncNetworkClock();
@@ -912,6 +966,9 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
+  const offBeforeStop = mesh.onBeforeStop?.(() => announceMeshGoodbye());
+  const offDeparted = mesh.onPeerDeparted?.((peerId) => handleMeshPeerDeparted(peerId));
+  unsubDepartures = () => { offBeforeStop?.(); offDeparted?.(); };
   // Seed snapshot so the first poll diff doesn't fire for already-known peers.
   knownPeerSnapshot = new Set(mesh.getConnectedPeerIds());
   // Poll every 2s for newly opened mesh edges; replay our active rooms +
@@ -991,6 +1048,8 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
 
 export function stopSignalingBridge(): void {
   roomDialAt.clear();
+  unsubDepartures?.();
+  unsubDepartures = null;
   if (unsubChannel) {
     unsubChannel();
     unsubChannel = null;
