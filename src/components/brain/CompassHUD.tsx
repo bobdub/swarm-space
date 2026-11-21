@@ -16,7 +16,7 @@ interface Props {
   onOpenMap: () => void;
 }
 
-export function CompassHUD({ selfId, onOpenMap }: Props) {
+export function CompassHUD({ selfId, onOpenMap, atWheel = false }: Props & { atWheel?: boolean }) {
   const [heading, setHeading] = useState(0);
   const raf = useRef(0);
   const isMobile = useIsMobile();
@@ -52,7 +52,9 @@ export function CompassHUD({ selfId, onOpenMap }: Props) {
       // Mobile stacks the compass on the left above the run bolt; desktop keeps right.
       className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]"
       style={
-        isMobile
+        isMobile && atWheel
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.25rem)', right: '1.25rem' }
+          : isMobile
           ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)', right: '1rem' }
       }

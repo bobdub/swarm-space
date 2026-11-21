@@ -76,7 +76,7 @@ function fishingLine(f: FishingState): string {
   return 'Cast your line.';
 }
 
-function useCrewRole(): CrewRole | null {
+export function useCrewRole(): CrewRole | null {
   const [role, setRole] = useState<CrewRole | null>(getCrewRole());
   useEffect(() => subscribeCrew(() => setRole(getCrewRole())), []);
   return role;

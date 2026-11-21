@@ -66,7 +66,7 @@ import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { SeaLifeLayer } from '@/components/brain/sea/SeaLifeLayer';
 import { ChickenLayer } from '@/components/brain/land/ChickenLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
-import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
+import { CrewJoystickSkin, ShipControls, useCrewRole } from '@/components/brain/sea/ShipWheel';
 import { getCrewRole } from '@/lib/brain/sea/crew';
 import { decodeBoatPresence, deckPointOn, getFleet } from '@/lib/brain/sea/fleet';
 import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
@@ -1102,6 +1102,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
+  const crewRole = useCrewRole();
   // Live pending-cast state — drives overlay inertness so pointer events
   // can reach the in-Canvas AssetCaster while a cast is armed.
   const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
@@ -2709,15 +2710,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Compass + Mini-Map (always available once spawned) */}
       {ready && selfId && !isBuilding && (
         <>
-          <CompassHUD selfId={selfId} onOpenMap={() => setMapOpen((v) => !v)} />
+          <CompassHUD selfId={selfId} atWheel={crewRole === 'helm'} onOpenMap={() => setMapOpen((v) => !v)} />
           {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
           {/* Run / Flash pill — taps trigger sprint, also reflects Shift / RT. */}
-          <RunPill
+          {!crewRole && <RunPill
             mobile={isMobile}
             onPress={() => { tryStartRun(performance.now()); forceRunRender((n) => (n + 1) & 0xfff); }}
-          />
+          />}
           {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
-          <JumpButton selfId={selfId} mobile={isMobile} />
+          {!crewRole && <JumpButton selfId={selfId} mobile={isMobile} />}
           <BoatHoldButton selfId={selfId} mobile={isMobile} />
           <ShipControls mobile={isMobile} />
         </>
