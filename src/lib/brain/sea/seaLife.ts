@@ -212,6 +212,18 @@ function nearVillage(
   return out;
 }
 
+/**
+ * Homes of the same kind keep at least this many loop widths apart, so the
+ * lattice never stacks schools or sharks on one patch of sea.
+ */
+export const HOME_SPACING_ROAMS = 1.5;
+
+function spacedApart(kept: SeaCreature[], c: SeaCreature): boolean {
+  const minM = HOME_SPACING_ROAMS * (c.kind === 'school' ? SCHOOL_ROAM_M : SHARK_ROAM_M);
+  for (const o of kept) if (o.kind === c.kind && arcMetres(o.home, c.home) < minM) return false;
+  return true;
+}
+
 let cached: SeaCreature[] | null = null;
 
 /** Every school and shark in the world. Deterministic and cached. */
@@ -224,13 +236,13 @@ export function getSeaLife(): SeaCreature[] {
   all.push(...nearVillage('shark', 2, 260, 520, SHARK_ROAM_M, SHARK_MIN_DEPTH, 0x54a2c));
   for (let i = 0; i < SCHOOL_LATTICE; i++) {
     const c = make('school', `school-${i}`, fibonacci(i, SCHOOL_LATTICE), 0x1000 + i * 2654435761, SCHOOL_ROAM_M, SCHOOL_MIN_DEPTH);
-    if (c) all.push(c);
+    if (c && spacedApart(all, c)) all.push(c);
   }
   for (let i = 0; i < SHARK_LATTICE; i++) {
     // Offset the lattice so sharks don't sit on top of schools.
     const n = fibonacci(i + 0.37, SHARK_LATTICE);
     const c = make('shark', `shark-${i}`, normalize(n), 0x9000 + i * 40503, SHARK_ROAM_M, SHARK_MIN_DEPTH);
-    if (c) all.push(c);
+    if (c && spacedApart(all, c)) all.push(c);
   }
   cached = all;
   return all;

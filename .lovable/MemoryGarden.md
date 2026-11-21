@@ -1258,3 +1258,7 @@ After tending: Drop now puts the tool in front of the player as a fresh placemen
 Before tending: every layer of the 3D world drew on every frame, unaware of the others. I will give the world a small learning governor so background effects breathe slower when the device strains.
 
 After tending: a render governor now learns frame time (Welford spread and a smoothed prediction) and sorts work into critical, proximity and ambiance tiers. The volcano's ash cloud runs on the ambiance tier, and idle villager bodies no longer rewrite their size each frame. Player movement and camera are never throttled. Checked with unit tests; no live session was opened.
+## November 21, 2026 — Room for every creature
+Before tending: fish, hens and faraway friends drew on every frame, and nests could keep filling. I will pace them and give each nest a limit.
+
+After tending: sea life and hens slow down only when the device strains, faraway avatars always breathe slower, and all of them land where shared time says they belong. Each nest keeps at most four eggs and each flock three chicks, the same for every peer, and fish schools and sharks keep space between their homes. Checked with unit tests; no live session was opened.

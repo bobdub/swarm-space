@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
+import { createTierGate } from '@/lib/brain/renderGovernor';
+
+/** Beyond this distance (m) a remote avatar runs on the ambiance tier. */
+const DISTANT_AVATAR_M = 40;
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
 import {
@@ -105,7 +109,18 @@ export function RemoteAvatarBody({
     });
   }, [intentDriven]);
 
-  useFrame((_, delta) => {
+  // Distant avatars are paced by the render governor; the accumulated delta
+  // feeds avatarTrackingAlpha, so smoothing catches up after skipped frames.
+  const farGate = useMemo(() => createTierGate('ambiance'), []);
+  const nearGate = useMemo(() => createTierGate('proximity'), []);
+  useFrame((state, frameDelta) => {
+    const placed = groupRef.current;
+    const far = !!placed && placed.visible && placed.position.distanceToSquared(state.camera.position) > DISTANT_AVATAR_M * DISTANT_AVATAR_M;
+    const farDue = farGate(frameDelta);
+    const nearDue = nearGate(frameDelta);
+    const gated = far ? farDue : nearDue;
+    if (gated === null) return;
+    const delta = gated;
     const body = bodyRef.current;
     if (body) {
       const t = (performance.now() - swingAt.current) / SWING_MS;

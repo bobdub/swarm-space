@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { createTierGate, renderGovernor } from '@/lib/brain/renderGovernor';
 import { toast } from 'sonner';
 import {
   BODY_CENTER_HEIGHT,
@@ -216,13 +217,21 @@ export function SeaLifeLayer({ selfId }: { selfId: string }) {
     xAxis: new THREE.Vector3(1, 0, 0),
   }), []);
 
-  useFrame(() => {
+  // Earth follows every frame; the creatures themselves are paced by the
+  // render governor. Their poses come from absolute shared time, so a
+  // skipped frame simply lands them where they belong now.
+  const gate = useMemo(() => createTierGate('proximity'), []);
+  useFrame((_state, delta) => {
     const pose = getEarthPose();
     const earth = earthRef.current;
     if (earth) {
       earth.position.set(pose.center[0], pose.center[1], pose.center[2]);
       earth.quaternion.set(pose.spinQuat[0], pose.spinQuat[1], pose.spinQuat[2], pose.spinQuat[3]);
     }
+    const due = gate(delta);
+    if (due === null) return;
+    const g0 = performance.now();
+    try {
     const t = getEarthPoseTime();
     const now = performance.now() / 1000;
     const viewN = worldPosToLocalNormal([camera.position.x, camera.position.y, camera.position.z], pose);
@@ -342,6 +351,7 @@ export function SeaLifeLayer({ selfId }: { selfId: string }) {
         }
       }
     }
+    } finally { renderGovernor.observeSubsystem('sea-life', performance.now() - g0); }
   });
 
   return (

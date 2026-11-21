@@ -59,6 +59,13 @@ export const HEN_RESPAWN_MS = EGG_LAY_MS + EGG_HATCH_MS + CHICK_GROW_MS;
 export const LAY_EVERY_MS = 5 * 60_000;
 /** An infertile egg sits in the nest this long before it goes bad (ms). */
 export const EGG_KEEP_MS = 2 * LAY_EVERY_MS;
+/**
+ * Carrying capacity of one nest: at most this many eggs lie in it and at most
+ * this many chicks run with a flock at once. Kept by layAt order (then id), so
+ * every peer keeps the same eggs and chicks and the world never fills up.
+ */
+export const NEST_EGG_CAP = 4;
+export const FLOCK_CHICK_CAP = 3;
 /** Food for an egg taken from the nest. */
 export const FOOD_PER_EGG = 1;
 /** How close (m) a player has to be to a nest to take an egg. */
@@ -502,6 +509,10 @@ function layingsNear(h: Hen, now: number): BroodEgg[] {
   return out;
 }
 
+function byLay(a: BroodEgg, b: BroodEgg): number {
+  return a.layAt - b.layAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
 /** Eggs lying in `flock`'s nest at `now` that a player may take. */
 export function nestEggs(flockHens: Hen[], now = Date.now()): BroodEgg[] {
   const out: BroodEgg[] = [];
@@ -512,7 +523,7 @@ export function nestEggs(flockHens: Hen[], now = Date.now()): BroodEgg[] {
       if (now < end) out.push(e);
     }
   }
-  return out.sort((a, b) => a.layAt - b.layAt);
+  return out.sort(byLay).slice(0, NEST_EGG_CAP);
 }
 
 /** Chicks hatched from untaken eggs of `flockHens`, at `now`. */
@@ -525,7 +536,7 @@ export function broodChicks(flockHens: Hen[], now = Date.now()): BroodChick[] {
       if (now >= hatch && now < hatch + CHICK_GROW_MS) out.push({ egg: e, progress: (now - hatch) / CHICK_GROW_MS });
     }
   }
-  return out;
+  return out.sort((a, b) => byLay(a.egg, b.egg)).slice(0, FLOCK_CHICK_CAP);
 }
 
 /** Where in the nest (tangent offset, m) a laid egg lies. */

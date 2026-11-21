@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { createTierGate, renderGovernor } from '@/lib/brain/renderGovernor';
 import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, worldPosToLocalNormal, type Vec3 } from '@/lib/brain/earth';
 import { groundElevationAt } from '@/lib/brain/groundHeight';
 import { arcMetres } from '@/lib/brain/sea/seaLife';
@@ -283,13 +284,21 @@ export function ChickenLayer() {
     col: new THREE.Color(),
   }), []);
 
-  useFrame(() => {
+  // Earth follows every frame; the creatures themselves are paced by the
+  // render governor. Their poses come from absolute shared time, so a
+  // skipped frame simply lands them where they belong now.
+  const gate = useMemo(() => createTierGate('proximity'), []);
+  useFrame((_state, delta) => {
     const pose = getEarthPose();
     const earth = earthRef.current;
     if (earth) {
       earth.position.set(pose.center[0], pose.center[1], pose.center[2]);
       earth.quaternion.set(pose.spinQuat[0], pose.spinQuat[1], pose.spinQuat[2], pose.spinQuat[3]);
     }
+    const due = gate(delta);
+    if (due === null) return;
+    const g0 = performance.now();
+    try {
     const t = getEarthPoseTime();
     const now = performance.now() / 1000;
     const wall = Date.now();
@@ -431,6 +440,7 @@ export function ChickenLayer() {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
+    } finally { renderGovernor.observeSubsystem('chickens', performance.now() - g0); }
   });
 
   return (
