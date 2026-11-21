@@ -14,12 +14,20 @@
  * history must stay whole for peers to agree. Only a size cap applies,
  * far above what a village sees.
  *
+ * The one exception is `hen-caught`: a caught hen is back with her flock
+ * after a few minutes, so once a catch is older than `HEN_EVENT_TTL_MS` it
+ * no longer changes anything and every peer drops it (and refuses it from
+ * a backfill), keeping the list small however many hens are hunted.
+ *
  * Every newly learned event is passed on to the other connected peers, so
  * it reaches peers that are not directly connected to whoever made it.
  * Peers drop events they already hold, so the relay stops by itself.
  */
 
-export type NatureEventKind = 'fell' | 'hive-down';
+export type NatureEventKind = 'fell' | 'hive-down' | 'hen-caught';
+
+/** Hen catches older than this are forgotten (well past any respawn). */
+export const HEN_EVENT_TTL_MS = 60 * 60_000;
 
 export interface NatureEvent {
   /** Unique: `${kind}:${blockId}:${at}`. */
@@ -51,7 +59,7 @@ function isEvent(v: unknown): v is NatureEvent {
   const e = v as NatureEvent | null;
   return !!e
     && typeof e.id === 'string'
-    && (e.kind === 'fell' || e.kind === 'hive-down')
+    && (e.kind === 'fell' || e.kind === 'hive-down' || e.kind === 'hen-caught')
     && typeof e.blockId === 'string' && e.blockId.length > 0 && e.blockId.length < 200
     && typeof e.anchorPeerId === 'string' && e.anchorPeerId.length < 200
     && Number.isFinite(e.at)
@@ -82,7 +90,10 @@ function persist(): void {
   } catch { /* storage blocked */ }
 }
 
-function prune(): void {
+function prune(now = Date.now()): void {
+  for (const e of events.values()) {
+    if (e.kind === 'hen-caught' && now - e.at > HEN_EVENT_TTL_MS) events.delete(e.id);
+  }
   if (events.size > MAX_EVENTS) {
     const oldest = [...events.values()].sort((a, b) => a.at - b.at).slice(0, events.size - MAX_EVENTS);
     for (const e of oldest) events.delete(e.id);
@@ -99,8 +110,10 @@ function add(e: NatureEvent, now: number): boolean {
   if (events.has(e.id)) return false;
   // Ignore anything claiming to come from the future.
   if (e.at - now > 5 * 60_000) return false;
+  // A long-past hen catch changes nothing: the hen is back.
+  if (e.kind === 'hen-caught' && now - e.at > HEN_EVENT_TTL_MS) return false;
   events.set(e.id, e);
-  prune();
+  prune(now);
   persist();
   return true;
 }
