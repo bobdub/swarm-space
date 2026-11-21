@@ -280,6 +280,21 @@ const MARKET_SYNC_INTERVAL = 60_000;
 const HEARTBEAT_INTERVAL = 8_000;
 const PEER_STALE_THRESHOLD = 60_000; // ~7 missed heartbeats before eviction
 const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining peers
+/**
+ * A quiet peer whose data channel and connection are still open is almost
+ * always a throttled background tab (browsers run its timers about once a
+ * minute) or a busy Brain frame, not a dead link: ICE consent checks close
+ * dead links on their own. Keep such a link this long before evicting it.
+ */
+export const PEER_QUIET_LIVE_LINK_MAX_MS = 5 * 60_000;
+/** Redial a dropped peer this soon instead of waiting for the next loop. */
+const DROPPED_PEER_REDIAL_DELAY_MS = 3_000;
+
+/** Pure: should the heartbeat sweep evict a peer that has been quiet `idleMs`? */
+export function shouldEvictQuietPeer(idleMs: number, thresholdMs: number, linkLive: boolean): boolean {
+  if (idleMs <= thresholdMs) return false;
+  return !linkLive || idleMs > PEER_QUIET_LIVE_LINK_MAX_MS;
+}
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
@@ -1553,6 +1568,25 @@ export class StandaloneSwarmMesh {
     }
   }
 
+  /**
+   * A live link just dropped. The peer was online moments ago, but its
+   * library entry still carries the time we first connected, so a peer met
+   * through discovery looked stale and was only retried by the 2-minute
+   * cell retry once a fresh beacon arrived. Mark it seen now and redial
+   * shortly through the normal backoff-respecting library path.
+   */
+  private noteDroppedPeer(peerId: string): void {
+    const entry = this.library.get(peerId);
+    if (entry) {
+      entry.lastSeenAt = now();
+      this.saveLibrary();
+    }
+    setTimeout(() => {
+      if (this.phase !== 'online' || this.connections.has(peerId)) return;
+      this.autoConnectLibrary();
+    }, DROPPED_PEER_REDIAL_DELAY_MS);
+  }
+
   private startLibraryReconnectLoop(): void {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
@@ -2227,6 +2261,7 @@ export class StandaloneSwarmMesh {
         this.connections.delete(rId);
         this.peerData.delete(rId);
         this.emitPeers();
+        this.noteDroppedPeer(rId);
       }
       // Feed neural engine: connection lost
       try {
@@ -3494,7 +3529,10 @@ export class StandaloneSwarmMesh {
         const isMining = peer.lastMinedBlock != null && (t - peer.lastMinedBlock) < MINING_COLD_THRESHOLD;
         const threshold = isMining ? PEER_STALE_THRESHOLD_MINING : PEER_STALE_THRESHOLD;
 
-        if (t - peer.lastActivity > threshold) {
+        const staleConn = this.connections.get(peerId);
+        const linkState = (staleConn as { peerConnection?: RTCPeerConnection } | undefined)?.peerConnection?.connectionState;
+        const linkLive = staleConn?.open === true && linkState === 'connected';
+        if (shouldEvictQuietPeer(t - peer.lastActivity, threshold, linkLive)) {
           console.log(
             `[SwarmMesh][Mining] 🧊 STALE PEER ${peerId.slice(0, 16)}… removed — ` +
             `idle=${Math.round((t - peer.lastActivity) / 1000)}s, threshold=${threshold / 1000}s, ` +
@@ -3505,6 +3543,7 @@ export class StandaloneSwarmMesh {
           this.connections.delete(peerId);
           this.peerData.delete(peerId);
           this.emitPeers();
+          this.noteDroppedPeer(peerId);
           continue;
         }
         const conn = this.connections.get(peerId);
