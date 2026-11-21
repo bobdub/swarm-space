@@ -21,6 +21,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Wind } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { moveInput } from '@/lib/brain/moveInput';
 import {
   OUT_OF_FOOD_NOTE,
@@ -74,7 +76,7 @@ function fishingLine(f: FishingState): string {
   return 'Cast your line.';
 }
 
-function useCrewRole(): CrewRole | null {
+export function useCrewRole(): CrewRole | null {
   const [role, setRole] = useState<CrewRole | null>(getCrewRole());
   useEffect(() => subscribeCrew(() => setRole(getCrewRole())), []);
   return role;
@@ -321,8 +323,9 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
     </button>
   ) : null;
   const sailButton = (dir: 1 | -1, label: string) => (
-    <button
+    <Button
       type="button"
+      variant="ghost"
       data-testid={dir > 0 ? 'sail-raise' : 'sail-lower'}
       onPointerDown={(e) => {
         e.preventDefault();
@@ -331,23 +334,25 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       }}
       onPointerUp={() => stopMastHold()}
       onPointerCancel={() => stopMastHold()}
+      onLostPointerCapture={() => stopMastHold()}
       onContextMenu={(e) => e.preventDefault()}
-      className="rounded-full border px-4 py-2 text-sm font-semibold text-white select-none"
+      className={`shrink-0 rounded-full border border-accent/50 text-foreground select-none touch-none ${readout.mast === dir ? 'bg-secondary/90' : 'bg-background/80'} ${mobile ? 'h-11 w-11 p-0' : 'h-auto px-4 py-2 text-sm font-semibold'}`}
       style={{
-        background: readout.mast === dir ? 'hsla(180,70%,30%,0.95)' : 'hsla(265,70%,8%,0.85)',
-        borderColor: 'hsla(180,80%,60%,0.55)',
-        touchAction: 'none',
         WebkitTouchCallout: 'none',
       }}
       aria-label={`Hold to ${label.toLowerCase()}`}
+      title={`Hold to ${label.toLowerCase()}`}
     >
-      {dir > 0 ? '▲' : '▼'} {label}
-    </button>
+      {dir > 0 ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+      {!mobile && label}
+    </Button>
   );
   const sailButtons = role === 'helm' ? (
     <div
-      className="absolute z-[70] left-1/2 -translate-x-1/2 flex gap-2"
-      style={{ bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)' }}
+      className={`absolute z-[70] flex ${mobile ? 'flex-col gap-1' : 'left-1/2 -translate-x-1/2 gap-2'}`}
+      style={mobile
+        ? { right: '7.5rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }
+        : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)' }}
     >
       {sailButton(1, 'Raise sail')}
       {sailButton(-1, 'Lower sail')}
@@ -378,14 +383,23 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
     {role === 'rod' && <FightBar fishing={fishing} mobile={mobile} />}
     <div
       data-testid="ship-readout"
-      className="pointer-events-none absolute left-1/2 z-[70] -translate-x-1/2 rounded-xl border px-3 py-2 text-xs text-white"
+      className={`pointer-events-none absolute z-[70] border border-accent/40 bg-background/70 text-foreground text-xs ${mobile ? 'right-4 max-w-[calc(100%-2rem)] rounded-lg px-2 py-1.5 tracking-normal [&_span]:tracking-normal' : 'left-1/2 -translate-x-1/2 rounded-xl px-3 py-2'}`}
       style={{
-        top: mobile ? '4.5rem' : '4rem',
-        background: 'hsla(265,70%,8%,0.8)',
-        borderColor: 'hsla(180,80%,60%,0.4)',
-        minWidth: 220,
+        top: mobile ? '8.5rem' : '4rem',
+        minWidth: mobile ? undefined : 220,
       }}
     >
+      {mobile ? (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
+          <span aria-label={`Speed ${knots.toFixed(1)} knots`}>{knots.toFixed(1)} kn</span>
+          <span className="flex items-center gap-1" aria-label={`Wind ${readout.wind.toFixed(1)} meters per second from ${windSide}`}>
+            <Wind className="h-3 w-3" aria-hidden="true" />
+            {readout.wind.toFixed(1)} m/s · {Math.abs(deg)}°{deg > 0 ? ' R' : deg < 0 ? ' L' : ''}
+          </span>
+          {role === 'helm' ? <span>Sail {Math.round(readout.sail * 100)}%</span> : <span>Food {readout.food}</span>}
+        </div>
+      ) : (
+      <>
       <div className="font-semibold">{role === 'helm' ? 'At the helm' : role === 'oars' ? 'At the oars' : 'Fishing'}</div>
       <div className="mt-1 flex items-center gap-2">
         <span
@@ -405,6 +419,8 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
         </div>
       )}
       {(role === 'oars' || role === 'rod') && <div>Food {readout.food}</div>}
+      </>
+      )}
       {role === 'rod' && (
         <div className={hot ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
           {fishingLine(fishing)}
@@ -420,7 +436,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       {(role === 'helm' || role === 'oars') && readout.aground && (
         <div className="font-semibold text-amber-300" data-testid="aground">Aground! Push off, or row astern.</div>
       )}
-      <div className="mt-1 opacity-70">{hint}</div>
+      {!mobile && <div className="mt-1 opacity-70">{hint}</div>}
     </div>
     </>
   );

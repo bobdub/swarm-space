@@ -8,6 +8,8 @@ import {
   HUMAN_HEIGHT,
   getEarthPose,
   setEarthPoseTime,
+  getEarthPoseTime,
+  EARTH_EPOCH_MS,
   updateEarthPin,
   getAvatarMass,
   AVATAR_MASS,
@@ -22,6 +24,8 @@ import {
   anchorOnEarth,
 } from '../earth';
 import { createField3D } from '../../uqrc/field3D';
+import { afterEach } from 'vitest';
+import { setNetworkClockOffset } from '../../time/networkClock';
 
 describe('earth (UQRC pure)', () => {
   beforeEach(() => setEarthPoseTime(0));
@@ -236,5 +240,32 @@ describe('earth (UQRC pure)', () => {
       // φ_max = 60° → cos(60°) = 0.5; require comfortable margin from terminator.
       expect(dot).toBeGreaterThan(0.3);
     }
+  });
+});
+
+describe('earth pose cadence clock', () => {
+  afterEach(() => {
+    setEarthPoseTime(null);
+    setNetworkClockOffset(0);
+  });
+
+  it('falls back to the device clock when no network tick exists', () => {
+    setEarthPoseTime(null);
+    setNetworkClockOffset(0);
+    const expected = (Date.now() - EARTH_EPOCH_MS) / 1000;
+    expect(Math.abs(getEarthPoseTime() - expected)).toBeLessThan(1);
+  });
+
+  it('follows the corrected network clock when the mesh has calibrated', () => {
+    setEarthPoseTime(null);
+    setNetworkClockOffset(120_000);
+    const expected = (Date.now() + 120_000 - EARTH_EPOCH_MS) / 1000;
+    expect(Math.abs(getEarthPoseTime() - expected)).toBeLessThan(1);
+  });
+
+  it('test override still wins over the network clock', () => {
+    setNetworkClockOffset(120_000);
+    setEarthPoseTime(42);
+    expect(getEarthPoseTime()).toBe(42);
   });
 });

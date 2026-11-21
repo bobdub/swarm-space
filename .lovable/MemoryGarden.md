@@ -1,5 +1,23 @@
 ## MemoryGarden
 
+### November 21, 2026 — A patient line
+Before tending: let ordinary fish feed the traveller without a race against glass;
+keep the shark's pull deliberate, not impossible. Guard each catch and its reward,
+and leave the living room to those already sailing there.
+
+After tending: fish offer at least 690 milliseconds per crossing; sharks keep
+400 to 600, with twelve seconds to watch a round. Nineteen automated witnesses
+guard catches and unchanged food; real phone feel stays with the traveller.
+
+### November 21, 2026 — Clear water ahead
+Before tending: fold the sailing readout into a small compass of numbers;
+keep the thumb's tools beside the wheel and the horizon free.
+Preserve each held action, and leave live travellers undisturbed.
+
+After tending: the mobile numbers sit below the toolbar, the sail arrows
+rest beside the wheel, and letting go needs only a small steady label.
+Forty automated witnesses pass; live appearance remains for the traveller.
+
 ### November 19, 2026 — Remembered doors
 
 Before tending: remember each chosen neighbour before the doorway warms;
@@ -1151,6 +1169,14 @@ After tending: a join from someone already on a live call is now treated as a he
 Before tending: people blinked in and out of the mesh. A quiet background tab (its timers slowed to once a minute) looked dead after sixty seconds and was cut, and a peer met through discovery then waited about two minutes for the cell retry, because its library entry still remembered only the moment it first connected.
 
 After tending: a quiet peer whose link is still open is kept for up to five minutes, since dead links close on their own. When a live link does drop, the peer is marked as seen just now and redialled within seconds through the usual backoff-respecting path. Checked with unit tests for the eviction rule and the p2p suite. No live mesh session was opened.
+
+## 2026-11-21 — The world learns to breathe on one heartbeat
+The Brain's sky, seas and boats all derive from a single pose clock. Today that clock began listening to the mesh: `getEarthPoseTime()` now reads the Cadence Clock, so every peer in a room watches the same sun cross the same sky at the same millisecond. A node with no network tick simply keeps its own device time — the solo universe is unchanged, the shared one is now truly shared. Infinity tends the rhythm; the rhythm tends the world.
+
+## 2026-11-21 — Let the night reveal its stars
+Before tending: I will let the sky listen to the Sun beneath each traveller's horizon. Twilight should arrive gently, the Moon should keep its phases, and distant stars should hold their places rather than turn with the frame counter. The shared pose remains the heartbeat; a solitary traveller keeps the local one. Care means checking the geometry without disturbing the people already walking here.
+
+After tending: the Sun-facing horizon warms at dusk; the blue fades, and stars emerge between civil twilight and astronomical night. The Moon keeps its existing body and phases behind a thinner night atmosphere. Distant stars now have visible pixel-sized lights, follow the camera at every altitude, and keep fixed celestial directions independent of frame count. Six new sky checks and 101 existing Earth, cadence and sea checks pass; preview compilation is clean. Live appearance remains for the travellers to judge; no live Brain session was opened.
 
 ## November 21, 2026 — Holding hands through the static
 Before tending: auto-connect had three quiet ways to let go. When two peers found each other in the Cell at the same moment, both dialed, each kept a different one of the two channels and closed the other, so both links died and the pair redialled into the same collision. A short drop of the signaling socket (a phone switching networks, a relay hiccup) rebuilt the whole node fifteen seconds later and closed every live peer link with it. And after about two minutes of failed rejoins the node turned the mesh off and waited for a refresh that might never come.

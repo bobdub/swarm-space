@@ -43,20 +43,21 @@ export const BITE_WINDOW_S = 5;
 export const FIGHT_HITS = 3;
 export const FIGHT_MISSES = 2;
 /** Highlighted zone width (fraction of the bar) for each round. */
-export const FIGHT_ZONES: readonly number[] = [0.3, 0.22, 0.16];
+export const FIGHT_ZONES: readonly number[] = [0.4, 0.36, 0.32];
 /** Seconds for the marker to sweep across the bar and back, first round. */
-export const FIGHT_SWEEP_S = 2.2;
+export const FIGHT_SWEEP_S = 4.8;
 /** A shark fights harder: more strikes, a smaller zone, a quicker marker. */
 export const SHARK_FIGHT_HITS = 5;
-export const SHARK_FIGHT_ZONES: readonly number[] = [0.2, 0.16, 0.13, 0.11, 0.09];
-export const SHARK_FIGHT_SWEEP_S = 1.6;
+export const SHARK_FIGHT_ZONES: readonly number[] = [0.3, 0.28, 0.26, 0.24, 0.22];
+export const SHARK_FIGHT_SWEEP_S = 4;
 /** Food for a fish and for a shark. */
 export const FISH_FOOD = 1;
 export const SHARK_FOOD = 5;
-/** Each good strike speeds the marker up by this factor. */
-const FIGHT_SPEEDUP = 0.8;
+/** Gentle acceleration preserves relaxed food gathering and moderate shark timing. */
+const FIGHT_SPEEDUP = 0.95;
+const SHARK_FIGHT_SPEEDUP = 0.98;
 /** A round with no strike for this long counts as a bad one. */
-export const FIGHT_ROUND_S = 6;
+export const FIGHT_ROUND_S = 12;
 /** Above this boat speed (m/s) nothing bites. */
 export const TROLL_MAX_SPEED = 1.5;
 /** Seconds the catch / got-away note stays up. */
@@ -263,7 +264,7 @@ export function strike(t: number): 'hit' | 'miss' | 'landed' | 'lost' | null {
     to('caught', t);
     return 'landed';
   }
-  f.sweep *= FIGHT_SPEEDUP;
+  f.sweep *= state.on === 'shark' ? SHARK_FIGHT_SPEEDUP : FIGHT_SPEEDUP;
   newRound(f, t);
   emit();
   return 'hit';

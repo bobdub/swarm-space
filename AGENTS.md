@@ -6,6 +6,7 @@
 - Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
+- Fish and shark fight pacing stays in the shared fishing engine, so the displayed bar and strike checks agree.
 - Guest names live only on the guest identity, never shared avatar preferences; gate member routes, mining and post creation independently because guests retain P2P identities.
 - Direct Brain guest entry runs only after session restoration resolves signed-out and before mounting the scene; deduplicate guest provisioning and recheck identity after key generation so returning or concurrently signed-in members are never overwritten.
 - Session restoration rechecks the current identity before applying an asynchronous result, because guest entry or member login may have completed while the durable read was pending.
@@ -29,6 +30,7 @@
 - Merge partial hub preferences. Only the opted-in prompt originator generates a correlated room reply; receivers deduplicate and ask off viewers once per room — shared chat must not diverge into private replies.
 - Chat and media wrapping share ledger-backed coin recovery; count historical containers and balance so spent coins cannot be recreated.
 - Infinity and Brain world rules (learning, memory, Earth, terrain, sky, mute, room membership) are in `src/lib/brain/AGENTS.md`.
+- Brain atmosphere and star visibility share `skyCadenceAt` from the current Earth pose and camera-local solar horizon; celestial directions stay frame-rate independent so night agrees across devices without a second clock.
 
 ## Wallet boundaries
 - Vault receipts use payout legs; pool funding stays ledger-derived to avoid double counting.

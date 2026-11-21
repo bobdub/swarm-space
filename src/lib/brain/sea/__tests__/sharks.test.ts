@@ -89,6 +89,33 @@ describe('a shark meets a swimmer', () => {
 });
 
 describe('catching a shark', () => {
+  it('keeps sharks moderately challenging without sub-reaction-time final rounds', () => {
+    setFishingRandom(() => 0.05);
+    let food = 0;
+    setFishingReward((amount) => { food += amount; });
+    cast(0, 30, false, 'moderate-shark');
+    let t = 0;
+    while (getFishing().phase === 'waiting' && t < 60) { t += 0.1; updateFishing(t, 0); }
+    expect(getFishing().on).toBe('shark');
+    setFishingRandom(() => 0.25);
+    reel(t);
+    const widths = [0.3, 0.28, 0.26, 0.24, 0.22];
+    for (let i = 0; i < 5; i++) {
+      const f = getFishing().fight;
+      if (!f) throw new Error('Expected a shark fight');
+      expect(f.need).toBe(5);
+      expect(f.zoneW).toBe(widths[i]);
+      expect(f.sweep).toBeCloseTo(4 * 0.98 ** i, 8);
+      const reactionWindow = f.zoneW * f.sweep / 2;
+      expect(reactionWindow).toBeGreaterThanOrEqual(0.4);
+      expect(reactionWindow).toBeLessThanOrEqual(0.6);
+      const entry = f.roundAt + (f.zoneC - f.zoneW / 2) * f.sweep / 2;
+      expect(strike(entry + 0.3)).toBe(i === 4 ? 'landed' : 'hit');
+    }
+    expect(getFishing().phase).toBe('caught');
+    expect(food).toBe(5);
+  });
+
   it('can only be hooked in deep water with a shark about', () => {
     const c = aShark();
     const p = seaPoseAt(c, T);
@@ -115,7 +142,7 @@ describe('catching a shark', () => {
     setFishingRandom(() => 0.5);
     reel(t);
     expect(getFishing().fight!.need).toBe(SHARK_FIGHT_HITS);
-    expect(getFishing().fight!.zoneW).toBeLessThan(0.25);
+    expect(getFishing().fight?.zoneW).toBe(0.3);
     for (let i = 0; i < SHARK_FIGHT_HITS; i++) {
       while (!markerInZone(t)) t += 0.002;
       strike(t);

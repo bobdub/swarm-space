@@ -2,6 +2,30 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getGalaxy } from '@/lib/brain/galaxy';
+import { getEarthPose, WORLD_SCALE } from '@/lib/brain/earth';
+import { skyCadenceAt } from '@/lib/brain/skyCadence';
+
+const vertexShader = /* glsl */ `
+  attribute float size;
+  uniform float uSizeScale;
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    // Stars are distant light sources, not metre-sized particles that vanish
+    // under perspective. Keep a stable, softly rounded pixel footprint.
+    gl_PointSize = clamp(size * uSizeScale, 1.2, 3.0);
+  }
+`;
+
+const fragmentShader = /* glsl */ `
+  uniform float uOpacity;
+  uniform vec3 uTint;
+  void main() {
+    float radius = length(gl_PointCoord - vec2(0.5));
+    float alpha = (1.0 - smoothstep(0.15, 0.5, radius)) * uOpacity;
+    if (alpha <= 0.001) discard;
+    gl_FragColor = vec4(uTint, alpha);
+  }
+`;
 
 /**
  * Distant parallax starfield — purely visual, doesn't touch physics.
@@ -10,6 +34,11 @@ import { getGalaxy } from '@/lib/brain/galaxy';
 export function StarField() {
   const galaxy = useMemo(() => getGalaxy(), []);
   const ref = useRef<THREE.Points>(null);
+  const uniforms = useMemo(() => ({
+    uOpacity: { value: 0 },
+    uTint: { value: new THREE.Color('hsl(220, 80%, 92%)') },
+    uSizeScale: { value: 30 / WORLD_SCALE },
+  }), []);
 
   const { positions, sizes } = useMemo(() => {
     const positions = new Float32Array(galaxy.bgStars.length * 3);
@@ -26,12 +55,16 @@ export function StarField() {
   useFrame(({ camera }) => {
     if (!ref.current) return;
     // Parallax centered on camera so the stars feel infinitely far.
-    ref.current.position.set(camera.position.x, 0, camera.position.z);
-    ref.current.rotation.y += 0.00005;
+    ref.current.position.copy(camera.position);
+    // Fixed celestial directions: Earth turns beneath them on the pose clock.
+    // No frame-count rotation, so different refresh rates see the same stars.
+    uniforms.uOpacity.value = skyCadenceAt(
+      [camera.position.x, camera.position.y, camera.position.z], getEarthPose(),
+    ).starOpacity;
   });
 
   return (
-    <points ref={ref}>
+    <points ref={ref} renderOrder={-2} frustumCulled={false}>
       <bufferGeometry>
         <bufferAttribute
           attach="attributes-position"
@@ -48,12 +81,11 @@ export function StarField() {
           itemSize={1}
         />
       </bufferGeometry>
-      <pointsMaterial
-        size={0.18}
-        color="hsl(220, 80%, 92%)"
+      <shaderMaterial
+        vertexShader={vertexShader}
+        fragmentShader={fragmentShader}
+        uniforms={uniforms}
         transparent
-        opacity={0.85}
-        sizeAttenuation
         depthWrite={false}
       />
     </points>

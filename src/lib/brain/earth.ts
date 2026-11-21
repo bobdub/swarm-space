@@ -20,6 +20,7 @@
 
 import { writePinTemplate, idx3, FIELD3D_AXES, type Field3D } from '../uqrc/field3D';
 import { setIslandProvider, snapToLand } from './surfaceProfile';
+import { networkNow } from '../time/networkClock';
 
 /**
  * ── WORLD_SCALE — single source of truth for sim-unit ↔ metre ratio ──
@@ -366,10 +367,20 @@ export function setEarthPoseTime(seconds: number | null): void {
   _poseTimeOverride = Number.isFinite(seconds) ? seconds : null;
 }
 
-/** Current pose-clock seconds — shared epoch unless overridden by tests. */
+/**
+ * Current pose-clock seconds — shared epoch unless overridden by tests.
+ *
+ * Reads the Cadence Clock (`networkNow()`): when the mesh (or the site
+ * origin) has calibrated this device, every peer derives Earth's pose from
+ * the same corrected instant, so the spin, sun/moon, weather, boats and sea
+ * life stay locked to the millisecond across the room. A peer with no
+ * network tick — disconnected, or the clock never calibrated — falls back
+ * to its raw device clock, which is exactly the pre-cadence behaviour, so
+ * solo play is unchanged.
+ */
 export function getEarthPoseTime(): number {
   if (_poseTimeOverride !== null) return _poseTimeOverride;
-  return (Date.now() - EARTH_EPOCH_MS) / 1000;
+  return (networkNow() - EARTH_EPOCH_MS) / 1000;
 }
 
 /** Build a Y-axis quaternion from an angle. */
