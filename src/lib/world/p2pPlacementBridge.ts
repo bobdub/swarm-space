@@ -66,6 +66,7 @@ import {
   mergeLandClaims,
   type LandClaim,
 } from '@/lib/world/landClaimsStore';
+import { installLandClaimRules } from '@/lib/world/boundaryMarker';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -123,6 +124,8 @@ async function isAcceptableScope(universeKey?: string): Promise<boolean> {
 export function bootPlacementGossipBridge(): void {
   if (booted) return;
   booted = true;
+  // Every peer applies the same land rules (no claims on water).
+  installLandClaimRules();
 
   void (async () => {
     let mesh: {

@@ -28,7 +28,10 @@ import { tangentToSurfaceLocal } from '../landPermissions';
 import {
   BLOCK_PRICE_SWARM,
   claimBlockWithMarker,
+  installLandClaimRules,
+  loadDeeds,
   migrateLegacyPlots,
+  reconcileDeeds,
   type ClaimDeps,
 } from '../boundaryMarker';
 
@@ -63,6 +66,7 @@ function depsFor(who: Identity, balance = 100): ClaimDeps & { burned: number[] }
       burned.push(amount);
     },
     now: () => 1_700_000_000_000,
+    isWater: () => false,
   };
 }
 
@@ -241,8 +245,8 @@ describe('migrateLegacyPlots', () => {
   });
 });
 
-describe('migrateLegacyPlots keeps what it cannot replace', () => {
-  it('keeps the legacy plot when a rival already holds one of its cells', async () => {
+describe('migrateLegacyPlots with a rival on one cell', () => {
+  it('lets the earlier claim keep its block and moves ours to the nearest free block', async () => {
     recordLocalLandClaims([await claimFor(bob, 41, 40, 100)], 2000);
     const own: LandPlot = {
       id: 'plot:contested', ownerId: alice.id, cellRect: { cx0: 40, cz0: 40, cx1: 42, cz1: 41 },
@@ -252,11 +256,74 @@ describe('migrateLegacyPlots keeps what it cannot replace', () => {
     await migrateLegacyPlots(alice.id, depsFor(alice));
     expect(getLandClaim(40, 40)?.ownerId).toBe(alice.id);
     expect(getLandClaim(41, 40)?.ownerId).toBe(bob.id);
+    expect(canBuildAtCell(41, 40, bob.id).ok).toBe(true);
+    expect(canBuildAtCell(41, 40, alice.id).ok).toBe(false);
+    // Both paid blocks are held, so the legacy record can go.
+    expect(listLandClaims().filter((c) => c.ownerId === alice.id)).toHaveLength(2);
+    expect(loadLegacyLandPlots()).toEqual([]);
+  });
+
+  it('keeps the legacy plot while the key is locked', async () => {
+    recordLocalLandClaims([await claimFor(bob, 41, 40, 100)], 2000);
+    const own: LandPlot = {
+      id: 'plot:contested', ownerId: alice.id, cellRect: { cx0: 40, cz0: 40, cx1: 42, cz1: 41 },
+      anchorId: 'swarm-shared-village', priceSwarm: 6, claimedAt: 500, unlocksLandmarks: true, kind: 'private',
+    };
+    replaceLegacyLandPlots([own]);
+    await migrateLegacyPlots(alice.id, { ...depsFor(alice), getPrivateKey: async () => null });
     expect(loadLegacyLandPlots().map((p) => p.id)).toEqual(['plot:contested']);
     // The signed claim, not the kept legacy record, decides that cell.
     expect(getPlotAtCell(41, 40)?.ownerId).toBe(bob.id);
-    expect(canBuildAtCell(41, 40, bob.id).ok).toBe(true);
-    expect(canBuildAtCell(41, 40, alice.id).ok).toBe(false);
+  });
+});
+
+describe('water', () => {
+  const water = (cx: number) => cx >= 90;
+
+  it('refuses to claim a water block, without charging', async () => {
+    const deps = { ...depsFor(alice), isWater: water };
+    const res = await claimBlockWithMarker({ cx: 95, cz: 0, ownerId: alice.id }, deps);
+    expect(res.ok).toBe(false);
+    expect(deps.burned).toEqual([]);
+  });
+
+  it('every peer refuses water claims', async () => {
+    installLandClaimRules(water);
+    expect(await acceptPeerLandClaim(await claimFor(bob, 95, 0, 1000), 2000)).toBe(false);
+    expect(await acceptPeerLandClaim(await claimFor(bob, 5, 0, 1000), 2000)).toBe(true);
+  });
+});
+
+describe('displaced blocks move to the next free land block', () => {
+  it('an earlier owner coming online keeps the block; the later buyer is moved, not charged again', async () => {
+    // A and B are online; A buys (5, 5).
+    const deps = depsFor(alice);
+    expect((await claimBlockWithMarker({ cx: 5, cz: 5, ownerId: alice.id }, deps)).ok).toBe(true);
+    // C (bob here) comes online with an older claim on the same block.
+    expect(await acceptPeerLandClaim(await claimFor(bob, 5, 5, 500))).toBe(true);
+    expect(getLandClaim(5, 5)?.ownerId).toBe(bob.id);
+
+    const { moved } = await reconcileDeeds(alice.id, deps);
+    expect(moved).toBe(1);
+    const mine = listLandClaims().filter((c) => c.ownerId === alice.id);
+    expect(mine).toHaveLength(1);
+    expect(Math.max(Math.abs(mine[0].cx - 5), Math.abs(mine[0].cz - 5))).toBe(1);
+    expect(loadDeeds(alice.id)[0]).toMatchObject({ cx: mine[0].cx, cz: mine[0].cz, moves: 1 });
+    expect(deps.burned).toEqual([BLOCK_PRICE_SWARM]);
+    // Nothing left to do.
+    expect((await reconcileDeeds(alice.id, deps)).moved).toBe(0);
+  });
+
+  it('never moves a block onto water or someone else\'s land', async () => {
+    const isWater = (cx: number, cz: number) => cz === 4; // the row "behind" (5, 5)
+    const deps = { ...depsFor(alice), isWater };
+    await claimBlockWithMarker({ cx: 5, cz: 5, ownerId: alice.id }, deps);
+    recordLocalLandClaims([await claimFor(bob, 4, 5, 400)], Date.now());
+    await acceptPeerLandClaim(await claimFor(bob, 5, 5, 500));
+    await reconcileDeeds(alice.id, deps);
+    const [spot] = listLandClaims().filter((c) => c.ownerId === alice.id);
+    expect(isWater(spot.cx, spot.cz)).toBe(false);
+    expect(spot).not.toMatchObject({ cx: 4, cz: 5 });
   });
 });
 

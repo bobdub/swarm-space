@@ -10,7 +10,7 @@
  * HUD's hold button drives the same fill.
  *
  * Highlight colours: green = free, blue = already yours, red = someone
- * else's, slate = communal. Moving to another block mid-hold restarts it.
+ * else's, slate = communal or water (water can never be claimed). Moving to another block mid-hold restarts it.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
@@ -48,6 +48,7 @@ const STATUS_COLOR: Record<BlockStatus, string> = {
   own: '#38bdf8',
   foreign: '#ef4444',
   commons: '#94a3b8',
+  water: '#64748b',
 };
 
 type Cell = { cx: number; cz: number };

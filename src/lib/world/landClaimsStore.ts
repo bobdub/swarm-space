@@ -65,6 +65,7 @@ type Gossip = (claim: LandClaim) => void;
 const claims = new Map<string, LandClaim>();
 const listeners = new Set<Listener>();
 let gossip: Gossip | null = null;
+let validator: ((c: UnsignedLandClaim) => boolean) | null = null;
 let hydrated = false;
 let version = 0;
 
@@ -195,9 +196,24 @@ function notify(): void {
   }
 }
 
+/**
+ * World rule every peer applies to a claim (e.g. "never water"). Set once
+ * at boot by `boundaryMarker.installLandClaimRules`; a claim that breaks
+ * it is refused locally and from peers alike.
+ */
+export function setLandClaimValidator(fn: ((c: UnsignedLandClaim) => boolean) | null): void {
+  validator = fn;
+}
+
+function passesRules(c: LandClaim): boolean {
+  if (!validator) return true;
+  try { return validator(c); } catch { return false; }
+}
+
 /** Would `c` be kept? (Not already held, not beaten, not from the future.) */
 function wouldKeep(c: LandClaim, now: number): boolean {
   if (c.claimedAt - now > FUTURE_SLACK_MS) return false;
+  if (!passesRules(c)) return false;
   const prev = claims.get(landCellKey(c.cx, c.cz));
   if (!prev) return claims.size < MAX_LAND_CLAIMS;
   if (prev.signature === c.signature && prev.ownerId === c.ownerId) return false;
@@ -318,6 +334,7 @@ export function _resetLandClaimsForTest(): void {
   claims.clear();
   listeners.clear();
   gossip = null;
+  validator = null;
   hydrated = true;
   version += 1;
 }
