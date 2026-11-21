@@ -75,7 +75,8 @@ describe("one reward per block", () => {
     miner.addTransaction({ ...tx("stray"), type: "mining_reward", from: "system", to: "someone", amount: 50 } as never);
     miner.addTransaction(tx("real") as never);
     const block = await miner.minePendingTransactions("me");
-    expect(block!.transactions.filter((t) => t.type === "mining_reward")).toHaveLength(1);
+    expect(block!.transactions.filter((t) => t.type === "mining_reward" && t.to === "me")).toHaveLength(1);
+    expect(block!.transactions.filter((t) => t.type === "mining_reward")).toHaveLength(2);
     const peer = new SwarmChain();
     await peer.whenReady();
     expect(await peer.appendPeerBlock(block!)).toBe(true);
@@ -91,8 +92,9 @@ describe("block reward is the only issuance", () => {
     miner.addTransaction(selfMint("mine-to-me") as never);
     expect(await miner.minePendingTransactions("me")).toBeNull();
     const block = (await miner.minePendingTransactions("me", undefined, { allowEmpty: true, hollow: true }))!;
-    expect(block.transactions.map((t) => t.type)).toEqual(["mining_reward"]);
-    expect(block.transactions[0].amount).toBe(25);
+    expect(block.transactions.map((t) => [t.type, t.to, t.amount])).toEqual([
+      ["mining_reward", "me", 23.75], ["mining_reward", "community-pool", 1.25],
+    ]);
     const peer = new SwarmChain();
     await peer.whenReady();
     expect(await peer.appendPeerBlock(block)).toBe(true);
@@ -113,7 +115,8 @@ describe("block reward is the only issuance", () => {
   it("holds a block reward back until it matures", async () => {
     const chain = await minedChain(1, "me");
     expect(chain.getBalance("me")).toBe(0);
-    expect(chain.getImmatureRewards("me")).toBe(50);
+    expect(chain.getImmatureRewards("me")).toBe(47.5);
+    expect(chain.getImmatureRewards("community-pool")).toBe(2.5);
   }, 60_000);
 });
 
@@ -133,16 +136,29 @@ describe("rewards and local mints can't fund shared-chain payments early", () =>
     const peer = new SwarmChain();
     await peer.whenReady();
     const genesis = peer.getChain()[0];
-    const reward = { ...tx("r1"), type: "mining_reward", from: "system", to: me, amount: 50 };
-    const b1 = await mine(peer, { index: 1, timestamp: later, transactions: [reward], previousHash: genesis.hash, hash: "", nonce: 0,
-      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot([reward] as never) });
-    const spend = [await tipFrom(keys, me, "spend"), { ...reward, id: "r2" }];
+    const reward = { ...tx("r1"), type: "mining_reward", from: "system", to: me, amount: 47.5 };
+    const pool = (id: string) => ({ ...reward, id, to: "community-pool", amount: 2.5 });
+    const first = [reward, pool("p1")];
+    const b1 = await mine(peer, { index: 1, timestamp: later, transactions: first, previousHash: genesis.hash, hash: "", nonce: 0,
+      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot(first as never) });
+    const spend = [await tipFrom(keys, me, "spend"), { ...reward, id: "r2" }, pool("p2")];
     const b2 = await mine(peer, { index: 2, timestamp: later, transactions: spend, previousHash: b1.hash, hash: "", nonce: 0,
       difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot(spend as never) });
     const local = new SwarmChain();
     await local.whenReady();
     expect(await local.appendPeerBlock(b1)).toBe(true);
     expect(await local.appendPeerBlock(b2)).toBe(false);
+  }, 60_000);
+
+  it("refuses a block under the new rules that skips the pool's share", async () => {
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    const solo = [{ ...tx("solo"), type: "mining_reward", from: "system", to: "me", amount: 50 }];
+    const block = await mine(peer, { index: 1, timestamp: later, transactions: solo, previousHash: peer.getChain()[0].hash, hash: "",
+      nonce: 0, difficulty: 4, miner: "me", merkleRoot: await calculateMerkleRoot(solo as never) });
+    const local = new SwarmChain();
+    await local.whenReady();
+    expect(await local.appendPeerBlock(block)).toBe(false);
   }, 60_000);
 
   it("won't accept a payment funded only by a local self-issued mint", async () => {

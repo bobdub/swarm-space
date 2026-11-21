@@ -1238,7 +1238,10 @@ export class StandaloneSwarmMesh {
       const tipAt = Date.parse(chain.getLatestBlock().timestamp);
       if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
       const block = await chain.minePendingTransactions(userId, undefined, { allowEmpty: true, hollow });
-      if (block) this.announceChainBlock(block);
+      if (block) {
+        this.announceChainBlock(block);
+        void import('../blockchain/miningRewards').then((m) => m.recordBlockPoolShare()).catch(() => { /* non-fatal */ });
+      }
     } catch (e) {
       console.debug('[SwarmMesh][Mining] chain block not mined', e);
     } finally {

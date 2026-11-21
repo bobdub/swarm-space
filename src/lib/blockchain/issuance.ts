@@ -15,9 +15,20 @@ export const REWARD_MATURITY_BLOCKS = 20;
 /** A hollow block (no content served) pays this share of the height's reward. */
 export const HOLLOW_REWARD_SHARE = 0.5;
 
-/** A SWARM mint a device issued to itself: unverifiable by anyone else. */
+/** Share of every block reward paid to the community pool (the old 5% mining tax). */
+export const POOL_REWARD_SHARE = 0.05;
+export const COMMUNITY_POOL = "community-pool";
+
+/** Types that credit `to` with SWARM: from "system", any of these creates coins. */
+const SELF_ISSUE_TYPES = new Set([
+  "token_mint", "pool_donate", "token_transfer", "wallet_tip", "credit_lock", "coin_transfer",
+  "coin_deploy", "creator_token_deploy", "profile_token_deploy", "cross_chain_swap",
+  "coin_market_list", "coin_market_settle", "coin_market_cancel",
+]);
+
+/** SWARM a device issued to itself from "system" (outside the block reward): unverifiable by anyone else. */
 export function isSelfIssuedSwarmMint(tx: Pick<SwarmTransaction, "type" | "from" | "tokenId"> | null | undefined): boolean {
-  return !!tx && tx.type === "token_mint" && tx.from === "system" && !tx.tokenId;
+  return !!tx && tx.from === "system" && !tx.tokenId && SELF_ISSUE_TYPES.has(tx.type);
 }
 
 /** True when a block is stamped late enough that it must not carry self-issued mints. */

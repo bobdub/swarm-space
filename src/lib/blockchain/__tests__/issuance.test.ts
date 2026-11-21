@@ -7,6 +7,9 @@ describe("issuance rules", () => {
     expect(isSelfIssuedSwarmMint({ type: "token_mint", from: "system", tokenId: "tok" })).toBe(false);
     expect(isSelfIssuedSwarmMint({ type: "token_mint", from: "alice" })).toBe(false);
     expect(isSelfIssuedSwarmMint({ type: "mining_reward", from: "system" })).toBe(false);
+    expect(isSelfIssuedSwarmMint({ type: "pool_donate", from: "system" })).toBe(true);
+    expect(isSelfIssuedSwarmMint({ type: "pool_donate", from: "alice" })).toBe(false);
+    expect(isSelfIssuedSwarmMint({ type: "nft_mint", from: "system" })).toBe(false);
   });
 
   it("forbids self mints from the cutoff on, and in blocks with an unreadable stamp", () => {

@@ -4,7 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
-import { blockForbidsSelfMints, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint } from "./issuance";
+import { blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
 import { verifyWalletTip } from "./wallets/tipSignature";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
@@ -297,33 +297,33 @@ export class SwarmChain {
 
     const resolvedChainId = chainId || "SWARM";
 
-    // Add mining reward transaction tagged with chain
-    const rewardTransaction: SwarmTransaction = {
-      id: `reward-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      type: "mining_reward",
-      from: "system",
-      to: minerAddress,
-      // From the block's height, the same rule peers check it against.
-      amount: this.rewardAtHeight(this.chain.length) * (options.hollow ? HOLLOW_REWARD_SHARE : 1),
-      timestamp: new Date(networkNow()).toISOString(),
-      signature: "",
-      publicKey: "",
-      nonce: 0,
-      fee: 0,
-      chainId: resolvedChainId,
-      meta: { reward: true, chainId: resolvedChainId, ...(options.hollow ? { hollow: true } : {}) },
+    // The block's reward, Bitcoin-style: the miner's share plus the community
+    // pool's share (the old 5% mining tax), together no more than the height allows.
+    const total = this.rewardAtHeight(this.chain.length) * (options.hollow ? HOLLOW_REWARD_SHARE : 1);
+    const poolShare = total * POOL_REWARD_SHARE;
+    const stamp = new Date(networkNow()).toISOString();
+    const rewardId = `reward-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const rewardBase = {
+      type: "mining_reward" as const, from: "system", timestamp: stamp, signature: "", publicKey: "",
+      nonce: 0, fee: 0, chainId: resolvedChainId,
     };
+    const rewardTransactions: SwarmTransaction[] = [
+      { ...rewardBase, id: rewardId, to: minerAddress, amount: total - poolShare,
+        meta: { reward: true, chainId: resolvedChainId, ...(options.hollow ? { hollow: true } : {}) } },
+      { ...rewardBase, id: `${rewardId}-pool`, to: COMMUNITY_POOL, amount: poolShare,
+        meta: { reward: true, chainId: resolvedChainId, poolTax: poolShare, marketVaultFunding: "swarm-mining" } },
+    ];
 
     // Only carry payments peers will accept: one funded by a local-only mint
     // or an unripe reward stays pending instead of poisoning the block.
-    const transactions = [...carried, rewardTransaction];
+    const transactions = [...carried, ...rewardTransactions];
     const draft = { index: this.chain.length, timestamp: new Date(networkNow()).toISOString() };
     while (!await this.validateWalletTipLedger([...this.chain, { ...draft, transactions } as SwarmBlock])) {
       const last = transactions.map((tx) => tx.type).lastIndexOf("wallet_tip");
       if (last < 0) break;
       transactions.splice(last, 1);
     }
-    if (transactions.length === 1 && !options.allowEmpty) return null;
+    if (transactions.length === rewardTransactions.length && !options.allowEmpty) return null;
     const block: SwarmBlock = {
       index: this.chain.length,
       timestamp: draft.timestamp,
@@ -585,13 +585,23 @@ export class SwarmChain {
   private hasValidRewards(block: SwarmBlock): boolean {
     // New coins come only from the block reward: no self-issued mints.
     if (blockForbidsSelfMints(block) && block.transactions.some(isSelfIssuedSwarmMint)) return false;
+    // One reward per block: the miner's share, plus at most one share to the community pool.
     const rewards = block.transactions.filter((tx) => tx.type === "mining_reward");
-    if (rewards.length > 1) return false;
-    const reward = rewards[0];
-    if (!reward) return true;
-    if (reward.from !== "system") return false;
-    const amount = Number(reward.amount ?? 0);
-    return Number.isFinite(amount) && amount >= 0 && amount <= this.rewardAtHeight(block.index) + 1e-9;
+    if (rewards.length > 2) return false;
+    if (rewards.length === 2 && rewards.filter((tx) => tx.to === COMMUNITY_POOL).length !== 1) return false;
+    let paid = 0;
+    for (const reward of rewards) {
+      if (reward.from !== "system") return false;
+      const amount = Number(reward.amount ?? 0);
+      if (!Number.isFinite(amount) || amount < 0) return false;
+      paid += amount;
+    }
+    // Under the new issuance rules the pool's share is part of every reward.
+    if (paid > 0 && blockForbidsSelfMints(block)) {
+      const pool = rewards.find((tx) => tx.to === COMMUNITY_POOL && rewards.length === 2);
+      if (!pool || Number(pool.amount) < paid * POOL_REWARD_SHARE - 1e-9) return false;
+    }
+    return paid <= this.rewardAtHeight(block.index) + 1e-9;
   }
 
   /** Re-admit a transaction from a dropped block through the same checks a new one passes. */
