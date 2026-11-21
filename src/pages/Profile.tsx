@@ -121,14 +121,18 @@ async function findPeerAsUser(
     const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
     libraryEntry = getSwarmMeshStandalone()
       .getLibrary()
-      .find((entry) => matches(entry.username, entry.userId, entry.peerId));
+      .find((entry) =>
+        (peer && entry.peerId === peer.peerId) || matches(entry.username, entry.userId, entry.peerId, entry.nodeId),
+      );
   } catch {
     // Swarm mesh not available
   }
 
   if (!peer && !libraryEntry) return null;
 
-  const userId = peer?.userId || libraryEntry?.userId || peer?.peerId || libraryEntry?.peerId || param;
+  // Prefer the library's account id: in SWARM mode the discovery adapter
+  // fills DiscoveredPeer.userId with the node id, not the member's account.
+  const userId = libraryEntry?.userId || peer?.userId || peer?.peerId || libraryEntry?.peerId || param;
   const username = peer?.profile?.username || libraryEntry?.username || param;
   const displayName = peer?.profile?.displayName || libraryEntry?.displayName || username;
   return {
