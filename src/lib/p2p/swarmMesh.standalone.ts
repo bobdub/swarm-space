@@ -10,6 +10,7 @@ import {
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
+import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -3143,13 +3144,16 @@ export class StandaloneSwarmMesh {
 
   private handlePing(from: string, msg: Record<string, unknown>): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts, peerNow: networkNow() })); } catch { /* ignore */ }
   }
 
   private handlePong(from: string, msg: Record<string, unknown>): void {
     const echoTs = msg.echoTs as number | undefined;
     if (typeof echoTs !== 'number') return;
-    const rtt = now() - echoTs;
+    const receivedAt = now();
+    const rtt = receivedAt - echoTs;
+    // Cadence Clock: newer peers also send their clock; older ones don't.
+    if (typeof msg.peerNow === 'number') recordPeerClockSample(from, echoTs, msg.peerNow, receivedAt);
     const p = this.peerData.get(from);
     if (p) {
       p.lastRttMs = rtt;

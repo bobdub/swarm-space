@@ -8,6 +8,7 @@ import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw,
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows } from "./deposits/customTokenCustody";
+import { networkNow } from "@/lib/time/networkClock";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -293,7 +294,7 @@ export class SwarmChain {
       from: "system",
       to: minerAddress,
       amount: this.miningReward,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(networkNow()).toISOString(),
       signature: "",
       publicKey: "",
       nonce: 0,
@@ -305,7 +306,7 @@ export class SwarmChain {
     const transactions = [...this.pendingTransactions, rewardTransaction];
     const block: SwarmBlock = {
       index: this.chain.length,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(networkNow()).toISOString(),
       transactions,
       previousHash: this.getLatestBlock().hash,
       hash: "",
