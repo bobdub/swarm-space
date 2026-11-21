@@ -276,6 +276,11 @@ interface StoredChunkLike {
 // ── Constants ──────────────────────────────────────────────────────────
 
 const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
+/** After the fast reconnects run out, keep trying slowly instead of giving up. */
+export const FAILED_RECONNECT_RETRY_MS = 2 * 60_000;
+const SIGNALING_RECOVERY_FIRST_MS = 1_500;
+const SIGNALING_RECOVERY_RETRY_MS = 5_000;
+const SIGNALING_RECOVERY_MAX_ATTEMPTS = 4;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const MARKET_SYNC_INTERVAL = 60_000;
@@ -845,6 +850,10 @@ export class StandaloneSwarmMesh {
       void this.start();
     };
     document.addEventListener('visibilitychange', this.visibilityHandler);
+    if (typeof window !== 'undefined') {
+      // The network came back: retry now rather than at the next backoff tick.
+      window.addEventListener('online', () => this.retryFromFailed('network online'));
+    }
   }
 
   private teardownVisibilityHandler(): void {
@@ -937,6 +946,12 @@ export class StandaloneSwarmMesh {
     this.toggles[key] = value;
     this.saveToggles();
     console.log(`[SwarmMesh] Toggle ${key} → ${value}`);
+
+    if (key === 'autoConnect' && value && this.phase === 'online') {
+      // Turning auto-connect back on should reach out now, not at the next retry.
+      this.pulseGlobalPresence('auto-connect-on');
+      void this.cascadeConnect();
+    }
 
     if (key === 'mining') {
       if (value && this.phase === 'online') {
@@ -1421,7 +1436,7 @@ export class StandaloneSwarmMesh {
   }
 
   private async cascadeConnect(): Promise<void> {
-    if (this.phase !== 'online') return;
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
     console.log('[SwarmMesh] 🔀 Cascade connect starting (freshness-gated, trust-scored priority dial)...');
 
     // ── Build unified candidate list with trust-based priority scores ──
@@ -1671,6 +1686,7 @@ export class StandaloneSwarmMesh {
 
     this.flags.enabled = true;
     this.saveFlags();
+    this.clearReconnectTimer();
     this.startedAt = now();
     this.reconnectAttempt = 0;
 
@@ -1760,6 +1776,7 @@ export class StandaloneSwarmMesh {
     this.flags.enabled = false;
     this.saveFlags();
     this.clearReconnectTimer();
+    this.clearSignalingRecovery();
     this.clearIntervals();
     this.stopLibraryReconnectLoop();
     this.stopMiningLoop();
@@ -1816,6 +1833,7 @@ export class StandaloneSwarmMesh {
     }
 
     this.initInProgress = true;
+    this.clearSignalingRecovery();
     this.setPhase(this.reconnectAttempt > 0 ? 'reconnecting' : 'connecting');
     this.destroyPeer();
 
@@ -1987,10 +2005,15 @@ export class StandaloneSwarmMesh {
   private scheduleReconnect(): void {
     if (!this.flags.enabled) { this.setPhase('off'); return; }
     if (this.reconnectAttempt >= RECONNECT_INTERVALS.length) {
-      this.flags.enabled = false;
-      this.saveFlags();
+      // Stay enabled and keep trying slowly: a device that was offline for a
+      // few minutes must rejoin the mesh on its own, not wait for a refresh.
       this.setPhase('failed');
-      this.emitAlert('Connection failed — try refreshing', 'error');
+      this.emitAlert('Cannot reach the mesh — retrying every 2 minutes', 'error');
+      this.clearReconnectTimer();
+      this.reconnectTimer = setTimeout(() => {
+        this.reconnectTimer = null;
+        this.retryFromFailed('slow retry');
+      }, FAILED_RECONNECT_RETRY_MS);
       return;
     }
     const delay = RECONNECT_INTERVALS[this.reconnectAttempt];
@@ -2002,6 +2025,16 @@ export class StandaloneSwarmMesh {
       this.reconnectTimer = null;
       if (this.flags.enabled) void this.connectSignaling();
     }, delay);
+  }
+
+  /** Leave the failed state with a fresh round of reconnect attempts. */
+  private retryFromFailed(reason: string): void {
+    if (!this.flags.enabled || this.initInProgress) return;
+    if (this.phase !== 'failed' && this.phase !== 'reconnecting') return;
+    console.log(`[SwarmMesh] 🔁 Rejoining the mesh (${reason})`);
+    this.clearReconnectTimer();
+    this.reconnectAttempt = 0;
+    void this.connectSignaling();
   }
 
   private clearReconnectTimer(): void {
@@ -2027,42 +2060,10 @@ export class StandaloneSwarmMesh {
       this.handleConnection(conn, (meta?.source as ConnectionSource) ?? 'manual');
     });
 
-    peer.on('disconnected', () => {
-      console.warn('[SwarmMesh] ⚠️ Signaling lost — attempting soft reconnect (data channels preserved)');
-      // Data channels survive signaling loss; only retry signaling socket
-      let attempts = 0;
-      const maxAttempts = 3;
-      const tryReconnect = () => {
-        attempts++;
-        if (this.peer && !this.peer.destroyed) {
-          try {
-            this.peer.reconnect();
-            console.log(`[SwarmMesh] Signaling reconnect attempt ${attempts}/${maxAttempts}`);
-            // If reconnect succeeds, PeerJS fires 'open' again — reset attempt counter
-            const onReopen = () => {
-              console.log('[SwarmMesh] ✅ Signaling re-established (data channels intact)');
-              this.reconnectAttempt = 0;
-              this.peer?.off('open', onReopen);
-            };
-            this.peer.on('open', onReopen);
-          } catch {
-            if (attempts < maxAttempts) {
-              setTimeout(tryReconnect, 5000);
-            } else {
-              this.handleLost();
-            }
-          }
-        } else {
-          this.handleLost();
-        }
-      };
-      // Wait before first attempt
-      if (this.peer && !this.peer.destroyed) {
-        setTimeout(tryReconnect, 3000);
-      } else {
-        this.handleLost();
-      }
-    });
+    // Losing the signaling socket does not close data channels. Reconnect
+    // the socket on the same Peer so live links survive the blip.
+    peer.on('disconnected', () => this.recoverSignaling('disconnected'));
+    peer.on('open', () => this.finishSignalingRecovery());
 
     peer.on('error', (err: Error & { type?: string }) => {
       console.error('[SwarmMesh] Error:', err?.type, err?.message);
@@ -2083,8 +2084,77 @@ export class StandaloneSwarmMesh {
     peer.on('close', () => this.handleLost());
   }
 
+  private signalingRecoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  private signalingRecoveryAttempts = 0;
+
+  /**
+   * The signaling socket dropped (PeerJS keeps a disconnected Peer and its
+   * data channels). Reconnect that socket with the same ID instead of
+   * rebuilding the Peer, which would close every live link in the mesh.
+   * Falls back to a full reconnect only if the socket will not come back.
+   */
+  private recoverSignaling(reason: string): void {
+    if (this.phase !== 'online' || !this.peer || this.peer.destroyed) return;
+    if (this.signalingRecoveryTimer !== null) return;
+    console.warn(`[SwarmMesh] ⚠️ Signaling lost (${reason}) — reconnecting the socket, live channels kept`);
+    this.signalingRecoveryAttempts = 0;
+    this.signalingRecoveryTimer = setTimeout(() => this.attemptSignalingRecovery(), SIGNALING_RECOVERY_FIRST_MS);
+  }
+
+  private attemptSignalingRecovery(): void {
+    this.signalingRecoveryTimer = null;
+    const peer = this.peer;
+    if (this.phase !== 'online') return;
+    if (!peer || peer.destroyed) { this.handleLostHard(); return; }
+    if (peer.open) { this.finishSignalingRecovery(); return; }
+    if (this.signalingRecoveryAttempts >= SIGNALING_RECOVERY_MAX_ATTEMPTS) {
+      console.warn('[SwarmMesh] Signaling socket did not come back — full reconnect');
+      this.handleLostHard();
+      return;
+    }
+    this.signalingRecoveryAttempts++;
+    if (peer.disconnected) {
+      try {
+        peer.reconnect();
+        console.log(`[SwarmMesh] Signaling reconnect attempt ${this.signalingRecoveryAttempts}/${SIGNALING_RECOVERY_MAX_ATTEMPTS}`);
+      } catch { /* checked again on the next attempt */ }
+    }
+    this.signalingRecoveryTimer = setTimeout(() => this.attemptSignalingRecovery(), SIGNALING_RECOVERY_RETRY_MS);
+  }
+
+  private finishSignalingRecovery(): void {
+    if (this.signalingRecoveryTimer === null && this.signalingRecoveryAttempts === 0) return;
+    if (this.signalingRecoveryTimer !== null) { clearTimeout(this.signalingRecoveryTimer); this.signalingRecoveryTimer = null; }
+    this.signalingRecoveryAttempts = 0;
+    if (this.phase !== 'online') return;
+    console.log('[SwarmMesh] ✅ Signaling re-established (data channels intact)');
+    this.reconnectAttempt = 0;
+    // Peers may have tried us while the socket was down: announce and fill gaps.
+    this.pulseGlobalPresence('signaling-recovered');
+    this.flushQueuedManualDials();
+    this.scheduleMeshExpansion('signaling-recovered', [], 500);
+    if (this.connections.size === 0) this.scheduleMeshExpansion('signaling-recovered', [], 3_000);
+  }
+
+  private clearSignalingRecovery(): void {
+    if (this.signalingRecoveryTimer !== null) { clearTimeout(this.signalingRecoveryTimer); this.signalingRecoveryTimer = null; }
+    this.signalingRecoveryAttempts = 0;
+  }
+
   private handleLost(): void {
     if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
+    // PeerJS reports a socket loss before it marks the Peer disconnected, so
+    // a Peer that is not destroyed is recoverable in place.
+    if (this.peer && !this.peer.destroyed) {
+      this.recoverSignaling('signaling error');
+      return;
+    }
+    this.handleLostHard();
+  }
+
+  private handleLostHard(): void {
+    if (['reconnecting', 'off', 'failed'].includes(this.phase)) return;
+    this.clearSignalingRecovery();
     console.log('[SwarmMesh] Connection lost → soft cleanup (preserving live channels)');
     this.clearIntervals();
     this.stopMiningLoop();
@@ -2147,9 +2217,17 @@ export class StandaloneSwarmMesh {
       const existingConn = this.connections.get(rId);
       if (existingConn && existingConn !== conn) {
         if (existingConn.open) {
-          console.log(`[SwarmMesh] ↔️ Duplicate channel open for ${rId.slice(0, 16)} — keeping existing channel`);
-          try { conn.close(); } catch { /* ignore */ }
-          return;
+          // Both sides dialed at once. Each side must keep the SAME channel,
+          // or each closes the one the other kept and the pair drops and
+          // redials forever. Both agree on the one the lower peer ID opened.
+          if (!this.replacesDuplicateChannel(rId, conn, existingConn)) {
+            console.log(`[SwarmMesh] ↔️ Duplicate channel open for ${rId.slice(0, 16)} — keeping existing channel`);
+            try { conn.close(); } catch { /* ignore */ }
+            return;
+          }
+          console.log(`[SwarmMesh] ↔️ Duplicate channel open for ${rId.slice(0, 16)} — keeping the lower peer's channel`);
+          // Swap first, so the old channel's close handler sees it was replaced.
+          this.connections.set(rId, conn);
         }
         try { existingConn.close(); } catch { /* ignore */ }
       }
@@ -2310,8 +2388,24 @@ export class StandaloneSwarmMesh {
   // DIAL PEER
   // ═══════════════════════════════════════════════════════════════════
 
+  /** Channels this node opened itself (outgoing dials). */
+  private outgoingChannels = new WeakSet<object>();
+
+  /**
+   * Simultaneous dials leave two open channels to one peer. Both sides keep
+   * the channel opened by the lower peer ID, so they always agree on it.
+   * True when `incoming` should replace the already open `existing`.
+   */
+  private replacesDuplicateChannel(remotePeerId: string, incoming: object, existing: object): boolean {
+    const keepOpener = this.peerId < remotePeerId ? 'self' : 'remote';
+    const opener = (c: object) => (this.outgoingChannels.has(c) ? 'self' : 'remote');
+    return opener(incoming) === keepOpener && opener(existing) !== keepOpener;
+  }
+
   private dialPeer(remotePeerId: string, source: ConnectionSource): boolean {
     if (!this.peer || this.peer.destroyed) return false;
+    // While signaling is reconnecting a new dial cannot be delivered.
+    if (this.peer.disconnected) return false;
     if (remotePeerId === this.peerId || this.connections.has(remotePeerId) || this.isDialPending(remotePeerId)) return false;
     if (!this.markDialPending(remotePeerId)) return false;
 
@@ -2321,6 +2415,8 @@ export class StandaloneSwarmMesh {
         reliable: true,
         metadata: { nodeId: this.nodeId, source },
       });
+      if (!conn) throw new Error('signaling unavailable');
+      this.outgoingChannels.add(conn);
       this.handleConnection(conn, source);
       return true;
     } catch (err) {
@@ -2408,6 +2504,11 @@ export class StandaloneSwarmMesh {
    * must never reset backoff or open a second connection to the same peer.
    * Manual dials remain the only path that overrides backoff (user intent).
    */
+  /** Whether automatic discovery may dial (the Auto-connect switch). */
+  isAutoConnectEnabled(): boolean {
+    return this.toggles.autoConnect;
+  }
+
   dialViaBus(remotePeerId: string, source: 'exchange' | 'manual' = 'exchange'): boolean {
     remotePeerId = remotePeerId.trim();
     if (!remotePeerId || remotePeerId === this.peerId) return false;
