@@ -110,6 +110,10 @@ export interface MeshTransportAdapter {
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
   localPeerId: string;
+  /** Bytes already waiting to go out to this peer (data-channel backlog). */
+  getBufferedAmount?(peerId: string): number;
+  /** True while this device is on an audio/video call. */
+  isCallActive?(): boolean;
 }
 
 // ── Chunk Sizing ──────────────────────────────────────────────────────
@@ -128,6 +132,18 @@ export function getAdaptiveChunkSize(_fileSize: number): number {
 const DEFAULT_CHUNK_SIZE = 1_048_576;     // 1 MB floor (adaptive sizing preferred)
 const MAX_REQUESTS_PER_PEER = 4;          // pipeline depth
 const REQUEST_TIMEOUT_MS = 8_000;
+const OUTBOX_DRAIN_MS = 100;               // how often held-back pieces retry
+const OUTBOX_MAX_PER_PEER = 8;             // older requests drop; the peer re-requests
+const SERVING_WINDOW_MS = 3_000;           // a peer sent a piece this recently is "being served"
+
+// Calls and torrents ride separate WebRTC connections but share one uplink.
+// While a call is live, torrent traffic rolls downhill: two peers, one
+// piece in flight each, and pieces only leave when the channel is clear.
+export const IN_CALL_MAX_TORRENT_PEERS = 2;
+export const IN_CALL_MAX_REQUESTS_PER_PEER = 1;
+/** A piece (~1.4 MB on the wire) is only handed over below this backlog. */
+export const TORRENT_SEND_BUFFER_LIMIT_BYTES = 256 * 1024;
+export const IN_CALL_TORRENT_SEND_BUFFER_LIMIT_BYTES = 64 * 1024;
 const RARITY_POLL_MS = 2_000;
 const STALL_TIMEOUT_MS = 60_000;          // stop polling after 60s with no progress
 const BLOAT_PAUSE_MS = 60 * 60 * 1000;   // 1 hour pause for bloating torrents
@@ -322,6 +338,7 @@ export class TorrentSwarm {
     for (const timer of this.bloatPauseTimers.values()) clearTimeout(timer);
     this.bloatPauseTimers.clear();
     this.seenMsgIds.clear();
+    this.clearOutbox();
     console.log("[TorrentSwarm] ⏹️ Stopped");
   }
 
@@ -684,8 +701,12 @@ export class TorrentSwarm {
 
     if (!chunk) return;
 
-    // Send the piece (with Gun fallback)
-    this.sendWithFallback(peerId, {
+    // Pieces are bulk, low-priority traffic: they wait in an outbox and only
+    // go out when the peer's data channel is not already backed up, so chat,
+    // signaling and mesh control messages never sit behind them.
+    const queue = this.outbox.get(peerId) ?? [];
+    if (queue.some((m) => m.manifestId === msg.manifestId && (m.payload as { index: number }).index === index)) return;
+    queue.push({
       msg: "piece",
       manifestId: msg.manifestId,
       payload: {
@@ -695,6 +716,67 @@ export class TorrentSwarm {
         size: chunk.size,
       },
     } as TorrentMessage);
+    while (queue.length > OUTBOX_MAX_PER_PEER) queue.shift();
+    this.outbox.set(peerId, queue);
+    this.drainOutbox();
+  }
+
+  // ── Low-priority piece outbox ─────────────────────────────────────
+  private outbox = new Map<string, TorrentMessage[]>(); // peerId → pieces waiting
+  private outboxTimer: ReturnType<typeof setTimeout> | null = null;
+  /** peerId → when we last sent it a piece (for the in-call two-peer rule). */
+  private lastServedAt = new Map<string, number>();
+
+  private inCall(): boolean {
+    try { return this.transport.isCallActive?.() ?? false; } catch { return false; }
+  }
+
+  private clearOutbox(): void {
+    if (this.outboxTimer !== null) clearTimeout(this.outboxTimer);
+    this.outboxTimer = null;
+    this.outbox.clear();
+    this.lastServedAt.clear();
+  }
+
+  private drainOutbox(): void {
+    const inCall = this.inCall();
+    const limit = inCall ? IN_CALL_TORRENT_SEND_BUFFER_LIMIT_BYTES : TORRENT_SEND_BUFFER_LIMIT_BYTES;
+    const now = Date.now();
+
+    let peers = Array.from(this.outbox.keys());
+    if (inCall) {
+      // Serve at most two peers at a time while on a call. A peer counts as
+      // being served while it got a piece recently; others wait until one of
+      // those goes quiet, so their transfers finish before new ones start.
+      const serving = new Set<string>();
+      for (const [pid, at] of this.lastServedAt) {
+        if (now - at < SERVING_WINDOW_MS) serving.add(pid);
+      }
+      const allowed = peers.filter((p) => serving.has(p));
+      for (const p of peers) {
+        if (serving.size >= IN_CALL_MAX_TORRENT_PEERS) break;
+        if (!serving.has(p)) { serving.add(p); allowed.push(p); }
+      }
+      peers = allowed;
+    }
+
+    for (const peerId of peers) {
+      const queue = this.outbox.get(peerId);
+      if (!queue || queue.length === 0) { this.outbox.delete(peerId); continue; }
+      const buffered = this.transport.getBufferedAmount?.(peerId) ?? 0;
+      if (buffered >= limit) continue;
+      const next = queue.shift()!;
+      if (queue.length === 0) this.outbox.delete(peerId);
+      this.lastServedAt.set(peerId, now);
+      this.sendWithFallback(peerId, next);
+    }
+
+    if (this.outbox.size > 0 && this.outboxTimer === null) {
+      this.outboxTimer = setTimeout(() => {
+        this.outboxTimer = null;
+        this.drainOutbox();
+      }, OUTBOX_DRAIN_MS);
+    }
   }
 
   private async handlePiece(peerId: string, msg: TorrentMessage): Promise<void> {
@@ -798,14 +880,24 @@ export class TorrentSwarm {
       }
     }
 
+    // While on a call, roll downhill: at most two peers, one piece each.
+    const inCall = this.inCall();
+    const perPeerLimit = inCall ? IN_CALL_MAX_REQUESTS_PER_PEER : MAX_REQUESTS_PER_PEER;
+    const activePeers = new Set<string>();
+    for (const [pid, pm] of peerMapAll) {
+      if (pm.requestsInFlight.size > 0) activePeers.add(pid);
+    }
+
     // Request from peers with capacity — multiple chunks per cycle
     for (const [idx, peers] of sorted) {
       let requested = false;
       for (const pid of peers) {
         const pm = peerMapAll.get(pid)!;
-        if (pm.requestsInFlight.size >= MAX_REQUESTS_PER_PEER) continue;
+        if (pm.requestsInFlight.size >= perPeerLimit) continue;
         if (pm.requestsInFlight.has(idx)) continue;
+        if (inCall && !activePeers.has(pid) && activePeers.size >= IN_CALL_MAX_TORRENT_PEERS) continue;
 
+        activePeers.add(pid);
         pm.requestsInFlight.add(idx);
         this.sendWithFallback(pid, {
           msg: "request",
@@ -1282,6 +1374,7 @@ export class TorrentSwarm {
     this.seenMsgIds.clear();
     this.downloadQueue = [];
     this.activeQueuedDownload = null;
+    this.clearOutbox();
 
     console.log(`[TorrentSwarm] 🧹 Flushed ${flushed.length} torrents (${reseedable.length} reseedable, ${oversized.length} oversized)`);
 
