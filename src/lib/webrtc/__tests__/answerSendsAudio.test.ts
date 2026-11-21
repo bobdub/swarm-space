@@ -15,6 +15,7 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
   getLocalMeshPeerId: () => 'local-peer',
   isBridgeActive: () => true,
   isRoomPeerPresent: () => true,
+  registerMediaPeerConnection: vi.fn(),
 }));
 
 import { WebRTCManager } from '../manager';
