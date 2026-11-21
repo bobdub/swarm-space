@@ -531,7 +531,8 @@ export function broodChicks(flockHens: Hen[], now = Date.now()): BroodChick[] {
 /** Where in the nest (tangent offset, m) a laid egg lies. */
 export function broodEggOffset(e: BroodEgg): [number, number] {
   const a = hash01(e.id) * Math.PI * 2;
-  const d = 0.05 + 0.08 * hash01(`${e.id}/r`);
+  // Inside the nest's soft lining (about 0.13 m across).
+  const d = 0.02 + 0.07 * hash01(`${e.id}/r`);
   return [Math.cos(a) * d, Math.sin(a) * d];
 }
 
