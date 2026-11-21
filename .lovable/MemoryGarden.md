@@ -1136,3 +1136,8 @@ After tending: the nearest station in reach wins, so the slack can't swap one st
 Before tending: the island had wood in every pack and nowhere to burn it. Trees fell, logs were gathered, and the nights stayed dark.
 
 After tending: the builder's Tools tab has a Fire Pit, a ring of fieldstones for 4 Stone. Tap it and put on a log: one Wood lights it and burns five minutes, more Wood keeps it going, up to half an hour ahead. Flames flicker and throw warm light, and when the wood is spent the fire dies down by itself. Anyone can feed anyone's pit, and every peer sees the same fire, because a fire is only the shared record of who put wood on it and when, read against the shared clock. Checked with automated tests (lighting, feeding, the cap, relighting, two peers receiving the facts in different orders) and a headless browser run of `/brain-dev` with one pit lit beside one cold. No live mesh session was opened.
+
+## November 21, 2026 — The Green Cat & Red Dragon
+Before tending: the bar had no name, only an amber bar of light that once read "The Wet Work," and nothing inside thanked the people who keep the project going.
+
+After tending: the owner's carved sign, The Green Cat & Red Dragon, hangs outside beside the doorway and over the counter inside, cut out from its white backdrop so the wood edges show. On the east wall a gilt-framed Donor Leaderboard lists each patron, what they gave, and the total raised altogether. It reads the shared SWARM ledger (gifts sent to Infinity's donations vault in any asset, and member donations to the Market Vault), so every peer with the same chain sees the same board. Credit gifts and off-mesh ETH/BTC gifts are not on the ledger, so they are not counted yet.
