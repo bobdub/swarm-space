@@ -1,4 +1,5 @@
 import type { VideoRoom, VideoParticipant, WebRTCSignal, VideoRoomMessage } from './types';
+import { startCallQualityMonitor } from './callQuality';
 import {
   sendSignalViaMesh,
   sendReconnectRequest,
@@ -61,6 +62,8 @@ function savePreferredInput(kind: 'audio' | 'video', deviceId: string): void {
 export class WebRTCManager {
   private rooms = new Map<string, VideoRoom>();
   private connections = new Map<string, RTCPeerConnection>();
+  /** Stops the call-quality sampler; set while any connection exists. */
+  private stopCallQuality: (() => void) | null = null;
   private participants = new Map<string, VideoParticipant>();
   private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
@@ -1056,6 +1059,10 @@ export class WebRTCManager {
 
     const pc = new RTCPeerConnection(config);
     this.connections.set(peerId, pc);
+    // Measure the call and tune the playout buffer while it runs.
+    if (!this.stopCallQuality) {
+      this.stopCallQuality = startCallQualityMonitor(() => this.connections, () => this.currentRoomId);
+    }
     pc.onsignalingstatechange = () => this.drainNegotiation(peerId, pc);
 
     // Always create audio + video transceivers up front in `sendrecv`.
@@ -1367,6 +1374,10 @@ export class WebRTCManager {
       pc.onnegotiationneeded = null;
       pc.onsignalingstatechange = null;
       pc.close();
+    }
+    if (this.connections.size === 0 && this.stopCallQuality) {
+      this.stopCallQuality();
+      this.stopCallQuality = null;
     }
     const participant = this.participants.get(peerId);
     if (participant) {
