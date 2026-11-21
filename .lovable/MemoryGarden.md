@@ -1131,3 +1131,8 @@ After tending: the helm shows Raise sail and Lower sail buttons to hold, alongsi
 Before tending: standing at the oars near the helm, the hold ring offered the oars, but when it filled, the extra reach a completing hold allows also put the wheel in range, and the wheel was checked first. You held for the oars and got the wheel.
 
 After tending: the nearest station in reach wins, so the slack can't swap one station for another, and a hold that would land on a different station than it offered asks you to step closer instead. A test stands at the oars and checks both offers.
+
+## November 21, 2026 — The Green Cat & Red Dragon
+Before tending: the bar had no name, only an amber bar of light that once read "The Wet Work," and nothing inside thanked the people who keep the project going.
+
+After tending: the owner's carved sign, The Green Cat & Red Dragon, hangs outside beside the doorway and over the counter inside, cut out from its white backdrop so the wood edges show. On the east wall a gilt-framed Donor Leaderboard lists each patron, what they gave, and the total raised altogether. It reads the shared SWARM ledger (gifts sent to Infinity's donations vault in any asset, and member donations to the Market Vault), so every peer with the same chain sees the same board. Credit gifts and off-mesh ETH/BTC gifts are not on the ledger, so they are not counted yet.

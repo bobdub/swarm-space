@@ -9,6 +9,7 @@ import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
 import { useActiveTableId } from '@/lib/pub/activeTableStore';
 import { PubLeaveHold } from '@/components/pub/PubLeaveHold';
+import { BarSignArt, DonorLeaderboardBoard, BAR_SIGN_ASPECT } from '@/components/brain/BarSignage';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -44,8 +45,7 @@ const COUNTER_COLOR = '#5a3a22';   // dark stained oak bar counter
 const COUNTER_TOP_COLOR = '#2a1a10'; // near-black lacquered top
 const TABLE_COLOR = '#7a5230';     // lighter pub table
 const STOOL_COLOR = '#1f1f1f';     // black leather stool
-const SIGN_BG = '#1a0f08';
-const SIGN_TEXT = '#f4c46a';       // warm amber neon
+const SIGN_TEXT = '#f4c46a';       // warm amber spill light on the sign
 
 // Lighting palette — warm interior tungsten + cool accent.
 const CEILING_LIGHT_COLOR = '#ffd9a8';   // warm tungsten
@@ -71,6 +71,14 @@ const DARTS_H = 1.73;          // regulation bull height
 const DARTS_R = 0.34;
 const CARD_TABLE_R = 0.9;
 const CARD_TABLE_H = 0.95;
+
+// Signage: the Green Cat & Red Dragon sign over the counter and outside by
+// the door, and the donor leaderboard on the east wall.
+const SIGN_W = 3.6;
+const SIGN_H = SIGN_W / BAR_SIGN_ASPECT;
+const OUT_SIGN_W = 4.2;
+const DONOR_W = 3.4;
+const DONOR_H = 2.8;
 
 // One pub table + 2 stools in the middle of the room.
 const TABLE_R = 0.7;
@@ -311,11 +319,16 @@ export function SurfaceBar({
   }, [furniture, id]);
 
 
-  // Wall sign — mounted on the inside of the north wall, behind the counter.
+  // Wall sign — "The Green Cat & Red Dragon" art, mounted on the inside of
+  // the north wall over the counter.
   const signBlockId = `${id}:sign:${anchorPeerId}`;
   const signBodyId = `bar-sign:${signBlockId}`;
-  const SIGN_W = 4;
-  const SIGN_H = 1.2;
+  // The same sign outside, on the front (south) wall beside the doorway.
+  const outSignBlockId = `${id}:sign-out:${anchorPeerId}`;
+  const outSignBodyId = `bar-sign:${outSignBlockId}`;
+  // Donor leaderboard on the east wall, facing the room.
+  const donorBlockId = `${id}:donors:${anchorPeerId}`;
+  const donorBodyId = `bar-donors:${donorBlockId}`;
 
   // ── Interior lighting state ───────────────────────────────────────
   // Driven by a plain external store toggled from a DOM overlay button
@@ -343,8 +356,8 @@ export function SurfaceBar({
   // wall-normal so we can rotate the fixture to face inward.
   const wallSconces = useMemo(() => {
     const list: Array<{ x: number; z: number; nx: number; nz: number }> = [];
-    // North wall (back) — 3 sconces
-    for (const x of [-HALF_W * 0.6, 0, +HALF_W * 0.6]) {
+    // North wall (back) — 2 sconces; the centre spot is the sign over the counter.
+    for (const x of [-HALF_W * 0.6, +HALF_W * 0.6]) {
       list.push({ x, z: +HALF_D - 0.3, nx: 0, nz: -1 });
     }
     // South wall (front) — 2 sconces, skipping the doorway
@@ -408,15 +421,39 @@ export function SurfaceBar({
       upOffset: 2.4,
       mass: 4,
       basin: 0.2,
-      meta: { width: SIGN_W, height: SIGN_H, text: 'THE WET WORK' },
+      meta: { width: SIGN_W, height: SIGN_H, text: 'The Green Cat & Red Dragon' },
+    });
+    engine.placeBlock({
+      id: outSignBlockId,
+      kind: 'bar-sign',
+      anchorPeerId,
+      rightOffset: rightOffset + DOOR_HALF + 0.4 + OUT_SIGN_W / 2,
+      forwardOffset: forwardOffset - HALF_D - WALL_T / 2 - 0.03,
+      upOffset: 2.3,
+      mass: 4,
+      basin: 0,
+      meta: { width: OUT_SIGN_W, text: 'The Green Cat & Red Dragon' },
+    });
+    engine.placeBlock({
+      id: donorBlockId,
+      kind: 'bar-donors',
+      anchorPeerId,
+      rightOffset: rightOffset + HALF_W - WALL_T / 2 - 0.08,
+      forwardOffset,
+      upOffset: 2.0,
+      mass: 4,
+      basin: 0,
+      meta: { width: DONOR_W, height: DONOR_H },
     });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
       engine.removeBlock(signBlockId, 'bar-sign');
+      engine.removeBlock(outSignBlockId, 'bar-sign');
+      engine.removeBlock(donorBlockId, 'bar-donors');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, outSignBlockId, donorBlockId]);
 
   return (
     <>
@@ -710,21 +747,8 @@ export function SurfaceBar({
       <BuilderBlockView bodyId={signBodyId}>
         {() => (
           <group rotation={[0, Math.PI, 0]}>
-            {/* Sign board mounted facing south into the room */}
-            <mesh position={[0, 0, 0]} castShadow>
-              <boxGeometry args={[SIGN_W, SIGN_H, 0.08]} />
-              <meshStandardMaterial color={SIGN_BG} roughness={0.6} />
-            </mesh>
-            {/* Amber glow letters — emissive bar across the board */}
-            <mesh position={[0, 0, 0.05]}>
-              <boxGeometry args={[SIGN_W * 0.85, SIGN_H * 0.45, 0.02]} />
-              <meshStandardMaterial
-                color={signOn ? SIGN_TEXT : FIXTURE_OFF_COLOR}
-                emissive={signOn ? SIGN_TEXT : '#000'}
-                emissiveIntensity={signOn ? 1.4 : 0}
-                roughness={0.3}
-              />
-            </mesh>
+            {/* The Green Cat & Red Dragon, facing south into the room over the counter */}
+            <BarSignArt width={SIGN_W} glow={0.3} />
             {signOn && (
               <pointLight
                 position={[0, 0, 0.6]}
@@ -734,6 +758,22 @@ export function SurfaceBar({
                 decay={2}
               />
             )}
+          </group>
+        )}
+      </BuilderBlockView>
+      <BuilderBlockView bodyId={outSignBodyId}>
+        {() => (
+          // Outside face of the south wall, facing out toward the approach.
+          <group rotation={[0, Math.PI, 0]}>
+            <BarSignArt width={OUT_SIGN_W} glow={0.35} />
+          </group>
+        )}
+      </BuilderBlockView>
+      <BuilderBlockView bodyId={donorBodyId}>
+        {() => (
+          // Inside face of the east wall, turned to face west into the room.
+          <group rotation={[0, -Math.PI / 2, 0]}>
+            <DonorLeaderboardBoard width={DONOR_W} height={DONOR_H} />
           </group>
         )}
       </BuilderBlockView>
