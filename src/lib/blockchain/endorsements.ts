@@ -118,16 +118,23 @@ function defaultStore(): Store | null {
  * peer already agreed to a different block at that height. The claim is
  * written to storage first, so a restart can't undo it.
  */
-export function claimHeight(height: number, blockHash: string, store: Store | null = defaultStore()): boolean {
+export function claimHeight(
+  height: number,
+  blockHash: string,
+  store: Store | null = defaultStore(),
+  /** Each chain (SWARM, or a cell chain's id) keeps its own heights. */
+  network: string = ENDORSEMENT_NETWORK,
+): boolean {
+  const key = network === ENDORSEMENT_NETWORK ? VOTED_KEY : `${VOTED_KEY}:${network}`;
   let voted: Record<string, string> = {};
-  try { voted = JSON.parse(store?.getItem(VOTED_KEY) ?? "{}") ?? {}; } catch { voted = {}; }
+  try { voted = JSON.parse(store?.getItem(key) ?? "{}") ?? {}; } catch { voted = {}; }
   const prior = voted[String(height)];
   if (prior) return prior === blockHash;
   voted[String(height)] = blockHash;
   const heights = Object.keys(voted).map(Number).sort((a, b) => a - b);
   for (const h of heights.slice(0, Math.max(0, heights.length - MAX_REMEMBERED_HEIGHTS))) delete voted[String(h)];
   // If storage fails we can't promise once-per-height across restarts: don't endorse.
-  try { store?.setItem(VOTED_KEY, JSON.stringify(voted)); } catch { return false; }
+  try { store?.setItem(key, JSON.stringify(voted)); } catch { return false; }
   return !!store;
 }
 

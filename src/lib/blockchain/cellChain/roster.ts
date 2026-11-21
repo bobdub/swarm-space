@@ -201,6 +201,12 @@ export class CellRoster {
     return this.members.has(userId);
   }
 
+  /** True when `userId` holds an invite that hasn't been accepted yet (expiry is checked when it's accepted). */
+  hasOpenInvite(userId: string): boolean {
+    for (const inv of this.invites.values()) if (inv.invitee === userId) return true;
+    return false;
+  }
+
   /** Members in a fixed order, the same on every device. */
   sortedMembers(): string[] {
     return [...this.members].sort();

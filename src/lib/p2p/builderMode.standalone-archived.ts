@@ -22,6 +22,8 @@
  * ═══════════════════════════════════════════════════════════════════════
  */
 
+import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
+
 // ── Inline Utilities ───────────────────────────────────────────────────
 
 function hexId(bytes = 8): string {
@@ -157,7 +159,11 @@ const RECONNECT_INTERVALS = [15_000, 30_000, 60_000] as const;
 const PEERJS_INIT_TIMEOUT = 12_000;
 const CONTENT_SYNC_INTERVAL = 10_000;
 const HEARTBEAT_INTERVAL = 8_000;
-const PEER_STALE_THRESHOLD = 30_000;
+/**
+ * Same as the Swarm mesh (PEER_QUIET_LIVE_LINK_MAX_MS): background tabs only
+ * heartbeat about once a minute, so a quiet member isn't dropped mid-round.
+ */
+const PEER_STALE_THRESHOLD = 5 * 60_000;
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 30_000;
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
@@ -1313,6 +1319,15 @@ export class StandaloneBuilderMode {
       if (!data || typeof data !== 'object') return;
       const msg = data as { type?: string; [key: string]: unknown };
 
+      // Channel messages (send/broadcast/onMessage) go to their subscribers.
+      if (typeof msg.type === 'string' && msg.type.startsWith('channel:')) {
+        const peer = this.peerData.get(from);
+        if (peer) peer.lastActivity = now();
+        const handlers = this.channelHandlers.get(msg.type.slice('channel:'.length));
+        for (const h of handlers ?? []) { try { h(from, msg.payload); } catch (e) { console.warn('[BuilderMode] channel handler failed', e); } }
+        return;
+      }
+
       switch (msg.type) {
         case 'content-inventory': this.handleInventory(from, msg); break;
         case 'content-request': this.handleRequest(from, msg); break;
@@ -1382,13 +1397,16 @@ export class StandaloneBuilderMode {
 
   private handlePing(from: string, msg: Record<string, unknown>): void {
     const conn = this.connections.get(from);
-    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts })); } catch { /* ignore */ }
+    // Our mesh clock rides along, as on the Swarm mesh, so cell ticks and epochs stay in sync.
+    if (conn) try { conn.send(JSON.stringify({ type: 'pong', from: this.peerId, echoTs: msg.ts, peerNow: networkNow() })); } catch { /* ignore */ }
   }
 
   private handlePong(from: string, msg: Record<string, unknown>): void {
     const echoTs = msg.echoTs as number | undefined;
     if (typeof echoTs !== 'number') return;
-    const rtt = now() - echoTs;
+    const receivedAt = now();
+    const rtt = receivedAt - echoTs;
+    if (typeof msg.peerNow === 'number') recordPeerClockSample(from, echoTs, msg.peerNow, receivedAt);
     const p = this.peerData.get(from);
     if (p) {
       p.lastRttMs = rtt;

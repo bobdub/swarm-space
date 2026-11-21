@@ -400,3 +400,10 @@ export function isCellMode(): boolean {
   const state = loadConnectionState();
   return state.mode === 'builder' && getActiveUserCellId() !== null;
 }
+
+// Run the active cell's chain (blocks, endorsements, catch-up) over the cell engine.
+if (typeof window !== 'undefined' && import.meta.env?.MODE !== 'test') {
+  void import('../blockchain/cellChain/cellRuntime')
+    .then(({ attachCellRuntime }) => attachCellRuntime())
+    .catch((err) => console.warn('[userCell] cell chain runtime not started', err));
+}
