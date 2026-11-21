@@ -264,3 +264,59 @@ describe("mining against a moving tip", () => {
     expect(await local.isValidPeerChain(local.getChain())).toBe(true);
   }, 60_000);
 });
+
+describe("witnesses recorded on the chain", () => {
+  it("records the parent's agreements in the next block, and peers check the record", async () => {
+    const saved = clock.now;
+    clock.now = Date.parse(later);
+    try {
+      const { signEndorsement, endorsementSignerFromKeys } = await import("../endorsements");
+      const [a, b] = await Promise.all([newSigner(), newSigner()]);
+      const miner = new SwarmChain();
+      await miner.whenReady();
+      const first = (await miner.minePendingTransactions("x", undefined, { allowEmpty: true, signer: a }))!;
+      const voter = endorsementSignerFromKeys(b.userId, b.publicKey, b.privateKey);
+      const agree = await signEndorsement(first, true, voter, clock.now);
+      const declined = await signEndorsement(first, false, voter, clock.now);
+      clock.now += 30_000;
+      const second = (await miner.minePendingTransactions("x", undefined, { allowEmpty: true, signer: a, witnesses: [declined, agree] }))!;
+      expect(second.witnesses).toEqual([agree]);
+      expect(second.witnessRoot).toBeTruthy();
+      const peer = new SwarmChain();
+      await peer.whenReady();
+      expect(await peer.isValidPeerChain(miner.getChain())).toBe(true);
+      // The record is hashed in: dropping or swapping it breaks the block.
+      const [genesis] = miner.getChain();
+      expect(await peer.isValidPeerChain([genesis, first, { ...second, witnesses: undefined }])).toBe(false);
+      expect(await peer.isValidPeerChain([genesis, first, { ...second, witnesses: [declined] }])).toBe(false);
+      expect(await peer.adoptPeerChain(miner.getChain())).toBe("adopted");
+    } finally {
+      clock.now = saved;
+    }
+  }, 60_000);
+
+  it("refuses witnesses on a block stamped before the cutoff", async () => {
+    const { signEndorsement, endorsementSignerFromKeys } = await import("../endorsements");
+    const { witnessRoot } = await import("../witnesses");
+    const [a, b] = await Promise.all([newSigner(), newSigner()]);
+    const local = new SwarmChain();
+    await local.whenReady();
+    const genesis = local.getChain()[0];
+    const early = new Date(clock.now).toISOString();
+    const e = await signEndorsement(genesis, true, endorsementSignerFromKeys(b.userId, b.publicKey, b.privateKey), 1);
+    const plain = await forgeV2(local, genesis, [rewardTo(a.userId, "r"), poolShare("p")], early, a);
+    const withWitness = { ...plain, witnesses: [e], witnessRoot: await witnessRoot([e]), nonce: 0, hash: "" };
+    const mined = await (local as unknown as { mineBlock: (x: unknown) => Promise<Block> }).mineBlock(withWitness);
+    expect(await local.isValidPeerChain([genesis, { ...mined, producerSignature: await a.sign(mined.hash) }])).toBe(false);
+  }, 60_000);
+
+  it("never switches to a chain that drops a checkpoint", async () => {
+    const peer = await minedChain(3, "peer");
+    const local = await minedChain(1, "local");
+    const target = local as unknown as { getLatestCheckpoint: () => number };
+    target.getLatestCheckpoint = () => 1;
+    expect(await local.adoptPeerChain(peer.getChain())).toBe("kept");
+    target.getLatestCheckpoint = () => -1;
+    expect(await local.adoptPeerChain(peer.getChain())).toBe("adopted");
+  }, 60_000);
+});

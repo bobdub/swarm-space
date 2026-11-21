@@ -1253,11 +1253,23 @@ export class StandaloneSwarmMesh {
       await chain.whenReady();
       const tipAt = Date.parse(chain.getLatestBlock().timestamp);
       if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
-      const block = await chain.minePendingTransactions(signer.userId, undefined, { allowEmpty: true, hollow, signer });
+      // Record the agreements our parent collected: they put its witnesses on the chain.
+      const { getCertificateBook } = await import('../blockchain/endorsements');
+      const witnesses = getCertificateBook().get(chain.getLatestBlock().hash)?.signed ?? [];
+      const block = await chain.minePendingTransactions(signer.userId, undefined, { allowEmpty: true, hollow, signer, witnesses });
       if (block) {
         mined = true;
         const round = roundId ? this.pendingBlockVotes.get(roundId) : undefined;
-        if (round) round.chainHash = block.hash;
+        if (round) {
+          round.chainHash = block.hash;
+          // Once the chain names voters, only connected voters count: newcomers wait their turn.
+          const voters = chain.getVoters();
+          voters.delete(signer.userId);
+          if (voters.size > 0) {
+            round.witnesses = new Set([...(round.witnesses ?? [])].filter((id) => voters.has(id)));
+            round.totalPeers = round.witnesses.size;
+          }
+        }
         this.announceChainBlock(block);
         void import('../blockchain/miningRewards').then((m) => m.recordBlockPoolShare()).catch(() => { /* non-fatal */ });
       }

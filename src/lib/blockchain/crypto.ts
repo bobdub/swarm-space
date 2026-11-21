@@ -14,6 +14,8 @@ export async function calculateHash(block: SwarmBlock): Promise<string> {
       ? JSON.stringify({
         version: block.version, epoch: block.epoch, tick: block.tick,
         producer: block.producer, clockSession: block.clockSession, difficulty: block.difficulty,
+        // Absent on blocks without witnesses, so their hash is unchanged.
+        witnessRoot: block.witnessRoot,
       })
       : "");
   
