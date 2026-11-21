@@ -9,7 +9,8 @@ import {
 } from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
-import { FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
+import { CADENCE_SPACING_MS, FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
+import { isSelfIssuedSwarmMint } from '@/lib/blockchain/issuance';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 
@@ -1118,6 +1119,9 @@ export class StandaloneSwarmMesh {
 
       this.miningStats.contentMultiplier = contentMultiplier;
 
+      // ── Shared chain: the block reward is the only payout (Bitcoin-style) ──
+      void this.mineChainBlock(isHollow);
+
       // ── Stage 1: Record block production ──
       this.miningStats.blocksMinedTotal += 1;
       this.miningStats.lastBlockMinedAt = now();
@@ -1209,6 +1213,45 @@ export class StandaloneSwarmMesh {
         this.pendingBlockExpiry.push(expiryTimer);
       }
     }, MINING_INTERVAL);
+  }
+
+  private chainMiningBusy = false;
+
+  /** Peer blocks carry the pool's reward share too: keep the pool record in step with the chain. */
+  private refreshPoolFromChain(): void {
+    void import('../blockchain/storage').then((m) => m.derivePoolFromChain()).catch(() => { /* non-fatal */ });
+  }
+
+  /**
+   * Mine one shared-chain block on the cadence. Its single reward is how
+   * CREATOR work is paid; a hollow block pays half. Skips while the tip is
+   * younger than the cadence spacing, so the mesh keeps one block per beat
+   * instead of racing siblings.
+   */
+  private async mineChainBlock(hollow: boolean): Promise<void> {
+    if (this.chainMiningBusy) return;
+    this.chainMiningBusy = true;
+    try {
+      const [{ getSwarmChain }, { getCurrentUser }] = await Promise.all([
+        import('../blockchain/chain'),
+        import('../auth'),
+      ]);
+      const userId = getCurrentUser()?.id;
+      if (!userId) return;
+      const chain = getSwarmChain();
+      await chain.whenReady();
+      const tipAt = Date.parse(chain.getLatestBlock().timestamp);
+      if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
+      const block = await chain.minePendingTransactions(userId, undefined, { allowEmpty: true, hollow });
+      if (block) {
+        this.announceChainBlock(block);
+        void import('../blockchain/miningRewards').then((m) => m.recordBlockPoolShare()).catch(() => { /* non-fatal */ });
+      }
+    } catch (e) {
+      console.debug('[SwarmMesh][Mining] chain block not mined', e);
+    } finally {
+      this.chainMiningBusy = false;
+    }
   }
 
   /** Confirm a pending block after consensus or solo mining */
@@ -3709,6 +3752,8 @@ export class StandaloneSwarmMesh {
           for (const block of receivedChain as any[]) {
             if (block.transactions) {
               for (const tx of block.transactions) {
+                // New coins come only from block rewards: never take a peer's self-issued mint.
+                if (isSelfIssuedSwarmMint(tx)) continue;
                 try { chain.addTransaction(tx); } catch { /* dup or invalid */ }
                 if (typeof tx?.type === 'string' && tx.type.startsWith('coin_market_')) {
                   import('../blockchain/coinMarket')
@@ -3768,6 +3813,7 @@ export class StandaloneSwarmMesh {
       const result = await chain.adoptPeerChain(candidate as never);
       if (result === 'adopted') {
         for (const block of candidate) if (typeof block.hash === 'string') this.seenChainBlocks.add(block.hash);
+        this.refreshPoolFromChain();
       }
     } catch (err) {
       console.warn('[SwarmMesh] ⛓️ Chain adoption failed:', err);
@@ -3810,6 +3856,7 @@ export class StandaloneSwarmMesh {
         const chain = getSwarmChain();
         await chain.whenReady();
         if (await chain.appendPeerBlock(block as never)) {
+          this.refreshPoolFromChain();
           const payload = JSON.stringify({ type: 'chain-block', block, from: this.peerId });
           for (const [peerId, conn] of this.connections) {
             if (peerId === from) continue;

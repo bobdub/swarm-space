@@ -25,7 +25,7 @@ import {
   HEN_RESPAWN_MS,
   nearestCatchableHen,
 } from '@/lib/brain/land/chickens';
-import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { recordNatureEvent } from '@/lib/world/natureEventsStore';
 import { emitImpactFx, emitSwingFx } from '@/lib/world/swingFxBus';
 import { swingSuccess } from '@/lib/world/swingFeedback';
@@ -53,7 +53,7 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
   if (!found) return false;
 
   recordNatureEvent('hen-caught', found.hen.id, HEN_EVENT_ANCHOR, 0, 0, now);
-  recordHarvestForResource('food', FOOD_PER_HEN);
+  recordPlayerHarvest('food', FOOD_PER_HEN);
 
   const n = found.pose.n;
   const lift = EARTH_RADIUS + groundElevationAt(n) + 0.3;

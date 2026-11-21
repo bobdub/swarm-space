@@ -6,7 +6,13 @@
  *   • Subscribes to `scaffoldBus` `coin` events (one writer point).
  *   • Aggregates per-actor totals + a bounded recent-events ring.
  *   • Persists to IndexedDB (`swarm-labour` v1) on the project's 2.5 m
- *     throttle, with synchronous flush on visibilitychange / unload.
+ *     throttle, plus a small localStorage mirror written within a second
+ *     of each change and synchronously on pagehide / unload. IndexedDB
+ *     writes started during unload are often dropped, so the mirror is
+ *     what keeps totals steady across a refresh.
+ *   • Events seen before the stored snapshot finishes loading are merged
+ *     on top of it, never overwritten by it, and nothing is saved until
+ *     hydration completes (so an early save cannot wipe stored totals).
  *   • Cross-tab gossip via BroadcastChannel `swarm:labour:fills`.
  *   • Pure observer — never injects back into the field, never spends.
  *
@@ -22,6 +28,8 @@ const VERSION = 1;
 const SAVE_THROTTLE_MS = 2.5 * 60 * 1000;
 const RECENT_CAP = 64;
 const BROADCAST_NAME = 'swarm:labour:fills';
+const MIRROR_KEY = 'swarm-labour:mirror';
+const MIRROR_DEBOUNCE_MS = 1000;
 
 export interface LabourEntry {
   actorId: string;
@@ -40,8 +48,11 @@ const state: LabourSnapshot = { totals: {}, recent: [], lastUpdate: 0 };
 const listeners = new Set<(s: LabourSnapshot) => void>();
 
 let booted = false;
+let hydrated = false;
 let lastSaveAt = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let mirrorTimer: ReturnType<typeof setTimeout> | null = null;
+let unsubscribeCoin: (() => void) | null = null;
 let bc: BroadcastChannel | null = null;
 let unloadHooked = false;
 
@@ -120,7 +131,48 @@ async function dbGet<T>(key: string): Promise<T | null> {
   return out;
 }
 
+// ── localStorage mirror (synchronous, survives refresh) ──────────────
+function writeMirror(): void {
+  if (mirrorTimer !== null) { clearTimeout(mirrorTimer); mirrorTimer = null; }
+  if (!hydrated) return;
+  try { localStorage.setItem(MIRROR_KEY, JSON.stringify(snapshot())); } catch {
+    // A stale mirror could win over IndexedDB on the next load; drop it.
+    try { localStorage.removeItem(MIRROR_KEY); } catch { /* private mode */ }
+  }
+}
+
+function scheduleMirror(): void {
+  if (mirrorTimer !== null) return;
+  mirrorTimer = setTimeout(writeMirror, MIRROR_DEBOUNCE_MS);
+}
+
+function readMirror(): LabourSnapshot | null {
+  try {
+    const raw = localStorage.getItem(MIRROR_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as LabourSnapshot;
+    return parsed && parsed.totals && typeof parsed.totals === 'object' ? parsed : null;
+  } catch { return null; }
+}
+
+function isSnapshot(s: LabourSnapshot | null | undefined): s is LabourSnapshot {
+  return !!s && !!s.totals && typeof s.totals === 'object';
+}
+
+/** The fresher of the IndexedDB snapshot and the localStorage mirror. */
+function pickStored(idb: LabourSnapshot | null, mirror: LabourSnapshot | null): LabourSnapshot | null {
+  if (!isSnapshot(idb)) return isSnapshot(mirror) ? mirror : null;
+  if (!isSnapshot(mirror)) return idb;
+  return (mirror.lastUpdate ?? 0) >= (idb.lastUpdate ?? 0) ? mirror : idb;
+}
+
+function persistChange(): void {
+  scheduleMirror();
+  scheduleSave();
+}
+
 function scheduleSave(): void {
+  if (!hydrated) return;
   const now = Date.now();
   const elapsed = now - lastSaveAt;
   if (elapsed >= SAVE_THROTTLE_MS) {
@@ -137,6 +189,8 @@ function scheduleSave(): void {
 }
 
 function flushSaveSync(): void {
+  if (!hydrated) return;
+  writeMirror();
   if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null; }
   lastSaveAt = Date.now();
   void dbPut('snapshot', snapshot());
@@ -148,6 +202,7 @@ function hookUnloadOnce(): void {
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') flushSaveSync();
   });
+  window.addEventListener('pagehide', flushSaveSync);
   window.addEventListener('beforeunload', flushSaveSync);
 }
 
@@ -161,7 +216,7 @@ function ensureBroadcast(): void {
       if (!e || typeof e.actorId !== 'string' || typeof e.delta !== 'number') return;
       applyEntry({ ...e, origin: 'peer' });
       notify();
-      scheduleSave();
+      persistChange();
     };
   } catch { bc = null; }
 }
@@ -182,28 +237,16 @@ export function subscribeLabourLedger(fn: (s: LabourSnapshot) => void): () => vo
   return () => { listeners.delete(fn); };
 }
 
-/** Boot — idempotent. Hydrate, subscribe, hook persistence. */
+/** Boot — idempotent. Subscribe first, then hydrate and merge. */
 export async function bootLabourLedger(): Promise<void> {
   if (booted) return;
   booted = true;
   hookUnloadOnce();
   ensureBroadcast();
 
-  // Hydrate prior snapshot.
-  try {
-    const prior = await dbGet<LabourSnapshot>('snapshot');
-    if (prior && prior.totals && typeof prior.totals === 'object') {
-      Object.assign(state.totals, prior.totals);
-      if (Array.isArray(prior.recent)) {
-        state.recent = prior.recent.slice(0, RECENT_CAP);
-      }
-      state.lastUpdate = prior.lastUpdate ?? 0;
-      notify();
-    }
-  } catch { /* ignore */ }
-
-  // Subscribe to coin.fill events.
-  subscribeScaffold<CoinFillEvent>('coin', (evt) => {
+  // Subscribe before the stored snapshot loads so no fill is missed
+  // while IndexedDB opens; hydration merges these on top below.
+  unsubscribeCoin = subscribeScaffold<CoinFillEvent>('coin', (evt) => {
     const actorId = actorFromCoinId(evt.coinId);
     if (!actorId) return; // only labour:* lands in this ledger
     const entry: LabourEntry = {
@@ -215,8 +258,38 @@ export async function bootLabourLedger(): Promise<void> {
     applyEntry(entry);
     notify();
     broadcast(entry);
-    scheduleSave();
+    persistChange();
   });
+
+  let idb: LabourSnapshot | null = null;
+  try { idb = await dbGet<LabourSnapshot>('snapshot'); } catch { idb = null; }
+  const earnedWhileLoading = Object.keys(state.totals).length > 0;
+  const prior = pickStored(idb, readMirror());
+  if (prior) mergePrior(prior);
+  hydrated = true;
+  notify();
+  // Persist the merged view right away if anything arrived during load.
+  if (earnedWhileLoading) persistChange();
+}
+
+/** Stored totals + whatever this session already earned. */
+function mergePrior(prior: LabourSnapshot): void {
+  const session = { ...state.totals };
+  for (const k of Object.keys(state.totals)) delete state.totals[k];
+  for (const [actor, total] of Object.entries(prior.totals)) {
+    if (typeof total === 'number' && Number.isFinite(total) && total > 0) state.totals[actor] = total;
+  }
+  for (const [actor, total] of Object.entries(session)) {
+    state.totals[actor] = (state.totals[actor] ?? 0) + total;
+  }
+  const priorRecent = Array.isArray(prior.recent) ? prior.recent : [];
+  state.recent = [...state.recent, ...priorRecent].slice(0, RECENT_CAP);
+  state.lastUpdate = Math.max(state.lastUpdate, prior.lastUpdate ?? 0);
+}
+
+/** Test seam — write the mirror and IndexedDB snapshot now, as a page unload would. */
+export function _flushLabourLedgerForTest(): void {
+  flushSaveSync();
 }
 
 /** Test seam — wipe in-memory state. Persistence is left intact. */
@@ -226,5 +299,10 @@ export function _resetLabourLedgerForTest(): void {
   state.lastUpdate = 0;
   listeners.clear();
   booted = false;
+  hydrated = false;
+  lastSaveAt = 0;
+  if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null; }
+  if (mirrorTimer !== null) { clearTimeout(mirrorTimer); mirrorTimer = null; }
+  if (unsubscribeCoin) { unsubscribeCoin(); unsubscribeCoin = null; }
   if (bc) { try { bc.close(); } catch { /* noop */ } bc = null; }
 }

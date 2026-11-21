@@ -38,7 +38,7 @@ import {
 } from '@/lib/brain/sea/crew';
 import { getVillageBoat } from '@/lib/brain/sea/vessel';
 import { materialTotals, spendMaterials } from '@/lib/world/materials';
-import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { getEarthPoseTime } from '@/lib/brain/earth';
 import { toast } from 'sonner';
 import {
@@ -203,7 +203,7 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       spendOne: () => spendMaterials({ food: 1 }),
     });
     setFishingReward((food, kind, sharkId) => {
-      recordHarvestForResource('food', food);
+      recordPlayerHarvest('food', food);
       // A landed shark is gone from the sea for everyone for a while.
       if (kind === 'shark' && sharkId) recordSharkCaught(sharkId);
     });

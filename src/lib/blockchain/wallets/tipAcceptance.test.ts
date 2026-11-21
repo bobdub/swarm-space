@@ -12,7 +12,7 @@ test("signed SWARM tips debit once and reject overspending at ledger acceptance"
   await chain.whenReady();
   const keys = await genIdentityKeyPair();
   const from = await computeUserId(keys.publicKey);
-  chain.addTransaction({ id: "funding", type: "token_mint", from: "system", to: from, amount: 5,
+  chain.addTransaction({ id: "funding", type: "token_transfer", from: "faucet", to: from, amount: 5,
     fee: 0, nonce: 0, publicKey: "", signature: "", timestamp: new Date().toISOString() });
   const tip = await signWalletTip({ id: "signed-tip", type: "wallet_tip", from, to: "aabbccddeeff0011",
     amount: 3, fee: 0, nonce: 1, publicKey: keys.publicKey, signature: "", timestamp: new Date().toISOString(),

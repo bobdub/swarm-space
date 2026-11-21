@@ -16,19 +16,29 @@
  *   recordHarvestForResource(kind: 'wood'|'stone'|'water'|'fibre'|'food'|'animal', qty)
  *
  * Throttled IDB writes (1.5s) per project core rule on browser perf.
+ * Every change is also mirrored synchronously to localStorage, so a
+ * refresh inside the 1.5 s window (or an unload that drops the IDB
+ * write) never rolls counts back. Changes made before the stored bag has
+ * loaded are kept as deltas and applied on top of it; nothing is written
+ * until that load finishes, so an early write cannot wipe the inventory.
  */
 
 const DB_NAME = 'swarm-harvested-inventory';
 const STORE = 'inventory';
 const DB_VERSION = 1;
 const KEY = 'local';
+const MIRROR_KEY = 'swarm-harvested-inventory:mirror';
 
 type Listener = (snap: { symbol: string; count: number }[]) => void;
 
 const counts: Map<string, number> = new Map();
 const listeners = new Set<Listener>();
 let hydrated = false;
+let hydrating: Promise<void> | null = null;
 let writeTimer: number | null = null;
+/** Changes made before hydration finished, applied on top of the stored bag. */
+const pendingDeltas: Map<string, number> = new Map();
+let unloadHooked = false;
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -75,14 +85,65 @@ async function writeSnap(snap: Record<string, number>): Promise<void> {
   try { db.close(); } catch { /* noop */ }
 }
 
+function currentSnap(): Record<string, number> {
+  const snap: Record<string, number> = {};
+  for (const [k, v] of counts) snap[k] = v;
+  return snap;
+}
+
+function writeMirror(): void {
+  if (!hydrated) return;
+  try { localStorage.setItem(MIRROR_KEY, JSON.stringify(currentSnap())); } catch {
+    // A stale mirror would win over IndexedDB on the next load; drop it.
+    try { localStorage.removeItem(MIRROR_KEY); } catch { /* private mode */ }
+  }
+}
+
+function readMirror(): Record<string, number> | null {
+  try {
+    const raw = localStorage.getItem(MIRROR_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, number> : null;
+  } catch { return null; }
+}
+
+function flushNow(): void {
+  if (!hydrated) return;
+  if (writeTimer !== null) { clearTimeout(writeTimer); writeTimer = null; }
+  writeMirror();
+  void writeSnap(currentSnap());
+}
+
+function hookUnloadOnce(): void {
+  if (unloadHooked || typeof window === 'undefined') return;
+  unloadHooked = true;
+  window.addEventListener('pagehide', flushNow);
+  window.addEventListener('beforeunload', flushNow);
+  window.addEventListener('visibilitychange', () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') flushNow();
+  });
+}
+
 function scheduleWrite(): void {
+  if (!hydrated) return;
+  writeMirror();
   if (writeTimer !== null) return;
   writeTimer = (typeof window !== 'undefined' ? window.setTimeout : setTimeout)(() => {
     writeTimer = null;
-    const snap: Record<string, number> = {};
-    for (const [k, v] of counts) snap[k] = v;
-    void writeSnap(snap);
+    void writeSnap(currentSnap());
   }, 1500) as unknown as number;
+}
+
+/** Apply a change; before hydration it is also remembered as a delta. */
+function bump(symbol: string, count: number): void {
+  counts.set(symbol, Math.max(0, (counts.get(symbol) ?? 0) + count));
+  if (!hydrated) {
+    pendingDeltas.set(symbol, (pendingDeltas.get(symbol) ?? 0) + count);
+    // Load the stored bag now rather than waiting on the boot chain, so
+    // this change gets persisted. (No IndexedDB → unit tests; skip.)
+    if (typeof indexedDB !== 'undefined') void hydrateHarvestedInventory();
+  }
 }
 
 function notify(): void {
@@ -94,9 +155,7 @@ function notify(): void {
 
 export function recordHarvest(symbol: string, count: number): void {
   if (!symbol || !Number.isFinite(count) || count === 0) return;
-  const cur = counts.get(symbol) ?? 0;
-  const next = Math.max(0, cur + count);
-  counts.set(symbol, next);
+  bump(symbol, count);
   scheduleWrite();
   notify();
 }
@@ -106,8 +165,7 @@ export function recordHarvestMany(parts: { symbol: string; count: number }[]): v
   let changed = false;
   for (const { symbol, count } of parts) {
     if (!symbol || !Number.isFinite(count) || count === 0) continue;
-    const cur = counts.get(symbol) ?? 0;
-    counts.set(symbol, Math.max(0, cur + count));
+    bump(symbol, count);
     changed = true;
   }
   if (changed) { scheduleWrite(); notify(); }
@@ -160,23 +218,34 @@ export function subscribeHarvested(fn: Listener): () => void {
   return () => { listeners.delete(fn); };
 }
 
-export async function hydrateHarvestedInventory(): Promise<void> {
-  if (hydrated) return;
-  hydrated = true;
-  const snap = await readSnap();
-  for (const [k, v] of Object.entries(snap)) {
-    if (typeof v === 'number' && v > 0) counts.set(k, v);
-  }
-  // Seed starter atoms so the user has something to draw with on first
-  // run — small enough to motivate harvesting but enough to demo H₂O.
-  if (counts.size === 0) {
-    counts.set('H', 24);
-    counts.set('O', 12);
-    counts.set('C', 12);
-    counts.set('N', 4);
-    scheduleWrite();
-  }
-  notify();
+export function hydrateHarvestedInventory(): Promise<void> {
+  if (hydrated) return Promise.resolve();
+  if (hydrating) return hydrating;
+  hookUnloadOnce();
+  hydrating = (async () => {
+    // The mirror is written synchronously on every change, so when it is
+    // present it is at least as fresh as the throttled IndexedDB copy.
+    const stored = readMirror() ?? await readSnap();
+    counts.clear();
+    for (const [k, v] of Object.entries(stored)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) counts.set(k, v);
+    }
+    const isFirstRun = counts.size === 0 && Object.keys(stored).length === 0;
+    for (const [k, d] of pendingDeltas) counts.set(k, Math.max(0, (counts.get(k) ?? 0) + d));
+    const hadPending = pendingDeltas.size > 0;
+    pendingDeltas.clear();
+    // Seed starter atoms so the user has something to draw with on first
+    // run — small enough to motivate harvesting but enough to demo H₂O.
+    if (isFirstRun) {
+      for (const [k, v] of [['H', 24], ['O', 12], ['C', 12], ['N', 4]] as const) {
+        counts.set(k, (counts.get(k) ?? 0) + v);
+      }
+    }
+    hydrated = true;
+    if (isFirstRun || hadPending) scheduleWrite();
+    notify();
+  })();
+  return hydrating;
 }
 
 /** Best-effort spend — returns false if not enough is held. */
@@ -184,9 +253,7 @@ export function spendHarvested(parts: { symbol: string; count: number }[]): bool
   for (const { symbol, count } of parts) {
     if ((counts.get(symbol) ?? 0) < count) return false;
   }
-  for (const { symbol, count } of parts) {
-    counts.set(symbol, (counts.get(symbol) ?? 0) - count);
-  }
+  for (const { symbol, count } of parts) bump(symbol, -count);
   scheduleWrite();
   notify();
   return true;
@@ -195,7 +262,15 @@ export function spendHarvested(parts: { symbol: string; count: number }[]): bool
 export function _resetHarvestedForTest(): void {
   counts.clear();
   listeners.clear();
+  pendingDeltas.clear();
   hydrated = false;
+  hydrating = null;
+  if (writeTimer !== null) { clearTimeout(writeTimer); writeTimer = null; }
+}
+
+/** Test seam — write the mirror and IndexedDB copy now, as an unload would. */
+export function _flushHarvestedForTest(): void {
+  flushNow();
 }
 
 // ── Project-scoped inventory (separate IDB key per projectId) ────────────
