@@ -128,6 +128,55 @@ export interface TxLike {
 export interface ChainBlockLike<T extends TxLike = TxLike> extends BlockLike {
   previousHash: string;
   transactions: T[];
+  /** ISO string (SwarmBlock) or epoch ms. */
+  timestamp?: string | number;
+}
+
+/** Cadence target: one counted block per this many ms (SWARM_CONFIG.blockTime). */
+export const CADENCE_SPACING_MS = 30_000;
+/** A gap this long between blocks means the mesh went dark: a new epoch starts. */
+export const EPOCH_GAP_MS = 10 * 60 * 1000;
+/** Blocks stamped further ahead of our clock than this aren't counted. */
+export const FUTURE_LIMIT_MS = 2 * 60 * 1000;
+
+function blockTime(block: { timestamp?: string | number }): number {
+  const t = typeof block.timestamp === 'number' ? block.timestamp : Date.parse(String(block.timestamp ?? ''));
+  return Number.isFinite(t) ? t : NaN;
+}
+
+export interface CadenceWeight {
+  /** Blocks that kept the cadence: each at least one spacing after the last counted one. */
+  weight: number;
+  /** Epochs the segment spans (dark gaps + 1). */
+  epochs: number;
+}
+
+/**
+ * How much real, paced history a run of blocks represents. A burst of blocks
+ * mined seconds apart counts once per cadence slot, so a chain can't win by
+ * spamming blocks; blocks stamped before their parent or in the future don't
+ * count. A gap longer than EPOCH_GAP_MS starts a new epoch (the mesh went
+ * dark and re-lit), which is allowed and still counts.
+ */
+export function cadenceWeight(
+  segment: { timestamp?: string | number }[],
+  ancestorTime: number,
+  now: number = Date.now(),
+  spacing: number = CADENCE_SPACING_MS,
+): CadenceWeight {
+  let last = Number.isFinite(ancestorTime) ? ancestorTime : -Infinity;
+  let weight = 0;
+  let epochs = 1;
+  for (const block of segment) {
+    const t = blockTime(block);
+    if (!Number.isFinite(t) || t > now + FUTURE_LIMIT_MS) continue;
+    const gap = t - last;
+    if (gap < spacing) continue;
+    if (Number.isFinite(last) && gap > EPOCH_GAP_MS) epochs += 1;
+    weight += 1;
+    last = t;
+  }
+  return { weight, epochs };
 }
 
 /** First height where the two chains differ (both share everything below it). */
@@ -147,17 +196,21 @@ export interface AdoptionPlan<T extends TxLike> {
 /**
  * Decide whether to switch to a peer's chain, and what to carry over.
  *
- * Chains that share only the genesis block grew apart before peers shared
- * blocks at all. For those, the longest chain wins (ties: lowest tip hash),
- * so every peer converges on the same one. Otherwise `resolve` (the UQRC
- * fork choice) decides. Either way, every transaction in a block we drop
- * that the new chain doesn't contain goes back to pending, so it's mined
- * into the shared chain and no balance is lost.
+ * The choice weighs cadence first, not raw length: after the fork point,
+ * each side scores the blocks that kept the 30-second rhythm (see
+ * cadenceWeight). A chain with less paced history never wins, however many
+ * blocks it has. With equal cadence weight, chains that share only the
+ * genesis block (they grew apart before peers shared blocks) go to the
+ * longer one, then the lowest tip hash, so every peer lands on the same
+ * chain; chains with more shared history go to `resolve` (the UQRC fork
+ * choice). Either way, every transaction in a block we drop that the new
+ * chain lacks goes back to pending, so no balance is lost.
  */
 export function planAdoption<T extends TxLike>(
   local: ChainBlockLike<T>[],
   incoming: ChainBlockLike<T>[],
   resolve: (local: ChainBlockLike<T>[], incoming: ChainBlockLike<T>[]) => 'keep' | 'replace',
+  now: number = Date.now(),
 ): AdoptionPlan<T> {
   const point = forkPoint(local, incoming);
   const keep = { replace: false, forkPoint: point, requeue: [] as T[] };
@@ -168,8 +221,14 @@ export function planAdoption<T extends TxLike>(
   if (localTip.hash === incomingTip.hash) return keep;
   if (point >= incoming.length) return keep; // theirs is a prefix of ours
 
+  const ancestorTime = blockTime(local[point - 1] ?? {});
+  const ours = cadenceWeight(local.slice(point), ancestorTime, now).weight;
+  const theirs = cadenceWeight(incoming.slice(point), ancestorTime, now).weight;
+
   let replace: boolean;
-  if (point <= 1) {
+  if (theirs !== ours) {
+    replace = theirs > ours;
+  } else if (point <= 1) {
     replace = incoming.length > local.length
       || (incoming.length === local.length && incomingTip.hash < localTip.hash);
   } else {

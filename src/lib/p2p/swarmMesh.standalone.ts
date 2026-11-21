@@ -9,7 +9,7 @@ import {
 } from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
-import { getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
+import { FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 
@@ -3585,6 +3585,10 @@ export class StandaloneSwarmMesh {
     if (!block || typeof block.hash !== 'string' || typeof block.index !== 'number') return;
     if (this.seenChainBlocks.has(block.hash)) return;
     this.rememberChainBlock(block.hash);
+    // A live block was mined moments ago: its stamp must sit near the mesh
+    // clock. Peers online now are the witnesses that keep block times honest.
+    const stamped = Date.parse(String(block.timestamp ?? ''));
+    if (!Number.isFinite(stamped) || Math.abs(stamped - networkNow()) > FUTURE_LIMIT_MS) return;
     void (async () => {
       try {
         const { getSwarmChain } = await import('../blockchain/chain');

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { clearChainMark, forkPoint, getChainMark, planAdoption, planCatchup, saveChainMark } from '../chainCatchup';
+import { cadenceWeight, clearChainMark, forkPoint, getChainMark, planAdoption, planCatchup, saveChainMark } from '../chainCatchup';
 
 const chainOf = (n: number) => Array.from({ length: n }, (_, i) => ({ index: i, hash: `h${i}` }));
 
@@ -90,5 +90,45 @@ describe('shared chain adoption', () => {
     const local = [block(0, 'g', '0'), block(1, 's', 'g')];
     expect(planAdoption(local, [block(0, 'other', '0'), block(1, 'x', 'other'), block(2, 'y', 'x')], never).replace).toBe(false);
     expect(planAdoption(local, [block(0, 'g', '0')], never).replace).toBe(false);
+  });
+});
+
+describe('cadence-weighted chain choice', () => {
+  type Tx = { id: string };
+  const T0 = Date.UTC(2026, 10, 21, 0, 0, 0);
+  const NOW = T0 + 24 * 60 * 60 * 1000;
+  const run = (prefix: string, prev: string, startIndex: number, times: number[]) => {
+    let p = prev;
+    return times.map((t, i) => {
+      const b = { index: startIndex + i, hash: `${prefix}${i}`, previousHash: p, transactions: [] as Tx[], timestamp: new Date(t).toISOString() };
+      p = b.hash;
+      return b;
+    });
+  };
+  const genesis = { index: 0, hash: 'g', previousHash: '0', transactions: [] as Tx[], timestamp: new Date(T0).toISOString() };
+  const never = () => { throw new Error('fork choice should not be asked'); };
+
+  it('counts one block per 30 s slot, so a burst counts once', () => {
+    const burst = Array.from({ length: 100 }, (_, i) => ({ timestamp: T0 + 31_000 + i * 100 }));
+    expect(cadenceWeight(burst, T0, NOW).weight).toBe(1);
+    const paced = Array.from({ length: 10 }, (_, i) => ({ timestamp: T0 + (i + 1) * 30_000 }));
+    expect(cadenceWeight(paced, T0, NOW).weight).toBe(10);
+  });
+
+  it('ignores blocks from the future or out of order, and marks dark gaps as new epochs', () => {
+    const w = cadenceWeight([
+      { timestamp: T0 + 30_000 },
+      { timestamp: T0 + 10_000 }, // before its parent
+      { timestamp: NOW + 10 * 60_000 }, // future
+      { timestamp: T0 + 30_000 + 60 * 60_000 }, // after an hour of silence
+    ], T0, NOW);
+    expect(w).toEqual({ weight: 2, epochs: 2 });
+  });
+
+  it('a paced chain beats a longer spammed one', () => {
+    const paced = [genesis, ...run('p', 'g', 1, Array.from({ length: 10 }, (_, i) => T0 + (i + 1) * 30_000))];
+    const spam = [genesis, ...run('s', 'g', 1, Array.from({ length: 500 }, (_, i) => T0 + 30_000 + i * 50))];
+    expect(planAdoption(paced, spam, never, NOW).replace).toBe(false);
+    expect(planAdoption(spam, paced, never, NOW).replace).toBe(true);
   });
 });
