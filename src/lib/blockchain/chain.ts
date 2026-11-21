@@ -12,6 +12,8 @@ import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows } from "./deposits/customTokenCustody";
 import { networkNow } from "@/lib/time/networkClock";
+import type { Endorsement } from "./endorsements";
+import { blockMayRecordWitnesses, latestCheckpoint, Participation, selectWitnesses, verifyWitnesses, witnessRoot } from "./witnesses";
 
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
@@ -286,7 +288,7 @@ export class SwarmChain {
   async minePendingTransactions(
     minerAddress: string,
     chainId?: string,
-    options: { allowEmpty?: boolean; hollow?: boolean; signer?: BlockSigner | null } = {},
+    options: { allowEmpty?: boolean; hollow?: boolean; signer?: BlockSigner | null; witnesses?: Endorsement[] } = {},
   ): Promise<SwarmBlock | null> {
     const signer = options.signer ?? null;
     if (signer) minerAddress = signer.userId;
@@ -334,6 +336,10 @@ export class SwarmChain {
       transactions.splice(last, 1);
     }
     if (transactions.length === rewardTransactions.length && !options.allowEmpty) return null;
+    // Record the agreements our parent collected (signed blocks only, from the cutoff on).
+    const witnesses = signer && options.witnesses?.length && blockMayRecordWitnesses(draft)
+      ? selectWitnesses(options.witnesses, parent, signer.userId, this.participationAt(parent))
+      : [];
     const block: SwarmBlock = {
       index: draft.index,
       timestamp: draft.timestamp,
@@ -345,6 +351,7 @@ export class SwarmChain {
       miner: minerAddress,
       merkleRoot: await calculateMerkleRoot(transactions),
       ...(signer ? headerFor(parent, startedAt, signer) : {}),
+      ...(witnesses.length ? { witnesses, witnessRoot: await witnessRoot(witnesses) } : {}),
     };
 
     const minedBlock = await this.mineBlock(block);
@@ -572,6 +579,8 @@ export class SwarmChain {
     // The hash is only a claim: recompute it so a forged genesis with extra
     // transactions under the canonical hash is rejected.
     if (await calculateHash(blocks[0]) !== genesis.hash) return false;
+    const participation = new Participation();
+    participation.add(blocks[0]);
     for (let i = 1; i < blocks.length; i++) {
       const block = blocks[i];
       const prev = blocks[i - 1];
@@ -581,8 +590,32 @@ export class SwarmChain {
       if (block.hash.substring(0, block.difficulty) !== target) return false;
       if (!this.hasValidRewards(block)) return false;
       if (!await verifyBlockHeader(block, prev, SWARM_CONFIG.difficulty)) return false;
+      if (!await verifyWitnesses(block, prev, participation)) return false;
+      participation.add(block);
     }
     return true;
+  }
+
+  /** Who has taken part along our chain up to and including `tip` (cached for the current tip). */
+  private participationCache: { hash: string; value: Participation } | null = null;
+  private participationAt(tip: SwarmBlock): Participation {
+    if (this.participationCache?.hash === tip.hash) return this.participationCache.value;
+    const value = Participation.of(this.chain.slice(0, tip.index + 1));
+    if (tip.hash === this.getLatestBlock().hash) this.participationCache = { hash: tip.hash, value };
+    return value;
+  }
+
+  /** Accounts eligible to witness the next block on our chain. */
+  getVoters(): Set<string> {
+    return this.participationAt(this.getLatestBlock()).voters();
+  }
+
+  /** Height of our newest checkpoint (cached per tip); -1 when there is none. */
+  private checkpointCache: { hash: string; height: number } | null = null;
+  getLatestCheckpoint(): number {
+    const tip = this.getLatestBlock();
+    if (this.checkpointCache?.hash !== tip.hash) this.checkpointCache = { hash: tip.hash, height: latestCheckpoint(this.chain) };
+    return this.checkpointCache.height;
   }
 
   /** Reward allowed for a block at this height (halves every halvingInterval blocks). */
@@ -653,6 +686,8 @@ export class SwarmChain {
       const candidate = [this.chain[0], ...incoming.slice(1)];
       const plan = planAdoption(this.chain, candidate, resolveFork);
       if (!plan.replace) return "kept";
+      // A block most voters signed is final: never switch to a chain that drops it.
+      if (plan.forkPoint <= this.getLatestCheckpoint()) return "kept";
       try {
         await this.replaceChain(candidate);
       } catch (err) {
@@ -690,6 +725,7 @@ export class SwarmChain {
     const target = "0".repeat(block.difficulty);
     if (block.hash.substring(0, block.difficulty) !== target) return false;
     if (!await verifyBlockHeader(block, tip, SWARM_CONFIG.difficulty)) return false;
+    if (!await verifyWitnesses(block, tip, this.participationAt(tip))) return false;
 
     if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
     if (!validCustomTokenDepositLedger([...this.chain, block].flatMap((entry) => entry.transactions))) return false;

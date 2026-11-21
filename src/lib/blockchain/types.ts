@@ -22,6 +22,10 @@ export interface SwarmBlock {
   clockSession?: string;
   /** Producer's signature over the block hash. Not part of the hash. */
   producerSignature?: string;
+  /** Signed agreements with the parent block, recorded from the new-rules cutoff (see witnesses.ts). */
+  witnesses?: import("./endorsements").Endorsement[];
+  /** Digest of `witnesses`, hashed with the header so the record can't be swapped. */
+  witnessRoot?: string;
 }
 
 export type TransactionType = 
