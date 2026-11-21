@@ -63,7 +63,7 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
         const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";
-        if (window.confirm(`Remove ${token.symbol} from your wallet list?${note}`)) { removeCustomToken(userId, token.address); toast.success(`${token.symbol} removed`); }
+        if (window.confirm(`Remove ${token.symbol} from your wallet list?${note}`)) { removeCustomToken(userId, token.address); }
       }}><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
     </div>}
   </div>;

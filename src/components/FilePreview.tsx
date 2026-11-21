@@ -113,7 +113,6 @@ export const FilePreview = ({ manifest, onClose }: FilePreviewProps) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    toast.success("Download started");
   };
 
   const isImage = manifest.mime.startsWith("image/");

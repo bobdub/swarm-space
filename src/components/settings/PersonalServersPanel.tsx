@@ -224,7 +224,6 @@ export function PersonalServersPanel() {
                           checked={!!s.sharePublic}
                           onCheckedChange={(checked) => {
                             updatePersonalServer(s.id, { sharePublic: checked });
-                            toast.success(checked ? 'Public mirror enabled' : 'Public mirror disabled');
                           }}
                         />
                       </div>

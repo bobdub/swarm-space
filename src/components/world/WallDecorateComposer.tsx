@@ -48,7 +48,6 @@ export function WallDecorateComposer({
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('p2p-posts-updated'));
       }
-      toast.success('Wall decorated.');
       onDecorated?.();
     } catch (err) {
       console.warn('[wall.decorate] failed', err);

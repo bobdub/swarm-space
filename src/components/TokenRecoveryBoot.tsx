@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { toast } from "sonner";
+import { notifySystem } from "@/lib/notifications";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { recoverCreatorTokenFromChain } from "@/lib/blockchain/tokenRecovery";
 
@@ -14,7 +14,14 @@ export function TokenRecoveryBoot() {
         const result = await recoverCreatorTokenFromChain(user.id);
         if (cancelled) return;
         if (result.status === "recovered" && result.token) {
-          toast.success(`Creator token ${result.token.ticker} restored from local chain snapshot`);
+          void notifySystem({
+            userId: user.id,
+            type: "system",
+            title: `Creator token ${result.token.ticker} restored.`,
+            content: "It was rebuilt from your local chain snapshot.",
+            link: "/wallet",
+            linkLabel: "Open wallet",
+          });
           window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { source: "recovery" } }));
         }
       } catch (err) {

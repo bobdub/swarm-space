@@ -107,7 +107,6 @@ export function ProjectUniverseButton({ projectId, projectName }: ProjectUnivers
       if (updated) {
         setProject(updated);
         setIsMember(true);
-        toast.success(`Joined ${updated.name}`);
         navigate(`/projects/${projectId}/hub`);
       }
     } catch (error) {

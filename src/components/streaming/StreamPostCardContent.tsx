@@ -416,7 +416,6 @@ export function StreamPostCardContent({ post }: StreamPostCardContentProps): JSX
       }
       await connect();
       await joinRoom(roomId);
-      toast.success("Joined live room");
     } catch (error) {
       console.error("[StreamPostCardContent] Failed to join live room", error);
       toast.error(error instanceof Error ? error.message : "Failed to join live room");

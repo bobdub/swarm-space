@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { toast } from 'sonner';
 import { ArrowDown, ArrowUp, RotateCcw, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -45,7 +44,6 @@ export function LoadingChainEditor() {
     const updated: LoadingChainConfig = { order: defaultChainFor(), adaptive: true };
     setCfg(updated);
     setLoadingChainConfig(updated);
-    toast.success('Loading chain reset to preset defaults');
   };
 
   return (

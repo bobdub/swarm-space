@@ -367,6 +367,19 @@ const getStoredP2PPreference = (): boolean => {
   }
 };
 
+// The one connection toast we keep: joining the mesh is worth a glance.
+// Everything else about dialing and reconnecting stays silent, and a flaky
+// link that drops and recovers does not re-announce more than once a minute.
+let lastMeshConnectedToastAt = 0;
+function announceMeshConnected(): void {
+  const now = Date.now();
+  if (now - lastMeshConnectedToastAt < 60_000) return;
+  lastMeshConnectedToastAt = now;
+  import('sonner').then(({ toast }) => {
+    toast.success('Connected to the mesh', { id: 'p2p-connected', duration: 3000 });
+  });
+}
+
 export function useP2P() {
   // Single source of auth truth — see src/hooks/useAuthReady.ts. Guarantees
   // every effect below sees the resolved user on the same render tick.
@@ -662,11 +675,6 @@ export function useP2P() {
     
     setIsConnecting(true);
     isConnectingRef.current = true;
-    
-    // Show connecting toast (deduplicated, auto-dismiss)
-    import('sonner').then(({ toast }) => {
-      toast.info('Connecting to P2P network...', { id: 'p2p-connecting', duration: 4000 });
-    });
 
     try {
       const connState = loadConnectionState();
@@ -704,6 +712,7 @@ export function useP2P() {
         const initiallyOnline = sm.getPhase() === 'online';
         setIsConnecting(!initiallyOnline);
         isConnectingRef.current = !initiallyOnline;
+        if (initiallyOnline) announceMeshConnected();
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
@@ -727,6 +736,7 @@ export function useP2P() {
             connectedPeers: live.connectedPeers,
             networkContent: live.contentItems,
           }));
+          if (nextPhase === 'online' && isConnectingRef.current) announceMeshConnected();
           if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
             setIsConnecting(false);
             isConnectingRef.current = false;
@@ -754,9 +764,6 @@ export function useP2P() {
           unsubscribeLibrary();
         };
 
-        import('sonner').then(({ toast }) => {
-          toast.dismiss('p2p-connecting');
-        });
         return;
       }
 
@@ -793,6 +800,7 @@ export function useP2P() {
             connectedPeers: live.connectedPeers,
             networkContent: live.contentItems,
           }));
+          if (nextPhase === 'online' && isConnectingRef.current) announceMeshConnected();
           if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
             setIsConnecting(false);
             isConnectingRef.current = false;
@@ -811,9 +819,6 @@ export function useP2P() {
           }));
         });
 
-        import('sonner').then(({ toast }) => {
-          toast.dismiss('p2p-connecting');
-        });
         return;
       }
 
@@ -931,12 +936,8 @@ export function useP2P() {
 
       // Store preference
       updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
-      
-      // Import toast dynamically to show success
-      import('sonner').then(({ toast }) => {
-        toast.dismiss('p2p-connecting');
-        toast.success('P2P network connected successfully!', { id: 'p2p-connected', duration: 3000 });
-      });
+
+      announceMeshConnected();
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       recordP2PDiagnostic({
@@ -962,16 +963,12 @@ export function useP2P() {
       setPendingPeers([]);
       updateConnectionState({ enabled: false });
 
-      // Show error to user (with deduplication)
-      import('sonner').then(({ toast }) => {
-        toast.dismiss('p2p-connecting');
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        if (errorMessage.includes('timeout') || errorMessage.includes('unavailable')) {
-          toast.error('Could not connect to P2P signaling server. Your node is offline but will try again later.', {
-            id: 'p2p-signaling-error',
-            duration: 5000
-          });
-        } else if (errorMessage.includes('Network error')) {
+      // Signaling timeouts are routine on boot and retry on their own; the
+      // P2P status light already shows the node as offline. Only surface
+      // failures the user can act on.
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (!errorMessage.includes('timeout') && !errorMessage.includes('unavailable')) import('sonner').then(({ toast }) => {
+        if (errorMessage.includes('Network error')) {
           toast.error('Network error. Please check your internet connection.', {
             id: 'p2p-network-error',
             duration: 5000
@@ -1065,11 +1062,6 @@ export function useP2P() {
       source: 'useP2P',
       code: 'disable-complete',
       message: 'P2P networking disabled'
-    });
-
-    // Dismiss any connecting toasts
-    import('sonner').then(({ toast }) => {
-      toast.dismiss('p2p-connecting');
     });
 
     // Store preference via unified state
@@ -1358,13 +1350,7 @@ export function useP2P() {
     if (autoSwitchCycleRef.current.count >= 2) {
       if (!autoSwitchCycleRef.current.bothNotified) {
         autoSwitchCycleRef.current.bothNotified = true;
-        import('sonner').then(({ toast }) => {
-          toast.error('P2P transports unavailable', {
-            id: 'p2p-transport-both-failed',
-            description: 'Both transports failed. Connection will retry automatically in the background.',
-            duration: 8000,
-          });
-        });
+        // Silent: retries run in the background and the status light shows it.
       }
       return;
     }
@@ -1386,13 +1372,7 @@ export function useP2P() {
       ...flags,
       integratedTransport: enableIntegrated,
     }));
-    import('sonner').then(({ toast }) => {
-      toast.warning(`Switching from ${currentModeLabel}`, {
-        id: 'p2p-transport-switch',
-        description: `Attempting ${nextModeLabel} automatically after connection failure.`,
-        duration: 6000,
-      });
-    });
+    console.info(`[useP2P] Switching from ${currentModeLabel} to ${nextModeLabel} after connection failure`);
   }, [featureFlags.integratedTransport, isEnabled, setFeatureFlagsState, stats.transports]);
 
   useEffect(() => {
@@ -1414,12 +1394,18 @@ export function useP2P() {
         setIsRendezvousMeshEnabled(false);
       }
       persistRendezvousFlag(false);
-      import('sonner').then(({ toast }) => {
-        toast.error('Rendezvous mesh disabled: Ed25519 unsupported', {
-          description: 'Peer discovery will fall back to bootstrap peers until you update your browser.',
-          duration: 8000,
-        });
-      });
+      // A lasting browser limitation: record it once in Notifications.
+      try {
+        const noticeKey = 'swarm:notice:rendezvous-ed25519';
+        if (!localStorage.getItem(noticeKey)) {
+          localStorage.setItem(noticeKey, new Date().toISOString());
+          void import('@/lib/notifications').then(({ notifySystem }) => notifySystem({
+            type: 'system',
+            title: 'Peer discovery is limited in this browser.',
+            content: 'It lacks Ed25519 support, so the rendezvous mesh is off and only bootstrap peers are used. Updating your browser turns it back on.',
+          }));
+        }
+      } catch { /* storage unavailable */ }
     } else if (latest.code === 'rendezvous-disabled-failure-streak') {
       if (lastRendezvousNoticeRef.current === latest.id) {
         return;
@@ -1430,12 +1416,7 @@ export function useP2P() {
         setIsRendezvousMeshEnabled(false);
       }
       persistRendezvousFlag(false);
-      import('sonner').then(({ toast }) => {
-        toast.warning('Rendezvous mesh temporarily offline', {
-          description: 'Discovery beacons and capsules failed repeatedly; using bootstrap peers only for now.',
-          duration: 8000,
-        });
-      });
+      console.warn('[useP2P] Rendezvous mesh temporarily offline; using bootstrap peers only');
     } else if (latest.code === 'rendezvous-capability-ed25519') {
       setRendezvousDisabledReason(null);
     }
@@ -1756,11 +1737,6 @@ export function useP2P() {
       return false;
     }
     const result = p2pManager.connectToPeer(trimmed, options);
-    if (result && options.manual) {
-      import('sonner').then(({ toast }) => {
-        toast.info(`Connecting to peer ${trimmed.slice(0, 8)}…`, { id: `connect-${trimmed}`, duration: 3000 });
-      });
-    }
     return result;
   }, [outboundBlockedPeers]);
 

@@ -17,7 +17,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
-import { toast } from 'sonner';
 import {
   STRUCTURE_SHELL_RADIUS,
   getEarthPose,
@@ -194,7 +193,6 @@ function PendingGhost({ record, selfId }: { record: PendingBuild; selfId?: strin
     }
     void recordLocalPlacement(handle);
     removePendingBuild(record.id, selfId, getActiveUniverse());
-    toast.success(`Built ${prefab.label}.`);
   };
 
   if (!prefab) return null;

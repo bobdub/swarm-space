@@ -85,3 +85,61 @@ export async function markAllAsRead(): Promise<void> {
     );
   }
 }
+
+export type SystemNoticeType = "credits_received" | "badge_unlocked" | "wallet_deposit" | "moderation" | "system";
+
+/**
+ * Record a background event in the Notifications inbox instead of popping a
+ * toast. Used for things that happen while the user may not be looking
+ * (credits arriving, badges, deposits, boot-time restores, replays), the same
+ * way the recovery vault reports custody. Never throws: a busy store just
+ * drops the notice.
+ */
+export async function notifySystem(notice: {
+  type: SystemNoticeType;
+  title: string;
+  content?: string;
+  link?: string;
+  linkLabel?: string;
+  userId?: string;
+  triggeredBy?: string;
+  triggeredByName?: string;
+}): Promise<Notification | null> {
+  try {
+    const userId = notice.userId ?? getCurrentUser()?.id;
+    if (!userId) return null;
+    return await createNotification({
+      userId,
+      type: notice.type,
+      title: notice.title,
+      content: notice.content,
+      link: notice.link,
+      linkLabel: notice.linkLabel,
+      triggeredBy: notice.triggeredBy ?? "system",
+      triggeredByName: notice.triggeredByName ?? "Swarm Space",
+    });
+  } catch (error) {
+    console.warn("[notifications] Failed to record system notice", error);
+    return null;
+  }
+}
+
+/** Where each kind of mute/hide/block can be undone. */
+export const MODERATION_LINKS = {
+  blockedUsers: { link: "/settings#blocked-users", linkLabel: "Manage blocked users" },
+  blockedNodes: { link: "/node-dashboard#blocked-nodes", linkLabel: "Manage blocked nodes" },
+  connectionLibrary: { link: "/node-dashboard#connection-library", linkLabel: "Open Connection Library" },
+  unsupportedContent: { link: "/node-dashboard#unsupported-content", linkLabel: "Resume support" },
+} as const;
+
+/**
+ * Record a mute, hide or block in the Notifications inbox, with a link to the
+ * list where it can be undone.
+ */
+export function notifyModeration(
+  title: string,
+  content: string,
+  where: keyof typeof MODERATION_LINKS,
+): void {
+  void notifySystem({ type: "moderation", title, content, ...MODERATION_LINKS[where] });
+}

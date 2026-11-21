@@ -75,7 +75,6 @@ const Planner = () => {
     try {
       await completeMilestone(id);
       await loadMilestones();
-      toast.success("Milestone completed!");
     } catch (error) {
       toast.error("Failed to complete milestone");
       console.error(error);

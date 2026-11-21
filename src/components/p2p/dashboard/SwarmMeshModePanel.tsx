@@ -73,14 +73,12 @@ export function SwarmMeshModePanel({
   const handleToggleMining = () => {
     const next = !isMining;
     mesh.setToggle('mining', next);
-    toast.info(next ? "Auto-mining resumed" : "Auto-mining paused");
   };
 
   const handleConnectManual = () => {
     if (!manualPeerId.trim()) { toast.error("Enter a Peer ID"); return; }
     mesh.connectToPeer(manualPeerId.trim());
     onConnectToPeer(manualPeerId.trim());
-    toast.success(`Connecting to ${manualPeerId.trim()}`);
     setManualPeerId("");
   };
 
@@ -240,7 +238,7 @@ export function SwarmMeshModePanel({
 
       {/* Blocked Peers */}
       {blocked.length > 0 && (
-        <Collapsible>
+        <Collapsible id="blocked-nodes" className="scroll-mt-24" defaultOpen={typeof window !== "undefined" && window.location.hash === "#blocked-nodes"}>
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-destructive/60 hover:text-destructive">
               <span>Blocked ({blocked.length})</span>

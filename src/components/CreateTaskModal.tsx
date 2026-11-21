@@ -86,7 +86,6 @@ export function CreateTaskModal({
           priority: data.priority,
           dueDate: data.dueDate?.toISOString(),
         });
-        toast.success("Task updated!");
       } else {
         await createTask({
           title: data.title,
@@ -101,7 +100,6 @@ export function CreateTaskModal({
           attachments: [],
           createdBy: getCurrentUser()?.id || "unknown",
         });
-        toast.success("Task created!");
       }
       onSuccess();
       onOpenChange(false);

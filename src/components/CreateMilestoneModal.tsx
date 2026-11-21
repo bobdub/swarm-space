@@ -87,7 +87,6 @@ export function CreateMilestoneModal({
           dueDate: data.dueDate.toISOString(),
           color: data.color,
         });
-        toast.success("Milestone updated!");
       } else {
         await createMilestone({
           title: data.title,
@@ -99,7 +98,6 @@ export function CreateMilestoneModal({
           createdBy: getCurrentUser()?.id || "unknown",
           color: data.color,
         });
-        toast.success("Milestone created!");
       }
       onSuccess();
       onOpenChange(false);

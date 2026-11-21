@@ -39,7 +39,7 @@ export function UnsupportedContentPanel() {
   };
 
   return (
-    <Card className="border-foreground/10" data-testid="unsupported-content-panel">
+    <Card id="unsupported-content" className="scroll-mt-24 border-foreground/10" data-testid="unsupported-content-panel">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Unplug className="h-4 w-4 text-primary" />

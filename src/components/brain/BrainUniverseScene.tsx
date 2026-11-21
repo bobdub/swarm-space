@@ -1410,7 +1410,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           hasApi: typeof navigator.mediaDevices?.getDisplayMedia,
         });
         if (err?.name === 'AbortError') {
-          toast.message('Screen share cancelled');
+          // The user closed the picker themselves; nothing to report.
         } else if (embedded && err?.name === 'NotAllowedError') {
           toast.error("Screen sharing isn't allowed inside the embedded preview window.", {
             action: { label: 'Open in new tab', onClick: () => window.open(window.location.href, '_blank', 'noopener') },
@@ -2076,7 +2076,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       savePortals(next, universeKey);
       return next;
     });
-    toast(existing ? 'Portal moved.' : 'Portal placed.');
   }, [physics, selfId, universeKey, portals]);
 
   const handleDeletePortal = useCallback((projectId: string) => {
@@ -2088,7 +2087,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       savePortals(next, universeKey);
       return next;
     });
-    toast('Portal removed.');
   }, [physics, portals, universeKey]);
 
   const handlePortalEnter = useCallback((bodyId: string) => {
@@ -2125,7 +2123,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     await removeLocalPlacement(record.placementId);
     if (builder.selectedBlockId === record.placementId) builder.selectBlock(null);
     if (editingPlacementRef.current?.placementId === record.placementId) editingPlacementRef.current = null;
-    toast(`Removed ${getPrefab(record.prefabId)?.label ?? 'asset'}.`);
   }, [builder, selfId]);
 
   const handleEditWorldPlacement = useCallback((record: PlacementRecord) => {
@@ -2176,7 +2173,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         editingPlacementRef.current = null;
         decoratingPlacementRef.current = null;
         builder.selectBlock(record.placementId);
-        toast(`Updated ${prefab.label}.`);
       },
       onCancel: () => {
         editingPlacementRef.current = null;

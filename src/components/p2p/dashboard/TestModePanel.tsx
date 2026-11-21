@@ -119,7 +119,6 @@ export function TestModePanel({ onBeforeStart, onAfterStop }: TestModePanelProps
     if (!id) return;
     const resolved = /^[a-f0-9]{16}$/i.test(id) ? `peer-${id}` : id;
     tm.connectToPeer(resolved);
-    toast.info(`Connecting to ${resolved}…`);
     setPeerInput('');
   }, [peerInput, tm]);
 
@@ -342,7 +341,6 @@ export function TestModePanel({ onBeforeStart, onAfterStop }: TestModePanelProps
                         className="h-5 w-5 text-primary/60 hover:text-primary"
                         onClick={() => {
                           tm.connectToPeer(lp.peerId);
-                          toast.info(`Dialing ${lp.alias}…`);
                         }}
                         title="Reconnect"
                       >

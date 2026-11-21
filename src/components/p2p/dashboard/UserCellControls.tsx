@@ -14,7 +14,6 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Settings2, UserPlus, UserCheck, UserX, Pickaxe } from 'lucide-react';
-import { toast } from 'sonner';
 import {
   getStandaloneBuilderMode,
   type BuilderToggles,
@@ -47,12 +46,7 @@ export function UserCellControls({ cellId }: UserCellControlsProps) {
   const handleInvite = () => {
     const id = manualId.trim();
     if (!id) return;
-    const ok = builder.connectToPeer(id);
-    if (ok) {
-      toast.success(`Inviting ${id.slice(0, 12)}…`);
-    } else {
-      toast.info(`Queued ${id.slice(0, 12)}…`);
-    }
+    builder.connectToPeer(id);
     setManualId('');
   };
 

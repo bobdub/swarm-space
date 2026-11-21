@@ -27,7 +27,7 @@ vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
   listCustomTokens: () => [{ address: "dreams", symbol: "DREAMS", decimals: 12 }, { address: "other", symbol: "OTHER", decimals: 18 }],
   syncCustomTokenDeposits: state.customSync,
 }));
-vi.mock("sonner", () => ({ toast: { success: state.notify } }));
+vi.mock("@/lib/notifications", () => ({ notifySystem: state.notify }));
 vi.mock("@/lib/blockchain/mintmeMiner/communityPayoutService", () => ({ createMeshCommunityPayout: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
 vi.mock("@/lib/blockchain/mintmeMiner/autoClaim", () => ({ createMeshAutoClaim: async () => ({ start: () => {}, stop: () => {}, tick: async () => {} }) }));
 vi.mock("@/lib/storage/providers/personalServerStore", () => ({
@@ -48,7 +48,7 @@ describe("app-wide MintMe lifecycle", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(state.customSync).toHaveBeenCalledWith("member", "dreams");
     expect(state.customSync).toHaveBeenCalledWith("member", "other");
-    expect(state.notify).toHaveBeenCalledWith("10 DREAMS arrived in your native wallet");
+    expect(state.notify).toHaveBeenCalledWith(expect.objectContaining({ type: "wallet_deposit", title: "10 DREAMS arrived.", link: "/wallet" }));
     await act(async () => { await vi.advanceTimersByTimeAsync(115_000); });
     expect(state.customSync).toHaveBeenCalledTimes(4);
     view.unmount();
