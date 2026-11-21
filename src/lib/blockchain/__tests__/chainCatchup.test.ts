@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { clearChainMark, getChainMark, planCatchup, saveChainMark } from '../chainCatchup';
+import { clearChainMark, forkPoint, getChainMark, planAdoption, planCatchup, saveChainMark } from '../chainCatchup';
 
 const chainOf = (n: number) => Array.from({ length: n }, (_, i) => ({ index: i, hash: `h${i}` }));
 
@@ -48,5 +48,47 @@ describe('chain catch-up sync (older peers)', () => {
     const pages = planCatchup(chainOf(300), undefined, Infinity);
     expect(pages).toHaveLength(1);
     expect(pages[0].blocks).toHaveLength(300);
+  });
+});
+
+describe('shared chain adoption', () => {
+  type Tx = { id: string };
+  const block = (index: number, hash: string, prev: string, txs: string[] = []) => ({
+    index, hash, previousHash: prev, transactions: txs.map((id): Tx => ({ id })),
+  });
+  const never = () => { throw new Error('fork choice should not be asked'); };
+
+  it('finds where two chains split', () => {
+    expect(forkPoint(chainOf(5), chainOf(5))).toBe(5);
+    expect(forkPoint(chainOf(5), [...chainOf(3), { index: 3, hash: 'x' }])).toBe(3);
+  });
+
+  it('converges chains that only share genesis on the longest one, keeping our transactions', () => {
+    const local = [block(0, 'g', '0'), block(1, 'a1', 'g', ['mine-1', 'shared']), block(2, 'a2', 'a1', ['reward-a'])];
+    const incoming = [block(0, 'g', '0'), block(1, 'b1', 'g', ['shared']), block(2, 'b2', 'b1'), block(3, 'b3', 'b2')];
+    const plan = planAdoption(local, incoming, never);
+    expect(plan.replace).toBe(true);
+    expect(plan.forkPoint).toBe(1);
+    expect(plan.requeue.map((t) => t.id)).toEqual(['mine-1', 'reward-a']);
+  });
+
+  it('breaks an equal-length tie by the lowest tip hash, the same way on every peer', () => {
+    const a = [block(0, 'g', '0'), block(1, 'aaa', 'g')];
+    const b = [block(0, 'g', '0'), block(1, 'bbb', 'g')];
+    expect(planAdoption(b, a, never).replace).toBe(true);
+    expect(planAdoption(a, b, never).replace).toBe(false);
+  });
+
+  it('asks fork choice once chains share more than genesis', () => {
+    const local = [block(0, 'g', '0'), block(1, 's', 'g'), block(2, 'a', 's')];
+    const incoming = [block(0, 'g', '0'), block(1, 's', 'g'), block(2, 'b', 's'), block(3, 'c', 'b')];
+    expect(planAdoption(local, incoming, () => 'keep').replace).toBe(false);
+    expect(planAdoption(local, incoming, () => 'replace').replace).toBe(true);
+  });
+
+  it('never adopts a different genesis or a shorter copy of our own chain', () => {
+    const local = [block(0, 'g', '0'), block(1, 's', 'g')];
+    expect(planAdoption(local, [block(0, 'other', '0'), block(1, 'x', 'other'), block(2, 'y', 'x')], never).replace).toBe(false);
+    expect(planAdoption(local, [block(0, 'g', '0')], never).replace).toBe(false);
   });
 });

@@ -44,6 +44,14 @@ function hexId(bytes = 8): string {
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** The fields of a chain block this file reads (full type lives in blockchain/types). */
+interface SwarmBlockShape {
+  index: number;
+  hash: string;
+  previousHash: string;
+  [key: string]: unknown;
+}
+
 function now(): number {
   return Date.now();
 }
@@ -440,6 +448,10 @@ export class StandaloneSwarmMesh {
   private miningStats: MiningStats;
   private miningTimer: ReturnType<typeof setInterval> | null = null;
   // ── CREATOR Proof: pending block vote tracking ──
+  /** Shared chain: hashes of chain blocks already handled (no re-relay loops). */
+  private seenChainBlocks = new Set<string>();
+  /** Shared chain: sync pages collected per peer until the last one arrives. */
+  private chainSyncPages = new Map<string, { fromIndex: number; blocks: Record<string, unknown>[] }>();
   private pendingBlockVotes = new Map<string, { blockId: string; height: number; minedAt: number; votes: Map<string, boolean>; totalPeers: number; isHollow: boolean }>();
   private pendingBlockExpiry: ReturnType<typeof setTimeout>[] = [];
 
@@ -3070,6 +3082,7 @@ export class StandaloneSwarmMesh {
         case 'neural-state-digest': this.handleNeuralDigest(from, msg); break;
         case 'chain-sync-request': this.handleChainSyncRequest(from, msg); break;
         case 'chain-sync-response': this.handleChainSyncResponse(from, msg); break;
+        case 'chain-block': this.handleChainBlock(from, msg); break;
         case 'market-sync-request': void this.handleMarketSyncRequest(from); break;
         case 'market-sync-response': void this.handleMarketSyncResponse(from, msg); break;
         case 'mention-alert': this.handleMentionAlert(from, msg); break;
@@ -3491,7 +3504,17 @@ export class StandaloneSwarmMesh {
             }
           }
         }
+        // Shared chain: collect the pages, then offer the whole picture to
+        // fork choice once the last one is in.
+        const fromIndex = typeof msg.fromIndex === 'number' ? msg.fromIndex : 0;
+        if (page === 0 || !this.chainSyncPages.has(_from)) {
+          this.chainSyncPages.set(_from, { fromIndex, blocks: [] });
+        }
+        this.chainSyncPages.get(_from)!.blocks.push(...(receivedChain as Record<string, unknown>[]));
         if (!isLastPage) return;
+        const collected = this.chainSyncPages.get(_from);
+        this.chainSyncPages.delete(_from);
+        if (collected && collected.blocks.length > 0) void this.adoptFromSync(_from, collected.fromIndex, collected.blocks);
         // Remember their tip only once we've taken in everything up to it,
         // so next time they send just what's newer.
         if (harvest) saveChainMark(_from, msg.tip as ChainMark | undefined);
@@ -3501,6 +3524,88 @@ export class StandaloneSwarmMesh {
           .catch(() => { /* ignore */ });
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
+  }
+
+  /**
+   * Shared chain: rebuild the peer's chain from what it sent and let fork
+   * choice decide whether to switch to it. A partial answer only works if it
+   * attaches to our own chain; if it doesn't, ask that peer for its full chain.
+   */
+  private async adoptFromSync(from: string, fromIndex: number, blocks: Record<string, unknown>[]): Promise<void> {
+    try {
+      const { getSwarmChain } = await import('../blockchain/chain');
+      const chain = getSwarmChain();
+      await chain.whenReady();
+      const local = chain.getChain();
+      let candidate: SwarmBlockShape[];
+      if (fromIndex === 0) {
+        candidate = blocks as unknown as SwarmBlockShape[];
+      } else {
+        const attachAt = local[fromIndex - 1];
+        const first = blocks[0] as unknown as SwarmBlockShape | undefined;
+        if (!attachAt || !first || first.previousHash !== attachAt.hash) {
+          const conn = this.connections.get(from);
+          try { conn?.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: null })); } catch { /* ignore */ }
+          return;
+        }
+        candidate = [...(local.slice(0, fromIndex) as unknown as SwarmBlockShape[]), ...(blocks as unknown as SwarmBlockShape[])];
+      }
+      const result = await chain.adoptPeerChain(candidate as never);
+      if (result === 'adopted') {
+        for (const block of candidate) if (typeof block.hash === 'string') this.seenChainBlocks.add(block.hash);
+      }
+    } catch (err) {
+      console.warn('[SwarmMesh] ⛓️ Chain adoption failed:', err);
+    }
+  }
+
+  /** Shared chain: send a block we just mined to every connected peer. */
+  announceChainBlock(block: unknown): void {
+    const hash = (block as { hash?: unknown })?.hash;
+    if (typeof hash !== 'string') return;
+    this.rememberChainBlock(hash);
+    this.broadcastInternal({ type: 'chain-block', block });
+  }
+
+  private rememberChainBlock(hash: string): void {
+    this.seenChainBlocks.add(hash);
+    if (this.seenChainBlocks.size > 2_000) {
+      const oldest = this.seenChainBlocks.values().next().value;
+      if (oldest !== undefined) this.seenChainBlocks.delete(oldest);
+    }
+  }
+
+  /**
+   * Shared chain: a peer mined (or relayed) a block. If it extends our tip,
+   * add it and pass it on. If it's ahead of us, catch up from that peer, which
+   * also runs fork choice when our chains have split.
+   */
+  private handleChainBlock(from: string, msg: Record<string, unknown>): void {
+    const block = msg.block as SwarmBlockShape | undefined;
+    if (!block || typeof block.hash !== 'string' || typeof block.index !== 'number') return;
+    if (this.seenChainBlocks.has(block.hash)) return;
+    this.rememberChainBlock(block.hash);
+    void (async () => {
+      try {
+        const { getSwarmChain } = await import('../blockchain/chain');
+        const chain = getSwarmChain();
+        await chain.whenReady();
+        if (await chain.appendPeerBlock(block as never)) {
+          const payload = JSON.stringify({ type: 'chain-block', block, from: this.peerId });
+          for (const [peerId, conn] of this.connections) {
+            if (peerId === from) continue;
+            try { conn.send(payload); } catch { /* ignore */ }
+          }
+          return;
+        }
+        if (block.index > chain.getLatestBlock().index) {
+          const conn = this.connections.get(from);
+          try { conn?.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: getChainMark(from) })); } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.warn('[SwarmMesh] ⛓️ Peer block failed:', err);
+      }
+    })();
   }
 
   // ═══════════════════════════════════════════════════════════════════
