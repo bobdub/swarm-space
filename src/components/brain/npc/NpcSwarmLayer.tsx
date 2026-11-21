@@ -139,6 +139,8 @@ function NpcBodyMesh({ slotKind, color, pulseRef }: { slotKind: Npc['body'][numb
     const mesh = ref.current;
     if (!mesh) return;
     const s = currentPulseScale(pulseRef);
+    // Idle bodies sit at scale 1: skip the matrix write so dozens of slots stay quiet.
+    if (mesh.scale.x === s) return;
     mesh.scale.set(s, s, s);
   });
 

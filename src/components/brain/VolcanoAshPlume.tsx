@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useGovernedFrame } from './useGovernedFrame';
 import * as THREE from 'three';
 import { getEarthPoseTime } from '@/lib/brain/earth';
 import { ashParcelAt } from '@/lib/brain/volcanoEffects';
@@ -19,7 +19,7 @@ export function VolcanoAshPlume({ organ, altitude }: { organ: VolcanoOrgan; alti
   const wind = useMemo(() => new THREE.Vector3(), []);
   const lastRead = useRef(-Infinity);
 
-  useFrame(() => {
+  useGovernedFrame('ambiance', 'volcano-ash', () => {
     const time = getEarthPoseTime();
     if (Math.abs(time - lastRead.current) >= 0.25) {
       wind.set(...windAt(organ.centerNormal, altitude)).applyQuaternion(frame);
