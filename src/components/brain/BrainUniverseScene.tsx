@@ -64,6 +64,7 @@ import { SunLight } from '@/components/brain/SunLight';
 import { SurfaceTree } from '@/components/brain/SurfaceTree';
 import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { SeaLifeLayer } from '@/components/brain/sea/SeaLifeLayer';
+import { ChickenLayer } from '@/components/brain/land/ChickenLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
 import { CrewJoystickSkin, ShipControls } from '@/components/brain/sea/ShipWheel';
 import { getCrewRole } from '@/lib/brain/sea/crew';
@@ -2501,6 +2502,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <DockLayer />
         {/* Schools of fish and sharks in the open sea, on the shared clock. */}
         <SeaLifeLayer selfId={selfId} />
+        {/* Free-range hens on the land, on the shared clock. A Stone Knife catches one. */}
+        <ChickenLayer />
         <PubDrinkProps />
         {isBuilding && (
           <BuildGridOverlay

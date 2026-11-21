@@ -55,6 +55,8 @@ vi.mock('@/lib/brain/uqrcPhysics', () => ({
 vi.mock('@/lib/world/swingFxBus', () => ({ emitImpactFx: vi.fn(), emitSwingFx: vi.fn() }));
 vi.mock('@/lib/world/carvedCellsStore', () => ({ carveCell: vi.fn(), shellAtDepth: vi.fn(), DIG_STEP_M: 0.5 }));
 vi.mock('@/lib/world/weather', () => ({ weatherCurvatureBoost: () => 0 }));
+// No hens in this stubbed world (hen hunting has its own tests).
+vi.mock('@/lib/world/henHunting', () => ({ tryCatchNearbyHen: () => false }));
 
 import { applyToolToTarget, WOOD_PER_TREE, FIBRE_PER_TREE } from '@/lib/world/toolActions';
 import { _resetHarvestedForTest, recordHarvestForResource } from '@/lib/remix/harvestedInventory';
