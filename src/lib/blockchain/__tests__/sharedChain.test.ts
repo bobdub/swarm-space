@@ -234,3 +234,33 @@ describe("block header v2", () => {
     expect(await check(unsigned)).toBe(false);
   }, 60_000);
 });
+
+describe("mining against a moving tip", () => {
+  it("drops a block whose parent was replaced by a peer block mid-mining", async () => {
+    const signer = await newSigner();
+    const peerSigner = await newSigner();
+    clock.now += 60_000;
+    const local = new SwarmChain();
+    await local.whenReady();
+    const genesis = local.getChain()[0];
+    // A peer's block for this same beat lands while we are still mining.
+    const theirs = await forgeV2(local, genesis, [rewardTo(peerSigner.userId, "theirs"), poolShare("theirs-p")],
+      new Date(clock.now).toISOString(), peerSigner);
+    // Hold our miner inside its first ledger check until the peer block is in.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const target = local as unknown as { validateWalletTipLedger: (b: Block[]) => Promise<boolean> };
+    const original = target.validateWalletTipLedger.bind(local);
+    let first = true;
+    target.validateWalletTipLedger = async (b) => {
+      if (first) { first = false; await gate; }
+      return original(b);
+    };
+    const mining = local.minePendingTransactions("x", undefined, { allowEmpty: true, signer });
+    expect(await local.appendPeerBlock(theirs)).toBe(true);
+    release();
+    expect(await mining).toBeNull();
+    expect(local.getChain().map((b) => b.hash)).toEqual([genesis.hash, theirs.hash]);
+    expect(await local.isValidPeerChain(local.getChain())).toBe(true);
+  }, 60_000);
+});
