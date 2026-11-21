@@ -160,7 +160,10 @@ function read(ns?: string): LandPlot[] {
   const legacy = readLegacy(ns);
   if (!isGlobalNs(ns)) return legacy;
   const claimed = claimPlots();
-  return claimed.length === 0 ? legacy : legacy.concat(claimed);
+  // Signed block claims come first: lookups take the first match, so a
+  // synced claim always outranks a local legacy plot over the same cell
+  // (a legacy plot kept for a retried migration never splits ownership).
+  return claimed.length === 0 ? legacy : claimed.concat(legacy);
 }
 
 function readLegacy(ns?: string): LandPlot[] {

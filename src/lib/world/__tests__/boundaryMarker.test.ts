@@ -253,6 +253,10 @@ describe('migrateLegacyPlots keeps what it cannot replace', () => {
     expect(getLandClaim(40, 40)?.ownerId).toBe(alice.id);
     expect(getLandClaim(41, 40)?.ownerId).toBe(bob.id);
     expect(loadLegacyLandPlots().map((p) => p.id)).toEqual(['plot:contested']);
+    // The signed claim, not the kept legacy record, decides that cell.
+    expect(getPlotAtCell(41, 40)?.ownerId).toBe(bob.id);
+    expect(canBuildAtCell(41, 40, bob.id).ok).toBe(true);
+    expect(canBuildAtCell(41, 40, alice.id).ok).toBe(false);
   });
 });
 
