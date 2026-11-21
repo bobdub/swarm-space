@@ -14,6 +14,9 @@
  */
 import type { SwarmTransaction } from "../types";
 import { INFINITY_GIFT_VAULT } from "./vaults";
+import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
+
+const NATIVE_TICKERS = new Set(["SWARM", "MINTME"]);
 
 export interface DonorEntry {
   userId: string;
@@ -37,7 +40,14 @@ export function donationFromTx(tx: SwarmTransaction): { ticker: string; amount: 
   const amount = Number(tx.amount);
   if (!Number.isFinite(amount) || amount <= 0 || !tx.from || tx.from === "system") return null;
   if (tx.type === "wallet_tip" && tx.to === INFINITY_GIFT_VAULT) {
-    const ticker = typeof tx.meta?.ticker === "string" && tx.meta.ticker.trim() ? tx.meta.ticker.trim() : "SWARM";
+    // The settled asset decides the currency, never the sender's display ticker.
+    if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount };
+    const assetId = typeof tx.meta?.assetId === "string" ? tx.meta.assetId : "";
+    if (assetId === "chain:SWARM") return { ticker: "SWARM", amount };
+    if (!assetId) return null;
+    const label = typeof tx.meta?.ticker === "string" ? tx.meta.ticker.trim() : "";
+    // A creator token may not borrow a native ticker.
+    const ticker = label && !NATIVE_TICKERS.has(label.toUpperCase()) ? label : assetId;
     return { ticker, amount };
   }
   if (tx.type === "pool_donate") return { ticker: "SWARM", amount };
