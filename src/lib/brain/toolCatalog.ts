@@ -15,7 +15,8 @@
 import { SHELL_DEFS, INNER_SYMBOLS } from './elements';
 import { ELEMENT_COLORS, blendColor } from '@/lib/virtualHub/compoundCatalog';
 
-export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine';
+/** `claim` is the Boundary marker: it marks land instead of striking anything. */
+export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine' | 'claim';
 
 export interface ToolPart {
   role: 'handle' | 'head' | 'binding';
@@ -168,6 +169,20 @@ const SPECS: ToolSpec[] = [
     ],
     width: 0.12, depth: 0.04, height: 0.70,
     headAspect: 4.5,
+  },
+  {
+    // Boundary marker — a stake (handle) with a pennant (head) tied on.
+    // It never strikes; holding it claims land block by block.
+    id: 'tool_boundary_marker',
+    label: 'Boundary Marker',
+    actionKind: 'claim',
+    parts: [
+      { role: 'handle',  symbol: 'C',  count: 8 },
+      { role: 'head',    symbol: 'C',  count: 2 },
+      { role: 'binding', symbol: 'C',  count: 1 },
+    ],
+    width: 0.06, depth: 0.06, height: 0.9,
+    headAspect: 1.0,
   },
 ];
 

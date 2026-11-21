@@ -260,6 +260,19 @@ const SPECS: PrefabSpec[] = [
     width: 0.10, depth: 0.10, height: 0.08,
     yawSnapStep: Math.PI / 2,
   },
+  // Boundary marker — a wooden stake with a fibre pennant. Held, it claims
+  // land one grid block at a time (press and hold a block; see
+  // `src/lib/world/boundaryMarker.ts`). Cellulose proxy, like the bucket.
+  {
+    id: 'tool_boundary_marker',
+    label: 'Boundary Marker',
+    sectionId: 'tools',
+    formula: '(C₆H₁₀O₅)ₙ',
+    constituents: [{ symbol: 'C', count: 6 }, { symbol: 'H', count: 10 }, { symbol: 'O', count: 5 }],
+    density: 0.6,
+    width: 0.06, depth: 0.06, height: 0.9,
+    yawSnapStep: Math.PI / 4,
+  },
   // Wooden Bucket — held tool for gathering water, fruit, and small loose items.
   // Carbon/hydrogen/oxygen cellulose proxy (oak staves), low density.
   {

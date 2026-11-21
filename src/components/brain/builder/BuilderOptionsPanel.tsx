@@ -45,6 +45,7 @@ import {
   toggleShowLandMarkers,
 } from '@/lib/world/landOverlayStore';
 import { isDev, grantDev } from '@/lib/world/devRoles';
+import { BOX_PRICE_SWARM } from '@/lib/world/landPlots';
 import {
   subscribeBuilderTopView,
   toggleBuilderTopView,
@@ -188,15 +189,23 @@ export function BuilderOptionsPanel({
         tone="amber"
         onClick={() => setFreeBuild(!freeBuild)}
       />
-      <Chip
-        testId="builder-toggle-plot"
-        icon={<LandPlotIcon className="h-3 w-3" aria-hidden="true" />}
-        label="Plot"
-        title="Plot — walk a loop to claim land (3 SWARM per box)"
-        active={plotting}
-        tone="amber"
-        onClick={togglePlotting}
-      />
+      {/* Private land is claimed block by block with the Boundary Marker
+          (Tools). Walking a loop is kept only for maintainers laying
+          public land (roads, squares). */}
+      {canLayCommons && (
+        <Chip
+          testId="builder-toggle-plot"
+          icon={<LandPlotIcon className="h-3 w-3" aria-hidden="true" />}
+          label="Road survey"
+          title="Road survey — walk a loop to lay free public land (roads, squares)"
+          active={plotting}
+          tone="amber"
+          onClick={() => {
+            if (plotMode !== 'commons') setPlotMode('commons');
+            togglePlotting();
+          }}
+        />
+      )}
       <Chip
         testId="builder-toggle-showland"
         icon={<Eye className="h-3 w-3" aria-hidden="true" />}
@@ -213,7 +222,14 @@ export function BuilderOptionsPanel({
           label="Roads"
           title="Roads — lay free public land (roads, squares). Nobody can build on it."
           active={plotMode === 'commons'}
-          onClick={() => setPlotMode(plotMode === 'commons' ? 'private' : 'commons')}
+          onClick={() => {
+            if (plotMode === 'commons') {
+              setPlotMode('private');
+              if (plotting) togglePlotting();
+            } else {
+              setPlotMode('commons');
+            }
+          }}
         />
       ) : (
         <Chip
@@ -250,6 +266,10 @@ export function BuilderOptionsPanel({
         onClick={toggleSeatDebug}
       />
       </div>
+      <p className="text-[10px] leading-snug text-muted-foreground" data-testid="builder-land-hint">
+        Claim land: pick up the Boundary Marker from Tools, then press and hold a grid block
+        ({BOX_PRICE_SWARM} SWARM per block).
+      </p>
     </div>
 
   );

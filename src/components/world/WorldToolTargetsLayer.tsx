@@ -3,6 +3,7 @@ import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { getHeldTool, subscribeHeldTool } from '@/lib/world/heldToolStore';
+import { isBoundaryMarker } from '@/lib/world/boundaryMarker';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
@@ -57,7 +58,8 @@ export function WorldToolTargetsLayer() {
     [engine, version],
   );
 
-  if (!held) return null;
+  // The Boundary marker points at grid blocks, not trees and stones.
+  if (!held || isBoundaryMarker(held.prefabId)) return null;
 
   return (
     <>

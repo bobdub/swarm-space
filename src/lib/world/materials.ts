@@ -97,6 +97,8 @@ export const STARTER_TOOL_IDS = new Set([
   'tool_shovel_stone',
   'tool_bucket_wood',
   'tool_pick_stone',
+  // Claims land with SWARM, not materials, so it is always free to pick up.
+  'tool_boundary_marker',
 ]);
 
 export function isStarterTool(prefabId: string): boolean {
