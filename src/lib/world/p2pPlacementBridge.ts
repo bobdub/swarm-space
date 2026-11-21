@@ -59,6 +59,13 @@ import {
   mergeFireEvents,
   type FireEvent,
 } from '@/lib/world/fireStore';
+import {
+  attachLandClaimGossip,
+  acceptPeerLandClaim,
+  listLandClaims,
+  mergeLandClaims,
+  type LandClaim,
+} from '@/lib/world/landClaimsStore';
 
 const PLACEMENT_CHANNEL = 'world:placement';
 const PLACEMENT_DELETE_CHANNEL = 'world:placement:delete';
@@ -79,6 +86,11 @@ const NATURE_SYNC_RESPONSE = 'nature:events:sync-response';
 const FIRE_CHANNEL = 'fire:event';
 const FIRE_SYNC_REQUEST = 'fire:events:sync-request';
 const FIRE_SYNC_RESPONSE = 'fire:events:sync-response';
+const LAND_CLAIM_CHANNEL = 'land:claim';
+const LAND_SYNC_REQUEST = 'land:claims:sync-request';
+const LAND_SYNC_RESPONSE = 'land:claims:sync-response';
+/** Land claims are backfilled in pages so one message never gets huge. */
+const LAND_SYNC_PAGE = 500;
 /** How often every connected peer is asked again for its nature events. */
 const NATURE_RESYNC_MS = 2 * 60_000;
 /** How often we look for peers we haven't backfilled from yet. */
@@ -160,6 +172,10 @@ export function bootPlacementGossipBridge(): void {
     // Fire pits: wood put on a fire, so every peer sees the same flames.
     attachFireGossip((evt: FireEvent) => {
       try { mesh!.broadcast(FIRE_CHANNEL, evt); } catch { /* noop */ }
+    });
+    // Land: signed single-block claims, so every peer agrees who owns what.
+    attachLandClaimGossip((claim: LandClaim) => {
+      try { mesh!.broadcast(LAND_CLAIM_CHANNEL, claim); } catch { /* noop */ }
     });
 
 
@@ -264,6 +280,22 @@ export function bootPlacementGossipBridge(): void {
       try { mergeFireEvents(payload); } catch { /* noop */ }
     });
 
+    // ── Land claims: live gossip + newcomer backfill ────────────────
+    mesh.onMessage(LAND_CLAIM_CHANNEL, (_peerId, payload) => {
+      void acceptPeerLandClaim(payload).catch(() => false);
+    });
+    mesh.onMessage(LAND_SYNC_REQUEST, (peerId) => {
+      try {
+        const list = listLandClaims();
+        for (let i = 0; i < list.length; i += LAND_SYNC_PAGE) {
+          void mesh!.send(LAND_SYNC_RESPONSE, peerId, list.slice(i, i + LAND_SYNC_PAGE));
+        }
+      } catch { /* noop */ }
+    });
+    mesh.onMessage(LAND_SYNC_RESPONSE, (_peerId, payload) => {
+      void mergeLandClaims(payload).catch(() => 0);
+    });
+
     // ── Backfill: main-Brain lobby placements only ──────────────────
     mesh.onMessage(SYNC_REQUEST_CHANNEL, (peerId) => {
       try {
@@ -307,6 +339,7 @@ export function bootPlacementGossipBridge(): void {
           void mesh!.send(PUBTABLE_SYNC_REQUEST, id, {});
           void mesh!.send(NATURE_SYNC_REQUEST, id, {});
           void mesh!.send(FIRE_SYNC_REQUEST, id, {});
+          void mesh!.send(LAND_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     };
@@ -321,10 +354,11 @@ export function bootPlacementGossipBridge(): void {
         for (const id of mesh!.getConnectedPeerIds()) {
           void mesh!.send(NATURE_SYNC_REQUEST, id, {});
           void mesh!.send(FIRE_SYNC_REQUEST, id, {});
+          void mesh!.send(LAND_SYNC_REQUEST, id, {});
         }
       } catch { /* noop */ }
     }, NATURE_RESYNC_MS);
 
-    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables)');
+    console.log('[placementBridge] mesh gossip wired (placements + backfill + forged tools + pub tables + land claims)');
   })();
 }

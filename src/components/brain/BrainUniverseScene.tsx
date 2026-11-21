@@ -82,6 +82,8 @@ import { WorldToolTargetsLayer } from '@/components/world/WorldToolTargetsLayer'
 import { ToolSwingFX } from '@/components/world/ToolSwingFX';
 import { CarvedCellsLayer } from '@/components/world/CarvedCellsLayer';
 import { HeldToolMesh } from '@/components/world/HeldToolMesh';
+import { BoundaryMarkerLayer } from '@/components/world/BoundaryMarkerLayer';
+import { migrateLegacyPlots } from '@/lib/world/boundaryMarker';
 import { WeatherLayer } from '@/components/world/WeatherLayer';
 import {
   setPendingCast,
@@ -1155,6 +1157,13 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     const pending = builder.pendingPlot;
     if (!pending || !selfId) return;
     const commons = builder.plotMode === 'commons';
+    if (!commons) {
+      // Private land is claimed block by block with the Boundary marker.
+      toast.message('Use the Boundary Marker to claim land, one block at a time.');
+      builder.setPendingPlot(null);
+      builder.setPlotting(false);
+      return;
+    }
     if (commons && !isDev(selfId)) {
       toast.error('Only maintainers can lay communal land.');
       return;
@@ -1194,6 +1203,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     try { setSwarmBalance(await getSwarmBalance(selfId)); } catch { /* ignore */ }
     return plot;
   }, [builder, selfId]);
+
+  // Carry this member's old walk-claimed plots into signed block claims
+  // so they sync to peers. Retries on login (the key may be locked now).
+  useEffect(() => {
+    if (!selfId) return;
+    const run = () => { void migrateLegacyPlots(selfId).catch(() => 0); };
+    run();
+    window.addEventListener('user-login', run);
+    return () => window.removeEventListener('user-login', run);
+  }, [selfId]);
 
   const handlePlotSurveyClose = useCallback((next: PendingPlot) => {
     builder.setPendingPlot(next);
@@ -2468,6 +2487,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <CarvedCellsLayer />
         <WeatherLayer />
         <HeldToolMesh selfId={selfId || undefined} />
+        <BoundaryMarkerLayer selfId={selfId || undefined} />
         <UserPlacementsLayer
           selfId={selfId}
           selectedPlacementId={builder.selectedBlockId}

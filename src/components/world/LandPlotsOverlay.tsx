@@ -37,6 +37,8 @@ import {
 } from '@/lib/world/landPlots';
 import { subscribeShowLandMarkers } from '@/lib/world/landOverlayStore';
 import { getBuilderTopView } from '@/lib/brain/builderCameraStore';
+import { subscribeHeldTool } from '@/lib/world/heldToolStore';
+import { isBoundaryMarker } from '@/lib/world/boundaryMarker';
 
 interface LandPlotsOverlayProps {
   selfId: string;
@@ -53,7 +55,7 @@ const LABEL_VIEW_DISTANCE = 160;
 const TOP_VIEW_LABEL_SCALE = 0.55;
 const TOP_VIEW_LABEL_DISTANCE = 90;
 /** Max plots rendered at once, nearest first. */
-const MAX_VISIBLE_PLOTS = 24;
+const MAX_VISIBLE_PLOTS = 48;
 
 type PlotStyle = 'own' | 'foreign' | 'commons';
 
@@ -134,10 +136,14 @@ function plotCentreTangent(plot: LandPlot): { tx: number; tz: number } {
 
 export function LandPlotsOverlay({ selfId, emphasized = false }: LandPlotsOverlayProps) {
   const [plots, setPlots] = useState<LandPlot[]>(() => loadLandPlots());
-  const [visible, setVisible] = useState(false);
+  const [showMarkers, setShowMarkers] = useState(false);
+  const [markerHeld, setMarkerHeld] = useState(false);
   const [nearby, setNearby] = useState<LandPlot[]>([]);
   useEffect(() => subscribeLandPlots(setPlots), []);
-  useEffect(() => subscribeShowLandMarkers(setVisible), []);
+  useEffect(() => subscribeShowLandMarkers(setShowMarkers), []);
+  // Holding the Boundary marker always shows who owns the ground.
+  useEffect(() => subscribeHeldTool((h) => setMarkerHeld(isBoundaryMarker(h?.prefabId))), []);
+  const visible = showMarkers || markerHeld;
 
   // Distance cull, re-evaluated at ~2 Hz (not per frame).
   const lastCull = useRef(0);

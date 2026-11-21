@@ -1,16 +1,27 @@
 /**
- * landPlots — owned, walk-claimed parcels of land.
+ * landPlots — owned parcels of land, as one read model.
  *
  * A plot is an axis-aligned rectangle in the lattice-origin tangent
  * frame (`WORLD_GRID_ORIGIN_ANCHOR`), expressed in integer
  * WALL_PITCH-sized cells. One "box" = WALL_PITCH × WALL_PITCH.
- * Cost is `boxes * BOX_PRICE_SWARM` and is debited via SWARM burn.
  *
- * Persistence: per-universe localStorage. No new IndexedDB schema and
- * no new chain logic — claims are local + (future) P2P gossip, same
- * trust model as `loadPieces`.
+ * Two sources feed it:
+ *   • Block claims (`landClaimsStore`) — one signed, peer-synced claim
+ *     per grid block, made with the Boundary marker tool at
+ *     `BOX_PRICE_SWARM` each. They are folded into rectangles here
+ *     (`claimsToPlots`) so overlays and permission checks see plots.
+ *   • Legacy plots — the old walk-a-loop parcels, kept in per-universe
+ *     localStorage. A member's own private legacy plots are carried
+ *     into block claims by `migrateLegacyPlots` so they sync too;
+ *     dev-laid commons (roads) stay here, local, as before.
  */
-import { WALL_PITCH } from './buildGrid';
+import { WALL_PITCH, WORLD_GRID_ORIGIN_ANCHOR } from './buildGrid';
+import {
+  landClaimsVersion,
+  listLandClaims,
+  subscribeLandClaims,
+  type LandClaim,
+} from './landClaimsStore';
 
 export const BOX_PRICE_SWARM = 3;
 /** Side length (metres) of a single "box" cell on the plot grid. */
@@ -60,7 +71,99 @@ function keyFor(ns?: string): string {
 const listeners = new Set<(plots: LandPlot[]) => void>();
 const memCache = new Map<string, LandPlot[]>();
 
+function isGlobalNs(ns?: string): boolean {
+  return !ns || ns === 'global';
+}
+
+/**
+ * Fold single-block claims into rectangles: horizontal runs per row for
+ * each owner, then runs with the same span stacked across consecutive
+ * rows. Deterministic, so every peer draws the same parcels.
+ */
+export function claimsToPlots(list: LandClaim[]): LandPlot[] {
+  const byOwner = new Map<string, LandClaim[]>();
+  for (const c of list) {
+    const arr = byOwner.get(c.ownerId);
+    if (arr) arr.push(c); else byOwner.set(c.ownerId, [c]);
+  }
+  const out: LandPlot[] = [];
+  const owners = [...byOwner.keys()].sort();
+  for (const ownerId of owners) {
+    const cells = byOwner.get(ownerId)!.slice().sort((a, b) => a.cz - b.cz || a.cx - b.cx);
+    // Row runs, then stack a run onto the rect directly above it when
+    // the span matches exactly; otherwise it starts a new rect.
+    type Group = { rect: PlotCellRect; claims: LandClaim[] };
+    const done: Group[] = [];
+    let active = new Map<string, Group>();
+    let next = new Map<string, Group>();
+    let row: number | null = null;
+    let i = 0;
+    while (i < cells.length) {
+      const c0 = cells[i];
+      if (row !== c0.cz) {
+        if (row !== null) active = next;
+        next = new Map();
+        row = c0.cz;
+      }
+      // Extend one horizontal run.
+      const run: LandClaim[] = [c0];
+      let j = i + 1;
+      while (j < cells.length && cells[j].cz === c0.cz && cells[j].cx === cells[j - 1].cx + 1) {
+        run.push(cells[j]);
+        j += 1;
+      }
+      const cx0 = c0.cx;
+      const cx1 = run[run.length - 1].cx + 1;
+      const span = `${cx0}:${cx1}`;
+      const above = active.get(span);
+      if (above && above.rect.cz1 === c0.cz) {
+        above.rect.cz1 = c0.cz + 1;
+        above.claims.push(...run);
+        next.set(span, above);
+      } else {
+        const g: Group = { rect: { cx0, cz0: c0.cz, cx1, cz1: c0.cz + 1 }, claims: run };
+        done.push(g);
+        next.set(span, g);
+      }
+      i = j;
+    }
+    for (const { rect, claims } of done) {
+      let price = 0;
+      let at = Infinity;
+      for (const c of claims) { price += c.priceSwarm; if (c.claimedAt < at) at = c.claimedAt; }
+      out.push({
+        id: `claim:${ownerId}:${rect.cx0}:${rect.cz0}:${rect.cx1}:${rect.cz1}`,
+        ownerId,
+        cellRect: rect,
+        anchorId: WORLD_GRID_ORIGIN_ANCHOR,
+        priceSwarm: price,
+        claimedAt: at,
+        unlocksLandmarks: true,
+        kind: 'private',
+      });
+    }
+  }
+  return out;
+}
+
+let claimPlotsCache: { version: number; plots: LandPlot[] } | null = null;
+function claimPlots(): LandPlot[] {
+  const v = landClaimsVersion();
+  if (claimPlotsCache && claimPlotsCache.version === v) return claimPlotsCache.plots;
+  const plots = claimsToPlots(listLandClaims());
+  claimPlotsCache = { version: v, plots };
+  return plots;
+}
+
+/** Everything that owns land in `ns`: block claims (global only) + legacy plots. */
 function read(ns?: string): LandPlot[] {
+  const legacy = readLegacy(ns);
+  if (!isGlobalNs(ns)) return legacy;
+  const claimed = claimPlots();
+  return claimed.length === 0 ? legacy : legacy.concat(claimed);
+}
+
+function readLegacy(ns?: string): LandPlot[] {
   const k = keyFor(ns);
   if (memCache.has(k)) return memCache.get(k)!;
   try {
@@ -74,30 +177,43 @@ function read(ns?: string): LandPlot[] {
   }
 }
 
-function write(plots: LandPlot[], ns?: string): void {
+function writeLegacy(plots: LandPlot[], ns?: string): void {
   const k = keyFor(ns);
   memCache.set(k, plots);
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(k, JSON.stringify(plots));
   } catch { /* ignore quota */ }
+  const all = read(ns);
   for (const fn of listeners) {
-    try { fn(plots); } catch { /* ignore */ }
+    try { fn(all); } catch { /* ignore */ }
   }
 }
 
 /** Test hook — drops the in-memory cache so storage is re-read. */
 export function clearLandPlotsCache(): void {
   memCache.clear();
+  claimPlotsCache = null;
 }
 
 export function loadLandPlots(ns?: string): LandPlot[] {
   return read(ns).slice();
 }
 
+/** Legacy (walk-claimed / commons) plots only — no block claims. */
+export function loadLegacyLandPlots(ns?: string): LandPlot[] {
+  return readLegacy(ns).slice();
+}
+
+/** Replace the legacy plot list (used when carrying plots into block claims). */
+export function replaceLegacyLandPlots(plots: LandPlot[], ns?: string): void {
+  writeLegacy(plots.slice(), ns);
+}
+
 export function subscribeLandPlots(fn: (plots: LandPlot[]) => void, ns?: string): () => void {
   listeners.add(fn);
+  const offClaims = isGlobalNs(ns) ? subscribeLandClaims(() => fn(loadLandPlots(ns))) : () => {};
   fn(loadLandPlots(ns));
-  return () => { listeners.delete(fn); };
+  return () => { listeners.delete(fn); offClaims(); };
 }
 
 /** Snap a tangent-plane point (m) to its containing cell index. */
@@ -245,8 +361,10 @@ export function mergeAdjacentPlots(plots: LandPlot[]): LandPlot[] {
 }
 
 /**
- * Persist a claim. Does NOT debit SWARM — caller is responsible.
- * Throws when the rect overlaps an existing plot.
+ * Persist a legacy rectangle plot (dev-laid commons / roads). Private
+ * land is claimed block by block with the Boundary marker instead
+ * (`boundaryMarker.claimBlockWithMarker`). Does NOT debit SWARM —
+ * caller is responsible. Throws when the rect overlaps an existing plot.
  */
 export function claimLandPlot(input: {
   ownerId: string;
@@ -271,8 +389,8 @@ export function claimLandPlot(input: {
     kind: input.kind ?? 'private',
     label: input.label,
   };
-  const next = mergeAdjacentPlots(read(input.ns).concat(plot));
-  write(next, input.ns);
+  const next = mergeAdjacentPlots(readLegacy(input.ns).concat(plot));
+  writeLegacy(next, input.ns);
   // The claim may have been folded into a neighbouring parcel; return
   // whichever record now covers it.
   const covering = next.find((p) => rectsIntersect(p.cellRect, plot.cellRect));
