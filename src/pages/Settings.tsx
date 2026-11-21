@@ -1,4 +1,5 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { StorageHealthIndicator } from "@/components/StorageHealthIndicator";
 import { SessionHealthCard } from "@/components/settings/SessionHealthCard";
 
@@ -66,6 +67,7 @@ import {
 import { LoadingChainEditor } from "@/components/settings/LoadingChainEditor";
 
 const Settings = () => {
+  useScrollToHash();
   const [user, setUser] = useState(getCurrentUser());
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -180,7 +182,6 @@ const Settings = () => {
       setUnblockingUserId(blockedId);
       try {
         await unblockUser(user.id, blockedId);
-        toast.success("User unblocked");
         setBlockedUsers((prev) => prev.filter((entry) => entry.id !== blockedId));
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       } catch (error) {
@@ -535,7 +536,7 @@ const Settings = () => {
                 </div>
               </Card>
 
-              <Card className="space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
+              <Card id="blocked-users" className="scroll-mt-24 space-y-4 rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
                 <div className="flex items-center justify-between">
                   <div>
                     <h2 className="text-xl font-bold">Blocked users</h2>

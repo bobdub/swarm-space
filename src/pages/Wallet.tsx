@@ -142,7 +142,6 @@ export default function Wallet() {
       const dataUrl = await downscaleImage(file);
       const updated = await updateCreatorTokenBanner(user.id, dataUrl);
       setProfileToken(updated);
-      toast.success("Banner updated");
     } catch (error: any) {
       toast.error(error?.message || "Failed to update banner");
     } finally {
@@ -157,7 +156,6 @@ export default function Wallet() {
     try {
       const updated = await updateCreatorTokenBanner(user.id, null);
       setProfileToken(updated);
-      toast.success("Banner removed");
     } catch (error: any) {
       toast.error(error?.message || "Failed to remove banner");
     } finally {
@@ -308,7 +306,6 @@ export default function Wallet() {
     }
     try {
       await pauseMining(user.id);
-      toast.success("Mining paused");
       loadWalletData();
     } catch (error) {
       toast.error("Failed to pause mining");

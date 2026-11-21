@@ -378,11 +378,6 @@ export function P2PStatusIndicator() {
       });
       const result = await monitor.handleManualConnect(fallbackId);
       if (result.success) {
-        toast.success(
-          result.modeSwitched
-            ? `Mode switched & connecting to ${fallbackId.slice(0, 12)}…`
-            : `Connecting to ${fallbackId.slice(0, 12)}…`
-        );
         setFallbackId("");
         setBootstrapFailed(false);
       } else {
@@ -415,16 +410,11 @@ export function P2PStatusIndicator() {
     const input = remotePeerId.trim();
     const success = connectToPeer(input, { manual: true, source: "manual" });
     if (success) {
-      toast.info(`Dialing ${input.slice(0, 16)}…`);
       scheduleReachabilityToast(input, input.slice(0, 16));
       setRemotePeerId("");
     } else if (controls.paused) {
       toast.info("Mesh paused", {
         description: "Resume the mesh to allow new connections.",
-      });
-    } else {
-      toast.info("Connection pending", {
-        description: "Mesh dial pending — peer not reached yet.",
       });
     }
   };
@@ -434,7 +424,6 @@ export function P2PStatusIndicator() {
     const trimmedPeerId = peerId.trim();
     setPeerPending(peerId, "disconnect");
     disconnectFromPeer(trimmedPeerId);
-    toast.info(`Disconnecting ${label.slice(0, 24)}…`);
     clearPeerPending(peerId);
   };
 
@@ -455,7 +444,6 @@ export function P2PStatusIndicator() {
     const currentMode = flags.integratedTransport;
     setFeatureFlag('integratedTransport', !currentMode);
     setFlags(getFeatureFlags());
-    toast.success(`Switched to ${!currentMode ? 'Integrated Resilient' : 'PeerJS'} transport`);
   };
 
   const handleToggle = () => {
@@ -471,7 +459,6 @@ export function P2PStatusIndicator() {
       tm.stop();
       sm.stop();
       bm.stop();
-      toast.info("P2P networking disabled.");
     } else {
       if (connState.mode === 'swarm') {
         void sm.start();
@@ -480,7 +467,6 @@ export function P2PStatusIndicator() {
         enable();
         void bm.autoStart();
       }
-      toast.success("P2P networking enabled.");
     }
   };
 
@@ -821,7 +807,6 @@ export function P2PStatusIndicator() {
                             setPeerPending(peer.peerId, "connect");
                             const ok = connectToPeer(trimmed, { manual: true, source: "popover-discovered" });
                             if (ok) {
-                              toast.info(`Dialing ${friendlyLabel.slice(0, 24)}…`);
                               scheduleReachabilityToast(trimmed, friendlyLabel.slice(0, 24), () => clearPeerPending(peer.peerId));
                             } else {
                               clearPeerPending(peer.peerId);

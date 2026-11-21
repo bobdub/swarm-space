@@ -17,11 +17,7 @@ import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { settleMiningPayout } from "@/lib/mining/miningPayouts";
 import { saveMiningSession } from "@/lib/blockchain/storage";
 import type { MiningSession } from "@/lib/blockchain/types";
-import { toast } from "sonner";
 import { canUseMemberFeatures } from '@/lib/preview/guestAccess';
-
-// Module-level flag — survives re-renders and re-mounts from navigation
-let globalNotified = false;
 
 // Stable session ID for the auto-miner lifetime
 let autoMineSessionId: string | null = null;
@@ -39,10 +35,6 @@ export function AutoMiningService() {
 
     if (shouldMine && !miningRef.current) {
       miningRef.current = true;
-      if (!globalNotified) {
-        toast.success("CREATOR Mining active — blocks require mesh consensus", { id: "auto-mine", duration: 3000 });
-        globalNotified = true;
-      }
 
       // ── BUG-10 FIX: Persist an active MiningSession to IndexedDB ──
       autoMineSessionId = `auto-mine-${Date.now()}-${Math.random().toString(36).slice(2)}`;

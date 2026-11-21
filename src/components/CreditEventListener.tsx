@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { toast } from "@/components/ui/use-toast";
+import { useEffect } from "react";
+import { notifySystem } from "@/lib/notifications";
 import { get, put } from "@/lib/store";
 import { getCurrentUser } from "@/lib/auth";
 import { getCreditBalanceRecord } from "@/lib/credits";
@@ -35,26 +35,6 @@ function formatAmount(amount: number): string {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 0,
   }).format(amount);
-}
-
-async function showCreditToast(payload: CreditNotificationPayload): Promise<void> {
-  const counterpartyName = await resolveUserName(payload.counterpartyId);
-  const amount = formatAmount(payload.amount);
-  const directionPrefix = payload.direction === "received" ? "+" : "-";
-  const baseTitle = `${directionPrefix}${amount} credits`;
-  const contextParts = [
-    `${payload.direction === "received" ? "From" : "To"} ${counterpartyName}`,
-    CREDIT_TYPE_COPY[payload.type] ?? "Credits",
-  ];
-
-  if (payload.message) {
-    contextParts.push(`"${payload.message}"`);
-  }
-
-  toast({
-    title: baseTitle,
-    description: contextParts.join(" · "),
-  });
 }
 
 /**
@@ -114,45 +94,23 @@ async function applyMeshCreditTransfer(transaction: CreditTransaction, currentUs
   // Refresh wallet balances/history right away instead of on their next poll.
   window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
 
-  // Show toast
+  // Record it in the Notifications inbox: credits arrive in the background,
+  // often while the user is somewhere else, so a toast is easy to miss.
   const senderName = await resolveUserName(transaction.fromUserId);
-  toast({
-    title: `+${formatAmount(transaction.amount)} credits received!`,
-    description: `From ${senderName} · ${CREDIT_TYPE_COPY[transaction.type] ?? "Credits"}`,
+  const note = transaction.meta?.description;
+  await notifySystem({
+    userId: currentUserId,
+    type: "credits_received",
+    title: `+${formatAmount(transaction.amount)} credits`,
+    content: `from ${senderName} · ${CREDIT_TYPE_COPY[transaction.type] ?? "Credits"}${note ? ` · "${note}"` : ""}`,
+    link: "/wallet",
+    linkLabel: "Open wallet",
+    triggeredBy: transaction.fromUserId,
+    triggeredByName: senderName,
   });
 }
 
 const CreditEventListener = () => {
-  const processedIdsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    const handleCreditEvent = (event: Event) => {
-      const customEvent = event as CustomEvent<CreditNotificationPayload>;
-      const payload = customEvent.detail;
-      if (!payload) {
-        return;
-      }
-
-      const currentUser = getCurrentUser();
-      if (!currentUser || currentUser.id !== payload.userId) {
-        return;
-      }
-
-      const key = `${payload.transactionId}:${payload.direction}`;
-      if (processedIdsRef.current.has(key)) {
-        return;
-      }
-      processedIdsRef.current.add(key);
-
-      void showCreditToast(payload);
-    };
-
-    window.addEventListener("credits:transaction", handleCreditEvent);
-    return () => {
-      window.removeEventListener("credits:transaction", handleCreditEvent);
-    };
-  }, []);
-
   // Listen for incoming credit transfers via P2P mesh
   useEffect(() => {
     // Listen via BroadcastChannel (same-origin tabs)

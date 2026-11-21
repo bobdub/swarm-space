@@ -20,7 +20,6 @@ import {
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { recordLocalPlacement } from '@/lib/world/worldPlacementsStore';
 import { applyToolToTarget } from '@/lib/world/toolActions';
-import { toast } from 'sonner';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 
@@ -53,7 +52,6 @@ export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
     });
     setHeldTool(null);
     setToolTarget(null);
-    toast.message(prefab.label, { description: 'Dropped.' });
   };
 
   return (

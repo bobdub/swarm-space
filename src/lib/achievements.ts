@@ -210,17 +210,21 @@ async function awardCreditsForAchievement(params: {
   }
 }
 
-async function showAchievementToast(definition: AchievementDefinition): Promise<void> {
+async function notifyAchievementUnlocked(userId: string, definition: AchievementDefinition): Promise<void> {
   if (typeof window === "undefined") return;
   try {
-    const { toast } = await import("sonner");
-    const rewardText = definition.creditReward > 0 ? ` +${definition.creditReward} credits` : "";
-    toast.success(`Badge unlocked: ${definition.title}`, {
-      description: `${definition.description}${rewardText ? ` •${rewardText}` : ""}`,
-      duration: 5000,
+    const { notifySystem } = await import("./notifications");
+    const rewardText = definition.creditReward > 0 ? ` +${definition.creditReward} credits.` : "";
+    await notifySystem({
+      userId,
+      type: "badge_unlocked",
+      title: `Badge unlocked: ${definition.title}.`,
+      content: `${definition.description}${rewardText}`,
+      link: "/profile?tab=achievements",
+      linkLabel: "View badges",
     });
   } catch (error) {
-    console.warn("[achievements] Failed to display toast", error);
+    console.warn("[achievements] Failed to record badge notification", error);
   }
 }
 
@@ -591,7 +595,7 @@ export async function evaluateAchievementEvent(event: AchievementEvent): Promise
           await recordQcmSpike(event.userId, result.qcm, definition.id);
         }
 
-        await showAchievementToast(definition);
+        await notifyAchievementUnlocked(event.userId, definition);
 
         // Dispatch event for NFT wrapping
         if (typeof window !== "undefined") {

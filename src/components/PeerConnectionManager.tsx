@@ -6,11 +6,10 @@ import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Avatar } from './Avatar';
 import { Users, Search, Plug, Unplug, ShieldBan } from 'lucide-react';
-import { useToast } from './ui/use-toast';
+import { notifyModeration } from '@/lib/notifications';
 
 export function PeerConnectionManager() {
   const { getDiscoveredPeers, getActivePeerConnections, connectToPeer, disconnectFromPeer, blockPeer } = useP2PContext();
-  const { toast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -38,21 +37,16 @@ export function PeerConnectionManager() {
   }, [connectedIds, discoveredPeers, searchQuery]);
 
   const handleConnect = (peerId: string) => {
-    const accepted = connectToPeer(peerId, { manual: true, source: 'top-nav-connections' });
-    toast({
-      title: accepted ? 'Connecting peer' : 'Connection queued',
-      description: peerId,
-    });
+    connectToPeer(peerId, { manual: true, source: 'top-nav-connections' });
   };
 
   const handleDisconnect = (peerId: string) => {
     disconnectFromPeer(peerId);
-    toast({ title: 'Disconnected peer', description: peerId });
   };
 
   const handleBlock = (peerId: string) => {
     blockPeer(peerId, 'all', 'Blocked from top navigation connections manager');
-    toast({ title: 'Blocked peer', description: peerId });
+    notifyModeration(`You blocked peer ${peerId.slice(0, 12)}….`, 'It can no longer connect to you.', 'blockedNodes');
   };
 
   return (

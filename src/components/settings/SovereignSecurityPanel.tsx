@@ -270,11 +270,12 @@ export function SovereignSecurityPanel() {
       // A genesis-default vault follows the account password; a separately
       // wrapped shell is left alone.
       const followed = await followPasswordChange(privateKey, user, newPassword.trim()).catch(() => null);
-      if (followed) toast.info(`Recovery vault re-sealed as v${followed.envelope.version} with your new password`);
       setNewPassword("");
       setConfirmPassword("");
       setCurrentPassword("");
-      toast.success("Local password updated on this device");
+      toast.success("Local password updated on this device", followed
+        ? { description: `Your recovery vault was re-sealed as v${followed.envelope.version} with it.` }
+        : undefined);
     } catch (err) {
       console.error("[SovereignSecurityPanel] Password change failed:", err);
       toast.error("Could not update the password");

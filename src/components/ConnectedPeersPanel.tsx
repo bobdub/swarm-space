@@ -37,6 +37,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { notifyModeration } from "@/lib/notifications";
 import { toast } from "sonner";
 
 function shortId(id: string): string {
@@ -138,17 +139,16 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
 
   const handleBlock = (peerId: string) => {
     blockPeer(peerId, "all", "Blocked from connections panel");
-    toast.success(`Blocked node ${peerId.slice(0, 12)}…`);
+    notifyModeration(`You blocked node ${peerId.slice(0, 12)}….`, "It can no longer connect to you.", "blockedNodes");
   };
 
   const handleMute = (peerId: string) => {
     const next = new Set(mutedNodes);
     if (next.has(peerId)) {
       next.delete(peerId);
-      toast.info(`Unmuted node ${peerId.slice(0, 12)}…`);
     } else {
       next.add(peerId);
-      toast.info(`Muted node ${peerId.slice(0, 12)}… — their content is hidden`);
+      notifyModeration(`You muted node ${peerId.slice(0, 12)}….`, "Its content is hidden from you.", "connectionLibrary");
     }
     setMutedNodes(next);
     saveSet(MUTED_NODES_KEY, next);
@@ -159,30 +159,21 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
     next.add(peerId);
     setHiddenNodes(next);
     saveSet(HIDDEN_NODES_KEY, next);
-    toast.info(`Hidden node ${peerId.slice(0, 12)}… from this list`);
+    notifyModeration(`You hid node ${peerId.slice(0, 12)}….`, "It no longer shows in your Connection Library.", "connectionLibrary");
   };
 
   const handleDisconnect = (peerId: string) => {
     disconnectFromPeer(peerId);
-    toast.info(`Disconnected from ${peerId.slice(0, 12)}…`);
   };
 
   const handleConnect = (peerId: string) => {
-    const accepted = connectToPeer(peerId, { manual: true, source: "connections-panel" });
-    if (accepted) {
-      toast.info(`Connecting to ${peerId.slice(0, 12)}…`);
-    } else {
-      toast.info("Connection queued", {
-        description: "The mesh accepted the peer into discovery but has not opened the session yet.",
-      });
-    }
+    connectToPeer(peerId, { manual: true, source: "connections-panel" });
   };
 
   const handleUnhideAll = () => {
     const cleared = new Set<string>();
     setHiddenNodes(cleared);
     saveSet(HIDDEN_NODES_KEY, cleared);
-    toast.success("All hidden nodes restored");
   };
 
   const getQualityIcon = (rttMs: number | null | undefined, isConnected: boolean) => {
@@ -213,7 +204,7 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
   const connectedCount = activeConnections.length;
 
   return (
-    <Card className="p-3 sm:p-4 border-foreground/10 bg-card/60">
+    <Card id="connection-library" className="scroll-mt-24 p-3 sm:p-4 border-foreground/10 bg-card/60">
       <div className="space-y-3 sm:space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">

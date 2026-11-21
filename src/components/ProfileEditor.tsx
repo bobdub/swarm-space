@@ -183,7 +183,6 @@ export const ProfileEditor = ({ user, onSave, onClose }: ProfileEditorProps) => 
       // Broadcast updated profile to mesh peers (avatar, display name, etc.)
       window.dispatchEvent(new Event("profile-updated"));
       
-      toast.success("Profile updated");
       onSave(updatedUser);
     } catch (error) {
       console.error("Failed to save profile:", error);

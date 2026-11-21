@@ -55,7 +55,6 @@ export function InviteUsersModal({
 
     setInvitedUsers([...invitedUsers, { handle: normalizedHandle, role: inviteRole }]);
     setInviteHandle("");
-    toast.success(`Added @${normalizedHandle} to invite list`);
   };
 
   const handleRemoveInvite = (handle: string) => {

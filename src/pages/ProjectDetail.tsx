@@ -186,16 +186,8 @@ const ProjectDetail = () => {
       
       if (isMember) {
         await removeProjectMember(project.id, currentUserId);
-        toast({
-          title: "Left project",
-          description: `You have left "${project.name}"`,
-        });
       } else {
         await addProjectMember(project.id, currentUserId);
-        toast({
-          title: "Joined project",
-          description: `You are now a member of "${project.name}"`,
-        });
       }
 
       await loadProject();
@@ -444,7 +436,6 @@ const ProjectDetail = () => {
                       onRemove={() => {
                         removeProjectMember(project.id, memberId).then(() => {
                           loadProject();
-                          toast({ title: "Member removed" });
                         });
                       }}
                     />

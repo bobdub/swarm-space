@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useScrollToHash } from "@/hooks/useScrollToHash";
 import { useNavigate } from 'react-router-dom';
 import { Loader2, LogIn, Wifi, WifiOff, Pickaxe, Shield, Users, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,7 @@ import { BlockUserModal } from '@/components/p2p/dashboard/BlockUserModal';
 import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
 
 const NodeDashboard = () => {
+  useScrollToHash();
   const navigate = useNavigate();
   const { user, isLoading: authLoading } = useAuth();
   const snapshot = useNodeDashboard();
@@ -99,7 +101,6 @@ const NodeDashboard = () => {
     } else {
       if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
       sm.connectToPeer(target);
-      toast.success(`Connecting to ${displayLabel}`, { id: `connect-${inputId}` });
     }
   };
 

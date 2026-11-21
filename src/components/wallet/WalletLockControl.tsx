@@ -77,7 +77,6 @@ export function WalletLockControl() {
     try {
       await lockWallet(mode === "separate" ? { separatePassphrase: newPass } : {});
       setLockStep(null); setNewPass(""); setNewPass2("");
-      toast.success("Wallet locked");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not lock the wallet.");
     } finally { setBusy(false); refresh(); }
@@ -88,7 +87,6 @@ export function WalletLockControl() {
     try {
       await unlockWallet(pass);
       setPass(""); setUnlockOpen(false);
-      toast.success("Wallet unlocked");
     } catch {
       toast.error("Wrong passphrase — wallet stays locked.");
     } finally { setBusy(false); refresh(); }

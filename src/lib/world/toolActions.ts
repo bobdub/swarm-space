@@ -926,9 +926,6 @@ async function digShell(
   emitCellCarved({ cellKey: carved.cellKey, shellId: carved.shellId, swing });
 
   const floor = shellAtDepth(carved.depth);
-  toast.success(`Dug through ${shell.label}`, {
-    description: `Depth ${carved.depth.toFixed(1)} m · now standing on ${floor?.label ?? 'bedrock'} (n=${floor?.n ?? shell.n}).`,
-  });
 
   // Keep the target live so repeated swings deepen the same pit.
   setToolTarget({
@@ -949,12 +946,10 @@ export async function swingToolInAir(toolPrefabId: string, selfId?: string): Pro
   const reach = toolPrefabId.startsWith('tool_knife') ? 0.95 : toolPrefabId.startsWith('tool_bucket') ? 1.45 : 1.25;
   const swing = pointInFrontOfSelf(selfId, reach);
   if (!swing) {
-    toast.message(prefab.label, { description: 'Swing registered.' });
     return true;
   }
   const probe = resolveSwingProbe(swing.point, swing.up, prefab.color, prefab.mass);
   emitTargetImpact(swing.point, swing.up, prefab.color, probe.intensity, 'air', false);
-  toast.message(prefab.label, { description: `Swing through air (|𝒞_collide| ${probe.intensity.toFixed(3)}).` });
   return true;
 }
 

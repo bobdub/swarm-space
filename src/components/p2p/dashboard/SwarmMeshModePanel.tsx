@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Pickaxe, UserPlus, ShieldOff, ChevronDown, Eye } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useP2PContext } from "@/contexts/P2PContext";
 import { useMeshMining } from "@/hooks/useMeshMining";
 import { BlockUserModal } from "./BlockUserModal";
 import { getSwarmMeshStandalone, type SwarmPhase, type SwarmPeer, type LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
@@ -34,6 +35,10 @@ export function SwarmMeshModePanel({
   onConnectToPeer,
 }: SwarmMeshModePanelProps) {
   const mesh = getSwarmMeshStandalone();
+  // Blocks made from the Connection Library and top nav live in the P2P
+  // blocklist; blocks made here live in the standalone mesh. Show and undo both
+  // so the "blocked node" notification always lands on a working list.
+  const { blocklist, unblockPeer: unblockListedPeer } = useP2PContext();
 
   const [isMining, setIsMining] = useState<boolean>(() => mesh.getToggles().mining);
   const [manualPeerId, setManualPeerId] = useState("");
@@ -45,7 +50,11 @@ export function SwarmMeshModePanel({
   const [phase, setPhase] = useState<SwarmPhase>(() => mesh.getPhase());
   const [peers, setPeers] = useState<SwarmPeer[]>([]);
   const [library, setLibrary] = useState<LibraryPeer[]>([]);
-  const [blocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
+  const [meshBlocked, setBlocked] = useState<string[]>(() => mesh.getBlockedPeers());
+  const blocked = useMemo(
+    () => Array.from(new Set([...meshBlocked, ...blocklist.map((entry) => entry.peerId)])),
+    [meshBlocked, blocklist],
+  );
   const [alert, setAlert] = useState<{ msg: string; level: string } | null>(null);
   const [myContentOnly, setMyContentOnlyState] = useState(() => getMyContentOnly());
   const [shyNode, setShyNode] = useState(() => getShyMode());
@@ -73,14 +82,12 @@ export function SwarmMeshModePanel({
   const handleToggleMining = () => {
     const next = !isMining;
     mesh.setToggle('mining', next);
-    toast.info(next ? "Auto-mining resumed" : "Auto-mining paused");
   };
 
   const handleConnectManual = () => {
     if (!manualPeerId.trim()) { toast.error("Enter a Peer ID"); return; }
     mesh.connectToPeer(manualPeerId.trim());
     onConnectToPeer(manualPeerId.trim());
-    toast.success(`Connecting to ${manualPeerId.trim()}`);
     setManualPeerId("");
   };
 
@@ -96,6 +103,7 @@ export function SwarmMeshModePanel({
 
   const handleUnblock = (peerId: string) => {
     mesh.unblockPeer(peerId);
+    unblockListedPeer(peerId);
     setBlocked(mesh.getBlockedPeers());
   };
 
@@ -240,7 +248,7 @@ export function SwarmMeshModePanel({
 
       {/* Blocked Peers */}
       {blocked.length > 0 && (
-        <Collapsible>
+        <Collapsible id="blocked-nodes" className="scroll-mt-24" defaultOpen={typeof window !== "undefined" && window.location.hash === "#blocked-nodes"}>
           <CollapsibleTrigger asChild>
             <Button variant="ghost" size="sm" className="w-full justify-between text-xs text-destructive/60 hover:text-destructive">
               <span>Blocked ({blocked.length})</span>

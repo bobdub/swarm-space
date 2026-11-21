@@ -198,7 +198,6 @@ export function LivePostBoxBody({
       latchLeave(roomId);
       await leaveRoom(roomId);
       setFloatingLiveDock(null);
-      toast.success('Left live room');
     } catch (err) {
       console.warn('[LivePostBox] leaveRoom failed', err);
     } finally {
@@ -217,7 +216,6 @@ export function LivePostBoxBody({
         await getWebRTCManager(user.id, user.username).leaveRoom().catch(() => undefined);
       }
       setFloatingLiveDock(null);
-      toast.success('Live ended');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to end live');
     }
@@ -295,7 +293,6 @@ export function LivePostBoxBody({
     if (!user) return;
     const manager = getWebRTCManager(user.id, user.username);
     manager.resyncPeer(peerId).catch(() => {});
-    toast(`Resyncing ${peerId.slice(0, 8)}…`);
   }, [user]);
 
   const participantCount = Math.max(rtcParticipants.length + 1, 1);

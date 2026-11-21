@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from "react";
-import { toast } from "sonner";
+import { notifySystem } from "@/lib/notifications";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getAll, put } from "@/lib/store";
 import type { Post } from "@/types";
@@ -45,7 +45,11 @@ export function StreamingBackgroundService(): null {
         return recordingId;
       } catch (error) {
         console.error("[StreamingBackgroundService] save failed:", error);
-        toast.error("Failed to save recording");
+        void notifySystem({
+          type: "system",
+          title: "Live room recording was not saved.",
+          content: "The replay could not be written to this device.",
+        });
         return null;
       }
     },
@@ -53,10 +57,10 @@ export function StreamingBackgroundService(): null {
   );
 
   const attachRecordingToStreamPosts = useCallback(
-    async (roomId: string, recordingId: string): Promise<boolean> => {
+    async (roomId: string, recordingId: string): Promise<string | null> => {
       const postEntries = await getAll<Post>("posts");
       const streamPosts = postEntries.filter((post) => post.stream?.roomId === roomId);
-      if (streamPosts.length === 0) return false;
+      if (streamPosts.length === 0) return null;
       const endedAt = new Date().toISOString();
       // Only mark posts as ended if the room itself is already ended.
       // Recording can finalize mid-session (e.g. host toggling record);
@@ -67,7 +71,7 @@ export function StreamingBackgroundService(): null {
           knownRoom?.broadcast?.state === "ended" ||
           knownRoom?.endedAt,
       );
-      let updatedAny = false;
+      let updatedPostId: string | null = null;
       for (const post of streamPosts) {
         if (!post.stream) continue;
         if (post.stream.recordingId === recordingId) continue;
@@ -85,27 +89,27 @@ export function StreamingBackgroundService(): null {
         await put("posts", updatedPost);
         announceContent(updatedPost.id);
         broadcastPost(updatedPost);
-        updatedAny = true;
+        updatedPostId ??= updatedPost.id;
       }
-      if (updatedAny && typeof window !== "undefined") {
+      if (updatedPostId && typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
       }
-      return updatedAny;
+      return updatedPostId;
     },
     [announceContent, broadcastPost],
   );
 
   const attachRecordingWithRetry = useCallback(
-    async (roomId: string, recordingId: string): Promise<boolean> => {
+    async (roomId: string, recordingId: string): Promise<string | null> => {
       const maxAttempts = 8;
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         const attached = await attachRecordingToStreamPosts(roomId, recordingId);
-        if (attached) return true;
+        if (attached) return attached;
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, 1_000);
         });
       }
-      return false;
+      return null;
     },
     [attachRecordingToStreamPosts],
   );
@@ -119,9 +123,22 @@ export function StreamingBackgroundService(): null {
         const recordingId = await persistRecordingBlobForRoom(detail.roomId!, detail.recording);
         if (!recordingId) return;
         try {
-          const attached = await attachRecordingWithRetry(detail.roomId!, recordingId);
-          if (attached) toast.success("Replay attached to feed post");
-          else toast.warning("Recording saved, still syncing replay metadata");
+          const postId = await attachRecordingWithRetry(detail.roomId!, recordingId);
+          await notifySystem(
+            postId
+              ? {
+                  type: "system",
+                  title: "Your live room replay is ready.",
+                  content: "It is attached to the room's feed post.",
+                  link: `/posts/${postId}`,
+                  linkLabel: "View replay",
+                }
+              : {
+                  type: "system",
+                  title: "Live room recording saved.",
+                  content: "The replay will show on the feed post once it finishes syncing.",
+                },
+          );
         } catch (error) {
           console.error("[StreamingBackgroundService] attach failed:", error);
         }

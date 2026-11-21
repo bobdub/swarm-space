@@ -231,7 +231,6 @@ export default function BlogDetail() {
       draftManifestIds.forEach((manifestId) => {
         try { announceContent(manifestId); } catch { /* mesh offline */ }
       });
-      toast.success("Blog updated");
       setIsEditing(false);
       setShowMediaUpload(false);
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));

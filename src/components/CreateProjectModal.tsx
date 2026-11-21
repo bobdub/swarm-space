@@ -42,11 +42,6 @@ export function CreateProjectModal({ onProjectCreated }: CreateProjectModalProps
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      toast({
-        title: "Project created",
-        description: `"${name}" has been created successfully`,
-      });
-
       setOpen(false);
       setName("");
       setDescription("");

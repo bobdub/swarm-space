@@ -166,10 +166,6 @@ export function CommentThread({ postId, initialCount = 0 }: CommentThreadProps) 
 
       setNewComment("");
       setNewMentions([]);
-      toast({
-        title: "Comment posted",
-        description: "Your comment has been added.",
-      });
     } catch (error) {
       console.error("Failed to post comment:", error);
       toast({

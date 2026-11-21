@@ -839,10 +839,8 @@ const Profile = () => {
     try {
       if (isEntangledWithUser) {
         await detangle(currentUser.id, user.id);
-        toast.success(`Detangled from ${user.displayName || user.username}`);
       } else {
         await entangle(currentUser.id, user.id, user.displayName || user.username || user.id);
-        toast.success(`Entangled with ${user.displayName || user.username}`);
       }
       await loadEntanglementInsights(user.id);
     } catch (error) {

@@ -1,4 +1,5 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star, Unplug } from "lucide-react";
+import { notifyModeration } from "@/lib/notifications";
 import { usePostFavorite } from "@/hooks/usePostFavorite";
 import { formatDistanceToNow } from "date-fns";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -626,9 +627,6 @@ function PostCardBody({ post }: PostCardProps) {
           return next;
         });
         broadcastPost(updatedPost);
-        toast({
-          title: "Reaction removed",
-        });
       } else {
         const updatedPost = await addReaction(post.id, emoji);
         setUserReactions((prev) => {
@@ -637,10 +635,6 @@ function PostCardBody({ post }: PostCardProps) {
           return next;
         });
         broadcastPost(updatedPost);
-        toast({
-          title: "Reacted!",
-          description: `You reacted with ${emoji}`,
-        });
       }
     } catch (error) {
       console.error("Failed to react:", error);
@@ -725,9 +719,6 @@ function PostCardBody({ post }: PostCardProps) {
         nsfw: editedNSFW,
       });
       broadcastPost(updated);
-      toast({
-        title: "Post updated",
-      });
       setIsEditing(false);
       if (!editedNSFW) {
         setShowNSFWContent(false);
@@ -782,10 +773,11 @@ function PostCardBody({ post }: PostCardProps) {
     setIsBlocking(true);
     try {
       await blockUser(currentUser.id, post.author);
-      toast({
-        title: "User blocked",
-        description: "Their future posts will be hidden from your feed.",
-      });
+      notifyModeration(
+        `You blocked ${post.authorName || "this user"}.`,
+        "Their future posts are hidden from your feed.",
+        "blockedUsers",
+      );
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
       console.error("Failed to block user:", error);
@@ -851,10 +843,11 @@ function PostCardBody({ post }: PostCardProps) {
         content: post.content,
         manifestIds: post.manifestIds,
       });
-      toast({
-        title: "Post hidden",
-        description: "It's out of your feeds and this node no longer supports it. Resume any time from the Node Dashboard.",
-      });
+      notifyModeration(
+        `You hid a post by ${post.authorName || "another user"}.`,
+        "It's out of your feeds and this node no longer supports it.",
+        "unsupportedContent",
+      );
       window.dispatchEvent(new CustomEvent("p2p-posts-updated"));
     } catch (error) {
       console.error("Failed to hide post:", error);
@@ -878,10 +871,11 @@ function PostCardBody({ post }: PostCardProps) {
         content: post.content,
         manifestIds: post.manifestIds,
       });
-      toast({
-        title: "Support stopped",
-        description: "This node no longer holds, seeds or relays this post. Resume it any time from the Node Dashboard.",
-      });
+      notifyModeration(
+        `You stopped supporting a post by ${post.authorName || "another user"}.`,
+        "This node no longer holds, seeds or relays it.",
+        "unsupportedContent",
+      );
     } catch (error) {
       console.error("Failed to stop support:", error);
       toast({ title: "Couldn't stop support", variant: "destructive" });
@@ -957,9 +951,6 @@ function PostCardBody({ post }: PostCardProps) {
         }
       }
 
-      toast({
-        title: downloadable.length > 1 ? `Downloaded ${downloadable.length} files` : "Download started",
-      });
     } catch (error) {
       console.error("Failed to download media:", error);
       toast({

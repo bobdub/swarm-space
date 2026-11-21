@@ -42,7 +42,6 @@ export function GroupWarePanel() {
     if (!serverId) { toast.error('Pick one of your servers to share'); return; }
     if (rpcUrl.trim() && !sanitizeRpcUrl(rpcUrl)) { toast.error('Network address must be a public https:// link'); return; }
     await node.configureHost({ serverId, name: name.trim() || 'My GroupWare node', policy, maxMembers, rpcUrl });
-    toast.success('Sharing settings saved');
   };
 
   const toggleHosting = async (on: boolean) => {

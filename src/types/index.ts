@@ -40,7 +40,18 @@ export interface Reaction {
 export interface Notification {
   id: string;
   userId: string;
-  type: "reaction" | "comment" | "mention" | "follow" | "entanglement" | "recovery_ready";
+  type:
+    | "reaction"
+    | "comment"
+    | "mention"
+    | "follow"
+    | "entanglement"
+    | "recovery_ready"
+    | "credits_received"
+    | "badge_unlocked"
+    | "wallet_deposit"
+    | "moderation"
+    | "system";
   triggeredBy: string;
   triggeredByName: string;
   postId?: string;
@@ -49,6 +60,10 @@ export interface Notification {
   emoji?: string;
   /** In-app route for system notices (e.g. recovery_ready → /settings#security). */
   link?: string;
+  /** Short headline for system notices (credits, badges, deposits, system). */
+  title?: string;
+  /** Label for the `link` button, e.g. "Open wallet". */
+  linkLabel?: string;
   read: boolean;
   createdAt: string;
 }

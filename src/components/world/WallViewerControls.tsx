@@ -46,7 +46,6 @@ export function WallViewerControls({ placementId, ownerId, selfId, postId, prior
       if (p >= 1) {
         recordWallInteraction({ placementId, kind: 'graffiti', actorId: selfId, emoji });
         if (postId) void addReaction(postId, emoji).catch(() => {});
-        toast.success(`Graffiti ${emoji} stamped`);
         stop();
         onClose();
         return;

@@ -423,7 +423,6 @@ export function PreJoinModal({ open, onJoin, onCancel, roomTitle }: PreJoinModal
   const handleAllowOrViewer = useCallback(async () => {
     const granted = await requestMediaAccess();
     if (!granted) {
-      toast.info("Declined allowed, joining as viewer");
       handleJoinAsViewer({ silent: true });
     }
   }, [handleJoinAsViewer, requestMediaAccess]);

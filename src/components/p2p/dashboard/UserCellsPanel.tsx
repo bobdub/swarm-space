@@ -80,7 +80,6 @@ export function UserCellsPanel() {
     setBusy(true);
     try {
       await enterUserCell(cell.cellId);
-      toast.success(`Entered cell ${cell.cellId}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to enter cell');
     } finally {
@@ -92,7 +91,6 @@ export function UserCellsPanel() {
     setBusy(true);
     try {
       await exitUserCell();
-      toast.info('Returned to SWARM');
     } finally {
       setBusy(false);
     }
@@ -103,7 +101,6 @@ export function UserCellsPanel() {
     setBusy(true);
     try {
       const cell = await joinUserCellById(joinId);
-      toast.success(`Joined cell ${cell.cellId}`);
       setJoinId('');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Invalid cell ID');
@@ -114,7 +111,6 @@ export function UserCellsPanel() {
 
   const handleDelete = (cell: UserCell) => {
     deleteUserCell(cell.cellId);
-    toast.info(`Removed ${cell.cellId}`);
   };
 
   const copyId = (id: string) => {

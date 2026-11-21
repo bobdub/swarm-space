@@ -41,7 +41,6 @@ const Tasks = () => {
     try {
       await updateTask(taskId, { status: newStatus });
       await loadTasks();
-      toast.success("Task moved!");
     } catch (error) {
       toast.error("Failed to move task");
       console.error(error);

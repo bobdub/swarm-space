@@ -1,7 +1,7 @@
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Bell, Heart, MessageCircle, User as UserIcon, Check, AtSign, Users, ShieldCheck } from "lucide-react";
+import { Bell, Heart, MessageCircle, User as UserIcon, Check, AtSign, Users, ShieldCheck, Coins, Award, Wallet, Info, EyeOff } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { getNotifications, markAsRead, markAllAsRead } from "@/lib/notifications";
 import { Notification } from "@/types";
@@ -10,6 +10,16 @@ import { Avatar } from "@/components/Avatar";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+
+/** Background notices raised by the app itself rather than another user. */
+const SYSTEM_STYLE: Partial<Record<Notification["type"], { icon: typeof Bell; tone: string; bg: string; label: string; fallbackLink?: string }>> = {
+  recovery_ready: { icon: ShieldCheck, tone: "text-green-500", bg: "bg-green-500/15", label: "View Recovery Link", fallbackLink: "/settings#security" },
+  credits_received: { icon: Coins, tone: "text-amber-400", bg: "bg-amber-400/15", label: "Open wallet", fallbackLink: "/wallet" },
+  badge_unlocked: { icon: Award, tone: "text-[hsl(326,71%,62%)]", bg: "bg-[hsla(326,71%,62%,0.15)]", label: "View badges" },
+  wallet_deposit: { icon: Wallet, tone: "text-amber-400", bg: "bg-amber-400/15", label: "Open wallet", fallbackLink: "/wallet" },
+  moderation: { icon: EyeOff, tone: "text-foreground/80", bg: "bg-foreground/10", label: "Manage blocked users", fallbackLink: "/settings#blocked-users" },
+  system: { icon: Info, tone: "text-[hsl(174,59%,56%)]", bg: "bg-[hsla(174,59%,56%,0.15)]", label: "Open" },
+};
 
 const Notifications = () => {
   const { user } = useAuth();
@@ -62,9 +72,6 @@ const Notifications = () => {
   const handleMarkAllAsRead = async () => {
     await markAllAsRead();
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    toast({
-      title: "All notifications marked as read",
-    });
   };
 
   const getNotificationIcon = (type: Notification["type"], emoji?: string) => {
@@ -81,6 +88,15 @@ const Notifications = () => {
         return <Users className="h-4 w-4 text-primary" />;
       case "recovery_ready":
         return <ShieldCheck className="h-4 w-4 text-green-500" />;
+      case "credits_received":
+      case "badge_unlocked":
+      case "wallet_deposit":
+      case "moderation":
+      case "system": {
+        const style = SYSTEM_STYLE[type]!;
+        const Icon = style.icon;
+        return <Icon className={`h-4 w-4 ${style.tone}`} />;
+      }
       default:
         return <Bell className="h-4 w-4 text-foreground/60" />;
     }
@@ -128,6 +144,20 @@ const Notifications = () => {
             {notif.content || "A peer is holding your encrypted recovery vault."}
           </>
         );
+      case "credits_received":
+      case "badge_unlocked":
+      case "wallet_deposit":
+      case "moderation":
+      case "system":
+        return (
+          <>
+            {notif.title && (
+              <span className={`font-semibold ${SYSTEM_STYLE[notif.type]!.tone}`}>{notif.title}</span>
+            )}
+            {notif.title && notif.content ? " " : null}
+            {notif.content}
+          </>
+        );
       default:
         return notif.content || "New notification";
     }
@@ -169,7 +199,7 @@ const Notifications = () => {
               <Bell className="mx-auto mb-4 h-12 w-12 text-[hsl(174,59%,56%)] opacity-50" />
               <p className="text-foreground/60">No notifications yet</p>
               <p className="mt-2 text-sm text-foreground/40">
-                You'll see reactions, comments, and other interactions here
+                You'll see reactions, comments, credits, badges and other updates here
               </p>
             </Card>
           ) : (
@@ -188,11 +218,15 @@ const Notifications = () => {
                   }`}
                 >
                   <div className="flex gap-4 p-4">
-                    {notif.type === "recovery_ready" ? (
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-500/15">
-                        <ShieldCheck className="h-5 w-5 text-green-500" />
-                      </div>
-                    ) : (
+                    {SYSTEM_STYLE[notif.type] ? (() => {
+                      const style = SYSTEM_STYLE[notif.type]!;
+                      const Icon = style.icon;
+                      return (
+                        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${style.bg}`}>
+                          <Icon className={`h-5 w-5 ${style.tone}`} />
+                        </div>
+                      );
+                    })() : (
                       <Avatar username={notif.triggeredByName} size="md" />
                     )}
                     <div className="min-w-0 flex-1">
@@ -220,13 +254,13 @@ const Notifications = () => {
                             Mark as read
                           </Button>
                         )}
-                        {notif.type === "recovery_ready" && (
+                        {SYSTEM_STYLE[notif.type] && (notif.link || SYSTEM_STYLE[notif.type]!.fallbackLink) && (
                           <Link
-                            to={notif.link || "/settings#security"}
+                            to={(notif.link || SYSTEM_STYLE[notif.type]!.fallbackLink)!}
                             onClick={() => { if (!notif.read) void handleMarkAsRead(notif.id); }}
-                            className="text-xs text-green-500 transition-colors hover:text-[hsl(326,71%,62%)]"
+                            className={`text-xs ${SYSTEM_STYLE[notif.type]!.tone} transition-colors hover:text-[hsl(326,71%,62%)]`}
                           >
-                            View Recovery Link
+                            {notif.linkLabel || SYSTEM_STYLE[notif.type]!.label}
                           </Link>
                         )}
                         {notif.postId && (

@@ -85,8 +85,17 @@ export function MintMeMiningService() {
       syncing = true;
       const notify = async (credited: number, symbol: string) => {
         if (cancelled || credited <= 0) return;
-        const { toast } = await import("sonner");
-        if (!cancelled) toast.success(`${credited} ${symbol} arrived in your native wallet`);
+        const { notifySystem } = await import("@/lib/notifications");
+        if (!cancelled) {
+          await notifySystem({
+            userId: uid,
+            type: "wallet_deposit",
+            title: `${credited} ${symbol} arrived.`,
+            content: "The deposit is in your native wallet.",
+            link: "/wallet",
+            linkLabel: "Open wallet",
+          });
+        }
       };
       try {
         const [native, custom] = await Promise.all([

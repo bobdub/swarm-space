@@ -1,4 +1,5 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { notifyModeration } from "@/lib/notifications";
 import { useNavigate, useParams } from "react-router-dom";
 import { Loader2, ShieldAlert, Users, Image as ImageIcon } from "lucide-react";
 
@@ -276,9 +277,6 @@ const ProjectSettings = () => {
         setBio(updated.profile?.bio ?? updated.description ?? "");
         setAvatarRef(updated.profile?.avatarRef);
         setBannerRef(updated.profile?.bannerRef);
-        toast({
-          title: "Project profile updated",
-        });
       }
     } catch (error) {
       console.error("Failed to update project profile:", error);
@@ -310,10 +308,6 @@ const ProjectSettings = () => {
 
       if (updated) {
         setProject(updated);
-        toast({
-          title: "Visibility updated",
-          description: `Project is now ${nextVisibility}.`,
-        });
       }
     } catch (error) {
       console.error("Failed to update visibility:", error);
@@ -346,12 +340,6 @@ const ProjectSettings = () => {
 
       if (updated) {
         setProject(updated);
-        toast({
-          title: "Join settings updated",
-          description: nextAllowJoin
-            ? "Members can request to join this project."
-            : "Join requests are now disabled.",
-        });
       }
     } catch (error) {
       console.error("Failed to update join settings:", error);
@@ -381,13 +369,6 @@ const ProjectSettings = () => {
       });
       if (updated) {
         setProject(updated);
-        toast({
-          title: "Live feed policy updated",
-          description:
-            next === "members-allowed"
-              ? "Any project member can start a live feed."
-              : "Only the project owner can start a live feed.",
-        });
       }
     } catch (error) {
       console.error("Failed to update live feed policy:", error);
@@ -440,10 +421,6 @@ const ProjectSettings = () => {
     setLeaving(true);
     try {
       await removeProjectMember(project.id, currentUser.id);
-      toast({
-        title: "Left project",
-        description: `You have left "${project.name}"`,
-      });
       navigate(`/projects/${project.id}`);
     } catch (error) {
       console.error("Failed to leave project:", error);
@@ -465,9 +442,6 @@ const ProjectSettings = () => {
     setRemovingMemberId(memberId);
     try {
       await removeProjectMember(project.id, memberId);
-      toast({
-        title: "Member removed",
-      });
       await loadProject();
     } catch (error) {
       console.error("Failed to remove member:", error);
@@ -490,10 +464,13 @@ const ProjectSettings = () => {
     try {
       await blockUser(currentUser.id, memberId);
       setBlockedIds((prev) => [...prev, memberId]);
-      toast({
-        title: "User blocked",
-        description: "They will no longer be able to contact you.",
-      });
+      const blockedMember = members.find((member) => member.id === memberId);
+      const blockedName = blockedMember?.displayName || blockedMember?.username;
+      notifyModeration(
+        `You blocked ${blockedName || "a project member"}.`,
+        "They can no longer contact you.",
+        "blockedUsers",
+      );
     } catch (error) {
       console.error("Failed to block user:", error);
       toast({
