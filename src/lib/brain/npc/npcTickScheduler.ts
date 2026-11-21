@@ -39,6 +39,17 @@ import { mortalityProbability } from './mortality';
 import { driveToResourceKind, nearestSite, ARRIVE_RADIUS } from '@/lib/world/resourceTargeting';
 import { tickRegrowth } from '@/lib/world/baseResources';
 import { interact as wetInteract } from '@/lib/world/wetWork';
+import {
+  listLooseTools,
+  ownedToolKinds,
+  pickToolToFetch,
+  pickUpTool,
+  vanishUnwantedTools,
+  TOOL_PICKUP_RADIUS_M,
+  type LooseTool,
+  type NpcToolKind,
+} from './npcTools';
+import { resolveLocalAnchorId } from './localAnchor';
 
 const TICK_HZ = 8;
 const TICK_MS = 1000 / TICK_HZ;
@@ -73,6 +84,67 @@ function uqrcSpeed(npc: Npc, curvatureGate: number): number {
   // Normalise so a REFERENCE_MASS body at gate=1.0 ≈ 1.2 m/s baseline.
   const v = raw * (1.2 * REFERENCE_MASS / BASE_DRIVE_FORCE);
   return Math.max(MIN_SPEED, Math.min(MAX_SPEED, v));
+}
+
+/** Tool fetching yields to thirst and hunger past this deficit. */
+const FETCH_DEFICIT_LIMIT = 0.7;
+/** How often unwanted dropped tools are checked for vanishing. */
+const VANISH_SWEEP_MS = 1000;
+
+/** Loose tools for this tick, by NPC anchor (one scan per tick). */
+let _looseTools = new Map<string, LooseTool[]>();
+/** placementId → id of the local NPC walking to it, so two don't race. */
+const _fetching = new Map<string, string>();
+let _lastVanishSweepAt = 0;
+
+function looseToolsFor(anchorId: string): LooseTool[] {
+  let list = _looseTools.get(anchorId);
+  if (!list) {
+    try { list = listLooseTools(anchorId); } catch { list = []; }
+    _looseTools.set(anchorId, list);
+  }
+  return list;
+}
+
+function localRecorderId(): string {
+  const id = resolveLocalAnchorId('self');
+  return id && id !== 'self' ? id : 'local';
+}
+
+/**
+ * Walk toward (and pick up) a dropped tool this NPC does not own a kind
+ * of yet. Returns the next position when the NPC spent its tick on it,
+ * or null when it has no tool to go after.
+ */
+function fetchTool(
+  npc: Npc,
+  owned: ReadonlySet<NpcToolKind>,
+  dtSeconds: number,
+): { tx: number; tz: number } | null {
+  const tools = looseToolsFor(npc.anchorPeerId);
+  const takenByOthers = new Set<string>();
+  for (const [placementId, npcId] of _fetching) {
+    if (npcId !== npc.id) takenByOthers.add(placementId);
+  }
+  const target = pickToolToFetch(npc, tools, owned, takenByOthers);
+  for (const [placementId, npcId] of _fetching) {
+    if (npcId === npc.id && placementId !== target?.placementId) _fetching.delete(placementId);
+  }
+  if (!target || target.tx === null || target.tz === null) return null;
+  _fetching.set(target.placementId, npc.id);
+  const dx = target.tx - npc.tx;
+  const dz = target.tz - npc.tz;
+  const d = Math.hypot(dx, dz);
+  if (d > TOOL_PICKUP_RADIUS_M) {
+    const step = Math.min(d, uqrcSpeed(npc, 1.0) * dtSeconds);
+    return { tx: npc.tx + (dx / d) * step, tz: npc.tz + (dz / d) * step };
+  }
+  _fetching.delete(target.placementId);
+  // Drop it from this tick's list either way: it's ours, or a peer's NPC won.
+  const list = _looseTools.get(npc.anchorPeerId);
+  if (list) _looseTools.set(npc.anchorPeerId, list.filter((t) => t.placementId !== target.placementId));
+  pickUpTool(npc, target, localRecorderId());
+  return { tx: npc.tx, tz: npc.tz };
 }
 
 let _timer: ReturnType<typeof setInterval> | null = null;
@@ -118,8 +190,27 @@ function tickOne(npc: Npc, dtSeconds: number): void {
   let engine;
   try { engine = getSharedFieldEngine(); } catch { return; }
 
-  const hasTool = (npc.skills?.['craft'] ?? 0) > 0.55;
+  const owned = ownedToolKinds(npc.name);
+  const hasTool = owned.size > 0 || (npc.skills?.['craft'] ?? 0) > 0.55;
   const sig = sampleSignalsForNpc(engine, npc, dtSeconds, hasTool);
+
+  // A dropped tool nearby that this NPC has no kind of yet: go and get it,
+  // unless thirst or hunger can't wait. Picking it up counts as gathering.
+  const urgent = sig.hydrationDeficit >= FETCH_DEFICIT_LIMIT || sig.energyDeficit >= FETCH_DEFICIT_LIMIT;
+  const fetched = urgent ? null : fetchTool(npc, owned, dtSeconds);
+  if (fetched) {
+    const moved: Npc = {
+      ...npc,
+      ageYears: npc.ageYears + dtSeconds / BRAIN_YEAR_SECONDS,
+      currentDrive: 'gather',
+      tx: fetched.tx,
+      tz: fetched.tz,
+    };
+    updateNpc(moved);
+    syncNpcBodyBlocks(moved);
+    emitNpcDecision({ npcId: npc.id, verb: 'gather', qDelta: 0 });
+    return;
+  }
 
   // Primary choice via personality utility (deterministic, fast).
   const primary = chooseIntent(npc.seed, sig);
@@ -159,7 +250,7 @@ function tickOne(npc: Npc, dtSeconds: number): void {
         nextTx += (dx / d) * step;
         nextTz += (dz / d) * step;
       } else {
-        const outcome = wetInteract(npc, picked, site);
+        const outcome = wetInteract(npc, picked, site, owned);
         contacted = outcome.ok;
       }
     }
@@ -213,6 +304,19 @@ function tickAll(): void {
 
   const roster = listNpcs();
   if (roster.length === 0) return;
+
+  // One scan of the ground per tick; NPCs share it.
+  _looseTools = new Map();
+  if (now - _lastVanishSweepAt >= VANISH_SWEEP_MS) {
+    _lastVanishSweepAt = now;
+    try {
+      // Vanishing ignores distance, so any one anchor's full list will do.
+      vanishUnwantedTools(looseToolsFor(roster[0].anchorPeerId), roster, localRecorderId(), now);
+      _looseTools = new Map();
+    } catch (err) {
+      console.warn('[npcTick] unwanted tool sweep failed', err);
+    }
+  }
   for (const npc of roster) {
     try { tickOne(npc, brainDt); } catch (err) {
       console.warn('[npcTick] tick failed for', npc.id, err);
@@ -272,4 +376,7 @@ export function _resetTickSchedulerForTest(): void {
   _seeded = false;
   _lastTickAt = 0;
   _unloadHooked = false;
+  _looseTools = new Map();
+  _fetching.clear();
+  _lastVanishSweepAt = 0;
 }

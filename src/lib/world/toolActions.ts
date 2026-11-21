@@ -30,7 +30,8 @@ import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { swingProgress, swingResisted, swingSuccess } from '@/lib/world/swingFeedback';
 import { playerSwingEnergy } from '@/lib/world/swingEnergy';
 
-import { removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
+import { recordLocalPlacement, removeLocalPlacement, type PlacementRecord } from '@/lib/world/worldPlacementsStore';
+import { placePrefabAtHit } from '@/lib/world/placementController';
 import { canBuildAtWorldPoint } from '@/lib/world/landPermissions';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
@@ -957,6 +958,34 @@ export async function swingToolBackIntoWorld(toolPrefabId: string, selfId?: stri
   const ok = await swingToolInAir(toolPrefabId, selfId);
   if (!ok) return false;
   return true;
+}
+
+/**
+ * Put the held tool down on the ground just in front of the player, as a
+ * new placement (fresh id, so it never collides with the tombstone left
+ * when it was picked up). Village NPCs can then come and collect it (see
+ * npc/npcTools). Tools equipped straight from the bar carry no real spot
+ * of their own, so the player's position is the only sensible place.
+ * Falls back to the original spot when the player has no body yet.
+ */
+export async function dropHeldToolOnGround(
+  held: { prefabId: string; source: PlacementRecord },
+  selfId?: string,
+): Promise<PlacementRecord> {
+  const spot = pointInFrontOfSelf(selfId, 0.7);
+  if (spot) {
+    const now = Date.now();
+    const handle = placePrefabAtHit({
+      hitPoint: spot.point,
+      prefabId: held.prefabId,
+      actorId: selfId ?? held.source.actorId,
+      yaw: held.source.yaw ?? 0,
+      noLabour: true,
+      placementId: `drop:${held.prefabId}:${now.toString(36)}:${Math.floor(Math.random() * 1e6).toString(36)}`,
+    });
+    if (handle) return recordLocalPlacement(handle);
+  }
+  return recordLocalPlacement({ ...held.source, createdAt: Date.now() });
 }
 
 export async function consumeHeldToolDrop(target: PlacementRecord): Promise<void> {
