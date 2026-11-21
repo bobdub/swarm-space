@@ -9,6 +9,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getMantlePressure } from '@/lib/brain/lavaMantle';
+import { getEarthPoseTime } from '@/lib/brain/earth';
 
 const vertexShader = /* glsl */ `
   varying vec2 vUv;
@@ -42,7 +43,7 @@ const fragmentShader = /* glsl */ `
     flow += 0.5 * noise(uv * 7.0 - vec2(uTime * 0.09, uTime * 0.06));
 
     // Crust plates (dark) separated by glowing cracks.
-    float crack = smoothstep(0.52, 0.46, abs(flow - 0.62));
+    float crack = 1.0 - smoothstep(0.46, 0.52, abs(flow - 0.62));
     float heat = clamp(crack + uPressure * 0.35, 0.0, 1.0);
 
     vec3 crust = vec3(0.10, 0.05, 0.05);
@@ -64,20 +65,22 @@ export function VolcanoLavaPool({ radius }: { radius: number }) {
     [],
   );
 
-  useFrame(({ clock }) => {
+  useFrame(() => {
+    const time = getEarthPoseTime();
     if (matRef.current) {
-      matRef.current.uniforms.uTime.value = clock.elapsedTime;
+      matRef.current.uniforms.uTime.value = time;
       const pressure = Math.max(0, Math.min(1, getMantlePressure()));
       matRef.current.uniforms.uPressure.value = pressure;
       if (lightRef.current) {
-        lightRef.current.intensity = 6 + pressure * 14 + Math.sin(clock.elapsedTime * 1.7) * 1.2;
+        lightRef.current.intensity = 6 + pressure * 14 + Math.sin(time * 1.7) * 1.2;
       }
     }
   });
 
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.6, 0]}>
+      {/* Horizontal liquid: raised bowl walls occlude it through depth testing. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <circleGeometry args={[radius, 48]} />
         <shaderMaterial
           ref={matRef}
@@ -90,7 +93,7 @@ export function VolcanoLavaPool({ radius }: { radius: number }) {
       </mesh>
       <pointLight
         ref={lightRef}
-        position={[0, 1.4, 0]}
+        position={[0, 0.3, 0]}
         color="hsl(20, 100%, 58%)"
         intensity={8}
         distance={radius * 12}

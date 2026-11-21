@@ -6,6 +6,7 @@
 - Add a caretaker reflection to `.lovable/MemoryGarden.md` before work; extend after tending.
 
 ## Scoped guidance
+- Volcano effects sample baked crater terrain and shared-time wind; slopes use world-space mesh normals to keep light and ground aligned.
 - Fish and shark fight pacing stays in the shared fishing engine, so the displayed bar and strike checks agree.
 - Guest names live only on the guest identity, never shared avatar preferences; gate member routes, mining and post creation independently because guests retain P2P identities.
 - Direct Brain guest entry runs only after session restoration resolves signed-out and before mounting the scene; deduplicate guest provisioning and recheck identity after key generation so returning or concurrently signed-in members are never overwritten.
