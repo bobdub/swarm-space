@@ -79,3 +79,38 @@ describe("one reward per block", () => {
     expect(await peer.appendPeerBlock(block!)).toBe(true);
   }, 60_000);
 });
+
+describe("block reward is the only issuance", () => {
+  const selfMint = (id: string) => ({ ...tx(id), type: "token_mint", from: "system", to: "me", amount: 1_000 });
+
+  it("keeps self-issued mints out of mined blocks, and can mine a reward-only block", async () => {
+    const miner = new SwarmChain();
+    await miner.whenReady();
+    miner.addTransaction(selfMint("mine-to-me") as never);
+    expect(await miner.minePendingTransactions("me")).toBeNull();
+    const block = (await miner.minePendingTransactions("me", undefined, { allowEmpty: true, hollow: true }))!;
+    expect(block.transactions.map((t) => t.type)).toEqual(["mining_reward"]);
+    expect(block.transactions[0].amount).toBe(25);
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    expect(await peer.appendPeerBlock(block)).toBe(true);
+  }, 60_000);
+
+  it("rejects a peer block stamped after the cutoff that carries a self-issued mint", async () => {
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    const honest = (await peer.minePendingTransactions("greedy", undefined, { allowEmpty: true }))!;
+    const transactions = [...honest.transactions, selfMint("forged") as never];
+    const forged = { ...honest, timestamp: "2026-12-01T00:00:00.000Z", transactions, nonce: 0, hash: "", merkleRoot: await calculateMerkleRoot(transactions) };
+    const block = await (peer as unknown as { mineBlock: (b: unknown) => Promise<typeof honest> }).mineBlock(forged);
+    const local = new SwarmChain();
+    await local.whenReady();
+    expect(await local.appendPeerBlock(block)).toBe(false);
+  }, 60_000);
+
+  it("holds a block reward back until it matures", async () => {
+    const chain = await minedChain(1, "me");
+    expect(chain.getBalance("me")).toBe(0);
+    expect(chain.getImmatureRewards("me")).toBe(50);
+  }, 60_000);
+});

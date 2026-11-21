@@ -18,6 +18,7 @@
  */
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
+import { isSelfIssuedSwarmMint } from "@/lib/blockchain/issuance";
 
 export const CREDIT_CHANNEL = "credits";
 export const CHAIN_TX_CHANNEL = "chain-tx";
@@ -276,6 +277,8 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
         onCreditTransfer,
         acceptChainTx: async (tx) => {
           await chain.whenReady();
+          // New coins come only from block rewards: a peer's self-issued mint is unverifiable.
+          if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
           chain.addTransaction(tx);
           if (typeof window !== "undefined") {

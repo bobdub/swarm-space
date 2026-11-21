@@ -4,6 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
+import { blockForbidsSelfMints, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint } from "./issuance";
 import { verifyWalletTip } from "./wallets/tipSignature";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
@@ -281,8 +282,16 @@ export class SwarmChain {
     });
   }
 
-  async minePendingTransactions(minerAddress: string, chainId?: string): Promise<SwarmBlock | null> {
-    if (this.pendingTransactions.length === 0) {
+  async minePendingTransactions(
+    minerAddress: string,
+    chainId?: string,
+    options: { allowEmpty?: boolean; hollow?: boolean } = {},
+  ): Promise<SwarmBlock | null> {
+    // A block pays exactly one reward: its own. Rewards from other blocks
+    // (orphaned or copied from a peer's chain) never ride along, and
+    // self-issued mints stay on this device: peers can't check them.
+    const carried = this.pendingTransactions.filter((tx) => tx.type !== "mining_reward" && !isSelfIssuedSwarmMint(tx));
+    if (carried.length === 0 && !options.allowEmpty) {
       return null;
     }
 
@@ -295,19 +304,17 @@ export class SwarmChain {
       from: "system",
       to: minerAddress,
       // From the block's height, the same rule peers check it against.
-      amount: this.rewardAtHeight(this.chain.length),
+      amount: this.rewardAtHeight(this.chain.length) * (options.hollow ? HOLLOW_REWARD_SHARE : 1),
       timestamp: new Date(networkNow()).toISOString(),
       signature: "",
       publicKey: "",
       nonce: 0,
       fee: 0,
       chainId: resolvedChainId,
-      meta: { reward: true, chainId: resolvedChainId },
+      meta: { reward: true, chainId: resolvedChainId, ...(options.hollow ? { hollow: true } : {}) },
     };
 
-    // A block pays exactly one reward: its own. Rewards from other blocks
-    // (orphaned or copied from a peer's chain) never ride along.
-    const transactions = [...this.pendingTransactions.filter((tx) => tx.type !== "mining_reward"), rewardTransaction];
+    const transactions = [...carried, rewardTransaction];
     const block: SwarmBlock = {
       index: this.chain.length,
       timestamp: new Date(networkNow()).toISOString(),
@@ -440,7 +447,11 @@ export class SwarmChain {
     let balance = 0;
 
     for (const block of this.chain) {
+      // A reward is spendable only once enough blocks sit on top of it, so a
+      // block that loses a fork takes its reward with it before anyone spends it.
+      const mature = isRewardMature(block.index, this.chain.length);
       for (const tx of block.transactions) {
+        if (tx.type === "mining_reward" && !mature) continue;
         balance += this.applyTransactionToBalance(tx, address);
       }
     }
@@ -450,6 +461,18 @@ export class SwarmChain {
     }
 
     return Math.max(0, balance);
+  }
+
+  /** Block rewards paid to `address` that are not yet spendable. */
+  getImmatureRewards(address: string): number {
+    let total = 0;
+    for (const block of this.chain) {
+      if (isRewardMature(block.index, this.chain.length)) continue;
+      for (const tx of block.transactions) {
+        if (tx.type === "mining_reward" && tx.to === address) total += Number(tx.amount) || 0;
+      }
+    }
+    return total;
   }
 
   getTotalSupply(): number {
@@ -540,6 +563,8 @@ export class SwarmChain {
    * that credits itself any amount.
    */
   private hasValidRewards(block: SwarmBlock): boolean {
+    // New coins come only from the block reward: no self-issued mints.
+    if (blockForbidsSelfMints(block) && block.transactions.some(isSelfIssuedSwarmMint)) return false;
     const rewards = block.transactions.filter((tx) => tx.type === "mining_reward");
     if (rewards.length > 1) return false;
     const reward = rewards[0];
