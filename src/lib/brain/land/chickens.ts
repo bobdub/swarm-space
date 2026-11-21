@@ -15,7 +15,15 @@
  * bird that was lost, walking the same loop. So the land never runs out of
  * chickens, and nothing more is sent.
  *
- * A hen's egg only hatches if the flock has a rooster, so when the rooster
+ * Hens also lay on their own: each hen lays an egg in the nest every
+ * `LAY_EVERY_MS` (each on her own beat), so a nest usually holds an egg or
+ * two. A player can take an egg for Food (one `egg-taken` event, shared
+ * like a catch). An egg left alone hatches if the rooster was there when
+ * it was laid; the chick trots after its mother while it grows, then
+ * wanders off to start a flock of its own. An egg laid with no rooster is
+ * not fertile and just sits in the nest until it is taken or goes bad.
+ *
+ * A hen's replacement egg only hatches if the flock has a rooster, so when the rooster
  * is caught the hens hold off laying until a new rooster has grown up. (His
  * own replacement egg needs no rooster: a hen stays fertile for weeks.)
  *
@@ -47,6 +55,14 @@ export const EGG_HATCH_MS = 4 * 60_000;
 export const CHICK_GROW_MS = 6 * 60_000;
 /** Shortest time from a catch until the flock is whole again (ms). */
 export const HEN_RESPAWN_MS = EGG_LAY_MS + EGG_HATCH_MS + CHICK_GROW_MS;
+/** Each hen lays an egg on her own this often (ms). */
+export const LAY_EVERY_MS = 5 * 60_000;
+/** An infertile egg sits in the nest this long before it goes bad (ms). */
+export const EGG_KEEP_MS = 2 * LAY_EVERY_MS;
+/** Food for an egg taken from the nest. */
+export const FOOD_PER_EGG = 1;
+/** How close (m) a player has to be to a nest to take an egg. */
+export const NEST_REACH_M = 1.6;
 /** How close (m) a knife has to get to a hen to catch her. */
 export const HEN_CATCH_REACH_M = 1.8;
 /** Biome anchor stamped on hen events (keeps them apart from tree events). */
@@ -307,19 +323,26 @@ export function hensNear(n: Vec3, radiusM: number): Hen[] {
 // ── Catches, from the shared nature events ──────────────────────────
 
 let caughtAt: Map<string, number[]> | null = null;
+let takenAt: Map<string, number> | null = null;
 let unsubscribe: (() => void) | null = null;
 
 /** Every catch time per bird, oldest first. */
 function catches(): Map<string, number[]> {
   if (!caughtAt) {
     caughtAt = new Map();
+    takenAt = new Map();
     for (const e of listNatureEvents(HEN_EVENT_ANCHOR)) {
+      if (e.kind === 'egg-taken') {
+        const prev = takenAt.get(e.blockId);
+        if (prev === undefined || e.at < prev) takenAt.set(e.blockId, e.at);
+        continue;
+      }
       if (e.kind !== 'hen-caught') continue;
       const list = caughtAt.get(e.blockId);
       if (list) list.push(e.at); else caughtAt.set(e.blockId, [e.at]);
     }
     for (const list of caughtAt.values()) list.sort((a, b) => a - b);
-    if (!unsubscribe) unsubscribe = subscribeNatureEvents(() => { caughtAt = null; });
+    if (!unsubscribe) unsubscribe = subscribeNatureEvents(() => { caughtAt = null; takenAt = null; });
   }
   return caughtAt;
 }
@@ -426,6 +449,167 @@ export function chickPoseAt(h: Hen, t: number, progress: number): HenPose {
   return { ...p, n };
 }
 
+// ── The brood: eggs hens lay on their own, and the chicks they become ──
+
+export interface BroodEgg {
+  /** Shared id, also the body id on `egg-taken` events: `egg:<hen>:<k>`. */
+  id: string;
+  mother: Hen;
+  /** When it was laid (ms). */
+  layAt: number;
+  /** True if the rooster was with the flock when it was laid. */
+  fertile: boolean;
+}
+
+export interface BroodChick {
+  egg: BroodEgg;
+  /** 0..1 from hatching to wandering off. */
+  progress: number;
+}
+
+function hash01(id: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619) >>> 0;
+  return h / 4294967296;
+}
+
+/** When egg `id` was taken from the nest, if it was. */
+function eggTakenAt(id: string, now: number): number | undefined {
+  catches();
+  const at = takenAt?.get(id);
+  return at !== undefined && at <= now ? at : undefined;
+}
+
+function roosterPresent(flock: string, at: number): boolean {
+  const r = roosterOf(flock);
+  return !!r && henLifeAt(r, at).stage === 'adult';
+}
+
+/** The eggs `h` laid on her own whose lives overlap `now`, newest last. */
+function layingsNear(h: Hen, now: number): BroodEgg[] {
+  if (h.rooster) return [];
+  const off = hash01(h.id) * LAY_EVERY_MS;
+  const span = Math.max(EGG_KEEP_MS, EGG_HATCH_MS + CHICK_GROW_MS);
+  const kHi = Math.floor((now - off) / LAY_EVERY_MS);
+  const kLo = Math.floor((now - off - span) / LAY_EVERY_MS);
+  const out: BroodEgg[] = [];
+  for (let k = Math.max(kLo, 0); k <= kHi; k++) {
+    const layAt = k * LAY_EVERY_MS + off;
+    // She only lays while she is with the flock as a grown hen.
+    if (henLifeAt(h, layAt).stage !== 'adult') continue;
+    out.push({ id: `egg:${h.id}:${k}`, mother: h, layAt, fertile: roosterPresent(h.flock, layAt) });
+  }
+  return out;
+}
+
+/** Eggs lying in `flock`'s nest at `now` that a player may take. */
+export function nestEggs(flockHens: Hen[], now = Date.now()): BroodEgg[] {
+  const out: BroodEgg[] = [];
+  for (const h of flockHens) {
+    for (const e of layingsNear(h, now)) {
+      if (now < e.layAt || eggTakenAt(e.id, now) !== undefined) continue;
+      const end = e.layAt + (e.fertile ? EGG_HATCH_MS : EGG_KEEP_MS);
+      if (now < end) out.push(e);
+    }
+  }
+  return out.sort((a, b) => a.layAt - b.layAt);
+}
+
+/** Chicks hatched from untaken eggs of `flockHens`, at `now`. */
+export function broodChicks(flockHens: Hen[], now = Date.now()): BroodChick[] {
+  const out: BroodChick[] = [];
+  for (const h of flockHens) {
+    for (const e of layingsNear(h, now)) {
+      if (!e.fertile || eggTakenAt(e.id, now) !== undefined) continue;
+      const hatch = e.layAt + EGG_HATCH_MS;
+      if (now >= hatch && now < hatch + CHICK_GROW_MS) out.push({ egg: e, progress: (now - hatch) / CHICK_GROW_MS });
+    }
+  }
+  return out;
+}
+
+/** Where in the nest (tangent offset, m) a laid egg lies. */
+export function broodEggOffset(e: BroodEgg): [number, number] {
+  const a = hash01(e.id) * Math.PI * 2;
+  const d = 0.05 + 0.08 * hash01(`${e.id}/r`);
+  return [Math.cos(a) * d, Math.sin(a) * d];
+}
+
+/**
+ * A brood chick's pose at shared time `t`: it toddles out of the nest to
+ * its mother, trots along just behind her, and near the end of growing up
+ * wanders off on its own to start a new flock.
+ */
+export function broodChickPoseAt(c: BroodChick, t: number): HenPose {
+  const mom = henPoseAt(c.egg.mother, t);
+  const seed = hash01(c.egg.id);
+  // Behind and a little to one side of her, with a bit of a scamper.
+  const back = 0.45 + 0.25 * seed;
+  const side = (seed - 0.5) * 0.8 + 0.15 * Math.sin(t * 1.7 + seed * 10);
+  const right = normalize([
+    mom.heading[1] * mom.n[2] - mom.heading[2] * mom.n[1],
+    mom.heading[2] * mom.n[0] - mom.heading[0] * mom.n[2],
+    mom.heading[0] * mom.n[1] - mom.heading[1] * mom.n[0],
+  ]);
+  const dir = normalize([
+    -mom.heading[0] * back + right[0] * side,
+    -mom.heading[1] * back + right[1] * side,
+    -mom.heading[2] * back + right[2] * side,
+  ]);
+  let n = travel(mom.n, dir, Math.hypot(back, side));
+  const k = Math.min(1, c.progress * 6);
+  if (k < 1) {
+    n = normalize([
+      c.egg.mother.nest[0] + (n[0] - c.egg.mother.nest[0]) * k,
+      c.egg.mother.nest[1] + (n[1] - c.egg.mother.nest[1]) * k,
+      c.egg.mother.nest[2] + (n[2] - c.egg.mother.nest[2]) * k,
+    ]);
+  }
+  let heading = mom.heading;
+  if (c.progress > 0.8) {
+    // Off it goes, straight out from the flock.
+    const [e1] = tangents(c.egg.mother.nest, seed * Math.PI * 2);
+    const away = (c.progress - 0.8) / 0.2;
+    n = travel(n, e1, away * 12);
+    heading = e1;
+  }
+  return { n, heading, pecking: mom.pecking, phase: mom.phase };
+}
+
+/** The flock mates of `h` (including her). */
+export function flockOf(h: Hen): Hen[] {
+  if (!flocks) {
+    flocks = new Map();
+    for (const x of getHens()) {
+      const l = flocks.get(x.flock);
+      if (l) l.push(x); else flocks.set(x.flock, [x]);
+    }
+  }
+  return flocks.get(h.flock) ?? [h];
+}
+let flocks: Map<string, Hen[]> | null = null;
+
+/**
+ * The nest within `reachM` of `n` with an egg to take, and its oldest egg.
+ */
+export function nearestNestEgg(
+  n: Vec3,
+  now = Date.now(),
+  reachM = NEST_REACH_M,
+): { egg: BroodEgg; distM: number } | null {
+  let best: { egg: BroodEgg; distM: number } | null = null;
+  const seen = new Set<string>();
+  for (const h of hensNear(n, reachM)) {
+    if (seen.has(h.flock)) continue;
+    seen.add(h.flock);
+    const d = arcMetres(n, h.nest);
+    if (d > reachM || (best && d >= best.distM)) continue;
+    const eggs = nestEggs(flockOf(h), now);
+    if (eggs.length) best = { egg: eggs[0], distM: d };
+  }
+  return best;
+}
+
 /**
  * The nearest hen that is out and within `reachM` of `n` at shared time
  * `t` (s) and wall time `now` (ms), with her pose.
@@ -450,7 +634,9 @@ export function _resetChickensForTest(): void {
   cached = null;
   roosters = null;
   byId = null;
+  flocks = null;
   caughtAt = null;
+  takenAt = null;
   unsubscribe?.();
   unsubscribe = null;
   volcano = null;

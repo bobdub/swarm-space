@@ -6,6 +6,12 @@ import {
   HEN_EVENT_ANCHOR,
   HEN_MIN_GROUND,
   CHICK_GROW_MS,
+  LAY_EVERY_MS,
+  broodChickPoseAt,
+  broodChicks,
+  flockOf,
+  nestEggs,
+  nearestNestEgg,
   EGG_HATCH_MS,
   EGG_LAY_MS,
   HEN_RESPAWN_MS,
@@ -151,5 +157,68 @@ describe('free-range chickens', () => {
     const life = henLifeAt(hen, at + HEN_RESPAWN_MS + 1);
     expect(life.stage).toBe('egg');
     expect(life.layAt).toBe(at + HEN_RESPAWN_MS);
+  });
+
+  it('hens lay eggs in the nest on their own, so nests are rarely empty', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const flock = flockOf(hen);
+    const start = Date.UTC(2026, 10, 21, 12);
+    let withEggs = 0;
+    let withChicks = 0;
+    const N = 60;
+    for (let i = 0; i < N; i++) {
+      const now = start + i * 37_000;
+      if (nestEggs(flock, now).length > 0) withEggs++;
+      if (broodChicks(flock, now).length > 0) withChicks++;
+    }
+    expect(withEggs).toBeGreaterThan(N * 0.5);
+    expect(withChicks).toBeGreaterThan(N * 0.3);
+    // Every hen of the flock lays once per cycle.
+    const hens = flock.filter((h) => !h.rooster).length;
+    const laid = new Set<string>();
+    for (let i = 0; i < 40; i++) for (const e of nestEggs(flock, start + i * 15_000)) laid.add(e.id);
+    expect(laid.size).toBeGreaterThanOrEqual(hens);
+    expect(laid.size).toBeLessThanOrEqual(hens * Math.ceil((40 * 15_000 + 3 * LAY_EVERY_MS) / LAY_EVERY_MS));
+  });
+
+  it('a taken egg is gone from the nest for everyone and never hatches', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const flock = flockOf(hen);
+    let now = Date.UTC(2026, 10, 21, 12);
+    // Find a moment with a fertile egg in the nest.
+    let egg = nestEggs(flock, now).find((e) => e.fertile);
+    for (let i = 0; !egg && i < 200; i++) { now += 10_000; egg = nestEggs(flock, now).find((e) => e.fertile); }
+    expect(egg).toBeDefined();
+    const at = nearestNestEgg(hen.nest, now);
+    expect(at?.distM).toBeLessThan(0.01);
+    recordNatureEvent('egg-taken', egg!.id, HEN_EVENT_ANCHOR, 0, 0, now);
+    expect(nestEggs(flock, now + 1).some((e) => e.id === egg!.id)).toBe(false);
+    const hatch = egg!.layAt + EGG_HATCH_MS + 1000;
+    expect(broodChicks(flock, hatch).some((c) => c.egg.id === egg!.id)).toBe(false);
+  });
+
+  it('eggs laid with the rooster away are not fertile', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const flock = flockOf(hen);
+    const rooster = roosterOf(hen.flock)!;
+    const at = Date.UTC(2026, 10, 21, 12);
+    recordNatureEvent('hen-caught', rooster.id, HEN_EVENT_ANCHOR, 0, 0, at);
+    const laidWhileAway = nestEggs(flock, at + LAY_EVERY_MS + 1000).filter((e) => e.layAt > at && e.layAt < at + HEN_RESPAWN_MS);
+    expect(laidWhileAway.length).toBeGreaterThan(0);
+    for (const e of laidWhileAway) expect(e.fertile).toBe(false);
+  });
+
+  it('a brood chick follows its mother, then wanders off', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const flock = flockOf(hen);
+    let now = Date.UTC(2026, 10, 21, 12);
+    let c = broodChicks(flock, now)[0];
+    for (let i = 0; !c && i < 200; i++) { now += 10_000; c = broodChicks(flock, now)[0]; }
+    expect(c).toBeDefined();
+    const t = T0 + 50;
+    const mid = broodChickPoseAt({ ...c, progress: 0.5 }, t);
+    expect(arcMetres(mid.n, henPoseAt(c.egg.mother, t).n)).toBeLessThan(1.2);
+    const gone = broodChickPoseAt({ ...c, progress: 0.999 }, t);
+    expect(arcMetres(gone.n, c.egg.mother.nest)).toBeGreaterThan(5);
   });
 });
