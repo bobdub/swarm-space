@@ -3,8 +3,8 @@
  *
  * The hen's walk is shared without sending anything (`brain/land/chickens`).
  * A catch is recorded as one `hen-caught` nature event, which every peer
- * hears, so the hen vanishes for everyone and comes back for everyone
- * `HEN_RESPAWN_MS` later. The Food goes to the hunter only, like fruit,
+ * hears, so the bird vanishes for everyone; a hen of the flock then lays an
+ * egg that hatches and grows into a replacement (see `chickens.ts`). The Food goes to the hunter only, like fruit,
  * honey and fish.
  */
 import {
@@ -19,11 +19,15 @@ import { groundElevationAt } from '@/lib/brain/groundHeight';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
+  EGG_LAY_MS,
   FOOD_PER_HEN,
+  FOOD_PER_ROOSTER,
   HEN_CATCH_REACH_M,
   HEN_EVENT_ANCHOR,
   HEN_RESPAWN_MS,
+  isHenAway,
   nearestCatchableHen,
+  roosterOf,
 } from '@/lib/brain/land/chickens';
 import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { recordNatureEvent } from '@/lib/world/natureEventsStore';
@@ -53,7 +57,8 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
   if (!found) return false;
 
   recordNatureEvent('hen-caught', found.hen.id, HEN_EVENT_ANCHOR, 0, 0, now);
-  recordPlayerHarvest('food', FOOD_PER_HEN);
+  const food = found.hen.rooster ? FOOD_PER_ROOSTER : FOOD_PER_HEN;
+  recordPlayerHarvest('food', food);
 
   const n = found.pose.n;
   const lift = EARTH_RADIUS + groundElevationAt(n) + 0.3;
@@ -64,11 +69,19 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
   const color = prefab?.color ?? '#b8b2a7';
   emitSwingFx({ variant: 'swing', point, up, color, radius: 1.1, intensity: 0.4 });
   emitImpactFx({ point, up, color: '#f4efe4', radius: 0.9, intensity: 0.4, label: 'caught', success: true, material: 'flora' });
+  const layMins = Math.round(EGG_LAY_MS / 60_000);
   const mins = Math.round(HEN_RESPAWN_MS / 60_000);
+  const rooster = roosterOf(found.hen.flock);
+  const noRooster = !found.hen.rooster && rooster !== undefined && isHenAway(rooster.id, now);
+  const next = found.hen.rooster
+    ? `A hen will lay an egg in the nest in ${layMins} minutes; a new rooster grows up in about ${mins}.`
+    : noRooster
+      ? 'The flock has no rooster right now, so the hens will lay once a new one has grown up.'
+      : `A hen will lay an egg in the nest in ${layMins} minutes; the chick is grown in about ${mins}.`;
   swingSuccess(
     toolPrefabId,
     prefab?.label ?? 'Stone Knife',
-    `Caught a chicken · +${FOOD_PER_HEN} Food. Another hen will join the flock in ${mins} minutes.`,
+    `Caught a ${found.hen.rooster ? 'rooster' : 'hen'} · +${food} Food. ${next}`,
   );
   return true;
 }
