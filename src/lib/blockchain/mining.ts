@@ -176,6 +176,12 @@ async function mineWithOptimizations(
   // Mine using optimized engine (applies 4.2, 4.3, 4.4)
   try {
     const block = await chain.minePendingTransactions(minerId, chainId);
+    // Shared chain: send the block to connected peers so they build on it.
+    if (block) {
+      void import("../p2p/swarmMesh.standalone")
+        .then(({ getSwarmMeshStandalone }) => getSwarmMeshStandalone().announceChainBlock(block))
+        .catch(() => { /* mesh not running */ });
+    }
     return block;
   } catch (error) {
     console.error("[Mining] Optimized mining error:", error);

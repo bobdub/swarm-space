@@ -2,7 +2,8 @@
 import { SwarmBlock, SwarmTransaction, ChainState, SWARM_CONFIG } from "./types";
 import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
-import { recordBlockAccepted, bootstrapChainBridge } from "./chainHealthBridge";
+import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
+import { planAdoption } from "./chainCatchup";
 import { verifyWalletTip } from "./wallets/tipSignature";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
@@ -498,6 +499,45 @@ export class SwarmChain {
     this.pruneCustomTokenPending();
     await this.persistState();
     try { recordBlockAccepted(this.getLatestBlock()); } catch { /* non-fatal */ }
+  }
+
+  /** Check a peer's chain links up: same genesis, valid hashes, proof of work. */
+  async isValidPeerChain(blocks: SwarmBlock[]): Promise<boolean> {
+    if (blocks.length === 0 || blocks[0].hash !== this.chain[0]?.hash) return false;
+    for (let i = 1; i < blocks.length; i++) {
+      const block = blocks[i];
+      const prev = blocks[i - 1];
+      if (block.index !== prev.index + 1 || block.previousHash !== prev.hash) return false;
+      if (await calculateHash(block) !== block.hash) return false;
+      const target = "0".repeat(block.difficulty);
+      if (block.hash.substring(0, block.difficulty) !== target) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Shared chain: switch to a peer's chain when the fork choice prefers it.
+   * Our transactions from dropped blocks that the new chain lacks go back to
+   * pending, so they're mined into the shared chain and nothing is lost.
+   */
+  async adoptPeerChain(incoming: SwarmBlock[]): Promise<"adopted" | "kept" | "invalid"> {
+    if (!await this.isValidPeerChain(incoming)) return "invalid";
+    const plan = planAdoption(this.chain, incoming, resolveFork);
+    if (!plan.replace) return "kept";
+    try {
+      await this.replaceChain(incoming);
+    } catch (err) {
+      console.warn("[Chain] Peer chain rejected:", err);
+      return "invalid";
+    }
+    const pendingIds = new Set(this.pendingTransactions.map((tx) => tx.id));
+    for (const tx of plan.requeue) {
+      if (!pendingIds.has(tx.id)) this.pendingTransactions.push(tx);
+    }
+    this.pruneCustomTokenPending();
+    await this.persistState();
+    console.log(`[Chain] Adopted peer chain (${incoming.length} blocks, fork at #${plan.forkPoint}, ${plan.requeue.length} tx re-queued)`);
+    return "adopted";
   }
 
   /**
