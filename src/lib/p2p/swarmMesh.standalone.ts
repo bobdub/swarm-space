@@ -1217,6 +1217,11 @@ export class StandaloneSwarmMesh {
 
   private chainMiningBusy = false;
 
+  /** Peer blocks carry the pool's reward share too: keep the pool record in step with the chain. */
+  private refreshPoolFromChain(): void {
+    void import('../blockchain/storage').then((m) => m.derivePoolFromChain()).catch(() => { /* non-fatal */ });
+  }
+
   /**
    * Mine one shared-chain block on the cadence. Its single reward is how
    * CREATOR work is paid; a hollow block pays half. Skips while the tip is
@@ -3808,6 +3813,7 @@ export class StandaloneSwarmMesh {
       const result = await chain.adoptPeerChain(candidate as never);
       if (result === 'adopted') {
         for (const block of candidate) if (typeof block.hash === 'string') this.seenChainBlocks.add(block.hash);
+        this.refreshPoolFromChain();
       }
     } catch (err) {
       console.warn('[SwarmMesh] ⛓️ Chain adoption failed:', err);
@@ -3850,6 +3856,7 @@ export class StandaloneSwarmMesh {
         const chain = getSwarmChain();
         await chain.whenReady();
         if (await chain.appendPeerBlock(block as never)) {
+          this.refreshPoolFromChain();
           const payload = JSON.stringify({ type: 'chain-block', block, from: this.peerId });
           for (const [peerId, conn] of this.connections) {
             if (peerId === from) continue;

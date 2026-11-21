@@ -45,4 +45,10 @@ describe("community funding rules", () => {
     expect(poolDeltaFromTx(base)).toBe(10);
     expect(poolDeltaFromTx({ ...base, type: "custom_token_transfer", from: "community-pool", to: "member" })).toBe(0);
   });
+  it("counts the pool's block-reward output by its amount, with or without poolTax metadata", () => {
+    const reward = { id: "r", type: "mining_reward", from: "system", to: "community-pool", amount: 2.5 } as SwarmTransaction;
+    expect(poolDeltaFromTx(reward)).toBe(2.5);
+    expect(poolDeltaFromTx({ ...reward, meta: { poolTax: 2.5 } })).toBe(2.5);
+    expect(poolDeltaFromTx({ ...reward, to: "miner", amount: 47.5 })).toBe(0);
+  });
 });
