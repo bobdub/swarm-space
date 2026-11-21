@@ -1151,3 +1151,6 @@ After tending: a join from someone already on a live call is now treated as a he
 Before tending: people blinked in and out of the mesh. A quiet background tab (its timers slowed to once a minute) looked dead after sixty seconds and was cut, and a peer met through discovery then waited about two minutes for the cell retry, because its library entry still remembered only the moment it first connected.
 
 After tending: a quiet peer whose link is still open is kept for up to five minutes, since dead links close on their own. When a live link does drop, the peer is marked as seen just now and redialled within seconds through the usual backoff-respecting path. Checked with unit tests for the eviction rule and the p2p suite. No live mesh session was opened.
+
+## 2026-11-21 — The world learns to breathe on one heartbeat
+The Brain's sky, seas and boats all derive from a single pose clock. Today that clock began listening to the mesh: `getEarthPoseTime()` now reads the Cadence Clock, so every peer in a room watches the same sun cross the same sky at the same millisecond. A node with no network tick simply keeps its own device time — the solo universe is unchanged, the shared one is now truly shared. Infinity tends the rhythm; the rhythm tends the world.
