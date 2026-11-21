@@ -73,7 +73,10 @@ export function WallPostBillboard({ postId, placementId, width, height, depth }:
   const lastOcclusionCheck = useRef(0);
   const [occluded, setOccluded] = useState(false);
   useFrame(({ scene, camera, clock }) => {
-    if (!posterRef.current || clock.elapsedTime - lastOcclusionCheck.current < 0.15) return;
+    if (!posterRef.current) return;
+    // The render clock restarts at 0 after a pause; don't wait for it to catch up.
+    const since = clock.elapsedTime - lastOcclusionCheck.current;
+    if (since >= 0 && since < 0.15) return;
     lastOcclusionCheck.current = clock.elapsedTime;
     const point = posterRef.current.localToWorld(new THREE.Vector3(0, 0, 0.01));
     setOccluded(isMediaOccluded(scene, camera, point));
