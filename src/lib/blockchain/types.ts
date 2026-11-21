@@ -10,6 +10,18 @@ export interface SwarmBlock {
   difficulty: number;
   miner?: string;
   merkleRoot: string;
+  /** Header v2 (see blockHeader.ts). Absent on legacy blocks. */
+  version?: number;
+  /** Mesh epoch: increases by one after a gap longer than the epoch gap. */
+  epoch?: number;
+  /** Cadence beat: floor(mesh time / cadence spacing). */
+  tick?: number;
+  /** Who produced the block: identity public key and the user ID derived from it. */
+  producer?: { userId: string; publicKey: string };
+  /** The producer's clock session (a new one per app start). */
+  clockSession?: string;
+  /** Producer's signature over the block hash. Not part of the hash. */
+  producerSignature?: string;
 }
 
 export type TransactionType = 

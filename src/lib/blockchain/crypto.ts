@@ -8,7 +8,14 @@ export async function calculateHash(block: SwarmBlock): Promise<string> {
     JSON.stringify(block.transactions) +
     block.previousHash +
     block.nonce.toString() +
-    block.merkleRoot;
+    block.merkleRoot +
+    // Header v2 fields are hashed too; legacy blocks hash exactly as before.
+    (block.version === 2
+      ? JSON.stringify({
+        version: block.version, epoch: block.epoch, tick: block.tick,
+        producer: block.producer, clockSession: block.clockSession, difficulty: block.difficulty,
+      })
+      : "");
   
   return sha256Async(data);
 }

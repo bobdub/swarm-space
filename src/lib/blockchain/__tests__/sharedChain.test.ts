@@ -2,12 +2,41 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../storage", () => ({ getChainState: async () => null, saveChainState: async () => {}, saveBlock: async () => {} }));
 vi.mock("../chainHealthBridge", () => ({ recordBlockAccepted: () => {}, bootstrapChainBridge: () => {}, resolveFork: () => "keep" }));
+// A fixed mesh clock, so legacy blocks stay before the new-rules cutoff whenever the tests run.
+const clock = vi.hoisted(() => ({ now: Date.parse("2026-11-21T12:00:00Z") }));
+vi.mock("@/lib/time/networkClock", () => ({ networkNow: () => clock.now }));
 
 const { SwarmChain } = await import("../chain");
 const { calculateMerkleRoot } = await import("../crypto");
 const { genIdentityKeyPair, computeUserId } = await import("@/lib/crypto");
 const { signWalletTip } = await import("../wallets/tipSignature");
+const { headerFor, signerFromKeys } = await import("../blockHeader");
 type Chain = InstanceType<typeof SwarmChain>;
+type Block = ReturnType<Chain["getChain"]>[number];
+type Signer = ReturnType<typeof signerFromKeys>;
+
+const later = "2026-12-01T00:00:00.000Z";
+
+async function newSigner(): Promise<Signer & { privateKey: string }> {
+  const keys = await genIdentityKeyPair();
+  const userId = await computeUserId(keys.publicKey);
+  return { ...signerFromKeys(userId, keys.publicKey, keys.privateKey), privateKey: keys.privateKey };
+}
+
+/** Build, mine and sign a v2 block by hand, so tests can put anything in it. */
+async function forgeV2(on: Chain, prev: Block, transactions: unknown[], timestamp: string, signer: Signer): Promise<Block> {
+  const block = {
+    index: prev.index + 1, timestamp, transactions, previousHash: prev.hash, hash: "", nonce: 0, difficulty: 4,
+    miner: signer.userId, merkleRoot: await calculateMerkleRoot(transactions as never),
+    ...headerFor(prev, Date.parse(timestamp), signer),
+  };
+  const mined = await (on as unknown as { mineBlock: (b: unknown) => Promise<Block> }).mineBlock(block);
+  return { ...mined, producerSignature: await signer.sign(mined.hash) };
+}
+
+const rewardTo = (to: string, id: string, amount = 47.5) =>
+  ({ ...tx(id), type: "mining_reward", from: "system", to, amount });
+const poolShare = (id: string, amount = 2.5) => ({ ...rewardTo("community-pool", id, amount) });
 
 const tx = (id: string) => ({
   id, type: "transfer" as const, from: "alice", to: "bob", amount: 1, fee: 0, nonce: 0,
@@ -101,14 +130,13 @@ describe("block reward is the only issuance", () => {
   }, 60_000);
 
   it("rejects a peer block stamped after the cutoff that carries a self-issued mint", async () => {
-    const peer = new SwarmChain();
-    await peer.whenReady();
-    const honest = (await peer.minePendingTransactions("greedy", undefined, { allowEmpty: true }))!;
-    const transactions = [...honest.transactions, selfMint("forged") as never];
-    const forged = { ...honest, timestamp: "2026-12-01T00:00:00.000Z", transactions, nonce: 0, hash: "", merkleRoot: await calculateMerkleRoot(transactions) };
-    const block = await (peer as unknown as { mineBlock: (b: unknown) => Promise<typeof honest> }).mineBlock(forged);
+    const signer = await newSigner();
     const local = new SwarmChain();
     await local.whenReady();
+    const genesis = local.getChain()[0];
+    const honest = [rewardTo(signer.userId, "r"), poolShare("p")];
+    expect(await local.isValidPeerChain([genesis, await forgeV2(local, genesis, honest, later, signer)])).toBe(true);
+    const block = await forgeV2(local, genesis, [...honest, selfMint("forged")], later, signer);
     expect(await local.appendPeerBlock(block)).toBe(false);
   }, 60_000);
 
@@ -121,9 +149,6 @@ describe("block reward is the only issuance", () => {
 });
 
 describe("rewards and local mints can't fund shared-chain payments early", () => {
-  const later = "2026-12-01T00:00:00.000Z";
-  type Block = ReturnType<Chain["getChain"]>[number];
-  const mine = (c: Chain, b: unknown) => (c as unknown as { mineBlock: (x: unknown) => Promise<Block> }).mineBlock(b);
 
   async function tipFrom(keys: { publicKey: string; privateKey: string }, from: string, id: string) {
     return signWalletTip({ id, type: "wallet_tip", from, to: "aabbccddeeff0011", amount: 10, fee: 0, nonce: 1,
@@ -131,33 +156,26 @@ describe("rewards and local mints can't fund shared-chain payments early", () =>
   }
 
   it("refuses a peer block that spends a reward from the block before it", async () => {
-    const keys = await genIdentityKeyPair();
-    const me = await computeUserId(keys.publicKey);
-    const peer = new SwarmChain();
-    await peer.whenReady();
-    const genesis = peer.getChain()[0];
-    const reward = { ...tx("r1"), type: "mining_reward", from: "system", to: me, amount: 47.5 };
-    const pool = (id: string) => ({ ...reward, id, to: "community-pool", amount: 2.5 });
-    const first = [reward, pool("p1")];
-    const b1 = await mine(peer, { index: 1, timestamp: later, transactions: first, previousHash: genesis.hash, hash: "", nonce: 0,
-      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot(first as never) });
-    const spend = [await tipFrom(keys, me, "spend"), { ...reward, id: "r2" }, pool("p2")];
-    const b2 = await mine(peer, { index: 2, timestamp: later, transactions: spend, previousHash: b1.hash, hash: "", nonce: 0,
-      difficulty: 4, miner: me, merkleRoot: await calculateMerkleRoot(spend as never) });
+    const signer = await newSigner();
+    const me = signer.userId;
     const local = new SwarmChain();
     await local.whenReady();
+    const genesis = local.getChain()[0];
+    const b1 = await forgeV2(local, genesis, [rewardTo(me, "r1"), poolShare("p1")], later, signer);
+    const next = new Date(Date.parse(later) + 30_000).toISOString();
+    const reward2 = [rewardTo(me, "r2"), poolShare("p2")];
+    expect(await local.isValidPeerChain([genesis, b1, await forgeV2(local, b1, reward2, next, signer)])).toBe(true);
+    const keys = { publicKey: signer.publicKey, privateKey: signer.privateKey };
+    const b2 = await forgeV2(local, b1, [await tipFrom(keys, me, "spend"), ...reward2], next, signer);
     expect(await local.appendPeerBlock(b1)).toBe(true);
     expect(await local.appendPeerBlock(b2)).toBe(false);
   }, 60_000);
 
   it("refuses a block under the new rules that skips the pool's share", async () => {
-    const peer = new SwarmChain();
-    await peer.whenReady();
-    const solo = [{ ...tx("solo"), type: "mining_reward", from: "system", to: "me", amount: 50 }];
-    const block = await mine(peer, { index: 1, timestamp: later, transactions: solo, previousHash: peer.getChain()[0].hash, hash: "",
-      nonce: 0, difficulty: 4, miner: "me", merkleRoot: await calculateMerkleRoot(solo as never) });
+    const signer = await newSigner();
     const local = new SwarmChain();
     await local.whenReady();
+    const block = await forgeV2(local, local.getChain()[0], [rewardTo(signer.userId, "solo", 50)], later, signer);
     expect(await local.appendPeerBlock(block)).toBe(false);
   }, 60_000);
 
@@ -170,5 +188,79 @@ describe("rewards and local mints can't fund shared-chain payments early", () =>
     expect(chain.getBalance(me)).toBe(100);
     expect(chain.getSpendableBalance(me)).toBe(0);
     expect(await chain.acceptWalletTip(await tipFrom(keys, me, "pay"))).toBe(false);
+  }, 60_000);
+});
+
+describe("block header v2", () => {
+  it("mines a signed block on the cadence, and peers accept it", async () => {
+    const signer = await newSigner();
+    const miner = new SwarmChain();
+    await miner.whenReady();
+    const block = (await miner.minePendingTransactions("ignored", undefined, { allowEmpty: true, signer }))!;
+    expect(block).toMatchObject({ version: 2, miner: signer.userId, producer: { userId: signer.userId } });
+    expect(block.tick).toBe(Math.floor(clock.now / 30_000));
+    // One block per beat: the same beat is refused, the next one is free.
+    expect(await miner.minePendingTransactions("x", undefined, { allowEmpty: true, signer })).toBeNull();
+    clock.now += 30_000;
+    const second = (await miner.minePendingTransactions("x", undefined, { allowEmpty: true, signer }))!;
+    expect(second.tick).toBe(block.tick! + 1);
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    expect(await peer.adoptPeerChain(miner.getChain())).toBe("adopted");
+  }, 60_000);
+
+  it("rejects a bad signature, a wrong tick or epoch, a reward paid to someone else, and an unsigned late block", async () => {
+    const signer = await newSigner();
+    const other = await newSigner();
+    const local = new SwarmChain();
+    await local.whenReady();
+    const genesis = local.getChain()[0];
+    const pays = (to = signer.userId) => [rewardTo(to, `r-${to.slice(0, 4)}`), poolShare(`p-${to.slice(0, 4)}`)];
+    const good = await forgeV2(local, genesis, pays(), later, signer);
+    const check = (b: Block) => local.isValidPeerChain([genesis, b]);
+    expect(await check(good)).toBe(true);
+    expect(await check({ ...good, producerSignature: await other.sign(good.hash) })).toBe(false);
+    const remine = async (patch: Partial<Block>) => {
+      const b = { ...(await forgeV2(local, genesis, pays(), later, signer)), ...patch, nonce: 0, hash: "" };
+      const mined = await (local as unknown as { mineBlock: (x: unknown) => Promise<Block> }).mineBlock(b);
+      return { ...mined, producerSignature: await signer.sign(mined.hash) };
+    };
+    expect(await check(await remine({ tick: good.tick! + 1 }))).toBe(false);
+    expect(await check(await remine({ epoch: 7 }))).toBe(false);
+    expect(await check(await remine({ difficulty: 1 }))).toBe(false);
+    expect(await check(await forgeV2(local, genesis, pays(other.userId), later, signer))).toBe(false);
+    const legacy = { ...good, version: undefined, epoch: undefined, tick: undefined, producer: undefined, clockSession: undefined };
+    const unsigned = await (local as unknown as { mineBlock: (x: unknown) => Promise<Block> }).mineBlock({ ...legacy, nonce: 0, hash: "" });
+    expect(await check(unsigned)).toBe(false);
+  }, 60_000);
+});
+
+describe("mining against a moving tip", () => {
+  it("drops a block whose parent was replaced by a peer block mid-mining", async () => {
+    const signer = await newSigner();
+    const peerSigner = await newSigner();
+    clock.now += 60_000;
+    const local = new SwarmChain();
+    await local.whenReady();
+    const genesis = local.getChain()[0];
+    // A peer's block for this same beat lands while we are still mining.
+    const theirs = await forgeV2(local, genesis, [rewardTo(peerSigner.userId, "theirs"), poolShare("theirs-p")],
+      new Date(clock.now).toISOString(), peerSigner);
+    // Hold our miner inside its first ledger check until the peer block is in.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const target = local as unknown as { validateWalletTipLedger: (b: Block[]) => Promise<boolean> };
+    const original = target.validateWalletTipLedger.bind(local);
+    let first = true;
+    target.validateWalletTipLedger = async (b) => {
+      if (first) { first = false; await gate; }
+      return original(b);
+    };
+    const mining = local.minePendingTransactions("x", undefined, { allowEmpty: true, signer });
+    expect(await local.appendPeerBlock(theirs)).toBe(true);
+    release();
+    expect(await mining).toBeNull();
+    expect(local.getChain().map((b) => b.hash)).toEqual([genesis.hash, theirs.hash]);
+    expect(await local.isValidPeerChain(local.getChain())).toBe(true);
   }, 60_000);
 });

@@ -4,6 +4,7 @@ import { calculateHash, calculateMerkleRoot } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
+import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./blockHeader";
 import { blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
 import { verifyWalletTip } from "./wallets/tipSignature";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
@@ -285,8 +286,16 @@ export class SwarmChain {
   async minePendingTransactions(
     minerAddress: string,
     chainId?: string,
-    options: { allowEmpty?: boolean; hollow?: boolean } = {},
+    options: { allowEmpty?: boolean; hollow?: boolean; signer?: BlockSigner | null } = {},
   ): Promise<SwarmBlock | null> {
+    const signer = options.signer ?? null;
+    if (signer) minerAddress = signer.userId;
+    // Header v2 allows one block per cadence beat on top of the tip.
+    const startedAt = networkNow();
+    // Build on one parent throughout: if a peer block lands while we work,
+    // the commit below sees the tip moved and drops this block.
+    const parent = this.getLatestBlock();
+    if (signer && !beatIsFree(parent, startedAt)) return null;
     // A block pays exactly one reward: its own. Rewards from other blocks
     // (orphaned or copied from a peer's chain) never ride along, and
     // self-issued mints stay on this device: peers can't check them.
@@ -299,7 +308,7 @@ export class SwarmChain {
 
     // The block's reward, Bitcoin-style: the miner's share plus the community
     // pool's share (the old 5% mining tax), together no more than the height allows.
-    const total = this.rewardAtHeight(this.chain.length) * (options.hollow ? HOLLOW_REWARD_SHARE : 1);
+    const total = this.rewardAtHeight(parent.index + 1) * (options.hollow ? HOLLOW_REWARD_SHARE : 1);
     const poolShare = total * POOL_REWARD_SHARE;
     const stamp = new Date(networkNow()).toISOString();
     const rewardId = `reward-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -317,26 +326,29 @@ export class SwarmChain {
     // Only carry payments peers will accept: one funded by a local-only mint
     // or an unripe reward stays pending instead of poisoning the block.
     const transactions = [...carried, ...rewardTransactions];
-    const draft = { index: this.chain.length, timestamp: new Date(networkNow()).toISOString() };
-    while (!await this.validateWalletTipLedger([...this.chain, { ...draft, transactions } as SwarmBlock])) {
+    const draft = { index: parent.index + 1, timestamp: new Date(startedAt).toISOString() };
+    const history = this.chain.slice(0, parent.index + 1);
+    while (!await this.validateWalletTipLedger([...history, { ...draft, transactions } as SwarmBlock])) {
       const last = transactions.map((tx) => tx.type).lastIndexOf("wallet_tip");
       if (last < 0) break;
       transactions.splice(last, 1);
     }
     if (transactions.length === rewardTransactions.length && !options.allowEmpty) return null;
     const block: SwarmBlock = {
-      index: this.chain.length,
+      index: draft.index,
       timestamp: draft.timestamp,
       transactions,
-      previousHash: this.getLatestBlock().hash,
+      previousHash: parent.hash,
       hash: "",
       nonce: 0,
       difficulty: this.difficulty,
       miner: minerAddress,
       merkleRoot: await calculateMerkleRoot(transactions),
+      ...(signer ? headerFor(parent, startedAt, signer) : {}),
     };
 
     const minedBlock = await this.mineBlock(block);
+    if (signer) minedBlock.producerSignature = await signer.sign(minedBlock.hash);
     return this.exclusive(async () => {
       // A peer's block may have landed while we were mining: ours no longer
       // extends the tip, so drop it and keep its transactions pending.
@@ -568,6 +580,7 @@ export class SwarmChain {
       const target = "0".repeat(block.difficulty);
       if (block.hash.substring(0, block.difficulty) !== target) return false;
       if (!this.hasValidRewards(block)) return false;
+      if (!await verifyBlockHeader(block, prev, SWARM_CONFIG.difficulty)) return false;
     }
     return true;
   }
@@ -676,6 +689,7 @@ export class SwarmChain {
     if (recalculated !== block.hash) return false;
     const target = "0".repeat(block.difficulty);
     if (block.hash.substring(0, block.difficulty) !== target) return false;
+    if (!await verifyBlockHeader(block, tip, SWARM_CONFIG.difficulty)) return false;
 
     if (!await this.validateWalletTipLedger([...this.chain, block])) return false;
     if (!validCustomTokenDepositLedger([...this.chain, block].flatMap((entry) => entry.transactions))) return false;
