@@ -22,9 +22,7 @@ import {
   earthLocalToWorld,
   getEarthPose,
   getEarthLocalSiteFrame,
-  EARTH_RADIUS,
 } from '@/lib/brain/earth';
-import { sampleSurfaceLift } from '@/lib/brain/surfaceProfile';
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import {
   PLOT_CELL,
@@ -39,6 +37,7 @@ import { subscribeShowLandMarkers } from '@/lib/world/landOverlayStore';
 import { getBuilderTopView } from '@/lib/brain/builderCameraStore';
 import { subscribeHeldTool } from '@/lib/world/heldToolStore';
 import { isBoundaryMarker } from '@/lib/world/boundaryMarker';
+import { tangentToSurfaceLocal } from '@/lib/world/landPermissions';
 
 interface LandPlotsOverlayProps {
   selfId: string;
@@ -109,7 +108,11 @@ function shortId(id: string): string {
   return clean.length > 10 ? `${clean.slice(0, 6)}…${clean.slice(-3)}` : clean;
 }
 
-/** Project a tangent-frame point onto the Earth surface in world space. */
+/**
+ * Project a tangent-frame point onto the Earth surface in world space,
+ * using the exact inverse of the permission projection so drawn plot
+ * edges sit on the cells ownership is checked against.
+ */
 function tangentToWorld(
   tx: number,
   tz: number,
@@ -117,13 +120,7 @@ function tangentToWorld(
   pose: ReturnType<typeof getEarthPose>,
   extraLift: number,
 ): [number, number, number] {
-  const nx = ref.normal[0] + (ref.right[0] * tx + ref.forward[0] * tz) / EARTH_RADIUS;
-  const ny = ref.normal[1] + (ref.right[1] * tx + ref.forward[1] * tz) / EARTH_RADIUS;
-  const nz = ref.normal[2] + (ref.right[2] * tx + ref.forward[2] * tz) / EARTH_RADIUS;
-  const nLen = Math.hypot(nx, ny, nz) || 1;
-  const un: [number, number, number] = [nx / nLen, ny / nLen, nz / nLen];
-  const r = EARTH_RADIUS + sampleSurfaceLift(un) + extraLift;
-  return earthLocalToWorld([un[0] * r, un[1] * r, un[2] * r], pose);
+  return earthLocalToWorld(tangentToSurfaceLocal(tx, tz, extraLift, ref), pose);
 }
 
 function plotCentreTangent(plot: LandPlot): { tx: number; tz: number } {
