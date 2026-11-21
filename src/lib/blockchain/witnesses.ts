@@ -59,6 +59,14 @@ export class Participation {
     return p;
   }
 
+  clone(): Participation {
+    const copy = new Participation();
+    copy.first = new Map(this.first);
+    copy.last = new Map(this.last);
+    copy.height = this.height;
+    return copy;
+  }
+
   add(block: SwarmBlock): void {
     for (const id of participantsOf(block)) {
       if (!this.first.has(id)) this.first.set(id, block.index);
@@ -124,6 +132,8 @@ export async function verifyWitnesses(
   block: SwarmBlock,
   parent: SwarmBlock,
   participation: Pick<Participation, "known">,
+  /** The chain the endorsements must name: SWARM, or a cell chain's id. */
+  network?: string,
 ): Promise<boolean> {
   if (block.witnesses === undefined && block.witnessRoot === undefined) return true;
   if (block.version !== 2 || !blockMayRecordWitnesses(block)) return false;
@@ -139,7 +149,7 @@ export async function verifyWitnesses(
     if (!participation.known(e.voter) && e.voter !== producer) fresh++;
   }
   if (fresh > MAX_NEW_IDENTITIES_PER_BLOCK) return false;
-  for (const e of list) if (!await verifyEndorsement(e)) return false;
+  for (const e of list) if (!await verifyEndorsement(e, network)) return false;
   return true;
 }
 

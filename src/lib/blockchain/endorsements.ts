@@ -74,18 +74,20 @@ export async function signEndorsement(
   agree: boolean,
   signer: EndorsementSigner,
   observedAt: number,
+  /** The chain the block belongs to: SWARM, or a cell chain's id. */
+  network: string = ENDORSEMENT_NETWORK,
 ): Promise<Endorsement> {
   const unsigned = {
-    network: ENDORSEMENT_NETWORK, blockHash: block.hash, height: block.index,
+    network, blockHash: block.hash, height: block.index,
     epoch: block.epoch ?? 0, round: block.tick ?? 0, agree,
     voter: signer.userId, publicKey: signer.publicKey, observedAt, clockSession: CLOCK_SESSION,
   };
   return { ...unsigned, signature: await signer.signText(payload(unsigned)) };
 }
 
-export async function verifyEndorsement(e: unknown): Promise<boolean> {
+export async function verifyEndorsement(e: unknown, network: string = ENDORSEMENT_NETWORK): Promise<boolean> {
   const x = e as Endorsement | null;
-  if (!x || x.network !== ENDORSEMENT_NETWORK || typeof x.blockHash !== "string" || typeof x.agree !== "boolean") return false;
+  if (!x || x.network !== network || typeof x.blockHash !== "string" || typeof x.agree !== "boolean") return false;
   if (![x.height, x.epoch, x.round, x.observedAt].every(Number.isSafeInteger)) return false;
   if (typeof x.voter !== "string" || typeof x.publicKey !== "string" || typeof x.signature !== "string") return false;
   if (typeof x.clockSession !== "string" || x.clockSession.length > 64) return false;

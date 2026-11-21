@@ -6,8 +6,10 @@ import {
   EARTH_SPHERE_RINGS,
   EARTH_SPHERE_SEGMENTS,
   getEarthPose,
+  getEarthPoseTime,
   MOON_RADIUS,
   WORLD_SCALE,
+  worldPosToLocalNormal,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { buildTerrainGeometry } from '@/lib/brain/terrainGeometry';
@@ -15,6 +17,10 @@ import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observat
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
 import { getMantlePressure } from '@/lib/brain/lavaMantle';
+import { swellPhases, tideFrameAt } from '@/lib/brain/sea/seaSurface';
+import { makeSeaMaterial } from '@/components/brain/sea/seaMaterial';
+import { seaStateFor } from '@/lib/brain/sea/vessel';
+import { weatherCurvatureBoost, windAt } from '@/lib/world/weather';
 
 /**
  * Procedural blue-green Earth with shared-pose solar lighting. The
@@ -172,6 +178,9 @@ const earthFragment = /* glsl */ `
   }
 `;
 
+/** Seconds between sea-state reads at the camera (weather moves slowly). */
+const SEA_STATE_EVERY_S = 0.5;
+
 export function EarthBody() {
   const ref = useRef<THREE.Mesh>(null);
   const groupRef = useRef<THREE.Group>(null);
@@ -261,6 +270,12 @@ export function EarthBody() {
     const o = uniforms.uColOcean.value as THREE.Vector3;
     return new THREE.Color(o.x, o.y, o.z);
   }, [uniforms]);
+  const sea = useMemo(() => makeSeaMaterial(waterColor), [waterColor]);
+  useEffect(() => () => sea.mat.dispose(), [sea]);
+  const seaRef = useRef<THREE.Mesh>(null);
+  const seaStateAt = useRef(-Infinity);
+  const swellPhase = useMemo<number[]>(() => [], []);
+  const camWorld = useMemo(() => new THREE.Vector3(), []);
   const moonUniforms = useMemo(
     () => ({
       uSunPos: { value: new THREE.Vector3(...initialPose.sun) },
@@ -272,7 +287,7 @@ export function EarthBody() {
     [initialPose],
   );
 
-  useFrame((_, dt) => {
+  useFrame(({ camera }, dt) => {
     if (matRef.current) {
       (matRef.current.uniforms.uTime.value as number) += dt;
     }
@@ -284,6 +299,24 @@ export function EarthBody() {
       groupRef.current.position.set(pose.center[0], pose.center[1], pose.center[2]);
     }
     if (ref.current) ref.current.rotation.y = pose.spinAngle;
+
+    // The sea spins with the planet (its swell is fixed to the Earth) and
+    // takes its tide and swell from the shared clock.
+    if (seaRef.current) seaRef.current.rotation.y = pose.spinAngle;
+    const tNow = getEarthPoseTime();
+    const tide = tideFrameAt(tNow);
+    sea.uniforms.uTideMoon.value.set(tide.moon[0], tide.moon[1], tide.moon[2]);
+    sea.uniforms.uTideSun.value.set(tide.sun[0], tide.sun[1], tide.sun[2]);
+    swellPhases(tNow, swellPhase);
+    sea.uniforms.uSwellPhase.value.set(swellPhase[0], swellPhase[1], swellPhase[2]);
+    // Sea state where the viewer is: the same rule that rocks the boats.
+    if (Math.abs(tNow - seaStateAt.current) >= SEA_STATE_EVERY_S) {
+      seaStateAt.current = tNow;
+      camera.getWorldPosition(camWorld);
+      const n = worldPosToLocalNormal([camWorld.x, camWorld.y, camWorld.z], pose);
+      const w = windAt(n);
+      sea.uniforms.uSea.value = seaStateFor(Math.hypot(w[0], w[1], w[2]), weatherCurvatureBoost(n));
+    }
 
     // The Sun travels with the solar system — keep both shaders lit by
     // its live position.
@@ -332,20 +365,13 @@ export function EarthBody() {
           side={THREE.DoubleSide}
         />
       </mesh>
-      {/* Sea surface at sea level. Out at sea the terrain below is the sea
+      {/* Sea surface at sea level, raised and lowered by the shared tide
+          (sea/seaSurface.ts) — the same tide swimmers and boats float on. Out at sea the terrain below is the sea
           floor (shallows → shelf → deep ocean bed), seen through the water;
           over land the terrain is higher and hides this sphere by depth. */}
-      <mesh renderOrder={1}>
+      <mesh ref={seaRef} renderOrder={1} rotation-y={initialPose.spinAngle}>
         <primitive object={seaGeometry} attach="geometry" />
-        <meshPhongMaterial
-          color={waterColor}
-          emissive={waterColor}
-          emissiveIntensity={0.25}
-          transparent
-          opacity={0.6}
-          shininess={80}
-          depthWrite={false}
-        />
+        <primitive object={sea.mat} attach="material" />
       </mesh>
       {/* Moon — orbits Earth, lit by the same Sun, gives the dark side
           of Earth a celestial reference + faint reflected fill light */}

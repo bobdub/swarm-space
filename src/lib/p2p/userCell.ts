@@ -123,13 +123,13 @@ export async function createUserCell(name?: string): Promise<UserCell> {
 }
 
 /**
- * Owner's device: sign the cell's genesis (its first member list) if it has
- * none. Needs the unlocked vault; with it locked this retries on next entry.
+ * Owner's device: sign the cell's genesis (its first member list) and open
+ * its chain if it has none. Needs the unlocked vault; with it locked this retries on next entry.
  */
 async function ensureCellGenesis(cell: UserCell): Promise<void> {
   try {
-    const { ensureOwnedCellGenesis } = await import('../blockchain/cellChain/rosterStore');
-    await ensureOwnedCellGenesis(cell);
+    const { ensureOwnedCellChain } = await import('../blockchain/cellChain/cellChains');
+    await ensureOwnedCellChain(cell);
   } catch (err) {
     console.warn('[userCell] cell genesis not written', err);
   }
@@ -148,8 +148,8 @@ export function deleteUserCell(cellId: string): void {
   if (!record[cellId]) return;
   delete record[cellId];
   writeCells(record);
-  void import('../blockchain/cellChain/rosterStore')
-    .then(({ getCellRosterStore }) => getCellRosterStore().forget(cellId))
+  void import('../blockchain/cellChain/cellChains')
+    .then(({ getCellChains }) => getCellChains().forget(cellId))
     .catch(() => { /* best effort */ });
   if (getActiveUserCellId() === cellId) {
     void exitUserCell();

@@ -69,7 +69,11 @@ export type TransactionType =
   | "external_deposit"
   | "external_withdraw"
   | "external_reconcile"
-  | "custom_token_transfer";
+  | "custom_token_transfer"
+  /** Cell chains only (cellChain/): a signed member-list record. */
+  | "cell_roster"
+  /** Cell chains only (cellChain/): a signed transfer of the cell's coin between members. */
+  | "cell_transfer";
 
 export interface SwarmTransaction {
   id: string;
