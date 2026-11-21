@@ -13,7 +13,8 @@ import { FOOD_PER_HEN, FOOD_PER_ROOSTER, _resetChickensForTest, getHens, henPose
 import { _resetHarvestedForTest } from '@/lib/remix/harvestedInventory';
 import { materialTotals } from '@/lib/world/materials';
 import { _resetNatureEventsForTest, listNatureEvents } from '@/lib/world/natureEventsStore';
-import { tryCatchNearbyHen } from '@/lib/world/henHunting';
+import { tryCatchNearbyHen, tryTakeNestEgg } from '@/lib/world/henHunting';
+import { flockOf, nestEggs, FOOD_PER_EGG } from '@/lib/brain/land/chickens';
 
 function standAt(n: Vec3): void {
   const pose = getEarthPose();
@@ -51,5 +52,20 @@ describe('hunting hens with a knife', () => {
     standAt([0, -1, 0]);
     expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(false);
     expect(listNatureEvents('chickens').length).toBe(0);
+  });
+
+  it('standing at a nest with an egg, any tool takes it for Food', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    let now = Date.UTC(2026, 10, 21, 12);
+    while (nestEggs(flockOf(hen), now).length === 0) now += 10_000;
+    standAt(hen.nest);
+    const before = materialTotals().food ?? 0;
+    expect(tryTakeNestEgg('tool_axe_stone', 'me', now)).toBe(true);
+    expect((materialTotals().food ?? 0) - before).toBe(FOOD_PER_EGG);
+    const taken = listNatureEvents('chickens');
+    expect(taken.length).toBe(1);
+    expect(taken[0].kind).toBe('egg-taken');
+    standAt([0, -1, 0]);
+    expect(tryTakeNestEgg('tool_axe_stone', 'me', now)).toBe(false);
   });
 });

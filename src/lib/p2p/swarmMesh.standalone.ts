@@ -308,6 +308,16 @@ const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining pee
  * dead links on their own. Keep such a link this long before evicting it.
  */
 export const PEER_QUIET_LIVE_LINK_MAX_MS = 5 * 60_000;
+/**
+ * A peer we have heard nothing from (no heartbeat, no message) for this long
+ * is treated as gone: rooms, chat and avatars drop them, whatever the link
+ * state says.
+ */
+export const PEER_GONE_AFTER_SILENCE_MS = PEER_QUIET_LIVE_LINK_MAX_MS;
+/** How long goodbyes get to leave before the Peer is torn down on disable. */
+export const GOODBYE_FLUSH_MS = 400;
+/** A peer that said goodbye switched its mesh off: do not redial it at once. */
+const GOODBYE_REDIAL_PAUSE_MS = 2 * 60_000;
 /** Redial a dropped peer this soon instead of waiting for the next loop. */
 const DROPPED_PEER_REDIAL_DELAY_MS = 3_000;
 /**
@@ -2020,7 +2030,79 @@ export class StandaloneSwarmMesh {
     }
   };
 
+  // ── Departures ────────────────────────────────────────────────────
+  private beforeStopHandlers = new Set<() => void>();
+  private departureHandlers = new Set<(peerId: string, reason: 'goodbye' | 'silent') => void>();
+  /** peerId → last time anything arrived from that peer (kept after the link drops). */
+  private peerLastHeard = new Map<string, number>();
+
+  /** Run just before the mesh is switched off, while links are still open. */
+  onBeforeStop(handler: () => void): () => void {
+    this.beforeStopHandlers.add(handler);
+    return () => { this.beforeStopHandlers.delete(handler); };
+  }
+
+  /** A peer said goodbye, or was silent for PEER_GONE_AFTER_SILENCE_MS. */
+  onPeerDeparted(handler: (peerId: string, reason: 'goodbye' | 'silent') => void): () => void {
+    this.departureHandlers.add(handler);
+    return () => { this.departureHandlers.delete(handler); };
+  }
+
+  private emitPeerDeparted(peerId: string, reason: 'goodbye' | 'silent'): void {
+    console.log(`[SwarmMesh] 👋 ${peerId.slice(0, 16)} departed (${reason})`);
+    for (const h of this.departureHandlers) { try { h(peerId, reason); } catch { /* ignore */ } }
+  }
+
+  /** Tell local listeners and every open link that we are leaving. True if any goodbye went out. */
+  private sayGoodbye(): boolean {
+    if (this.phase !== 'online' && this.connections.size === 0) return false;
+    for (const h of this.beforeStopHandlers) { try { h(); } catch { /* ignore */ } }
+    let sent = 0;
+    const message = JSON.stringify({ type: 'goodbye', from: this.peerId, ts: now() });
+    for (const conn of this.connections.values()) {
+      if (!conn.open) continue;
+      try { conn.send(message); sent++; } catch { /* ignore */ }
+    }
+    if (sent > 0) console.log(`[SwarmMesh] 👋 Said goodbye to ${sent} peer(s)`);
+    return sent > 0;
+  }
+
+  /** The peer switched its mesh off: drop the link now and let rooms and chat forget them. */
+  private handlePeerGoodbye(peerId: string): void {
+    const conn = this.connections.get(peerId);
+    if (conn) {
+      this.connections.delete(peerId);
+      this.peerData.delete(peerId);
+      try { conn.close(); } catch { /* ignore */ }
+      this.emitPeers();
+    }
+    this.clearPendingDial(peerId);
+    this.peerLastHeard.delete(peerId);
+    // They are offline on purpose: pause redials (a fresh beacon or their own dial lifts it).
+    this.handshakeFailureCooldowns.set(peerId, now() + GOODBYE_REDIAL_PAUSE_MS);
+    this.emitPeerDeparted(peerId, 'goodbye');
+  }
+
+  /** Peers silent for PEER_GONE_AFTER_SILENCE_MS are gone, whether or not a link remains. */
+  private sweepSilentPeers(t: number): void {
+    for (const [peerId, heard] of this.peerLastHeard) {
+      if (t - heard <= PEER_GONE_AFTER_SILENCE_MS) continue;
+      this.peerLastHeard.delete(peerId);
+      const conn = this.connections.get(peerId);
+      if (conn) {
+        this.connections.delete(peerId);
+        this.peerData.delete(peerId);
+        try { conn.close(); } catch { /* ignore */ }
+        this.emitPeers();
+      }
+      this.emitPeerDeparted(peerId, 'silent');
+    }
+  }
+
   stop(): void {
+    // Say goodbye while the links are still open, so peers drop us from
+    // rooms, chat and the world right away instead of waiting for silence.
+    const sentGoodbye = this.sayGoodbye();
     this.flags.enabled = false;
     this.saveFlags();
     this.clearReconnectTimer();
@@ -2037,9 +2119,16 @@ export class StandaloneSwarmMesh {
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
     }
-    this.destroyPeer();
+    const peer = this.peer;
+    this.peer = null;
+    if (peer) {
+      // Give the goodbyes a moment to leave the data channels first.
+      if (sentGoodbye) setTimeout(() => this.destroyPeerInstance(peer), GOODBYE_FLUSH_MS);
+      else this.destroyPeerInstance(peer);
+    }
     this.peerData.clear();
     this.connections.clear();
+    this.peerLastHeard.clear();
     this.setPhase('off');
     this.emitPeers();
     this.emitAlert('Swarm Mesh disconnected', 'info');
@@ -2485,6 +2574,7 @@ export class StandaloneSwarmMesh {
       }
 
       this.connections.set(rId, conn);
+      this.peerLastHeard.set(rId, now());
       // Cadence Clock: a quick burst of ping-pongs calibrates this peer's clock now.
       for (let i = 0; i < CLOCK_BURST_PINGS; i++) {
         setTimeout(() => {
@@ -2602,6 +2692,8 @@ export class StandaloneSwarmMesh {
     });
 
     conn.on('data', (raw: unknown) => {
+      if (this.phase === 'off') return;
+      this.peerLastHeard.set(rId, now());
       const p = this.peerData.get(rId);
       if (p) { p.lastActivity = now(); p.messagesReceived++; }
       this.handleMessage(rId, raw);
@@ -3455,6 +3547,7 @@ export class StandaloneSwarmMesh {
         case 'library-exchange': this.handleLibraryExchange(from, msg); break;
         case 'profile-exchange': this.handleProfileExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
+        case 'goodbye': this.handlePeerGoodbye(from); break;
         case 'heartbeat-ack': this.handleHeartbeatAck(from); break;
         case 'ping': this.handlePing(from, msg); break;
         case 'pong': this.handlePong(from, msg); break;
@@ -4083,6 +4176,8 @@ export class StandaloneSwarmMesh {
           this.saveMiningStats();
         }
       }
+
+      this.sweepSilentPeers(t);
 
       // ── Feed connection health to neural engine / instinct hierarchy ──
       try {
