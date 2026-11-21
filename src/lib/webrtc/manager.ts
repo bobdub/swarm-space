@@ -31,6 +31,34 @@ const RECOVERY_BACKOFF_MS = 20_000;
 /** Dispatched on the local MediaStream after a camera or mic switch. */
 export const LOCAL_INPUT_SWITCHED_EVENT = 'swarm-input-switched';
 
+/**
+ * Screen capture request. Without limits a 4K/Retina display is captured at
+ * native resolution, so every frame costs capture, encode and (on viewers)
+ * decode memory and CPU, on top of the Brain's WebGL scene. 1080p at up to
+ * 30 fps keeps text sharp. Only `ideal`/`max` are used: getDisplayMedia
+ * rejects `min` and `exact`.
+ */
+export const SCREEN_CAPTURE_CONSTRAINTS: DisplayMediaStreamOptions = {
+  video: {
+    width: { max: 1920 },
+    height: { max: 1080 },
+    frameRate: { ideal: 24, max: 30 },
+  },
+  audio: false,
+};
+
+/** Upper bounds for the screen sender's encoder, per peer connection. */
+export const SCREEN_SENDER_MAX_BITRATE = 2_500_000;
+export const SCREEN_SENDER_MAX_FRAMERATE = 30;
+
+/**
+ * Tell the encoder this is screen content: keep resolution (text stays
+ * legible) and drop frames when bandwidth is short.
+ */
+export function prepareScreenTrack(track: MediaStreamTrack): void {
+  try { track.contentHint = 'detail'; } catch { /* unsupported */ }
+}
+
 /** Shared with the pre-join modal, which writes the same key. */
 const PREFERRED_DEVICES_KEY = 'swarm-preferred-devices';
 
@@ -935,10 +963,7 @@ export class WebRTCManager {
     // the voice track in the mesh. Voice keeps running untouched.
     // Note: `video: true` selects the screen's picture in getDisplayMedia;
     // it never enables the webcam (that is a separate getUserMedia path).
-    return navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
-    });
+    return navigator.mediaDevices.getDisplayMedia(SCREEN_CAPTURE_CONSTRAINTS);
   }
 
   /**
@@ -956,6 +981,7 @@ export class WebRTCManager {
       stream.getTracks().forEach(t => t.stop());
       throw new Error('Screen capture produced no video track');
     }
+    prepareScreenTrack(screenTrack);
     this.screenStream = stream;
 
     const failures: unknown[] = [];
@@ -1000,6 +1026,37 @@ export class WebRTCManager {
     }
     const sender = pc.addTrack(track, stream);
     this.screenSenders.set(peerId, sender);
+    this.applyScreenSenderLimits(pc, sender);
+  }
+
+  /**
+   * Cap the screen sender's bitrate and frame rate. Some browsers (Firefox)
+   * report no encodings until the connection has negotiated, so retry once
+   * when signaling next returns to stable.
+   */
+  private applyScreenSenderLimits(pc: RTCPeerConnection, sender: RTCRtpSender): void {
+    const tryApply = (): boolean => {
+      if (typeof sender.getParameters !== 'function' || typeof sender.setParameters !== 'function') return true;
+      let params: RTCRtpSendParameters;
+      try { params = sender.getParameters(); } catch { return true; }
+      if (!params.encodings || params.encodings.length === 0) return false;
+      for (const enc of params.encodings) {
+        enc.maxBitrate = SCREEN_SENDER_MAX_BITRATE;
+        enc.maxFramerate = SCREEN_SENDER_MAX_FRAMERATE;
+      }
+      void sender.setParameters(params).catch((err) => {
+        console.warn('[WebRTC] Could not cap screen sender encoding:', err);
+      });
+      return true;
+    };
+    if (tryApply() || typeof pc.addEventListener !== 'function') return;
+    const onSignaling = () => {
+      if (pc.signalingState !== 'stable') return;
+      pc.removeEventListener('signalingstatechange', onSignaling);
+      // Skip if the share ended (or moved to another sender) meanwhile.
+      if ([...this.screenSenders.values()].includes(sender) && sender.track) tryApply();
+    };
+    pc.addEventListener('signalingstatechange', onSignaling);
   }
 
   async startScreenShare(): Promise<MediaStream> {

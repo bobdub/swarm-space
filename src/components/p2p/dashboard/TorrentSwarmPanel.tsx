@@ -318,7 +318,7 @@ export function TorrentSwarmPanel() {
     return [...torrents, ...fromPersisted];
   }, [torrents, persistedTorrents]);
   const hasTorrents = mergedTorrents.length > 0;
-  const incomingTorrentCount = mergedTorrents.filter(t => t.state === 'downloading' || t.state === 'paused').length;
+  const incomingTorrentCount = mergedTorrents.filter(t => t.state === 'downloading' || t.state === 'queued' || t.state === 'paused').length;
 
   // Get local peer ID for ownership detection
   const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';

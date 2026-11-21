@@ -30,6 +30,7 @@ import { containsEntityMention, bindMentions, insertMention, mentionNotification
 import type { MentionBinding } from "@/types";
 import { createNotification } from "@/lib/notifications";
 import { canUseMemberFeatures, isGuestUser } from '@/lib/preview/guestAccess';
+import { MESH_POST_UPLOAD_LIMIT_BYTES } from "@/lib/media/meshUploadLimits";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -657,7 +658,7 @@ export const PostComposer = ({
               onFilesReady={handleFilesReady}
               onEncryptingChange={setIsEncrypting}
               maxFiles={10}
-              maxFileSize={1 * 1024 * 1024 * 1024}
+              maxFileSize={MESH_POST_UPLOAD_LIMIT_BYTES}
             />
           ) : (
             <Button

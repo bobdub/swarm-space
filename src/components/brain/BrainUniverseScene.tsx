@@ -34,7 +34,7 @@ import { useBrainBuilder, type PendingPlot } from '@/lib/brain/useBrainBuilder';
 import { claimLandPlot, ownedFootprintSpanM, subscribeLandPlots } from '@/lib/world/landPlots';
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { getSwarmBalance, burnSwarm } from '@/lib/blockchain/token';
-import { getWebRTCManager } from '@/lib/webrtc/manager';
+import { getWebRTCManager, SCREEN_CAPTURE_CONSTRAINTS } from '@/lib/webrtc/manager';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
@@ -1252,6 +1252,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     user ? getWebRTCManager(user.id, user.username).isCameraOn() : false,
   );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  // True while a screen share is open full size; pauses scene rendering.
+  const [screenExpanded, setScreenExpanded] = useState(false);
   // A share started earlier keeps running while Brain-synced on other pages,
   // so coming back picks the live capture up again.
   const [screenStream, setScreenStream] = useState<MediaStream | null>(() =>
@@ -1442,7 +1444,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       try {
         // The native picker is the very first operation — before any await —
         // so the request still carries the trusted click activation.
-        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        stream = await navigator.mediaDevices.getDisplayMedia(SCREEN_CAPTURE_CONSTRAINTS);
       } catch (error) {
         const err = error as DOMException;
         // Keep the real error visible for diagnosis instead of guessing.
@@ -2476,6 +2478,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
       {/* 3-D scene */}
       {ready && <Canvas
+        // Rendering pauses while a screen share is open full size: the
+        // viewer covers the whole page, so drawing the scene is wasted GPU
+        // work. Physics, boats and position broadcasts run on their own
+        // timers, so the world keeps moving and peers keep seeing us.
+        frameloop={screenExpanded ? 'never' : 'always'}
         dpr={[1, 1.5]}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
@@ -2598,6 +2605,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           cameraOn={cameraOn}
           localScreenStream={screenStream}
           nameByPeerId={voiceNameByPeerId}
+          onExpandedChange={setScreenExpanded}
         />
       )}
 
