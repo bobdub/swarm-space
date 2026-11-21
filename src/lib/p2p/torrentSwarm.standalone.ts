@@ -80,7 +80,7 @@ export interface TorrentChunk {
   size: number;
 }
 
-export type TorrentState = "idle" | "seeding" | "downloading" | "complete" | "error" | "paused";
+export type TorrentState = "idle" | "queued" | "seeding" | "downloading" | "complete" | "error" | "paused";
 
 export interface TorrentProgress {
   manifestId: string;
@@ -418,6 +418,52 @@ export class TorrentSwarm {
   // DOWNLOAD — Request content from mesh peers
   // ═══════════════════════════════════════════════════════════════════
 
+  // ── Single-flight auto-download queue ─────────────────────────────
+  // Peer-announced manifests wait here (state "queued") and start one at a
+  // time, FIFO. The slot frees when the active download is verified and
+  // reassembled, errors, pauses (stall/bloat/manual), dies or is removed.
+  private downloadQueue: string[] = [];
+  private activeQueuedDownload: string | null = null;
+
+  /** Queue a peer-announced manifest; starts at once if nothing is in flight. */
+  enqueueDownload(manifest: TorrentManifest): void {
+    const state = this.states.get(manifest.id);
+    if (state === "downloading" || state === "seeding" || state === "complete") return;
+    if (this.activeQueuedDownload === manifest.id || this.downloadQueue.includes(manifest.id)) return;
+
+    this.manifests.set(manifest.id, manifest);
+    this.downloadQueue.push(manifest.id);
+    this.states.set(manifest.id, "queued");
+    this.emitProgress(manifest.id);
+    this.pumpDownloadQueue();
+  }
+
+  /** Manifest ids waiting their turn, in order. */
+  getDownloadQueue(): string[] {
+    return [...this.downloadQueue];
+  }
+
+  private pumpDownloadQueue(): void {
+    if (this.activeQueuedDownload) return;
+    while (this.downloadQueue.length > 0) {
+      const nextId = this.downloadQueue.shift()!;
+      const manifest = this.manifests.get(nextId);
+      if (!manifest || this.states.get(nextId) !== "queued") continue;
+      this.activeQueuedDownload = nextId;
+      this.download(manifest);
+      return;
+    }
+  }
+
+  /** Free the queue slot (if this manifest holds it) and start the next one. */
+  private releaseDownloadSlot(manifestId: string): void {
+    const idx = this.downloadQueue.indexOf(manifestId);
+    if (idx !== -1) this.downloadQueue.splice(idx, 1);
+    if (this.activeQueuedDownload !== manifestId) return;
+    this.activeQueuedDownload = null;
+    this.pumpDownloadQueue();
+  }
+
   download(manifest: TorrentManifest): void {
     if (this.states.get(manifest.id) === "downloading") return;
 
@@ -521,6 +567,7 @@ export class TorrentSwarm {
             this.states.set(manifest.id, "paused");
             this.emitProgress(manifest.id);
             this.scheduleBloatReseed(manifest.id, manifest.name);
+            this.releaseDownloadSlot(manifest.id);
             return;
           }
 
@@ -529,6 +576,8 @@ export class TorrentSwarm {
           this.rarityTimers.delete(manifest.id);
           this.stopGunRecovery(manifest.id);
           this.states.set(manifest.id, "paused");
+          this.emitProgress(manifest.id);
+          this.releaseDownloadSlot(manifest.id);
           return;
         }
       }
@@ -599,8 +648,10 @@ export class TorrentSwarm {
           })
         );
       }
-      // Auto-download announced content from peers
-      this.download(manifest);
+      // Auto-download announced content from peers, one file at a time in
+      // the order it was announced, so parallel pulls cannot flood the
+      // same few data channels.
+      this.enqueueDownload(manifest);
     }
   }
 
@@ -798,6 +849,7 @@ export class TorrentSwarm {
       console.error(`[TorrentSwarm] ❌ Content hash mismatch for "${manifest.name}"`);
       this.states.set(manifestId, "error");
       this.emitProgress(manifestId);
+      this.releaseDownloadSlot(manifestId);
       return;
     }
 
@@ -835,6 +887,8 @@ export class TorrentSwarm {
     }
 
     this.emitProgress(manifestId);
+    // Fully received, verified and handed to listeners — next file may start.
+    this.releaseDownloadSlot(manifestId);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -1125,6 +1179,7 @@ export class TorrentSwarm {
     this.stopGunRecovery(manifestId);
     this.states.set(manifestId, "paused");
     this.emitProgress(manifestId);
+    this.releaseDownloadSlot(manifestId);
     console.log(`[TorrentSwarm] ⏸️ Paused "${manifestId}"`);
   }
 
@@ -1172,6 +1227,7 @@ export class TorrentSwarm {
     this.interestedSent.delete(manifestId);
     this.downloadStartedAt.delete(manifestId);
     removePersistedTorrentManifest(manifestId);
+    this.releaseDownloadSlot(manifestId);
 
     console.log(`[TorrentSwarm] 🗑️ Removed torrent "${manifestId}"`);
   }
@@ -1224,6 +1280,8 @@ export class TorrentSwarm {
     this.interestedSent.clear();
     this.downloadStartedAt.clear();
     this.seenMsgIds.clear();
+    this.downloadQueue = [];
+    this.activeQueuedDownload = null;
 
     console.log(`[TorrentSwarm] 🧹 Flushed ${flushed.length} torrents (${reseedable.length} reseedable, ${oversized.length} oversized)`);
 
