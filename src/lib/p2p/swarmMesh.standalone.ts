@@ -165,6 +165,8 @@ export interface LibraryPeer {
   avatarRef?: string;
   /** Trust score computed from mining + content contribution (0-1) */
   trustScore?: number;
+  /** Last time a data channel to this peer was actually open (0/absent = never). */
+  lastConnectedAt?: number;
 }
 
 export interface ContentItem {
@@ -306,6 +308,15 @@ const PEER_STALE_THRESHOLD_MINING = 120_000; // Extended for actively mining pee
 export const PEER_QUIET_LIVE_LINK_MAX_MS = 5 * 60_000;
 /** Redial a dropped peer this soon instead of waiting for the next loop. */
 const DROPPED_PEER_REDIAL_DELAY_MS = 3_000;
+/**
+ * Peers we have really connected to before are rejoined however long ago we
+ * last saw them, within this horizon: their presence beacon may never arrive
+ * (Gun relays down, a busy Brain tab), so freshness alone left two friends who
+ * open the Brain side by side waiting for an invite.
+ */
+export const KNOWN_PEER_REJOIN_HORIZON_MS = 30 * 24 * 60 * 60 * 1000;
+/** Backoff between rejoin attempts to one known peer that is not answering. */
+export const KNOWN_PEER_REJOIN_BACKOFF_MS = [30_000, 60_000, 2 * 60_000, 4 * 60_000, 8 * 60_000, 10 * 60_000] as const;
 
 /** Pure: should the heartbeat sweep evict a peer that has been quiet `idleMs`? */
 export function shouldEvictQuietPeer(idleMs: number, thresholdMs: number, linkLive: boolean): boolean {
@@ -1621,10 +1632,71 @@ export class StandaloneSwarmMesh {
     }, DROPPED_PEER_REDIAL_DELAY_MS);
   }
 
+  /** Rejoin attempts per known peer: attempts made and the earliest next try. */
+  private knownPeerRejoin = new Map<string, { attempts: number; nextAt: number }>();
+
+  /** A peer this node has had a real data channel with (or saved on purpose). */
+  private isKnownPeer(entry: LibraryPeer, owner: string | undefined): boolean {
+    if (!entry.autoConnect) return false;
+    const currentTime = now();
+    if ((entry.lastConnectedAt ?? 0) > 0) {
+      return currentTime - entry.lastConnectedAt! < KNOWN_PEER_REJOIN_HORIZON_MS;
+    }
+    const recent = entry.lastSeenAt > 0 && currentTime - entry.lastSeenAt < KNOWN_PEER_REJOIN_HORIZON_MS;
+    if (!recent) return false;
+    if (entry.source === 'manual' || entry.source === 'library') return true;
+    // Libraries saved before lastConnectedAt existed: connection history counts.
+    if (owner && entry.userId) {
+      try { return getConnectionAffinity(owner, entry.userId).connectedDurationMs > 0; } catch { return false; }
+    }
+    return false;
+  }
+
+  /**
+   * Dial known peers that are not connected, even without a fresh presence
+   * beacon. Each peer is tried at once when the node comes online, then backs
+   * off (30 s doubling to 10 min) while it does not answer; a failed dial to an
+   * offline peer costs one signaling round-trip. Cooldowns, pending dials and
+   * the dial budget still apply.
+   */
+  private rejoinKnownPeers(reason: string): void {
+    if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+    if (!this.peer || this.peer.destroyed || this.peer.disconnected) return;
+    const budget = this.getAutoDialBudget();
+    if (budget === 0) return;
+    const currentTime = now();
+    let owner: string | undefined;
+    try { owner = this.getLocalProfile().userId; } catch { owner = undefined; }
+
+    const due = Array.from(this.library.values())
+      .filter(entry =>
+        entry.peerId !== this.peerId &&
+        !this.connections.has(entry.peerId) &&
+        !this.blockedPeers.has(entry.peerId) &&
+        !this.isDialPending(entry.peerId) &&
+        !this.isPeerCoolingDown(entry.peerId) &&
+        (this.knownPeerRejoin.get(entry.peerId)?.nextAt ?? 0) <= currentTime &&
+        this.isKnownPeer(entry, owner))
+      .sort((a, b) => (b.lastConnectedAt ?? b.lastSeenAt) - (a.lastConnectedAt ?? a.lastSeenAt))
+      .slice(0, budget);
+    if (due.length === 0) return;
+
+    console.log(`[SwarmMesh] 🤝 Rejoining ${due.length} known peer(s) (${reason}): ${due.map(e => e.peerId.slice(0, 12)).join(', ')}`);
+    for (const entry of due) {
+      const prev = this.knownPeerRejoin.get(entry.peerId);
+      const attempts = (prev?.attempts ?? 0) + 1;
+      const wait = KNOWN_PEER_REJOIN_BACKOFF_MS[Math.min(attempts - 1, KNOWN_PEER_REJOIN_BACKOFF_MS.length - 1)];
+      this.knownPeerRejoin.set(entry.peerId, { attempts, nextAt: currentTime + wait });
+      this.recordCellDiagnostic(entry.peerId, 'known-rejoin', `${reason}, attempt=${attempts}`);
+      this.dialPeer(entry.peerId, entry.source === 'manual' ? 'manual' : 'library');
+    }
+  }
+
   private startLibraryReconnectLoop(): void {
     this.stopLibraryReconnectLoop();
     this.libraryReconnectTimer = setInterval(() => {
       if (this.phase !== 'online' || !this.toggles.autoConnect) return;
+      this.rejoinKnownPeers('reconnect-loop');
 
       // Saved friends retry with backoff; ephemeral peers need fresh presence.
       const candidates = Array.from(this.library.entries())
@@ -1954,6 +2026,9 @@ export class StandaloneSwarmMesh {
       // /brain WebGL scene). Poll briefly so the cascade fires the moment
       // the first cell peer is known instead of dialing into an empty
       // library and waiting for the next periodic retry.
+      // Known peers first: they need no presence beacon to be dialed.
+      this.knownPeerRejoin.clear();
+      this.rejoinKnownPeers('online');
       void this.awaitCellThenCascade();
       this.startLibraryReconnectLoop();
 
@@ -2147,6 +2222,7 @@ export class StandaloneSwarmMesh {
     // Peers may have tried us while the socket was down: announce and fill gaps.
     this.pulseGlobalPresence('signaling-recovered');
     this.flushQueuedManualDials();
+    this.rejoinKnownPeers('signaling-recovered');
     this.scheduleMeshExpansion('signaling-recovered', [], 500);
     if (this.connections.size === 0) this.scheduleMeshExpansion('signaling-recovered', [], 3_000);
   }
@@ -2276,8 +2352,10 @@ export class StandaloneSwarmMesh {
       // ── Hardened library persistence: always save on successful connection ──
       const nodeIdForLibrary = meta?.nodeId ?? rId.replace(/^peer-/, '');
       const existingEntry = this.library.get(rId);
+      this.knownPeerRejoin.delete(rId);
       if (existingEntry) {
         existingEntry.lastSeenAt = now();
+        existingEntry.lastConnectedAt = now();
         existingEntry.nodeId = nodeIdForLibrary;
         existingEntry.source = source === 'manual' ? source : existingEntry.source;
       } else {
@@ -2287,6 +2365,7 @@ export class StandaloneSwarmMesh {
           alias: `Node ${nodeIdForLibrary.slice(0, 6)}`,
           addedAt: now(),
           lastSeenAt: now(),
+          lastConnectedAt: now(),
           autoConnect: true,
           source,
         });

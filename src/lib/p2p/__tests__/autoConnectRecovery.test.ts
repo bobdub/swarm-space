@@ -210,3 +210,91 @@ describe('the Auto-connect switch', () => {
     expect(h.dialPeer).toHaveBeenCalledWith('peer-fresh', 'exchange');
   });
 });
+
+describe('known peers rejoin without a presence beacon', () => {
+  const HOUR = 60 * 60_000;
+  const T0 = 100 * 24 * HOUR;
+  beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); vi.setSystemTime(T0); });
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+  const entry = (id: string, extra: Record<string, unknown>) => ({
+    peerId: id, nodeId: id.replace('peer-', ''), alias: id, addedAt: 1, autoConnect: true,
+    source: 'exchange', lastSeenAt: T0 - 5 * HOUR, ...extra,
+  });
+
+  function withLibrary(entries: unknown[]) {
+    localStorage.setItem('swarm-mesh-connection-library', JSON.stringify(entries));
+    const { mesh, h } = setup('peer-self');
+    h.peer = { destroyed: false, disconnected: false };
+    h.dialPeer = vi.fn(() => true);
+    return { mesh, h };
+  }
+
+  it('dials a friend met hours ago, but not stale gossip strangers', () => {
+    const { h } = withLibrary([
+      entry('peer-friend', { lastConnectedAt: T0 - 5 * HOUR }),
+      entry('peer-stranger', { lastSeenAt: T0 - 60_000 }), // fresher, but never connected
+      entry('peer-saved', { source: 'library', lastSeenAt: T0 - 3 * HOUR }), // legacy saved entry
+    ]);
+    h.rejoinKnownPeers('online');
+    const targets = h.dialPeer.mock.calls.map((c: unknown[]) => c[0]);
+    expect(targets).toEqual(['peer-saved', 'peer-friend']);
+  });
+
+  it('leaves friends unseen beyond the horizon, blocked or with Auto-connect off', () => {
+    const { mesh, h } = withLibrary([
+      entry('peer-old', { lastConnectedAt: T0 - 40 * 24 * HOUR }),
+      entry('peer-blocked', { lastConnectedAt: T0 - HOUR }),
+      entry('peer-optout', { lastConnectedAt: T0 - HOUR, autoConnect: false }),
+    ]);
+    mesh.blockPeer('peer-blocked');
+    h.rejoinKnownPeers('online');
+    expect(h.dialPeer).not.toHaveBeenCalled();
+    h.library.set('peer-friend', entry('peer-friend', { lastConnectedAt: T0 - HOUR }));
+    h.toggles.autoConnect = false;
+    h.rejoinKnownPeers('online');
+    expect(h.dialPeer).not.toHaveBeenCalled();
+  });
+
+  it('backs off while the friend is offline and starts over once they connect', () => {
+    const { h } = withLibrary([entry('peer-friend', { lastConnectedAt: T0 - HOUR })]);
+    const tries = () => h.dialPeer.mock.calls.length;
+    h.rejoinKnownPeers('online');
+    expect(tries()).toBe(1);
+    h.rejoinKnownPeers('tick');
+    expect(tries()).toBe(1); // within the 30 s backoff
+    vi.advanceTimersByTime(30_000); h.rejoinKnownPeers('tick');
+    expect(tries()).toBe(2);
+    vi.advanceTimersByTime(30_000); h.rejoinKnownPeers('tick');
+    expect(tries()).toBe(2); // next wait is 1 min
+    vi.advanceTimersByTime(30_000); h.rejoinKnownPeers('tick');
+    expect(tries()).toBe(3);
+
+    // The friend comes online and the channel opens: it is stamped and the backoff resets.
+    const conn = new FakeConn('peer-friend');
+    h.handleConnection(conn, 'library');
+    conn.fireOpen();
+    expect(h.library.get('peer-friend').lastConnectedAt).toBe(Date.now());
+    expect(h.knownPeerRejoin.has('peer-friend')).toBe(false);
+  });
+
+  it('stamps lastConnectedAt on a first connection so the peer is known next time', () => {
+    const { h } = withLibrary([]);
+    const conn = new FakeConn('peer-new');
+    h.handleConnection(conn, 'exchange');
+    conn.fireOpen();
+    expect(h.library.get('peer-new')).toMatchObject({ source: 'exchange', lastConnectedAt: T0 });
+  });
+
+  it('two friends opening the Brain minutes apart connect without Gun', () => {
+    // A is online first; its startup dial to B fails because B is not there yet.
+    const a = withLibrary([entry('peer-bbb', { lastConnectedAt: T0 - 2 * HOUR })]).h;
+    a.rejoinKnownPeers('online');
+    expect(a.dialPeer).toHaveBeenCalledWith('peer-bbb', 'library');
+    // B opens two minutes later: its startup rejoin dials A straight away.
+    vi.advanceTimersByTime(2 * 60_000);
+    const b = withLibrary([entry('peer-aaa', { lastConnectedAt: T0 - 2 * HOUR })]).h;
+    b.rejoinKnownPeers('online');
+    expect(b.dialPeer).toHaveBeenCalledWith('peer-aaa', 'library');
+  });
+});

@@ -121,11 +121,19 @@ describe('durable targeted connections and bounded reconnection', () => {
   it('uses a 10-minute presence window for saved friends', () => {
     expect(SAVED_FRIEND_FRESHNESS_WINDOW).toBe(600_000);
   });
-  it.each(['initial', 'periodic'])('never redials saved friends absent beyond the window on %s pass', pass => {
+  it('the drop redial never reaches saved friends absent beyond the window', () => {
     const { h } = setup([contact('manual', 399_999), contact('library', 1)]);
-    if (pass === 'initial') h.autoConnectLibrary();
-    else { h.startLibraryReconnectLoop(); vi.advanceTimersByTime(60_000); h.stopLibraryReconnectLoop(); }
+    h.autoConnectLibrary();
     expect(h.dialPeer).not.toHaveBeenCalled();
+  });
+  it('rejoins saved friends absent beyond the window only with backoff, not a redial storm', () => {
+    const { h } = setup([contact('manual', 399_999), contact('library', 1)]);
+    h.startLibraryReconnectLoop(); vi.advanceTimersByTime(10 * 60_000); h.stopLibraryReconnectLoop();
+    const perPeer = (id: string) => h.dialPeer.mock.calls.filter(call => call[0] === id).length;
+    // 20 reconnect ticks, but backoff (30 s, 1, 2, 4 min…) allows only a handful of tries each.
+    expect(perPeer('peer-manual')).toBeGreaterThan(0);
+    expect(perPeer('peer-manual')).toBeLessThanOrEqual(5);
+    expect(perPeer('peer-library')).toBeLessThanOrEqual(5);
   });
   it('does not stack a second dial while one to the same peer is in flight', () => {
     const { mesh, h } = setup();
