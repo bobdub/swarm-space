@@ -4,7 +4,8 @@
  * connect, disconnect, mute, hide, and block directly from that list.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,6 +41,12 @@ import { toast } from "sonner";
 
 function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
+}
+
+/** Route target for a peer's public profile: prefer handle, then user id, then peer id. */
+function profilePathFor(username: string | null, userId: string | undefined, peerId: string): string {
+  const key = username || (userId && userId.length > 0 ? userId : null) || peerId;
+  return `/u/${encodeURIComponent(key)}`;
 }
 
 function formatSeen(date: Date): string {
@@ -109,6 +116,12 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
         return b.lastSeen.getTime() - a.lastSeen.getTime();
       });
   }, [activeConnections, connectedIds, discoveredPeers, hiddenNodes]);
+
+  // Peer whose "more actions" menu is open. Controlled so touch taps can
+  // open the menu on click (finger lifted) instead of Radix's pointerdown,
+  // which made the finger release land on — and select — "Mute".
+  const [openMenuPeerId, setOpenMenuPeerId] = useState<string | null>(null);
+  const touchPointerRef = useRef(false);
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -250,6 +263,7 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
               const showHandle = Boolean(username) && username !== label;
               const isMuted = mutedNodes.has(peer.peerId);
               const lastSeen = new Date(peer.lastSeen);
+              const profilePath = profilePathFor(username, peer.userId, peer.peerId);
 
               return (
                 <div
@@ -260,7 +274,11 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       : "border-foreground/10 bg-background/40 hover:border-foreground/20"
                   }`}
                 >
-                  <div className="relative shrink-0">
+                  <Link
+                    to={profilePath}
+                    className="relative shrink-0 rounded-full cursor-pointer transition-opacity hover:opacity-80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    aria-label={`View ${label}'s profile`}
+                  >
                     <Avatar
                       username={username ?? peer.peerId}
                       displayName={peer.profile?.displayName}
@@ -273,13 +291,17 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       }`}
                       aria-label={peer.isConnected ? "Connected" : "Discovered"}
                     />
-                  </div>
+                  </Link>
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-sm font-medium truncate" title={label}>
+                      <Link
+                        to={profilePath}
+                        className="text-sm font-medium truncate cursor-pointer hover:underline hover:text-primary focus:outline-none focus-visible:underline"
+                        title={`View ${label}'s profile`}
+                      >
                         {label}
-                      </span>
+                      </Link>
                       {showHandle && (
                         <span className="text-xs text-foreground/50 truncate">@{username}</span>
                       )}
@@ -329,12 +351,30 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       <span className="hidden sm:inline">{peer.isConnected ? "Disconnect" : "Connect"}</span>
                     </Button>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <DropdownMenu
+                      open={openMenuPeerId === peer.peerId}
+                      onOpenChange={(open) =>
+                        setOpenMenuPeerId((current) => (open ? peer.peerId : current === peer.peerId ? null : current))
+                      }
+                    >
+                      <DropdownMenuTrigger
+                        asChild
+                        onPointerDown={(event) => {
+                          // Touch/pen: skip Radix's open-on-pointerdown so the
+                          // lifting finger can't ghost-select a menu item.
+                          touchPointerRef.current = event.pointerType !== "mouse";
+                          if (touchPointerRef.current) event.preventDefault();
+                        }}
+                        onClick={() => {
+                          if (!touchPointerRef.current) return;
+                          touchPointerRef.current = false;
+                          setOpenMenuPeerId((current) => (current === peer.peerId ? null : peer.peerId));
+                        }}
+                      >
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 w-7 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 transition-opacity"
+                          className="h-10 w-10 sm:h-8 sm:w-7 p-0 touch-manipulation sm:opacity-0 sm:group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 transition-opacity"
                           aria-label="More actions"
                         >
                           <MoreVertical className="h-3.5 w-3.5" />

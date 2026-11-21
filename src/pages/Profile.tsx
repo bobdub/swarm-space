@@ -53,6 +53,8 @@ import { filterBlogPosts, classifyPost } from "@/lib/blogging/awareness";
 import { BlogPostCard } from "@/components/BlogPostCard";
 import { ENTITY_USER_ID, ENTITY_DISPLAY_NAME } from "@/lib/p2p/entityVoice";
 import { Brain } from "lucide-react";
+import type { DiscoveredPeer } from "@/lib/p2p/discovery";
+import type { LibraryPeer } from "@/lib/p2p/swarmMesh.standalone";
 import { InfinityProfile } from '@/components/InfinityProfile';
 
 type TabKey = "posts" | "blogs" | "projects" | "achievements" | "files" | "market" | "brain";
@@ -92,6 +94,54 @@ const DEFAULT_VERIFICATION_BADGE = {
   iconSeed: "dream-match-verified-default",
 };
 
+/**
+ * Look up a peer in the live P2P inventory (discovered peers, then the
+ * SWARM Mesh Connection Library) by handle, user id, or peer id and
+ * return a minimal, unpersisted User for them. Used when the peer has
+ * no stored user record and no posts yet.
+ */
+async function findPeerAsUser(
+  param: string,
+  getDiscoveredPeers: () => DiscoveredPeer[],
+): Promise<User | null> {
+  const lower = param.toLowerCase();
+  const matches = (...values: Array<string | undefined | null>) =>
+    values.some((value) => Boolean(value) && (value === param || value!.toLowerCase() === lower));
+
+  let discovered: DiscoveredPeer[] = [];
+  try {
+    discovered = getDiscoveredPeers();
+  } catch {
+    // P2P not ready
+  }
+  const peer = discovered.find((p) => matches(p.profile?.username, p.userId, p.peerId));
+
+  let libraryEntry: LibraryPeer | undefined;
+  try {
+    const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+    libraryEntry = getSwarmMeshStandalone()
+      .getLibrary()
+      .find((entry) => matches(entry.username, entry.userId, entry.peerId));
+  } catch {
+    // Swarm mesh not available
+  }
+
+  if (!peer && !libraryEntry) return null;
+
+  const userId = peer?.userId || libraryEntry?.userId || peer?.peerId || libraryEntry?.peerId || param;
+  const username = peer?.profile?.username || libraryEntry?.username || param;
+  const displayName = peer?.profile?.displayName || libraryEntry?.displayName || username;
+  return {
+    id: userId,
+    username,
+    displayName,
+    publicKey: "",
+    profile: {
+      avatarRef: peer?.profile?.avatarRef || libraryEntry?.avatarRef,
+    },
+  } as User;
+}
+
 const Profile = () => {
   const { username: userParam } = useParams();
   const { user: currentUser, isLoading: authLoading } = useAuth();
@@ -118,7 +168,10 @@ const Profile = () => {
   const [entanglementCounts, setEntanglementCounts] = useState({ followers: 0, following: 0 });
   const [isEntangledWithUser, setIsEntangledWithUser] = useState(false);
   const [entangleLoading, setEntangleLoading] = useState(false);
-  const { ensureManifest } = useP2PContext();
+  const { ensureManifest, getDiscoveredPeers } = useP2PContext();
+  // Kept in a ref so a new callback identity doesn't re-trigger loadProfile.
+  const getDiscoveredPeersRef = useRef(getDiscoveredPeers);
+  getDiscoveredPeersRef.current = getDiscoveredPeers;
   const postsFeedRef = useRef<HTMLDivElement | null>(null);
   const [verificationBadge, setVerificationBadge] = useState<AchievementDisplayItem | null>(null);
   const [verificationLoading, setVerificationLoading] = useState(false);
@@ -448,6 +501,13 @@ const Profile = () => {
             };
             await put("users", targetUser);
           }
+        }
+
+        // Fallback: a peer we've met on the mesh but who hasn't posted yet.
+        // Build a minimal profile from the live Connection Library so tapping
+        // a newly met peer shows their avatar and name instead of "not found".
+        if (!targetUser) {
+          targetUser = await findPeerAsUser(userParam, getDiscoveredPeersRef.current);
         }
       }
 
