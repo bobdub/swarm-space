@@ -1,8 +1,8 @@
 /**
  * AutoMiningService — Background mining rewards based on REAL mesh activity.
  * Only rewards when connected to SWARM Mesh with active peers.
- * CREATOR Proof: Only CONFIRMED blocks (peer-consensus-verified) earn rewards.
- * Hollow blocks (no content activity) earn 50% of normal rate.
+ * CREATOR Proof: rewards come only from the shared chain's block reward,
+ * mined by the mesh on the cadence. Hollow blocks earn 50% of the reward.
  *
  * BUG-10 FIX: Now persists MiningSession to IndexedDB so validateMineHealth succeeds.
  * BUG-11 FIX: Now writes window.__swarmMeshState so mineHealthValidator reads live peer count.
@@ -12,7 +12,6 @@ import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getFeatureFlags } from "@/config/featureFlags";
-import { rewardTransactionProcessing, rewardSpaceHosting } from "@/lib/blockchain/miningRewards";
 import { getSwarmMeshStandalone } from "@/lib/p2p/swarmMesh.standalone";
 import { settleMiningPayout } from "@/lib/mining/miningPayouts";
 import { saveMiningSession } from "@/lib/blockchain/storage";
@@ -121,12 +120,9 @@ export function AutoMiningService() {
     };
   }, [isEnabled, stats.connectedPeers, user]);
 
-  // ── Event-driven payouts ──
-  // Pay as soon as the mesh mining counters change (block confirmed, relay,
-  // discovery, heartbeat/ack) instead of every 30s. Payouts are derived from
-  // the same summary the mining displays use, so they always agree. Mesh
-  // work already requires live peers, so we don't gate on the (10s-polled)
-  // React peer count here.
+  // ── Mining counters ──
+  // Track the mesh mining counters for the session record. Payment is the
+  // block reward on the shared chain, so nothing is minted here.
   useEffect(() => {
     const flags = getFeatureFlags();
     if (!flags.swarmMeshMode || !isEnabled || !user || !canUseMemberFeatures(user)) return;
@@ -136,9 +132,10 @@ export function AutoMiningService() {
     let lastConfirmed = -1;
     const userId = user.id;
     const unsub = mesh.onMiningChange((current) => {
-      const due = settleMiningPayout(userId, current);
-      if (due.meshWorkUnits > 0) void rewardTransactionProcessing(userId, due.meshWorkUnits);
-      if (due.serviceUnits > 0) void rewardSpaceHosting(userId, due.serviceUnits);
+      // CREATOR work is paid by the shared chain's block reward (Bitcoin-style),
+      // not by self-issued mints peers can't check. Keep the paid mark moving
+      // so the old payout never re-pays this work.
+      settleMiningPayout(userId, current);
 
       // BUG-10: keep the persisted session's block count current.
       if (autoMineSessionId && current.confirmedBlocks !== lastConfirmed) {
