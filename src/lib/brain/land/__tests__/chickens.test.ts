@@ -5,8 +5,13 @@ import { arcMetres } from '../../sea/seaLife';
 import {
   HEN_EVENT_ANCHOR,
   HEN_MIN_GROUND,
+  CHICK_GROW_MS,
+  EGG_HATCH_MS,
+  EGG_LAY_MS,
   HEN_RESPAWN_MS,
   _resetChickensForTest,
+  henLifeAt,
+  roosterOf,
   getHens,
   henPoseAt,
   isHenAway,
@@ -110,5 +115,41 @@ describe('free-range chickens', () => {
     expect(listNatureEvents(HEN_EVENT_ANCHOR).length).toBe(1);
     // Hen events never show up among a biome's tree events.
     expect(listNatureEvents('swarm-shared-village').length).toBe(0);
+  });
+
+  it('every flock has exactly one rooster', () => {
+    const flocks = new Map<string, number>();
+    for (const h of getHens()) if (h.rooster) flocks.set(h.flock, (flocks.get(h.flock) ?? 0) + 1);
+    const all = new Set(getHens().map((h) => h.flock));
+    expect(flocks.size).toBe(all.size);
+    for (const n of flocks.values()) expect(n).toBe(1);
+    for (const f of all) expect(roosterOf(f)?.rooster).toBe(true);
+  });
+
+  it('a caught hen comes back as an egg, then a chick, then a hen', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const at = Date.UTC(2026, 10, 21, 12);
+    recordNatureEvent('hen-caught', hen.id, HEN_EVENT_ANCHOR, 0, 0, at);
+    expect(henLifeAt(hen, at + 1000).stage).toBe('gone');
+    expect(henLifeAt(hen, at + EGG_LAY_MS + 1000).stage).toBe('egg');
+    expect(henLifeAt(hen, at + EGG_LAY_MS + EGG_HATCH_MS + 1000).stage).toBe('chick');
+    expect(henLifeAt(hen, at + HEN_RESPAWN_MS + 1000).stage).toBe('adult');
+    // Not catchable as an egg or a chick.
+    expect(isHenAway(hen.id, at + EGG_LAY_MS + EGG_HATCH_MS + CHICK_GROW_MS - 1)).toBe(true);
+  });
+
+  it('with the rooster gone, hens wait for a new one before laying', () => {
+    const hen = getHens().find((h) => !h.rooster)!;
+    const rooster = roosterOf(hen.flock)!;
+    const at = Date.UTC(2026, 10, 21, 12);
+    recordNatureEvent('hen-caught', rooster.id, HEN_EVENT_ANCHOR, 0, 0, at);
+    recordNatureEvent('hen-caught', hen.id, HEN_EVENT_ANCHOR, 0, 0, at + 1000);
+    // The rooster's own egg needs no rooster.
+    expect(henLifeAt(rooster, at + EGG_LAY_MS + 1).stage).toBe('egg');
+    // Hers waits until he is grown.
+    expect(henLifeAt(hen, at + EGG_LAY_MS + 2000).stage).toBe('gone');
+    const life = henLifeAt(hen, at + HEN_RESPAWN_MS + 1);
+    expect(life.stage).toBe('egg');
+    expect(life.layAt).toBe(at + HEN_RESPAWN_MS);
   });
 });

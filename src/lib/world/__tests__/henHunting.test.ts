@@ -9,7 +9,7 @@ vi.mock('@/lib/world/swingFxBus', () => ({ emitImpactFx: vi.fn(), emitSwingFx: v
 
 import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import { groundElevationAt } from '@/lib/brain/groundHeight';
-import { FOOD_PER_HEN, _resetChickensForTest, getHens, henPoseAt, isHenAway } from '@/lib/brain/land/chickens';
+import { FOOD_PER_HEN, FOOD_PER_ROOSTER, _resetChickensForTest, getHens, henPoseAt, isHenAway } from '@/lib/brain/land/chickens';
 import { _resetHarvestedForTest } from '@/lib/remix/harvestedInventory';
 import { materialTotals } from '@/lib/world/materials';
 import { _resetNatureEventsForTest, listNatureEvents } from '@/lib/world/natureEventsStore';
@@ -29,17 +29,20 @@ beforeEach(() => {
 });
 
 describe('hunting hens with a knife', () => {
-  it('a knife next to a hen catches her for Food, and she is gone for everyone', () => {
-    const hen = getHens()[0];
-    standAt(henPoseAt(hen, getEarthPoseTime()).n);
-    const before = materialTotals().food ?? 0;
-    expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(true);
-    expect((materialTotals().food ?? 0) - before).toBe(FOOD_PER_HEN);
-    const caught = listNatureEvents('chickens');
-    expect(caught.length).toBe(1);
-    expect(caught[0].kind).toBe('hen-caught');
-    expect(isHenAway(caught[0].blockId)).toBe(true);
-  });
+  for (const rooster of [false, true]) {
+    it(`a knife next to a ${rooster ? 'rooster' : 'hen'} catches it for Food, and it is gone for everyone`, () => {
+      const hen = getHens().find((h) => h.rooster === rooster)!;
+      standAt(henPoseAt(hen, getEarthPoseTime()).n);
+      const before = materialTotals().food ?? 0;
+      expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(true);
+      expect((materialTotals().food ?? 0) - before).toBe(rooster ? FOOD_PER_ROOSTER : FOOD_PER_HEN);
+      const caught = listNatureEvents('chickens');
+      expect(caught.length).toBe(1);
+      expect(caught[0].kind).toBe('hen-caught');
+      expect(caught[0].blockId).toBe(hen.id);
+      expect(isHenAway(caught[0].blockId)).toBe(true);
+    });
+  }
 
   it('other tools, or no hen in reach, leave the swing alone', () => {
     const hen = getHens()[0];

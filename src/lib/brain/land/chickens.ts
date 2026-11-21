@@ -7,10 +7,17 @@
  * walks a slow, wandering loop around her flock's home: a few steps, then a
  * pause to peck, then a few more.
  *
- * The only thing peers tell each other is that a hen was caught: one small
- * `hen-caught` nature event (see `world/natureEventsStore`). Every peer
- * hides that hen until `HEN_RESPAWN_MS` after the catch, then she is back
- * on her loop, so the land never runs out of chickens.
+ * Every flock has one rooster and a nest at its home. The only thing peers
+ * tell each other is that a bird was caught: one small `hen-caught` nature
+ * event (see `world/natureEventsStore`). From that one timestamp every peer
+ * works out the same life story for the empty place in the flock: a hen
+ * lays an egg in the nest, the egg hatches, and the chick grows up into the
+ * bird that was lost, walking the same loop. So the land never runs out of
+ * chickens, and nothing more is sent.
+ *
+ * A hen's egg only hatches if the flock has a rooster, so when the rooster
+ * is caught the hens hold off laying until a new rooster has grown up. (His
+ * own replacement egg needs no rooster: a hen stays fertile for weeks.)
  *
  * Homes come from two sources:
  *   - a few flocks round the village, a short walk from where everyone
@@ -29,10 +36,17 @@ import { starboardOf, travel } from '../sea/dockSite';
 import { arcMetres } from '../sea/seaLife';
 import { listNatureEvents, subscribeNatureEvents } from '@/lib/world/natureEventsStore';
 
-/** Food a caught hen gives. */
+/** Food a caught hen gives, and a caught rooster (a bigger bird). */
 export const FOOD_PER_HEN = 3;
-/** How long a caught hen is gone before she is back with her flock (ms). */
-export const HEN_RESPAWN_MS = 10 * 60_000;
+export const FOOD_PER_ROOSTER = 4;
+/** After a catch: until an egg is laid in the nest (ms). */
+export const EGG_LAY_MS = 2 * 60_000;
+/** An egg takes this long to hatch (ms). */
+export const EGG_HATCH_MS = 4 * 60_000;
+/** A chick takes this long to grow into a hen or rooster (ms). */
+export const CHICK_GROW_MS = 6 * 60_000;
+/** Shortest time from a catch until the flock is whole again (ms). */
+export const HEN_RESPAWN_MS = EGG_LAY_MS + EGG_HATCH_MS + CHICK_GROW_MS;
 /** How close (m) a knife has to get to a hen to catch her. */
 export const HEN_CATCH_REACH_M = 1.8;
 /** Biome anchor stamped on hen events (keeps them apart from tree events). */
@@ -62,6 +76,11 @@ export interface Hen {
   /** Shared id, also the body id on catch events: `hen:<flock>-<i>`. */
   id: string;
   flock: string;
+  /** Place in the flock; place 0 is the flock's rooster. */
+  slot: number;
+  rooster: boolean;
+  /** Earth-local unit normal of the flock's nest (the flock's home). */
+  nest: Vec3;
   /** Earth-local unit normal at the centre of her loop. */
   home: Vec3;
   e1: Vec3;
@@ -175,7 +194,7 @@ function flockGroundOk(home: Vec3): boolean {
 function makeFlock(flock: string, home: Vec3, seed: number, out: Hen[]): boolean {
   if (!flockGroundOk(home)) return false;
   const r = rand(seed);
-  const size = 3 + Math.floor(r() * 4); // 3–6 hens
+  const size = 3 + Math.floor(r() * 4); // a rooster and 2–5 hens
   const [f1, f2] = tangents(home, r() * Math.PI * 2);
   const plumageBase = Math.floor(r() * 4);
   for (let i = 0; i < size; i++) {
@@ -192,6 +211,9 @@ function makeFlock(flock: string, home: Vec3, seed: number, out: Hen[]): boolean
     out.push({
       id: `hen:${flock}-${i}`,
       flock,
+      slot: i,
+      rooster: i === 0,
+      nest: home,
       home: centre,
       e1,
       e2,
@@ -205,13 +227,14 @@ function makeFlock(flock: string, home: Vec3, seed: number, out: Hen[]): boolean
       offset: r() * CYCLE_S * 10,
       // Mostly the flock's colour, the odd one different.
       plumage: r() < 0.75 ? plumageBase : Math.floor(r() * 4),
-      scale: 0.85 + 0.3 * r(),
+      scale: i === 0 ? 1.15 + 0.1 * r() : 0.85 + 0.3 * r(),
     });
   }
   return true;
 }
 
 let cached: Hen[] | null = null;
+let roosters: Map<string, Hen> | null = null;
 
 /** Every hen in the world. Deterministic and cached. */
 export function getHens(): Hen[] {
@@ -236,7 +259,14 @@ export function getHens(): Hen[] {
     makeFlock(`f${i}`, fibonacci(i + 0.61, FLOCK_LATTICE), 0xe99 + i * 2246822519, all);
   }
   cached = all;
+  roosters = new Map(all.filter((h) => h.rooster).map((h) => [h.flock, h]));
   return all;
+}
+
+/** The rooster of `flock`. */
+export function roosterOf(flock: string): Hen | undefined {
+  if (!roosters) getHens();
+  return roosters?.get(flock);
 }
 
 /** Where a hen is at shared time `t` (seconds). */
@@ -276,32 +306,124 @@ export function hensNear(n: Vec3, radiusM: number): Hen[] {
 
 // ── Catches, from the shared nature events ──────────────────────────
 
-let caughtAt: Map<string, number> | null = null;
+let caughtAt: Map<string, number[]> | null = null;
 let unsubscribe: (() => void) | null = null;
 
-function catches(): Map<string, number> {
+/** Every catch time per bird, oldest first. */
+function catches(): Map<string, number[]> {
   if (!caughtAt) {
     caughtAt = new Map();
     for (const e of listNatureEvents(HEN_EVENT_ANCHOR)) {
       if (e.kind !== 'hen-caught') continue;
-      const prev = caughtAt.get(e.blockId);
-      if (prev === undefined || e.at > prev) caughtAt.set(e.blockId, e.at);
+      const list = caughtAt.get(e.blockId);
+      if (list) list.push(e.at); else caughtAt.set(e.blockId, [e.at]);
     }
+    for (const list of caughtAt.values()) list.sort((a, b) => a - b);
     if (!unsubscribe) unsubscribe = subscribeNatureEvents(() => { caughtAt = null; });
   }
   return caughtAt;
 }
 
-/** True while a caught hen is gone (from her catch until she respawns). */
-export function isHenAway(henId: string, now = Date.now()): boolean {
-  const at = catches().get(henId);
-  return at !== undefined && now >= at && now < at + HEN_RESPAWN_MS;
+/** Latest catch of `id` at or before `now`. */
+function lastCatch(id: string, now: number): number | undefined {
+  const list = catches().get(id);
+  if (!list) return undefined;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i] <= now) return list[i];
+  return undefined;
 }
 
-/** When a caught hen comes back (ms), or undefined if she is out now. */
+export type HenStage = 'adult' | 'gone' | 'egg' | 'chick';
+
+export interface HenLife {
+  stage: HenStage;
+  /** When the egg is (or was) laid, hatches, and the chick is grown (ms). */
+  layAt?: number;
+  hatchAt?: number;
+  grownAt?: number;
+  /** 0..1 through the current stage (egg or chick). */
+  progress: number;
+}
+
+/** When the rooster of `flock` is grown again, if he is missing at `at`. */
+function roosterBackAt(flock: string, at: number): number | undefined {
+  const r = roosterOf(flock);
+  if (!r) return undefined;
+  const c = lastCatch(r.id, at);
+  if (c === undefined) return undefined;
+  const back = c + HEN_RESPAWN_MS;
+  return at < back ? back : undefined;
+}
+
+/**
+ * Where a bird is in its life at wall time `now` (ms). Every peer holds the
+ * same catch events, so every peer works out the same answer.
+ */
+export function henLifeAt(h: Hen, now = Date.now()): HenLife {
+  const c = lastCatch(h.id, now);
+  if (c === undefined) return { stage: 'adult', progress: 1 };
+  let layAt = c + EGG_LAY_MS;
+  // A hen's egg needs a rooster: with him gone, the laying waits for the new one.
+  if (!h.rooster) {
+    const back = roosterBackAt(h.flock, layAt);
+    if (back !== undefined) layAt = back;
+  }
+  const hatchAt = layAt + EGG_HATCH_MS;
+  const grownAt = hatchAt + CHICK_GROW_MS;
+  const span = { layAt, hatchAt, grownAt };
+  if (now < layAt) return { stage: 'gone', progress: 0, ...span };
+  if (now < hatchAt) return { stage: 'egg', progress: (now - layAt) / EGG_HATCH_MS, ...span };
+  if (now < grownAt) return { stage: 'chick', progress: (now - hatchAt) / CHICK_GROW_MS, ...span };
+  return { stage: 'adult', progress: 1, ...span };
+}
+
+/** True while a caught bird is not yet grown back (gone, egg or chick). */
+export function isHenAway(henId: string, now = Date.now()): boolean {
+  const h = henById(henId);
+  if (!h) return false;
+  return henLifeAt(h, now).stage !== 'adult';
+}
+
+/** When a caught bird is grown back (ms), or undefined if it is out now. */
 export function henBackAt(henId: string, now = Date.now()): number | undefined {
-  const at = catches().get(henId);
-  return at !== undefined && now >= at && now < at + HEN_RESPAWN_MS ? at + HEN_RESPAWN_MS : undefined;
+  const h = henById(henId);
+  if (!h) return undefined;
+  const life = henLifeAt(h, now);
+  return life.stage === 'adult' ? undefined : life.grownAt;
+}
+
+let byId: Map<string, Hen> | null = null;
+function henById(id: string): Hen | undefined {
+  if (!byId) byId = new Map(getHens().map((h) => [h.id, h]));
+  return byId.get(id);
+}
+
+/** Where in the nest (tangent offset, m) the egg for flock place `slot` lies. */
+export function eggOffset(slot: number): [number, number] {
+  const a = slot * 2.399963229728653;
+  const d = slot === 0 ? 0 : 0.09;
+  return [Math.cos(a) * d, Math.sin(a) * d];
+}
+
+/** Earth-local unit normal of a point `x`, `z` metres from `n` (east-ish, north-ish). */
+export function nestPoint(n: Vec3, x: number, z: number): Vec3 {
+  const [e1, e2] = tangents(n, 0);
+  return offsetPoint(n, e1, e2, x, z);
+}
+
+/**
+ * A chick's pose: she toddles out from the nest onto her loop over the
+ * first part of growing up, then walks it like the grown-ups.
+ */
+export function chickPoseAt(h: Hen, t: number, progress: number): HenPose {
+  const p = henPoseAt(h, t);
+  const k = Math.min(1, progress * 2.5);
+  if (k >= 1) return p;
+  const n = normalize([
+    h.nest[0] + (p.n[0] - h.nest[0]) * k,
+    h.nest[1] + (p.n[1] - h.nest[1]) * k,
+    h.nest[2] + (p.n[2] - h.nest[2]) * k,
+  ]);
+  return { ...p, n };
 }
 
 /**
@@ -326,6 +448,8 @@ export function nearestCatchableHen(
 
 export function _resetChickensForTest(): void {
   cached = null;
+  roosters = null;
+  byId = null;
   caughtAt = null;
   unsubscribe?.();
   unsubscribe = null;
