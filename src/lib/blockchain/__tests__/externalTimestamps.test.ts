@@ -61,3 +61,27 @@ describe("optional outside timestamps", () => {
     expect(Array.from(file.slice(65))).toEqual([0xff, 0x01, 0x02]);
   });
 });
+
+describe("the background check", () => {
+  it("retries a failed stamp on the timer, not straight after the failure", async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    localStorage.clear();
+    const fetchFn = vi.fn(async () => { throw new Error("offline"); });
+    vi.stubGlobal("fetch", fetchFn);
+    vi.doMock("../chain", () => ({
+      getSwarmChain: () => ({ whenReady: async () => {}, getLatestCheckpoint: () => 0, getChain: () => [{ hash: hash("d"), index: 0 }] }),
+    }));
+    const m = await import("../externalTimestamps");
+    const stop = m.startExternalTimestamps();
+    m.setExternalTimestampsEnabled(true);
+    await vi.waitFor(() => expect(m.getTimestampReceipts()).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(fetchFn).toHaveBeenCalledTimes(6);
+    stop();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+});

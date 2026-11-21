@@ -43,6 +43,8 @@ export function onExternalTimestampsChange(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 const notify = () => { for (const fn of listeners) try { fn(); } catch { /* ignore */ } };
+/** Fired only when the switch changes, never by a new receipt, so a failed stamp can't trigger the next one. */
+const switchListeners = new Set<() => void>();
 
 export function getExternalTimestampsEnabled(store = defaultStore()): boolean {
   try { return store?.getItem(ENABLED_KEY) === "1"; } catch { return false; }
@@ -50,6 +52,7 @@ export function getExternalTimestampsEnabled(store = defaultStore()): boolean {
 
 export function setExternalTimestampsEnabled(on: boolean, store = defaultStore()): void {
   try { store?.setItem(ENABLED_KEY, on ? "1" : "0"); } catch { /* ignore */ }
+  for (const fn of switchListeners) try { fn(); } catch { /* ignore */ }
   notify();
 }
 
@@ -167,7 +170,8 @@ export function startExternalTimestamps(): () => void {
     }).catch(() => { /* next tick */ });
   };
   timer = setInterval(tick, 10 * 60 * 1000);
-  const off = onExternalTimestampsChange(tick);
+  switchListeners.add(tick);
+  const off = () => { switchListeners.delete(tick); };
   tick();
   return () => {
     if (timer) clearInterval(timer);
