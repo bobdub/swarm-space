@@ -26,7 +26,7 @@ import {
   clearStoneMine,
   isStoneBroken,
 } from '@/lib/world/stoneMineStore';
-import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { swingProgress, swingResisted, swingSuccess } from '@/lib/world/swingFeedback';
 import { playerSwingEnergy } from '@/lib/world/swingEnergy';
 
@@ -385,7 +385,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
       swingProgress(toolPrefabId, prefab.label, 'No gatherable water at this impact point.');
       return false;
     }
-    recordHarvestForResource('water', 1);
+    recordPlayerHarvest('water', 1);
     swingSuccess(toolPrefabId, prefab.label, 'Collected water · +1 Water.');
     return true;
   }
@@ -414,7 +414,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true, materialForKind(target.natureKind));
     getBuilderBlockEngine().removeBlock(target.blockId);
     clearTargetIfBlock(target.blockId);
-    recordHarvestForResource(gathered, 1);
+    recordPlayerHarvest(gathered, 1);
     swingSuccess(
       toolPrefabId,
       prefab.label,
@@ -506,7 +506,7 @@ function gatherFromLiving(
       return false;
     }
     emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
-    recordHarvestForResource('food', pick.count);
+    recordPlayerHarvest('food', pick.count);
     swingSuccess(toolPrefabId, toolLabel, `Picked ${pick.count} fruit · +${pick.count} Food.`);
     return true;
   }
@@ -523,7 +523,7 @@ function gatherFromLiving(
     return false;
   }
   emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
-  recordHarvestForResource('food', honey);
+  recordPlayerHarvest('food', honey);
   swingSuccess(toolPrefabId, toolLabel, `Collected honey · +${honey} Food.`);
   return true;
 }

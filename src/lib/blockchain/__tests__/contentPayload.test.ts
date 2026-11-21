@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const db: Record<string, Map<string, any>> = { posts: new Map(), comments: new Map(), swarmCoins: new Map(), manifests: new Map() };
+const db: Record<string, Map<string, any>> = { posts: new Map(), comments: new Map(), swarmCoins: new Map(), manifests: new Map(), meta: new Map() };
 vi.mock("../../store", () => ({
   get: async (s: string, k: string) => db[s].get(k),
   getAll: async (s: string) => [...db[s].values()],
-  put: async (s: string, v: any) => { db[s].set(v.id ?? v.coinId ?? v.fileId, v); },
+  put: async (s: string, v: any) => { db[s].set(v.id ?? v.coinId ?? v.fileId ?? v.k, v); },
 }));
 import { packLocalContent, COIN_PAYLOAD_SEAL_BYTES, measureContentBytes, sealLocalContent } from "../contentPayload";
 import { isWeightedCoin } from "../weightedCoin";
@@ -164,5 +164,47 @@ describe("content payload flip", () => {
     expect(db.swarmCoins.get("c1").sealBytes).toBe(1024 ** 3 - 200);
     expect(db.posts.get("p0")._coinId).toBe("c2");
     expect(db.manifests.get("file-1")._coinId).toBe("c2");
+  });
+});
+
+describe("harvest engraving", () => {
+  it("engraves everything harvested since the last pass as one entry, once", async () => {
+    const { journalHarvest, flushHarvestJournal, _resetHarvestJournalForTest } = await import("@/lib/remix/harvestJournal");
+    _resetHarvestJournalForTest();
+    localStorage.clear();
+    await journalHarvest("u", "wood", 1);
+    await journalHarvest("u", "wood", 1);
+    await journalHarvest("u", "food", 2);
+    await flushHarvestJournal();
+    db.swarmCoins.set("c1", coin("c1"));
+
+    expect(await packLocalContent("u")).toBe(1);
+    const entries = db.swarmCoins.get("c1").payloadEntries;
+    expect(entries).toHaveLength(1);
+    expect(entries[0].type).toBe("harvest");
+    expect(entries[0].harvest).toEqual({ wood: 2, food: 2 });
+    expect(entries[0].metadata.name).toBe("Harvested +2 Food, +2 Wood");
+    expect(db.swarmCoins.get("c1").fillState).toBe("filling");
+
+    // Nothing new: nothing appended.
+    expect(await packLocalContent("u")).toBe(0);
+    await journalHarvest("u", "stone", 3);
+    await flushHarvestJournal();
+    expect(await packLocalContent("u")).toBe(1);
+    const after = db.swarmCoins.get("c1").payloadEntries;
+    expect(after).toHaveLength(2);
+    expect(after[1].harvest).toEqual({ stone: 3 });
+  });
+
+  it("keeps harvests waiting when no coin is open", async () => {
+    const { journalHarvest, flushHarvestJournal, _resetHarvestJournalForTest } = await import("@/lib/remix/harvestJournal");
+    _resetHarvestJournalForTest();
+    localStorage.clear();
+    await journalHarvest("u", "water", 1);
+    await flushHarvestJournal();
+    expect(await packLocalContent("u")).toBe(0);
+    db.swarmCoins.set("c1", coin("c1"));
+    expect(await packLocalContent("u")).toBe(1);
+    expect(db.swarmCoins.get("c1").payloadEntries[0].harvest).toEqual({ water: 1 });
   });
 });

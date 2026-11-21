@@ -560,7 +560,7 @@ export interface CoinPayloadMedia {
 /** One engraved item: token metadata plus its media, sized by the real content it carries. */
 export interface CoinPayloadEntry {
   id: string;
-  type: "post" | "comment";
+  type: "post" | "comment" | "harvest";
   /** Text/metadata bytes plus every attached file's full size. */
   sizeBytes: number;
   hash: string;
@@ -570,4 +570,6 @@ export interface CoinPayloadEntry {
   media?: CoinPayloadMedia[];
   /** Attached files not on this device yet; the writer retries them until they count. */
   pendingMediaIds?: string[];
+  /** type "harvest": units harvested in this batch, by resource kind. */
+  harvest?: Record<string, number>;
 }

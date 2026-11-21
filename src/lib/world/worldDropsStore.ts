@@ -10,7 +10,7 @@
  * a ghost resource, so they simply expire.
  */
 import type { Vec3 } from '@/lib/brain/earth';
-import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 
 export type DropKind = 'wood' | 'stone' | 'fibre' | 'food';
 
@@ -75,7 +75,7 @@ export function collectDrop(id: string): boolean {
   const d = drops.get(id);
   if (!d) return false;
   drops.delete(id);
-  recordHarvestForResource(d.kind, d.qty);
+  recordPlayerHarvest(d.kind, d.qty);
   notify();
   return true;
 }
