@@ -18,9 +18,13 @@
  * on a button for the block in front of the player).
  */
 import { burnSwarm, getSwarmBalance } from '@/lib/blockchain/token';
+import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
+import type { Vec3 } from '@/lib/brain/earth';
+import { tangentToSurfaceLocal } from '@/lib/world/landPermissions';
 import { getCachedPrivateKey, getCurrentUser } from '@/lib/auth';
 import {
   BOX_PRICE_SWARM,
+  PLOT_CELL,
   getPlotAtCell,
   loadLegacyLandPlots,
   plotKind,
@@ -30,7 +34,9 @@ import {
 import {
   LAND_CLAIM_TYPE,
   getLandClaim,
+  listLandClaims,
   recordLocalLandClaims,
+  setLandClaimValidator,
   signLandClaim,
   verifyLandClaim,
   type LandClaim,
@@ -45,12 +51,47 @@ export function isBoundaryMarker(prefabId: string | null | undefined): boolean {
   return prefabId === BOUNDARY_MARKER_ID;
 }
 
-export type BlockStatus = 'free' | 'own' | 'foreign' | 'commons';
+export type BlockStatus = 'free' | 'own' | 'foreign' | 'commons' | 'water';
+
+function surfaceIsOcean(tx: number, tz: number): boolean {
+  const p = tangentToSurfaceLocal(tx, tz);
+  const len = Math.hypot(p[0], p[1], p[2]) || 1;
+  const n: Vec3 = [p[0] / len, p[1] / len, p[2] / len];
+  return sampleSurfaceClass(n) === 'ocean';
+}
+
+/**
+ * True when any part of the block is open water: its centre or any of
+ * its four corners samples as ocean. The terrain is the same pure
+ * function on every peer, so every peer gives the same answer.
+ */
+export function isWaterBlock(cx: number, cz: number): boolean {
+  try {
+    const x0 = cx * PLOT_CELL, z0 = cz * PLOT_CELL;
+    const pts: Array<[number, number]> = [
+      [x0 + PLOT_CELL / 2, z0 + PLOT_CELL / 2],
+      [x0, z0], [x0 + PLOT_CELL, z0], [x0, z0 + PLOT_CELL], [x0 + PLOT_CELL, z0 + PLOT_CELL],
+    ];
+    return pts.some(([tx, tz]) => surfaceIsOcean(tx, tz));
+  } catch {
+    return false;
+  }
+}
+
+/** Apply the shared land rules to every claim, local or from peers. */
+export function installLandClaimRules(isWater: (cx: number, cz: number) => boolean = isWaterBlock): void {
+  setLandClaimValidator((c) => !isWater(c.cx, c.cz));
+}
 
 /** Who holds a block, from `actorId`'s point of view. */
-export function blockStatus(cx: number, cz: number, actorId: string): { status: BlockStatus; plot: LandPlot | null } {
+export function blockStatus(
+  cx: number,
+  cz: number,
+  actorId: string,
+  isWater: (cx: number, cz: number) => boolean = isWaterBlock,
+): { status: BlockStatus; plot: LandPlot | null } {
   const plot = getPlotAtCell(cx, cz);
-  if (!plot) return { status: 'free', plot: null };
+  if (!plot) return isWater(cx, cz) ? { status: 'water', plot: null } : { status: 'free', plot: null };
   if (plotKind(plot) === 'commons') return { status: 'commons', plot };
   return { status: plot.ownerId === actorId ? 'own' : 'foreign', plot };
 }
@@ -65,6 +106,8 @@ export interface ClaimDeps {
   getBalance: (id: string) => Promise<number>;
   burn: (p: { from: string; amount: number; reason: string }) => Promise<unknown>;
   now: () => number;
+  /** Is this block water? Defaults to the real terrain (`isWaterBlock`). */
+  isWater?: (cx: number, cz: number) => boolean;
 }
 
 const defaultDeps: ClaimDeps = {
@@ -100,7 +143,8 @@ export async function claimBlockWithMarker(
 ): Promise<ClaimResult> {
   const { cx, cz, ownerId } = input;
   if (!ownerId) return { ok: false, reason: 'Sign in to claim land.' };
-  const { status } = blockStatus(cx, cz, ownerId);
+  const { status } = blockStatus(cx, cz, ownerId, deps.isWater ?? isWaterBlock);
+  if (status === 'water') return { ok: false, reason: "Water can't be claimed." };
   if (status === 'own') return { ok: false, reason: 'You already own this block.' };
   if (status === 'foreign') return { ok: false, reason: 'This block belongs to another player.' };
   if (status === 'commons') return { ok: false, reason: 'This is communal land.' };
@@ -124,9 +168,163 @@ export async function claimBlockWithMarker(
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : 'Could not charge SWARM.' };
   }
+  // Paid for: remember the deed, so if an earlier owner surfaces later
+  // the block is moved to the next free land block instead of lost.
+  addDeeds(ownerId, [{
+    id: `marker:${cx}:${cz}:${claim.claimedAt}`,
+    cx, cz, claimedAt: claim.claimedAt, priceSwarm: BLOCK_PRICE_SWARM,
+  }]);
   const kept = recordLocalLandClaims([claim], deps.now());
-  if (kept.length === 0) return { ok: false, reason: 'Someone just claimed this block.' };
+  if (kept.length === 0) {
+    // Lost a race after paying: the deed relocates it on the next pass.
+    void reconcileDeeds(ownerId, deps);
+    return { ok: false, reason: 'Someone just claimed this block. Yours will be placed on the nearest free block.' };
+  }
   return { ok: true, claim: kept[0] };
+}
+
+// ── Deeds: blocks this device's owner has paid for ──────────────────────
+
+/**
+ * A deed is a paid-for block that this owner must end up holding
+ * somewhere. Claims can be displaced: an owner who was offline (or whose
+ * old walk-claimed plot only now syncs) may hold an earlier claim on the
+ * same block, and the earliest claim wins on every peer. When that
+ * happens the loser's device moves the deed to the nearest free,
+ * non-water block and signs a fresh claim there, at no extra cost.
+ */
+export interface LandDeed {
+  id: string;
+  /** Where the deed currently sits. */
+  cx: number;
+  cz: number;
+  /** Claim time for this spot (original time, or the time it was moved). */
+  claimedAt: number;
+  priceSwarm: number;
+  /** Legacy plot this deed came from, if any. */
+  legacyPlotId?: string;
+  /** Times this deed has been moved. */
+  moves?: number;
+}
+
+const DEEDS_KEY = 'brain-land-deeds-v1';
+/** How far (in blocks) to look for a free block when moving a deed. */
+export const MAX_RELOCATE_RING = 48;
+
+function deedsKey(ownerId: string): string { return `${DEEDS_KEY}:${ownerId}`; }
+
+export function loadDeeds(ownerId: string): LandDeed[] {
+  try {
+    const raw = globalThis.localStorage?.getItem(deedsKey(ownerId));
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(list) ? (list as LandDeed[]).filter((d) => d && Number.isInteger(d.cx) && Number.isInteger(d.cz)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDeeds(ownerId: string, deeds: LandDeed[]): void {
+  try { globalThis.localStorage?.setItem(deedsKey(ownerId), JSON.stringify(deeds)); } catch { /* storage blocked */ }
+}
+
+/** Write one deed back by id against current storage (never a stale snapshot). */
+function updateDeed(ownerId: string, deed: LandDeed): void {
+  const deeds = loadDeeds(ownerId);
+  const i = deeds.findIndex((d) => d.id === deed.id);
+  if (i >= 0) deeds[i] = deed; else deeds.push(deed);
+  saveDeeds(ownerId, deeds);
+}
+
+function addDeeds(ownerId: string, add: LandDeed[]): void {
+  const deeds = loadDeeds(ownerId);
+  const ids = new Set(deeds.map((d) => d.id));
+  for (const d of add) if (!ids.has(d.id)) { deeds.push(d); ids.add(d.id); }
+  saveDeeds(ownerId, deeds);
+}
+
+function heldBy(cx: number, cz: number, ownerId: string): boolean {
+  return getLandClaim(cx, cz)?.ownerId === ownerId;
+}
+
+/**
+ * Nearest block to (cx, cz), ring by ring, that nobody holds and is not
+ * water. Fixed visiting order, so the same inputs pick the same block.
+ */
+export function nearestFreeLandBlock(
+  cx: number,
+  cz: number,
+  isWater: (cx: number, cz: number) => boolean,
+  taken: Set<string> = new Set(),
+): { cx: number; cz: number } | null {
+  for (let r = 1; r <= MAX_RELOCATE_RING; r++) {
+    for (let dz = -r; dz <= r; dz++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = cx + dx, z = cz + dz;
+        if (taken.has(`${x}:${z}`)) continue;
+        if (getPlotAtCell(x, z)) continue;
+        if (isWater(x, z)) continue;
+        return { cx: x, cz: z };
+      }
+    }
+  }
+  return null;
+}
+
+let reconciling = false;
+
+/**
+ * Make sure every deed is held. For each deed not held by its owner:
+ *   1. claim its own block again with its claim time (wins if no earlier
+ *      claim exists there and it is not water), else
+ *   2. move it to the nearest free land block and claim that, now.
+ * Returns how many deeds were moved. A locked key just waits.
+ */
+export async function reconcileDeeds(
+  ownerId: string,
+  deps: ClaimDeps = defaultDeps,
+): Promise<{ moved: number; restored: number }> {
+  const out = { moved: 0, restored: 0 };
+  if (!ownerId || reconciling) return out;
+  reconciling = true;
+  try {
+    const isWater = deps.isWater ?? isWaterBlock;
+    const deeds = loadDeeds(ownerId);
+    const taken = new Set<string>();
+    for (const deed of deeds) {
+      if (heldBy(deed.cx, deed.cz, ownerId) && !isWater(deed.cx, deed.cz)) continue;
+      // 1. Our own spot, at our own claim time.
+      if (!isWater(deed.cx, deed.cz)) {
+        const signed = await signAs(deps, ownerId, [{
+          cx: deed.cx, cz: deed.cz, claimedAt: deed.claimedAt, priceSwarm: deed.priceSwarm,
+        }]);
+        if (!signed) return out; // key locked
+        recordLocalLandClaims(signed, deps.now());
+        if (heldBy(deed.cx, deed.cz, ownerId)) { out.restored += 1; continue; }
+      }
+      // 2. Displaced (or water): the next free land block.
+      const spot = nearestFreeLandBlock(deed.cx, deed.cz, isWater, taken);
+      if (!spot) continue;
+      const at = deps.now();
+      const signed = await signAs(deps, ownerId, [{ cx: spot.cx, cz: spot.cz, claimedAt: at, priceSwarm: deed.priceSwarm }]);
+      if (!signed) return out;
+      recordLocalLandClaims(signed, at);
+      if (heldBy(spot.cx, spot.cz, ownerId)) {
+        deed.cx = spot.cx;
+        deed.cz = spot.cz;
+        deed.claimedAt = at;
+        deed.moves = (deed.moves ?? 0) + 1;
+        // Persist each move at once, so an early exit (locked key) or a
+        // purchase made meanwhile can never be overwritten or replayed.
+        updateDeed(ownerId, deed);
+        taken.add(`${spot.cx}:${spot.cz}`);
+        out.moved += 1;
+      }
+    }
+    return out;
+  } finally {
+    reconciling = false;
+  }
 }
 
 /** Largest legacy plot carried into block claims in one go. */
@@ -135,10 +333,13 @@ const MAX_MIGRATE_CELLS_PER_PLOT = 4096;
 /**
  * Carry this member's own private walk-claimed plots into signed block
  * claims so they sync to peers like any new claim. Already paid for, so
- * the blocks record their share of the original price and nothing is
- * charged. Migrated plots leave the legacy list (a backup copy stays in
- * localStorage). Commons and other owners' plots are left alone. Safe
- * to call repeatedly; a locked key just means "try again later".
+ * each block becomes a deed with its share of the original price and the
+ * plot's original claim time; nothing is charged. Blocks that are water,
+ * or that an earlier claim already holds, are moved to the nearest free
+ * land block (`reconcileDeeds`). A legacy plot leaves the legacy list
+ * (a backup copy stays in localStorage) once every one of its deeds is
+ * held. Commons and other owners' plots are left alone. Safe to call
+ * repeatedly; a locked key just means "try again later".
  */
 export async function migrateLegacyPlots(
   ownerId: string,
@@ -149,33 +350,34 @@ export async function migrateLegacyPlots(
   const mine = legacy.filter((p) => p.ownerId === ownerId && plotKind(p) === 'private');
   if (mine.length === 0) return 0;
 
-  const migrated = new Set<string>();
-  let cells = 0;
+  const before = listLandClaimsCount(ownerId);
   for (const plot of mine) {
     const { cx0, cz0, cx1, cz1 } = plot.cellRect;
     const count = Math.max(0, cx1 - cx0) * Math.max(0, cz1 - cz0);
     if (count === 0 || count > MAX_MIGRATE_CELLS_PER_PLOT) continue;
     const share = (plot.priceSwarm || 0) / count;
-    const unsigned: Array<{ cx: number; cz: number; claimedAt: number; priceSwarm: number }> = [];
+    const add: LandDeed[] = [];
     for (let cz = cz0; cz < cz1; cz++) {
       for (let cx = cx0; cx < cx1; cx++) {
-        const held = getLandClaim(cx, cz);
-        if (held && held.ownerId === ownerId) continue;
-        unsigned.push({ cx, cz, claimedAt: plot.claimedAt || deps.now(), priceSwarm: share });
+        add.push({
+          id: `legacy:${plot.id}:${cx}:${cz}`,
+          cx, cz,
+          claimedAt: plot.claimedAt || deps.now(),
+          priceSwarm: share,
+          legacyPlotId: plot.id,
+        });
       }
     }
-    const signed = await signAs(deps, ownerId, unsigned);
-    if (!signed) break; // key locked — keep the rest for later
-    cells += recordLocalLandClaims(signed, deps.now()).length;
-    // Drop the legacy record only once every one of its cells is held
-    // by this owner (a full store or an earlier rival claim keeps it).
-    let complete = true;
-    for (let cz = cz0; cz < cz1 && complete; cz++) {
-      for (let cx = cx0; cx < cx1; cx++) {
-        if (getLandClaim(cx, cz)?.ownerId !== ownerId) { complete = false; break; }
-      }
-    }
-    if (complete) migrated.add(plot.id);
+    addDeeds(ownerId, add);
+  }
+  await reconcileDeeds(ownerId, deps);
+
+  // A legacy plot is done once each of its deeds is held somewhere.
+  const deeds = loadDeeds(ownerId);
+  const migrated = new Set<string>();
+  for (const plot of mine) {
+    const own = deeds.filter((d) => d.legacyPlotId === plot.id);
+    if (own.length > 0 && own.every((d) => heldBy(d.cx, d.cz, ownerId))) migrated.add(plot.id);
   }
   if (migrated.size > 0) {
     try {
@@ -186,7 +388,13 @@ export async function migrateLegacyPlots(
     } catch { /* storage blocked */ }
     replaceLegacyLandPlots(legacy.filter((p) => !migrated.has(p.id)));
   }
-  return cells;
+  return listLandClaimsCount(ownerId) - before;
+}
+
+function listLandClaimsCount(ownerId: string): number {
+  let n = 0;
+  for (const c of listLandClaims()) if (c.ownerId === ownerId) n += 1;
+  return n;
 }
 
 // ── Hold state (shared by the world layer and the HUD) ──────────────────

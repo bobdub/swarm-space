@@ -110,6 +110,7 @@ const STATUS_TEXT = {
   own: 'Your block',
   foreign: "Another player's block",
   commons: 'Communal land',
+  water: "Water can't be claimed",
 } as const;
 
 /**

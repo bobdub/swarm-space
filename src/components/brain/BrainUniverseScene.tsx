@@ -83,7 +83,8 @@ import { ToolSwingFX } from '@/components/world/ToolSwingFX';
 import { CarvedCellsLayer } from '@/components/world/CarvedCellsLayer';
 import { HeldToolMesh } from '@/components/world/HeldToolMesh';
 import { BoundaryMarkerLayer } from '@/components/world/BoundaryMarkerLayer';
-import { migrateLegacyPlots } from '@/lib/world/boundaryMarker';
+import { installLandClaimRules, migrateLegacyPlots, reconcileDeeds } from '@/lib/world/boundaryMarker';
+import { subscribeLandClaims } from '@/lib/world/landClaimsStore';
 import { WeatherLayer } from '@/components/world/WeatherLayer';
 import {
   setPendingCast,
@@ -1206,12 +1207,36 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
 
   // Carry this member's old walk-claimed plots into signed block claims
   // so they sync to peers. Retries on login (the key may be locked now).
+  // When an earlier owner's claim displaces one of ours (they were
+  // offline, or their old plot only now synced), move our paid block to
+  // the nearest free land block.
   useEffect(() => {
     if (!selfId) return;
-    const run = () => { void migrateLegacyPlots(selfId).catch(() => 0); };
+    installLandClaimRules();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reconcile = () => {
+      void reconcileDeeds(selfId).then(({ moved }) => {
+        if (moved > 0) {
+          toast.message(
+            moved === 1
+              ? 'Someone held one of your blocks first. It was moved to the nearest free block.'
+              : `Someone held ${moved} of your blocks first. They were moved to the nearest free blocks.`,
+          );
+        }
+      }).catch(() => undefined);
+    };
+    const run = () => { void migrateLegacyPlots(selfId).catch(() => 0).then(reconcile); };
     run();
     window.addEventListener('user-login', run);
-    return () => window.removeEventListener('user-login', run);
+    const off = subscribeLandClaims(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(reconcile, 1500);
+    });
+    return () => {
+      window.removeEventListener('user-login', run);
+      off();
+      if (timer) clearTimeout(timer);
+    };
   }, [selfId]);
 
   const handlePlotSurveyClose = useCallback((next: PendingPlot) => {
