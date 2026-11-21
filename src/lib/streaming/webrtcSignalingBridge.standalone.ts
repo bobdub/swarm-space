@@ -919,6 +919,13 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
       sendChatHistoryRequest(roomId, newPeers.slice(0, HISTORY_FANOUT));
     }
     const myPeerId = meshRef.getPeerId();
+    // A new link can put us in reach of room members we never heard from:
+    // a direct Brain entry announces before any link exists, and the
+    // directed join-room below only reaches the new neighbour itself. Ask
+    // the room (relayed) who is there, the way re-entering the Brain does.
+    for (const [roomId, members] of joinedRooms) {
+      if (members.has(myPeerId)) helloRoom(roomId);
+    }
     for (const newPeerId of newPeers) {
       for (const [roomId, members] of joinedRooms) {
         if (!members.has(myPeerId)) continue;

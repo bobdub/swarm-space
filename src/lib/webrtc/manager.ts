@@ -135,8 +135,6 @@ export class WebRTCManager {
             break;
           }
 
-          // A new peer joined our room — send them an offer
-          console.log(`[WebRTC] Peer ${meshPeerId} joining, creating offer`);
           this.ensureParticipant(meshPeerId, envelope.username);
           this.broadcastMessage({
             type: 'peer-joined',
@@ -145,10 +143,22 @@ export class WebRTCManager {
             username: envelope.username,
           });
 
-          // Create offer to the new peer
-          this.createOfferForPeer(meshPeerId).catch(e =>
-            console.error('[WebRTC] Failed to create offer:', e)
-          );
+          // A join from someone we are already talking to is a re-announce
+          // (a mesh link to them opened again, or they were heard again
+          // after going quiet), not a new call. Offering again made both
+          // sides renegotiate at once whenever a newcomer reshuffled the
+          // mesh, and existing users briefly lost each other. A peer that
+          // really rebuilt their side asks for a reconnect instead.
+          const live = this.connections.get(meshPeerId);
+          if (live && live.connectionState === 'connected') {
+            console.log(`[WebRTC] Peer ${meshPeerId} re-announced; call already live`);
+          } else {
+            // A new peer joined our room — send them an offer
+            console.log(`[WebRTC] Peer ${meshPeerId} joining, creating offer`);
+            this.createOfferForPeer(meshPeerId).catch(e =>
+              console.error('[WebRTC] Failed to create offer:', e)
+            );
+          }
 
           // Tell the newcomer our name plus camera/mic state right away so
           // they never draw a placeholder tile or a wrong mic icon.

@@ -75,7 +75,9 @@ export function registerDefaultPoints(): void {
   registerLoadingPoint({
     id: 'mesh',
     label: 'Mesh / P2P sync',
-    essential: false,
+    // Peer discovery: without it a direct Brain visitor only reaches saved
+    // contacts, and the Brain's frame rate kept it paused.
+    essential: true,
     minQScore: 0.20,
     pauseBelowQScore: 0.20,
     start: async () => {
