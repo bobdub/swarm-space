@@ -19,6 +19,7 @@
  */
 import { burnSwarm, getSwarmBalance } from '@/lib/blockchain/token';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
+import { POND_CENTRE, POND_RADIUS } from '@/lib/brain/nature/pond';
 import type { Vec3 } from '@/lib/brain/earth';
 import { tangentToSurfaceLocal } from '@/lib/world/landPermissions';
 import { getCachedPrivateKey, getCurrentUser } from '@/lib/auth';
@@ -53,26 +54,40 @@ export function isBoundaryMarker(prefabId: string | null | undefined): boolean {
 
 export type BlockStatus = 'free' | 'own' | 'foreign' | 'commons' | 'water';
 
-function surfaceIsOcean(tx: number, tz: number): boolean {
+function surfaceIsWet(tx: number, tz: number): boolean {
   const p = tangentToSurfaceLocal(tx, tz);
   const len = Math.hypot(p[0], p[1], p[2]) || 1;
   const n: Vec3 = [p[0] / len, p[1] / len, p[2] / len];
-  return sampleSurfaceClass(n) === 'ocean';
+  const cls = sampleSurfaceClass(n);
+  // Shore is the beach / shallows band; it counts as water too.
+  return cls === 'ocean' || cls === 'shore';
+}
+
+/** Pond tiles reach about a tile past the pond's radius. */
+const POND_REACH = POND_RADIUS + 1.25;
+
+/** Does the block's square touch the village pond? (The pond sits on the grid-origin anchor.) */
+export function blockTouchesPond(cx: number, cz: number): boolean {
+  const x0 = cx * PLOT_CELL, z0 = cz * PLOT_CELL;
+  const nx = Math.max(x0, Math.min(POND_CENTRE.right, x0 + PLOT_CELL));
+  const nz = Math.max(z0, Math.min(POND_CENTRE.forward, z0 + PLOT_CELL));
+  return Math.hypot(nx - POND_CENTRE.right, nz - POND_CENTRE.forward) < POND_REACH;
 }
 
 /**
- * True when any part of the block is open water: its centre or any of
- * its four corners samples as ocean. The terrain is the same pure
- * function on every peer, so every peer gives the same answer.
+ * True when any part of the block is water: the village pond touches it,
+ * or its centre or any of its four corners is ocean or shore (beach).
+ * Terrain and pond are pure functions, so every peer gives the same answer.
  */
 export function isWaterBlock(cx: number, cz: number): boolean {
+  if (blockTouchesPond(cx, cz)) return true;
   try {
     const x0 = cx * PLOT_CELL, z0 = cz * PLOT_CELL;
     const pts: Array<[number, number]> = [
       [x0 + PLOT_CELL / 2, z0 + PLOT_CELL / 2],
       [x0, z0], [x0 + PLOT_CELL, z0], [x0, z0 + PLOT_CELL], [x0 + PLOT_CELL, z0 + PLOT_CELL],
     ];
-    return pts.some(([tx, tz]) => surfaceIsOcean(tx, tz));
+    return pts.some(([tx, tz]) => surfaceIsWet(tx, tz));
   } catch {
     return false;
   }

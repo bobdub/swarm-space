@@ -19,6 +19,7 @@ import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { hiveSpotOnTree } from '@/lib/brain/nature/hiveRehome';
 import { buildGrowthLayout, registerGrowthLayout, type Spot } from '@/lib/brain/nature/natureGrowth';
 import { NATURE_CATALOG, type NatureKind } from './natureCatalog';
+import { POND_CENTRE, POND_RADIUS } from './pond';
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
@@ -78,11 +79,11 @@ export function seedDefaultBiome(anchorPeerId: string): SeededBiome {
   const ids: string[] = [];
 
   // Pond centre — 30 m forward, 0 m right (opposite side of the apartment).
-  const PCX = 0;        // right offset of pond centre
-  const PCZ = -30;      // forward offset (negative = behind apartment)
+  const PCX = POND_CENTRE.right;     // right offset of pond centre
+  const PCZ = POND_CENTRE.forward;   // forward offset (negative = behind apartment)
 
   // ── Pond: 12 water tiles in a soft disc around (PCX, PCZ) ──
-  const POND_R = 5.5;
+  const POND_R = POND_RADIUS;
   for (let i = 0; i < 12; i++) {
     const a = i * GOLDEN_ANGLE;
     const rr = Math.sqrt((i + 0.5) / 12) * POND_R;
