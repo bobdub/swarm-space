@@ -9,7 +9,7 @@
 import type { SwarmBlock, SwarmTransaction } from "./types";
 
 /** Blocks stamped at or after this instant may not carry self-issued SWARM mints. */
-export const SELF_MINT_CUTOFF_MS = Date.parse("2026-11-28T00:00:00Z");
+export const SELF_MINT_CUTOFF_MS = Date.parse("2026-11-22T00:00:00Z");
 /** A block reward can be spent once this many blocks sit on top of it (about one epoch at 30 s). */
 export const REWARD_MATURITY_BLOCKS = 20;
 /** A hollow block (no content served) pays this share of the height's reward. */
