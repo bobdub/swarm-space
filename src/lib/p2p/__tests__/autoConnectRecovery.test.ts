@@ -138,6 +138,21 @@ describe('signaling loss keeps the mesh', () => {
     expect(h.scheduleReconnect).toHaveBeenCalledTimes(1);
   });
 
+  it('queues a manual dial made while the socket is down and sends it on recovery', () => {
+    const { h, peer } = withPeer();
+    h.connectToPeer = StandaloneSwarmMesh.prototype.connectToPeer.bind(h);
+    h.dialPeer = vi.fn(() => true);
+    h.handleLost();
+    peer.disconnected = true; peer.open = false;
+    vi.advanceTimersByTime(1_500);
+    expect(h.connectToPeer('peer-target')).toBe(true);
+    expect(h.dialPeer).not.toHaveBeenCalled();
+    expect(h.queuedManualDials.has('peer-target')).toBe(true);
+    peer.disconnected = false; peer.open = true;
+    h.finishSignalingRecovery();
+    expect(h.dialPeer).toHaveBeenCalledWith('peer-target', 'manual');
+  });
+
   it('does not dial new peers while the socket is down', () => {
     const { h, peer } = withPeer();
     peer.disconnected = true;

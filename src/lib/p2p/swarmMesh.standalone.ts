@@ -2462,6 +2462,13 @@ export class StandaloneSwarmMesh {
       return false;
     }
 
+    // Signaling is reconnecting in place: hold the dial until the socket returns.
+    if (this.peer.disconnected) {
+      this.queuedManualDials.set(remotePeerId, now());
+      this.emitAlert(`Mesh reconnecting — will dial ${remotePeerId.slice(0, 16)}… when back`, 'info');
+      return true;
+    }
+
     // A dial already in flight must finish (or time out) first: repeated
     // invite/retry ticks would otherwise open stacked connections to the host.
     if (this.isDialPending(remotePeerId)) return true;
