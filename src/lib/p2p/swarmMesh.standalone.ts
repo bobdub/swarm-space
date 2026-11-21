@@ -333,6 +333,7 @@ const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
 const ASSET_REQUEST_TIMEOUT_MS = 10_000;
 const ASSET_RETRY_INTERVAL_MS = 2_500;
 const ASSET_RETRY_MAX_ATTEMPTS = 24;
+const ASSET_PULL_MAX_CONSECUTIVE_MISSES = 2;
 const EXHAUSTED_RETRIES_KEY = 'swarm-exhausted-retries';
 
 /**
@@ -4421,6 +4422,7 @@ export class StandaloneSwarmMesh {
     size: number;
     percent: number;
     retrying: boolean;
+    transferState: 'active' | 'queued' | null;
     owner: string;
     createdAt: number;
     prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
@@ -4456,6 +4458,7 @@ export class StandaloneSwarmMesh {
         fileId: string; name: string; mime: string;
         totalChunks: number; receivedChunks: number; size: number;
         percent: number; retrying: boolean;
+        transferState: 'active' | 'queued' | null;
         owner: string; createdAt: number;
         prefs: { paused: boolean; ignored: boolean; hostFirst: boolean };
       }> = [];
@@ -4482,6 +4485,7 @@ export class StandaloneSwarmMesh {
           size: fileSize,
           percent: total > 0 ? Math.round((scaledReceived / total) * 100) : 100,
           retrying: this.assetRetryTimers.has(fileId),
+          transferState: this.getAssetPullState(fileId),
           owner: (mRec.owner as string) ?? '',
           createdAt: typeof mRec.createdAt === 'string' ? new Date(mRec.createdAt as string).getTime() : (typeof mRec.createdAt === 'number' ? mRec.createdAt as number : 0),
           prefs: this.getFilePref(fileId),
@@ -5296,7 +5300,70 @@ export class StandaloneSwarmMesh {
     return null;
   }
 
-  public async ensureManifestAndChunks(
+  // ── Single-flight media pull queue ────────────────────────────────
+  // Post media (manifest + chunks) is pulled one file at a time, FIFO,
+  // across every caller: post sync from each peer, retries, seeding
+  // announces and on-demand loads. A second ask for a file already queued
+  // or in flight shares the same pull instead of starting another. A file
+  // someone is looking at (`{ next: true }`) goes next in line, never
+  // interrupting the pull already in progress.
+  private assetPulls = new Map<string, Promise<{ changed: boolean; complete: boolean }>>();
+  private assetPullQueue: Array<{
+    manifestId: string;
+    sourcePeerId?: string;
+    resolve: (r: { changed: boolean; complete: boolean }) => void;
+  }> = [];
+  private activeAssetPull: string | null = null;
+
+  /** 'active' while a file's chunks are being pulled, 'queued' while it waits its turn. */
+  getAssetPullState(fileId: string): 'active' | 'queued' | null {
+    if (this.activeAssetPull === fileId) return 'active';
+    return this.assetPullQueue.some((e) => e.manifestId === fileId) ? 'queued' : null;
+  }
+
+  public ensureManifestAndChunks(
+    manifestId: string,
+    sourcePeerId?: string,
+    opts: { next?: boolean } = {},
+  ): Promise<{ changed: boolean; complete: boolean }> {
+    const existing = this.assetPulls.get(manifestId);
+    if (existing) {
+      if (opts.next) {
+        const idx = this.assetPullQueue.findIndex((e) => e.manifestId === manifestId);
+        if (idx > 0) this.assetPullQueue.unshift(...this.assetPullQueue.splice(idx, 1));
+      }
+      return existing;
+    }
+
+    const run = new Promise<{ changed: boolean; complete: boolean }>((resolve) => {
+      const entry = { manifestId, sourcePeerId, resolve };
+      if (opts.next) this.assetPullQueue.unshift(entry);
+      else this.assetPullQueue.push(entry);
+    });
+    this.assetPulls.set(manifestId, run);
+    void this.pumpAssetPulls();
+    return run;
+  }
+
+  private async pumpAssetPulls(): Promise<void> {
+    if (this.activeAssetPull !== null) return;
+    const entry = this.assetPullQueue.shift();
+    if (!entry) return;
+    this.activeAssetPull = entry.manifestId;
+    let result = { changed: false, complete: false };
+    try {
+      result = await this.pullManifestAndChunks(entry.manifestId, entry.sourcePeerId);
+    } catch (err) {
+      console.warn(`[SwarmMesh] Media pull failed for ${entry.manifestId}:`, err);
+    } finally {
+      this.activeAssetPull = null;
+      this.assetPulls.delete(entry.manifestId);
+      entry.resolve(result);
+      void this.pumpAssetPulls();
+    }
+  }
+
+  private async pullManifestAndChunks(
     manifestId: string,
     sourcePeerId?: string
   ): Promise<{ changed: boolean; complete: boolean }> {
@@ -5325,6 +5392,7 @@ export class StandaloneSwarmMesh {
       ? manifest.chunks.filter((ref): ref is string => typeof ref === 'string' && ref.length > 0)
       : [];
 
+    let consecutiveMisses = 0;
     for (const chunkRef of chunkRefs) {
       const existingChunk = await this.getChunkFromDB(chunkRef);
       if (existingChunk) {
@@ -5334,8 +5402,13 @@ export class StandaloneSwarmMesh {
       const fetchedChunk = await this.requestChunkFromPeers(chunkRef, sourcePeerId);
       if (!fetchedChunk) {
         complete = false;
+        // Files are pulled one at a time, so a file nobody can serve right
+        // now yields its turn (the retry timer brings it back) instead of
+        // timing out chunk after chunk while the rest of the line waits.
+        if (++consecutiveMisses >= ASSET_PULL_MAX_CONSECUTIVE_MISSES) break;
         continue;
       }
+      consecutiveMisses = 0;
 
       const saved = await this.saveChunkToDB(fetchedChunk);
       changed = saved || changed;

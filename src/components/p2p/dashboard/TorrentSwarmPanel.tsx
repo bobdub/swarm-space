@@ -54,6 +54,8 @@ interface FileTransferInfo {
   size: number;
   percent: number;
   retrying: boolean;
+  /** 'active' = chunks moving now, 'queued' = waiting its turn, null = waiting for a peer/retry. */
+  transferState?: 'active' | 'queued' | null;
   seeders: number;
   owner: string;
   createdAt: number;
@@ -149,6 +151,7 @@ export function TorrentSwarmPanel() {
           size: fileSize,
           percent: total > 0 ? Math.round((scaledReceived / total) * 100) : 100,
           retrying: false,
+          transferState: null,
           seeders: getSwarmMeshStandalone().getFileSeederCount?.(fileId) ?? 0,
           owner: (m.owner as string) ?? '',
           createdAt: typeof m.createdAt === 'string' ? new Date(m.createdAt as string).getTime() : (typeof m.createdAt === 'number' ? m.createdAt as number : 0),
@@ -335,7 +338,13 @@ export function TorrentSwarmPanel() {
     return (b.createdAt || 0) - (a.createdAt || 0);
   };
 
-  const incomplete = files.filter(f => f.percent < 100 && !f.prefs.ignored).sort(sortByContentPattern);
+  // Media pulls run one file at a time: the moving file first, then the
+  // queue, then files waiting for a peer that has them.
+  const stateRank = (f: FileTransferInfo) => (f.transferState === 'active' ? 0 : f.transferState === 'queued' ? 1 : 2);
+  const incomplete = files
+    .filter(f => f.percent < 100 && !f.prefs.ignored)
+    .sort((a, b) => stateRank(a) - stateRank(b) || sortByContentPattern(a, b));
+  const movingCount = incomplete.filter(f => f.transferState === 'active').length;
   const complete = files.filter(f => f.percent === 100).sort(sortByContentPattern);
   const ignored = files.filter(f => f.prefs.ignored);
 
@@ -350,7 +359,7 @@ export function TorrentSwarmPanel() {
         <div className="flex items-center gap-1.5">
           {incomplete.length > 0 && (
             <Badge variant="outline" className="text-[0.6rem] uppercase tracking-widest border-amber-500/40 text-amber-400">
-              {incomplete.length} active
+              {movingCount} moving · {incomplete.length - movingCount} waiting
             </Badge>
           )}
           {totalActivity > 0 && (
@@ -374,7 +383,7 @@ export function TorrentSwarmPanel() {
         <div className="space-y-1.5">
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 flex items-center gap-1.5">
             <ArrowDownToLine className="h-3 w-3" />
-            <span>Active Transfers ({incomplete.length})</span>
+            <span>Transfers ({incomplete.length}) · one file at a time</span>
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
             {incomplete.map(f => (
@@ -1057,6 +1066,9 @@ function FileRow({
           {isIgnored && <span className="text-destructive">IGNORED</span>}
           {isHostFirst && <span className="text-amber-400">HOST FIRST</span>}
           {isComplete && !isIgnored && <span className="text-emerald-400">SEEDING</span>}
+          {!isComplete && !isPaused && !isIgnored && file.transferState === 'active' && <span className="text-sky-400">MOVING</span>}
+          {!isComplete && !isPaused && !isIgnored && file.transferState === 'queued' && <span>QUEUED</span>}
+          {!isComplete && !isPaused && !isIgnored && !file.transferState && <span className="text-foreground/30">WAITING</span>}
           {!isComplete && !isPaused && !isIgnored && <span>{file.percent}%</span>}
         </span>
       </div>

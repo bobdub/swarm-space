@@ -1534,7 +1534,8 @@ export function useP2P() {
         try {
           const sm = getSwarmMeshStandalone();
           if (sm.getPhase() === 'online') {
-            await sm.ensureManifestAndChunks(manifestId);
+            // Media someone is opening goes next in the one-at-a-time line.
+            await sm.ensureManifestAndChunks(manifestId, undefined, { next: true });
             const { get: dbGet } = await import('@/lib/store');
             return await dbGet('manifests', manifestId) ?? null;
           }
