@@ -160,6 +160,24 @@ async function broadcastRewardPoolUpdate(pool: any): Promise<void> {
   }
 }
 
+/**
+ * After a block lands with the pool's share of the reward: refresh the pool
+ * record from the chain, seed the graveyard coin the 5% tax always created,
+ * and tell the UI. Never mints.
+ */
+export async function recordBlockPoolShare(): Promise<void> {
+  const { derivePoolFromChain } = await import("./storage");
+  const pool = await derivePoolFromChain();
+  try {
+    const { createEmptyPoolCoin } = await import("./coinWrap");
+    const { put } = await import("../store");
+    await put("swarmCoins", createEmptyPoolCoin());
+  } catch (err) {
+    console.warn("[RewardPool] Failed to seed empty coin:", err);
+  }
+  await broadcastRewardPoolUpdate(pool);
+}
+
 export async function getRewardPoolBalance(): Promise<number> {
   const { getRewardPool } = await import("./storage");
   const pool = await getRewardPool();
