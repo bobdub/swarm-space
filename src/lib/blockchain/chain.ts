@@ -294,7 +294,8 @@ export class SwarmChain {
       type: "mining_reward",
       from: "system",
       to: minerAddress,
-      amount: this.miningReward,
+      // From the block's height, the same rule peers check it against.
+      amount: this.rewardAtHeight(this.chain.length),
       timestamp: new Date(networkNow()).toISOString(),
       signature: "",
       publicKey: "",
@@ -304,7 +305,9 @@ export class SwarmChain {
       meta: { reward: true, chainId: resolvedChainId },
     };
 
-    const transactions = [...this.pendingTransactions, rewardTransaction];
+    // A block pays exactly one reward: its own. Rewards from other blocks
+    // (orphaned or copied from a peer's chain) never ride along.
+    const transactions = [...this.pendingTransactions.filter((tx) => tx.type !== "mining_reward"), rewardTransaction];
     const block: SwarmBlock = {
       index: this.chain.length,
       timestamp: new Date(networkNow()).toISOString(),
@@ -318,22 +321,28 @@ export class SwarmChain {
     };
 
     const minedBlock = await this.mineBlock(block);
-    this.chain.push(minedBlock);
-    await saveBlock(minedBlock);
+    return this.exclusive(async () => {
+      // A peer's block may have landed while we were mining: ours no longer
+      // extends the tip, so drop it and keep its transactions pending.
+      if (this.getLatestBlock().hash !== minedBlock.previousHash) return null;
+      this.chain.push(minedBlock);
+      await saveBlock(minedBlock);
 
-    // Notify the UQRC bridge so the smoothed tip pin advances.
-    try { recordBlockAccepted(minedBlock); } catch { /* non-fatal */ }
+      // Notify the UQRC bridge so the smoothed tip pin advances.
+      try { recordBlockAccepted(minedBlock); } catch { /* non-fatal */ }
 
-    // Clear pending transactions
-    this.pendingTransactions = [];
-    
-    // Check for halving
-    if (this.chain.length % SWARM_CONFIG.halvingInterval === 0) {
-      this.miningReward = this.miningReward / 2;
-    }
+      // Clear the mined transactions (keep any that arrived while mining).
+      const mined = new Set(minedBlock.transactions.map((tx) => tx.id));
+      this.pendingTransactions = this.pendingTransactions.filter((tx) => !mined.has(tx.id) && tx.type !== "mining_reward");
 
-    await this.persistState();
-    return minedBlock;
+      // Check for halving
+      if (this.chain.length % SWARM_CONFIG.halvingInterval === 0) {
+        this.miningReward = this.miningReward / 2;
+      }
+
+      await this.persistState();
+      return minedBlock;
+    });
   }
 
   private async mineBlock(block: SwarmBlock): Promise<SwarmBlock> {
@@ -503,7 +512,11 @@ export class SwarmChain {
 
   /** Check a peer's chain links up: same genesis, valid hashes, proof of work. */
   async isValidPeerChain(blocks: SwarmBlock[]): Promise<boolean> {
-    if (blocks.length === 0 || blocks[0].hash !== this.chain[0]?.hash) return false;
+    const genesis = this.chain[0];
+    if (blocks.length === 0 || !genesis || blocks[0].hash !== genesis.hash) return false;
+    // The hash is only a claim: recompute it so a forged genesis with extra
+    // transactions under the canonical hash is rejected.
+    if (await calculateHash(blocks[0]) !== genesis.hash) return false;
     for (let i = 1; i < blocks.length; i++) {
       const block = blocks[i];
       const prev = blocks[i - 1];
@@ -511,8 +524,53 @@ export class SwarmChain {
       if (await calculateHash(block) !== block.hash) return false;
       const target = "0".repeat(block.difficulty);
       if (block.hash.substring(0, block.difficulty) !== target) return false;
+      if (!this.hasValidRewards(block)) return false;
     }
     return true;
+  }
+
+  /** Reward allowed for a block at this height (halves every halvingInterval blocks). */
+  private rewardAtHeight(index: number): number {
+    return SWARM_CONFIG.miningReward / Math.pow(2, Math.floor(index / SWARM_CONFIG.halvingInterval));
+  }
+
+  /**
+   * A peer block may pay at most one mining reward, from "system", no larger
+   * than the reward for its height. Without this a peer could mine a block
+   * that credits itself any amount.
+   */
+  private hasValidRewards(block: SwarmBlock): boolean {
+    const rewards = block.transactions.filter((tx) => tx.type === "mining_reward");
+    if (rewards.length > 1) return false;
+    const reward = rewards[0];
+    if (!reward) return true;
+    if (reward.from !== "system") return false;
+    const amount = Number(reward.amount ?? 0);
+    return Number.isFinite(amount) && amount >= 0 && amount <= this.rewardAtHeight(block.index) + 1e-9;
+  }
+
+  /** Re-admit a transaction from a dropped block through the same checks a new one passes. */
+  private async readmitTransaction(tx: SwarmTransaction): Promise<boolean> {
+    try {
+      if (this.hasTransaction(tx.id)) return false;
+      // A dropped block's reward dies with the block; the next block pays its own.
+      if (tx.type === "mining_reward") return false;
+      if (tx.type === "wallet_tip") return await this.acceptWalletTip(tx);
+      if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
+      if (isCustomTokenSync(tx)) return await this.acceptCustomTokenDeposit(tx);
+      this.addTransaction(tx);
+      return this.hasTransaction(tx.id);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Run chain mutations one at a time, so concurrent appends can't interleave. */
+  private mutation: Promise<unknown> = Promise.resolve();
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.mutation.then(fn, fn);
+    this.mutation = run.catch(() => undefined);
+    return run;
   }
 
   /**
@@ -521,23 +579,27 @@ export class SwarmChain {
    * pending, so they're mined into the shared chain and nothing is lost.
    */
   async adoptPeerChain(incoming: SwarmBlock[]): Promise<"adopted" | "kept" | "invalid"> {
-    if (!await this.isValidPeerChain(incoming)) return "invalid";
-    const plan = planAdoption(this.chain, incoming, resolveFork);
-    if (!plan.replace) return "kept";
-    try {
-      await this.replaceChain(incoming);
-    } catch (err) {
-      console.warn("[Chain] Peer chain rejected:", err);
-      return "invalid";
-    }
-    const pendingIds = new Set(this.pendingTransactions.map((tx) => tx.id));
-    for (const tx of plan.requeue) {
-      if (!pendingIds.has(tx.id)) this.pendingTransactions.push(tx);
-    }
-    this.pruneCustomTokenPending();
-    await this.persistState();
-    console.log(`[Chain] Adopted peer chain (${incoming.length} blocks, fork at #${plan.forkPoint}, ${plan.requeue.length} tx re-queued)`);
-    return "adopted";
+    return this.exclusive(async () => {
+      if (!await this.isValidPeerChain(incoming)) return "invalid";
+      // Keep our own trusted genesis object rather than the peer's copy.
+      const candidate = [this.chain[0], ...incoming.slice(1)];
+      const plan = planAdoption(this.chain, candidate, resolveFork);
+      if (!plan.replace) return "kept";
+      try {
+        await this.replaceChain(candidate);
+      } catch (err) {
+        console.warn("[Chain] Peer chain rejected:", err);
+        return "invalid";
+      }
+      // Our dropped transactions go back through full validation against the
+      // adopted ledger; a tip the new chain already spent is left out.
+      let readmitted = 0;
+      for (const tx of plan.requeue) if (await this.readmitTransaction(tx)) readmitted++;
+      this.pruneCustomTokenPending();
+      await this.persistState();
+      console.log(`[Chain] Adopted peer chain (${candidate.length} blocks, fork at #${plan.forkPoint}, ${readmitted}/${plan.requeue.length} tx re-queued)`);
+      return "adopted";
+    });
   }
 
   /**
@@ -546,6 +608,11 @@ export class SwarmChain {
    * resolution against a full chain).
    */
   async appendPeerBlock(block: SwarmBlock): Promise<boolean> {
+    return this.exclusive(() => this.appendPeerBlockNow(block));
+  }
+
+  private async appendPeerBlockNow(block: SwarmBlock): Promise<boolean> {
+    if (!this.hasValidRewards(block)) return false;
     const tip = this.getLatestBlock();
     if (!tip) return false;
     if (block.index !== tip.index + 1) return false;
