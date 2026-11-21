@@ -38,12 +38,13 @@ function releasePause(): void {
   }
 }
 
+const RECOVERY_POLL_MS = 1000;
+
 function watchForRecovery(minQScore: number): void {
   if (unsubQ) return;
   let stableSince = 0;
-  unsubQ = subscribeGuardrails((evt) => {
-    if (evt.type !== 'qscore') return;
-    if (evt.score >= minQScore) {
+  const check = (score: number) => {
+    if (score >= minQScore) {
       if (stableSince === 0) stableSince = Date.now();
       if (Date.now() - stableSince >= RESUME_STABLE_MS) {
         unsubQ?.(); unsubQ = null;
@@ -52,7 +53,16 @@ function watchForRecovery(minQScore: number): void {
     } else {
       stableSince = 0;
     }
+  };
+  const unsubBus = subscribeGuardrails((evt) => {
+    if (evt.type === 'qscore') check(evt.score);
   });
+  // The bus only reports level changes. A score that recovers and then
+  // stays inside one level sends a single event, which never satisfied the
+  // stable window, so the chain stayed paused (in the Brain that kept the
+  // mesh from ever starting discovery). Sample the score directly too.
+  const poll = setInterval(() => check(getBrowserQScore()), RECOVERY_POLL_MS);
+  unsubQ = () => { unsubBus(); clearInterval(poll); };
 }
 
 export async function startChain(): Promise<void> {
@@ -65,9 +75,13 @@ export async function startChain(): Promise<void> {
 
   const cfg = getLoadingChainConfig();
   const known = new Set(listLoadingPoints().map((p) => p.id));
-  const order = [...cfg.order.filter((id) => known.has(id))];
+  const configured = [...cfg.order.filter((id) => known.has(id))];
   // Append any registered points the config forgot, keeps forward-compat.
-  for (const p of listLoadingPoints()) if (!order.includes(p.id)) order.push(p.id);
+  for (const p of listLoadingPoints()) if (!configured.includes(p.id)) configured.push(p.id);
+  // Essential points never wait: a pause on an earlier, heavier point (the
+  // Brain's game functions on a busy frame) used to hold them back too.
+  const isEssential = (id: string) => getLoadingPoint(id)?.essential === true;
+  const order = [...configured.filter(isEssential), ...configured.filter((id) => !isEssential(id))];
 
   for (cursor = 0; cursor < order.length; cursor++) {
     const point = getLoadingPoint(order[cursor]);
