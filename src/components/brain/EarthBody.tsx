@@ -152,11 +152,6 @@ const earthFragment = /* glsl */ `
     float ambient = 0.25;
     col *= (ambient + diff * 1.1);
 
-    // Atmosphere rim
-    vec3 viewDir = normalize(cameraPosition - vWorldPos);
-    float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 2.5);
-    col += vec3(0.3, 0.55, 0.95) * rim * 0.6;
-
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -317,17 +312,6 @@ export function EarthBody() {
           transparent
           opacity={0.6}
           shininess={80}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* Soft glow halo */}
-      <mesh>
-        <sphereGeometry args={[EARTH_RADIUS * 1.08, 32, 24]} />
-        <meshBasicMaterial
-          color="hsl(200, 90%, 70%)"
-          transparent
-          opacity={0.08}
-          side={THREE.BackSide}
           depthWrite={false}
         />
       </mesh>
