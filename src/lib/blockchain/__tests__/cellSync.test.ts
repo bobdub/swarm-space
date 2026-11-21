@@ -191,4 +191,62 @@ describe("cell chain sync", () => {
     for (const page of pages) await takeSync("peer-b", JSON.parse(JSON.stringify({ t: "sync-response", chain: chainA.chainId, ...page })), chainA);
     expect(chainA.getLatestBlock().hash).toBe(chainB.getLatestBlock().hash);
   });
+
+  it("retries an unanswered hello, so a member whose vault was locked still gets in", async () => {
+    const clock = { t: T0 + 30_000 };
+    const net = new Net();
+    const ownerSigners = await newSigners();
+    const bobSigners = await newSigners();
+    let unlocked = false;
+    const owner = node(net, "peer-owner", ownerSigners, clock);
+    const chains = new CellChains(memoryStore(), { storage: memoryCellChainStorage(), difficulty: 1, now: () => clock.t });
+    const bob = new CellSession(CELL, chains, net.transport("peer-bob"), {
+      signers: async () => (unlocked ? bobSigners : null), now: () => clock.t, claimStore: memoryStore(),
+    });
+    sessions.push(bob);
+    await owner.chains.ensureOwned(CELL, "Garden Club", ownerSigners.text, T0);
+    await owner.chains.invite(CELL, bobSigners.text.userId, ownerSigners.text, T0 + 1);
+    owner.session.start();
+    bob.start();
+    net.linkAll();
+    await settle();
+    expect(owner.session.accountOf("peer-bob")).toBeUndefined();
+    unlocked = true;
+    clock.t += 30_000;
+    await owner.session.tick();
+    await settle();
+    expect(owner.session.accountOf("peer-bob")).toBe(bobSigners.text.userId);
+  });
+
+  it("settles two blocks mined in the same beat onto one chain", async () => {
+    const clock = { t: T0 + 30_000 };
+    const net = new Net();
+    const ownerSigners = await newSigners();
+    const bobSigners = await newSigners();
+    const owner = node(net, "peer-owner", ownerSigners, clock, true);
+    const bob = node(net, "peer-bob", bobSigners, clock, false, ownerSigners.text.userId);
+    await owner.chains.ensureOwned(CELL, "Garden Club", ownerSigners.text, T0);
+    await owner.chains.invite(CELL, bobSigners.text.userId, ownerSigners.text, T0 + 1);
+    owner.session.start();
+    bob.session.start();
+    net.linkAll();
+    await settle();
+    clock.t += 30_000;
+    await owner.session.tick();
+    await settle();
+    const ownerChain = (await owner.chains.chain(CELL))!;
+    const bobChain = (await bob.chains.chain(CELL))!;
+    expect(bobChain.getRoster().isMember(bobSigners.text.userId)).toBe(true);
+    // Both mine the same beat on their own, before hearing each other.
+    clock.t += 30_000;
+    const a = (await ownerChain.mine(ownerSigners.block))!;
+    const b = (await bobChain.mine(bobSigners.block))!;
+    expect(a.index).toBe(b.index);
+    expect(a.hash).not.toBe(b.hash);
+    const send = (from: string, to: string, block: unknown) => net.transport(from).send(to, { t: "block", chain: ownerChain.chainId, block });
+    send("peer-owner", "peer-bob", a);
+    send("peer-bob", "peer-owner", b);
+    await settle();
+    expect(ownerChain.getLatestBlock().hash).toBe(bobChain.getLatestBlock().hash);
+  });
 });

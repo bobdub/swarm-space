@@ -77,7 +77,8 @@ function randomNonce(): string {
 export class CellSession {
   /** Peers that proved their account: peerId → userId. */
   private verified = new Map<string, string>();
-  private challenges = new Map<string, string>();
+  /** Open challenges: peerId → nonce and when it was sent. */
+  private challenges = new Map<string, { nonce: string; at: number }>();
   private marks = new Map<string, ChainMark>();
   /** Sync pages collected per peer until the last one arrives. */
   private syncPages = new Map<string, { fromIndex: number; blocks: SwarmBlock[] }>();
@@ -153,10 +154,15 @@ export class CellSession {
   private greet(peers: string[]): void {
     const live = new Set(peers);
     for (const peer of [...this.verified.keys()]) if (!live.has(peer)) this.verified.delete(peer);
+    for (const peer of [...this.challenges.keys()]) if (!live.has(peer)) this.challenges.delete(peer);
+    const t = this.now();
     for (const peer of peers) {
-      if (this.verified.has(peer) || this.challenges.has(peer)) continue;
+      if (this.verified.has(peer)) continue;
+      // An unanswered hello (their vault was locked, or their session wasn't up yet) is sent again after a beat.
+      const open = this.challenges.get(peer);
+      if (open && t - open.at < CADENCE_SPACING_MS) continue;
       const nonce = randomNonce();
-      this.challenges.set(peer, nonce);
+      this.challenges.set(peer, { nonce, at: t });
       this.transport.send(peer, { t: "hello", cell: this.cellId, nonce });
     }
   }
@@ -172,7 +178,7 @@ export class CellSession {
   }
 
   private async checkProof(from: string, msg: Msg): Promise<void> {
-    const nonce = this.challenges.get(from);
+    const nonce = this.challenges.get(from)?.nonce;
     if (!nonce || msg.nonce !== nonce) return;
     const { userId, publicKey, signature } = msg as { userId?: unknown; publicKey?: unknown; signature?: unknown };
     if (typeof userId !== "string" || typeof publicKey !== "string" || typeof signature !== "string") return;
@@ -316,7 +322,10 @@ export class CellSession {
       await this.endorse(block, false, chain);
       return;
     }
-    if (block.index > chain.getLatestBlock().index) {
+    // Ahead of us, or a rival for our tip's height (two members mined the same
+    // beat): catch up, and fork choice settles on one chain.
+    const tip = chain.getLatestBlock();
+    if (block.index > tip.index || (block.index === tip.index && block.hash !== tip.hash)) {
       this.transport.send(from, { t: "sync-request", chain: chain.chainId, since: this.marks.get(from) ?? null });
     }
   }
@@ -386,6 +395,7 @@ export class CellSession {
 
   /** One mining attempt per beat, while the mining switch is on. */
   async tick(): Promise<SwarmBlock | null> {
+    this.greet(this.transport.peers());
     if (this.mining || !this.opts.miningEnabled?.()) return null;
     this.mining = true;
     try {
