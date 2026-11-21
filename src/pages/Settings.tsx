@@ -57,6 +57,7 @@ import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
 import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
+import { ExternalTimestampsPanel } from "@/components/settings/ExternalTimestampsPanel";
 import { TestConnectPanel } from "@/components/settings/TestConnectPanel";
 import {
   getLoadingPriority,
@@ -672,6 +673,7 @@ const Settings = () => {
               </Card>
 
               <SovereignSecurityPanel />
+              <ExternalTimestampsPanel />
             </TabsContent>
 
             <TabsContent value="storage" className="space-y-6">

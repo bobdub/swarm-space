@@ -17,6 +17,7 @@ import { settleMiningPayout } from "@/lib/mining/miningPayouts";
 import { saveMiningSession } from "@/lib/blockchain/storage";
 import type { MiningSession } from "@/lib/blockchain/types";
 import { canUseMemberFeatures } from '@/lib/preview/guestAccess';
+import { startExternalTimestamps } from "@/lib/blockchain/externalTimestamps";
 
 // Stable session ID for the auto-miner lifetime
 let autoMineSessionId: string | null = null;
@@ -27,6 +28,9 @@ export function AutoMiningService() {
   const { isEnabled, stats } = useP2PContext();
   const miningRef = useRef(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Optional outside timestamps for checkpoints: idle until switched on in Settings.
+  useEffect(() => startExternalTimestamps(), []);
 
   useEffect(() => {
     const flags = getFeatureFlags();
