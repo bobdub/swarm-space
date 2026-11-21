@@ -175,7 +175,10 @@ async function mineWithOptimizations(
   
   // Mine using optimized engine (applies 4.2, 4.3, 4.4)
   try {
-    const block = await chain.minePendingTransactions(minerId, chainId);
+    // Sign with the vault's identity key (header v2); without it the block is legacy.
+    const { getLocalBlockSigner } = await import("./blockHeader");
+    const signer = await getLocalBlockSigner();
+    const block = await chain.minePendingTransactions(minerId, chainId, { signer: signer?.userId === minerId ? signer : null });
     // Shared chain: send the block to connected peers so they build on it.
     if (block) {
       void import("../p2p/swarmMesh.standalone")

@@ -1232,17 +1232,18 @@ export class StandaloneSwarmMesh {
     if (this.chainMiningBusy) return;
     this.chainMiningBusy = true;
     try {
-      const [{ getSwarmChain }, { getCurrentUser }] = await Promise.all([
+      const [{ getSwarmChain }, { getLocalBlockSigner }] = await Promise.all([
         import('../blockchain/chain'),
-        import('../auth'),
+        import('../blockchain/blockHeader'),
       ]);
-      const userId = getCurrentUser()?.id;
-      if (!userId) return;
+      // Blocks are signed with the identity key from the vault: locked or signed out, no block.
+      const signer = await getLocalBlockSigner();
+      if (!signer) return;
       const chain = getSwarmChain();
       await chain.whenReady();
       const tipAt = Date.parse(chain.getLatestBlock().timestamp);
       if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
-      const block = await chain.minePendingTransactions(userId, undefined, { allowEmpty: true, hollow });
+      const block = await chain.minePendingTransactions(signer.userId, undefined, { allowEmpty: true, hollow, signer });
       if (block) {
         this.announceChainBlock(block);
         void import('../blockchain/miningRewards').then((m) => m.recordBlockPoolShare()).catch(() => { /* non-fatal */ });
