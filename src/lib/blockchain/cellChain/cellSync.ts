@@ -363,6 +363,27 @@ export class CellSession {
     if (accept) await this.share(chain, accept);
   }
 
+  /** Proven accounts connected in this cell right now, by peer id. */
+  connectedAccounts(): Map<string, string> {
+    return new Map(this.verified);
+  }
+
+  /**
+   * Send a transaction this device queued (a transfer or roster record) to the
+   * cell's peers. A fresh invitee who is already connected gets the cell itself.
+   */
+  async announce(tx: SwarmTransaction): Promise<void> {
+    const chain = await this.chain();
+    if (!chain || tx.chainId !== chain.chainId) return;
+    this.remember(this.seenTx, tx.id);
+    await this.sendAllowed({ t: "tx", chain: chain.chainId, tx });
+    const s = tx.type === CELL_ROSTER_TX ? tx.meta?.roster as SignedRosterRecord | undefined : undefined;
+    if (s?.record.kind !== "invite") return;
+    for (const [peer, account] of this.verified) {
+      if (account === s.record.invitee) await this.introduce(peer, account);
+    }
+  }
+
   /** Gossip a roster record this device signed. */
   async share(chain: CellChain, s: SignedRosterRecord): Promise<void> {
     const tx = chain.getPendingTransactions().find((p) => p.type === CELL_ROSTER_TX && (p.meta?.roster as SignedRosterRecord | undefined)?.signature === s.signature);

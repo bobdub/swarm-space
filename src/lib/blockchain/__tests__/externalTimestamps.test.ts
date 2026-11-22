@@ -84,4 +84,17 @@ describe("the background check", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it("keeps a cell chain's receipts apart, so its stamps don't hold back the shared chain's", async () => {
+    const store = memory();
+    setExternalTimestampsEnabled(true, store);
+    const fetchFn = vi.fn(async () => ok([0xf0, 0x01]));
+    const cell = [{ hash: hash("c"), index: 0 }, { hash: hash("d"), index: 1, epoch: 0 }];
+    const shared = [{ hash: hash("e"), index: 0 }, { hash: hash("f"), index: 1, epoch: 0 }];
+    expect(await runExternalTimestamps(chainWith(cell, 1), { store, fetchFn, now: 1_000, network: "cell-chain-1" })).not.toBeNull();
+    expect(await runExternalTimestamps(chainWith(shared, 1), { store, fetchFn, now: 1_500 })).not.toBeNull();
+    expect(getTimestampReceipts(store, "cell-chain-1").map((r) => r.blockHash)).toEqual([hash("d")]);
+    expect(getTimestampReceipts(store).map((r) => r.blockHash)).toEqual([hash("f")]);
+    expect(getTimestampReceipts(store, "cell-chain-2")).toEqual([]);
+  });
 });

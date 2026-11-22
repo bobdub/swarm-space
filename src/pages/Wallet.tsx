@@ -46,6 +46,7 @@ import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
 import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 import { ChainSwitcher } from "@/components/wallet/ChainSwitcher";
+import { CellChainPanel } from "@/components/wallet/CellChainPanel";
 import { CrossChainSwapPanel } from "@/components/wallet/CrossChainSwapPanel";
 import {
   getActiveChain,
@@ -383,6 +384,14 @@ export default function Wallet() {
         </div>
 
         {/* Tabs */}
+        {assetNetwork.startsWith("cell:") ? (
+          <CellChainPanel
+            key={`${assetNetwork}:${user?.id ?? ""}`}
+            cellId={assetNetwork.slice("cell:".length)}
+            userId={user?.id ?? ""}
+            onBack={() => { switchToMainChain(); handleNetworkChanged("swarm"); }}
+          />
+        ) : (
         <Tabs value={walletTab} onValueChange={setWalletTab} className="space-y-6">
           <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-9">
             <TabsTrigger value="assets" className="shrink-0 px-3">Assets</TabsTrigger>
@@ -690,6 +699,7 @@ export default function Wallet() {
             <CoinMarketTab />
           </TabsContent>
         </Tabs>
+        )}
 
         <div className="mt-8">
         {/* Quantum Metrics */}

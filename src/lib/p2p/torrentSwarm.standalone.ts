@@ -435,21 +435,33 @@ export class TorrentSwarm {
   // DOWNLOAD — Request content from mesh peers
   // ═══════════════════════════════════════════════════════════════════
 
-  // ── Single-flight auto-download queue ─────────────────────────────
-  // Peer-announced manifests wait here (state "queued") and start one at a
-  // time, FIFO. The slot frees when the active download is verified and
-  // reassembled, errors, pauses (stall/bloat/manual), dies or is removed.
+  // ── Single-flight download queue ──────────────────────────────────
+  // Every download waits here (state "queued") and starts one at a time:
+  // peer announces join the back of the line, while a user's download or
+  // resume, and the hourly bloat retry, go to the front (`next`). Nothing
+  // ever starts beside the one in flight. The slot frees when the active
+  // download is verified and reassembled, errors, pauses (stall/bloat/
+  // manual), dies or is removed.
   private downloadQueue: string[] = [];
   private activeQueuedDownload: string | null = null;
 
-  /** Queue a peer-announced manifest; starts at once if nothing is in flight. */
-  enqueueDownload(manifest: TorrentManifest): void {
+  /**
+   * Queue a manifest; starts at once if nothing is in flight. `next` puts
+   * it at the front of the line (it still waits for the active download).
+   */
+  enqueueDownload(manifest: TorrentManifest, opts: { next?: boolean } = {}): void {
     const state = this.states.get(manifest.id);
     if (state === "downloading" || state === "seeding" || state === "complete") return;
-    if (this.activeQueuedDownload === manifest.id || this.downloadQueue.includes(manifest.id)) return;
+    if (this.activeQueuedDownload === manifest.id) return;
 
     this.manifests.set(manifest.id, manifest);
-    this.downloadQueue.push(manifest.id);
+    const idx = this.downloadQueue.indexOf(manifest.id);
+    if (idx !== -1) {
+      if (opts.next && idx > 0) this.downloadQueue.unshift(...this.downloadQueue.splice(idx, 1));
+      return;
+    }
+    if (opts.next) this.downloadQueue.unshift(manifest.id);
+    else this.downloadQueue.push(manifest.id);
     this.states.set(manifest.id, "queued");
     this.emitProgress(manifest.id);
     this.pumpDownloadQueue();
@@ -467,7 +479,7 @@ export class TorrentSwarm {
       const manifest = this.manifests.get(nextId);
       if (!manifest || this.states.get(nextId) !== "queued") continue;
       this.activeQueuedDownload = nextId;
-      this.download(manifest);
+      this.startDownload(manifest);
       return;
     }
   }
@@ -481,7 +493,16 @@ export class TorrentSwarm {
     this.pumpDownloadQueue();
   }
 
+  /**
+   * Ask to download a manifest. It goes to the front of the queue and starts
+   * as soon as the download in flight (if any) finishes, never beside it.
+   */
   download(manifest: TorrentManifest): void {
+    this.enqueueDownload(manifest, { next: true });
+  }
+
+  /** Start pulling chunks now. Only the queue calls this, for the slot holder. */
+  private startDownload(manifest: TorrentManifest): void {
     if (this.states.get(manifest.id) === "downloading") return;
 
     this.manifests.set(manifest.id, manifest);
@@ -940,6 +961,9 @@ export class TorrentSwarm {
     if (fullHash !== manifest.contentHash) {
       console.error(`[TorrentSwarm] ❌ Content hash mismatch for "${manifest.name}"`);
       this.states.set(manifestId, "error");
+      const badTimer = this.rarityTimers.get(manifestId);
+      if (badTimer) { clearInterval(badTimer); this.rarityTimers.delete(manifestId); }
+      this.stopGunRecovery(manifestId);
       this.emitProgress(manifestId);
       this.releaseDownloadSlot(manifestId);
       return;
@@ -1254,10 +1278,9 @@ export class TorrentSwarm {
         }
       }
 
-      // Resume downloading
-      this.states.set(manifestId, "downloading");
-      this.lastProgressAt.set(manifestId, Date.now());
-      this.download(manifest);
+      // Back in line (front), rather than starting beside the active download
+      if (this.states.get(manifestId) !== "paused") return;
+      this.enqueueDownload(manifest, { next: true });
     }, BLOAT_PAUSE_MS);
 
     this.bloatPauseTimers.set(manifestId, timer);
@@ -1284,10 +1307,11 @@ export class TorrentSwarm {
       this.emitProgress(manifestId);
       return;
     }
-    this.states.set(manifestId, "downloading");
-    this.lastProgressAt.set(manifestId, Date.now());
-    this.download(manifest);
-    console.log(`[TorrentSwarm] ▶️ Resumed "${manifestId}"`);
+    // A cancelled bloat retry would otherwise queue it a second time later.
+    const bloatTimer = this.bloatPauseTimers.get(manifestId);
+    if (bloatTimer) { clearTimeout(bloatTimer); this.bloatPauseTimers.delete(manifestId); }
+    this.enqueueDownload(manifest, { next: true });
+    console.log(`[TorrentSwarm] ▶️ Resumed "${manifestId}" (${this.states.get(manifestId)})`);
   }
 
   remove(manifestId: string): void {

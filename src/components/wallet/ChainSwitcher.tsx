@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Globe, Link2, Zap } from "lucide-react";
+import { Globe, Link2, Users, Zap } from "lucide-react";
 import {
   getActiveChain,
   getAllLiveChains,
@@ -23,6 +23,9 @@ import {
   type ChainContext,
   type LiveChainInfo,
 } from "@/lib/blockchain/multiChainManager";
+import { listWalletCellChains, type WalletCellChain } from "@/lib/blockchain/cellChain/cellWallet";
+import { listUserCells, onCellsChange } from "@/lib/p2p/userCell";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Props {
   onChainChanged?: (ctx: ChainContext) => void;
@@ -33,7 +36,25 @@ interface Props {
 export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Props) {
   const [active, setActive] = useState<ChainContext>(getActiveChain());
   const [chains, setChains] = useState<LiveChainInfo[]>([]);
+  const [cellChains, setCellChains] = useState<WalletCellChain[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  const userId = user?.id;
+
+  // Cell chains: the creator always sees theirs; members once the cell has two or more.
+  useEffect(() => {
+    if (!userId) { setCellChains([]); return; }
+    let cancelled = false;
+    const load = () => {
+      void listWalletCellChains(userId, listUserCells().map((c) => c.cellId))
+        .then((list) => { if (!cancelled) setCellChains(list); })
+        .catch(() => { /* cell chains are optional */ });
+    };
+    load();
+    const unsubscribe = onCellsChange(load);
+    const timer = setInterval(load, 15_000);
+    return () => { cancelled = true; unsubscribe(); clearInterval(timer); };
+  }, [userId]);
 
   useEffect(() => {
     void loadChains();
@@ -54,8 +75,8 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
   };
 
   const handleSwitch = async (chainId: string) => {
-    if (chainId === "mintme") {
-      onNetworkChanged?.("mintme");
+    if (chainId === "mintme" || chainId.startsWith("cell:")) {
+      onNetworkChanged?.(chainId);
       return;
     }
     if (chainId === "SWARM") {
@@ -71,6 +92,9 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
 
   if (loading) return null;
 
+  const isCell = !!network?.startsWith("cell:");
+  const selectValue = network === "mintme" || isCell ? network! : active.chainId;
+
   return (
     <div className="border-y border-border py-2 flex items-center gap-2 flex-wrap">
       <div className="flex items-center gap-2 text-sm font-medium shrink-0">
@@ -78,7 +102,7 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
         <span className="text-muted-foreground">Network</span>
       </div>
 
-      <Select value={network === "mintme" ? "mintme" : active.chainId} onValueChange={handleSwitch}>
+      <Select value={selectValue} onValueChange={handleSwitch}>
         <SelectTrigger aria-label="Wallet network" className="flex-1 min-w-0 h-8 text-sm sm:flex-none sm:w-52">
           <SelectValue />
         </SelectTrigger>
@@ -99,6 +123,18 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
               </span>
             </SelectItem>
           ))}
+          {cellChains.map((c) => (
+            <SelectItem key={c.cellId} value={`cell:${c.cellId}`}>
+              <span className="flex items-center gap-2">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="font-semibold">{c.ticker}</span>
+                <span className="text-muted-foreground text-xs hidden sm:inline">{c.name}</span>
+              </span>
+            </SelectItem>
+          ))}
+          {isCell && !cellChains.some((c) => `cell:${c.cellId}` === network) && (
+            <SelectItem value={network!} disabled>Cell chain</SelectItem>
+          )}
         </SelectContent>
       </Select>
 
@@ -106,10 +142,10 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
         variant={active.isMainChain ? "default" : "outline"}
         className="text-[10px] px-1.5 py-0 shrink-0"
       >
-        {network === "mintme" ? "EVM" : active.isMainChain ? "Main Network" : "Sub-Chain"}
+        {network === "mintme" ? "EVM" : isCell ? "Cell Chain" : active.isMainChain ? "Main Network" : "Sub-Chain"}
       </Badge>
 
-      {network !== "mintme" && !active.isMainChain && (
+      {network !== "mintme" && (isCell || !active.isMainChain) && (
         <Button
           variant="ghost"
           size="sm"
