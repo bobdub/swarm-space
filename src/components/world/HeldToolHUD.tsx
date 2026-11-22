@@ -10,7 +10,8 @@
  * Pure UI seam; physics + verb logic live in `toolActions.ts`.
  */
 import { useEffect, useState } from 'react';
-import { Hand, X, Hammer, Flag } from 'lucide-react';
+import { Hand, X, Flag } from 'lucide-react';
+import { toolIconFor } from '@/components/world/toolIcon';
 import { Button } from '@/components/ui/button';
 import {
   getHeldTool,
@@ -49,6 +50,8 @@ export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
     return <BoundaryMarkerHUD selfId={selfId} label={prefab.label} color={prefab.color} />;
   }
 
+  const ToolIcon = toolIconFor(held.prefabId);
+
   const onUse = async () => {
     // Null target → swing in the air in front of the user. selfId lets
     // toolActions probe the UQRC field at the player's forward swing point.
@@ -78,7 +81,7 @@ export function HeldToolHUD({ selectedPlacementId, selfId }: HeldToolHUDProps) {
         aria-label={`Use ${prefab.label}`}
         title={`Use ${prefab.label}`}
       >
-        <Hammer className="h-4 w-4" />
+        <ToolIcon className="h-4 w-4" aria-hidden="true" data-testid="held-tool-icon" />
       </Button>
       <span
         className="flex h-5 w-5 items-center justify-center rounded-full border border-border/50"
