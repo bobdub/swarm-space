@@ -386,6 +386,7 @@ export default function Wallet() {
         {/* Tabs */}
         {assetNetwork.startsWith("cell:") ? (
           <CellChainPanel
+            key={`${assetNetwork}:${user?.id ?? ""}`}
             cellId={assetNetwork.slice("cell:".length)}
             userId={user?.id ?? ""}
             onBack={() => { switchToMainChain(); handleNetworkChanged("swarm"); }}

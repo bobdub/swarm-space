@@ -28,3 +28,17 @@ describe("CellChainPanel", () => {
     expect(screen.queryByText("Leave cell")).toBeNull();
   });
 });
+
+describe("CellChainPanel switching cells", () => {
+  it("clears the old cell's view and form when it's given another cell", async () => {
+    const { rerender } = render(<CellChainPanel cellId="u/garden" userId="owner-account-0001" onBack={() => {}} />);
+    await screen.findAllByText("Garden Club");
+    const amount = screen.getAllByLabelText("Amount to send").at(-1) as HTMLInputElement;
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.change(amount, { target: { value: "5" } });
+    expect(amount.value).toBe("5");
+    rerender(<CellChainPanel cellId="u/other" userId="owner-account-0001" onBack={() => {}} />);
+    await screen.findAllByText("Garden Club");
+    expect((screen.getAllByLabelText("Amount to send").at(-1) as HTMLInputElement).value).toBe("");
+  });
+});

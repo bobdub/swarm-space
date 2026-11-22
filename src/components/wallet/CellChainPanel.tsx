@@ -3,7 +3,7 @@
  * the member's balance in the cell coin, the chain's height and supply, its
  * members, and the actions they can take (send, invite, remove, leave).
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,12 +42,20 @@ export function CellChainPanel({ cellId, userId, onBack }: Props) {
   const [sendAmount, setSendAmount] = useState("");
   const [inviteId, setInviteId] = useState("");
 
+  // Each load belongs to one cell and account; a late answer for another is dropped.
+  const current = useRef("");
+  current.current = `${cellId}:${userId}`;
   const load = useCallback(async () => {
+    const key = `${cellId}:${userId}`;
     const next = await cellWalletView(cellId, userId, getCellSession()).catch(() => null);
-    setView(next);
+    if (current.current === key) setView(next);
   }, [cellId, userId]);
 
   useEffect(() => {
+    setView(undefined);
+    setSendTo("");
+    setSendAmount("");
+    setInviteId("");
     void load();
     const timer = setInterval(() => void load(), 5_000);
     return () => clearInterval(timer);

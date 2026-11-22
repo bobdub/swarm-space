@@ -7,6 +7,7 @@
  * for everyone else once they're on its roster with at least one other
  * member: that is, once the cell is live between two or more members.
  */
+import { networkNow } from "@/lib/time/networkClock";
 import { CELL_ROSTER_TX, signCellTransfer, type CellChain } from "./cellChain";
 import { getCellChains, getLocalRosterSigner, type CellChains } from "./cellChains";
 import type { CellSession } from "./cellSync";
@@ -123,7 +124,8 @@ async function resolve(deps: ActionDeps): Promise<{ chains: CellChains; signer: 
     chains: deps.chains ?? getCellChains(),
     signer: deps.signer === undefined ? await getLocalRosterSigner() : deps.signer,
     session,
-    now: deps.now ?? Date.now(),
+    // The mesh-corrected clock, as the chain checks records against it.
+    now: deps.now ?? networkNow(),
   };
 }
 
