@@ -269,6 +269,18 @@ export function TorrentSwarmPanel() {
     void loadFiles();
   }, [loadFiles]);
 
+  const [flushing, setFlushing] = useState(false);
+  const handleFlushStuck = useCallback(async () => {
+    if (!window.confirm('Clear every download that is waiting? Only the file moving now and finished files are kept. Posts that still need their media will fetch it again from a peer that has it.')) return;
+    setFlushing(true);
+    try {
+      await getSwarmMeshStandalone().flushStuckTransfers?.();
+    } finally {
+      setFlushing(false);
+      void loadFiles();
+    }
+  }, [loadFiles]);
+
   const [reseedingFiles, setReseedingFiles] = useState<Set<string>>(new Set());
   const [reseededFiles, setReseededFiles] = useState<Set<string>>(new Set());
   const reseededTimers = useRef<Map<string, number>>(new Map());
@@ -394,6 +406,18 @@ export function TorrentSwarmPanel() {
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 flex items-center gap-1.5">
             <ArrowDownToLine className="h-3 w-3" />
             <span>Transfers ({incomplete.length}) · one file at a time</span>
+            {incomplete.length - movingCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-5 px-1.5 text-[0.55rem] uppercase tracking-wider text-foreground/50 hover:text-destructive"
+                disabled={flushing}
+                title="Clear every waiting download (keeps the one moving and finished files)"
+                onClick={() => { void handleFlushStuck(); }}
+              >
+                {flushing ? 'Flushing…' : `Flush ${incomplete.length - movingCount} waiting`}
+              </Button>
+            )}
           </div>
           <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
             {incomplete.map(f => (
@@ -959,6 +983,9 @@ function FileRow({
   const isPaused = file.prefs.paused;
   const isIgnored = file.prefs.ignored;
   const isHostFirst = file.prefs.hostFirst;
+  // Only one file moves at a time; everything else in the list is waiting.
+  const isMoving = !isComplete && !isPaused && !isIgnored && file.transferState === 'active';
+  const isWaiting = !isComplete && !isPaused && !isIgnored && !isMoving;
 
   const progressColor = isIgnored
     ? 'bg-foreground/20'
@@ -973,6 +1000,7 @@ function FileRow({
       'rounded-md border border-foreground/10 p-2 space-y-1',
       isPaused && 'border-amber-500/20',
       isIgnored && 'border-foreground/5',
+      isWaiting && !compact && 'opacity-60',
     )}>
       {/* Top row: icon + name + status + controls */}
       <div className="flex items-center gap-2">
@@ -1069,7 +1097,7 @@ function FileRow({
           {file.size > 0 && ` • ${formatBytes(file.size)}`}
         </span>
         <span className="flex items-center gap-1">
-          {file.retrying && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
+          {file.retrying && isMoving && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
           <span className={cn("flex items-center gap-0.5", file.seeders > 0 ? "text-sky-400" : "text-foreground/30")}>
             <Users className="h-2.5 w-2.5" />{file.seeders}
           </span>
@@ -1077,7 +1105,7 @@ function FileRow({
           {isIgnored && <span className="text-destructive">IGNORED</span>}
           {isHostFirst && <span className="text-amber-400">HOST FIRST</span>}
           {isComplete && !isIgnored && <span className="text-emerald-400">SEEDING</span>}
-          {!isComplete && !isPaused && !isIgnored && file.transferState === 'active' && <span className="text-sky-400">MOVING</span>}
+          {isMoving && <span className="text-sky-400">MOVING</span>}
           {!isComplete && !isPaused && !isIgnored && file.transferState === 'queued' && <span>QUEUED</span>}
           {!isComplete && !isPaused && !isIgnored && !file.transferState && <span className="text-foreground/30">WAITING</span>}
           {!isComplete && !isPaused && !isIgnored && <span>{file.percent}%</span>}

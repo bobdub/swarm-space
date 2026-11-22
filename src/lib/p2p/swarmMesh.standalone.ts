@@ -405,6 +405,31 @@ function markRetryExhausted(manifestId: string): void {
   } catch { /* noop */ }
 }
 
+// Files the user flushed from the Transfers list. Automatic post sync and
+// retries skip them; a peer announcing that it seeds one lifts the flag.
+const FLUSHED_ASSETS_KEY = 'swarm-flushed-assets';
+
+function getFlushedAssets(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FLUSHED_ASSETS_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function saveFlushedAssets(set: Set<string>): void {
+  try {
+    // Bounded so the key can't grow forever; newest ids are kept.
+    const arr = Array.from(set);
+    if (arr.length > 2000) arr.splice(0, arr.length - 2000);
+    localStorage.setItem(FLUSHED_ASSETS_KEY, JSON.stringify(arr));
+  } catch { /* noop */ }
+}
+
+function clearFlushedAsset(manifestId: string): void {
+  const set = getFlushedAssets();
+  if (set.delete(manifestId)) saveFlushedAssets(set);
+}
+
 function clearRetryExhausted(manifestId: string): void {
   try {
     const set = getExhaustedRetries();
@@ -4700,7 +4725,7 @@ export class StandaloneSwarmMesh {
   // DELETE / RESEED — Exposed to dashboard
   // ═══════════════════════════════════════════════════════════════════
 
-  async deleteFile(fileId: string): Promise<void> {
+  async deleteFile(fileId: string): Promise<boolean> {
     // Remove from TorrentSwarm in-memory state
     if (this.torrentSwarmInstance) {
       // Try to find manifest by fileId (torrent manifests use their own IDs)
@@ -4731,9 +4756,70 @@ export class StandaloneSwarmMesh {
       const { deleteManifest } = await import('../fileEncryption');
       await deleteManifest(fileId);
       console.log(`[SwarmMesh] 🗑️ Deleted file ${fileId} from IndexedDB`);
+      return true;
     } catch (err) {
       console.warn('[SwarmMesh] Failed to delete file from IndexedDB:', err);
+      return false;
     }
+  }
+
+  /**
+   * Clear every incomplete media transfer that is not moving right now:
+   * cancel its retry, take it out of the pull line and drop the manifest and
+   * partial chunks. Complete files, the file being pulled, ignored files and
+   * coin-engraved files are kept. A post that still needs its media pulls it
+   * again later from a peer that actually has it.
+   */
+  async flushStuckTransfers(): Promise<{ flushed: number; kept: number }> {
+    const list = await this.getFileTransferList();
+    // Waiting work lives in several places: stored manifests, the pull line
+    // (which can hold files whose manifest isn't fetched yet), retry timers
+    // and the offline parking lot.
+    const ids = new Set<string>();
+    for (const f of list) if (f.percent < 100) ids.add(f.fileId);
+    for (const e of this.assetPullQueue) ids.add(e.manifestId);
+    for (const id of this.assetRetryTimers.keys()) ids.add(id);
+    for (const id of this.pendingAssetQueue.keys()) ids.add(id);
+
+    let flushed = 0;
+    let kept = 0;
+    const flushedSet = getFlushedAssets();
+    const targets: string[] = [];
+    for (const id of ids) {
+      if (this.getFilePref(id).ignored) continue;
+      if (this.activeAssetPull === id) { kept++; continue; }
+      targets.push(id);
+      flushedSet.add(id);
+    }
+    // Mark first, so callers resumed by the cancelled pulls below don't
+    // schedule a fresh retry.
+    saveFlushedAssets(flushedSet);
+
+    for (const id of targets) {
+      const idx = this.assetPullQueue.findIndex((e) => e.manifestId === id);
+      if (idx !== -1) {
+        const [entry] = this.assetPullQueue.splice(idx, 1);
+        this.assetPulls.delete(id);
+        entry.resolve({ changed: false, complete: false });
+      }
+      this.clearAssetRetry(id);
+      this.pendingAssetQueue.delete(id);
+      if (await this.deleteFile(id)) flushed++;
+      else { kept++; clearFlushedAsset(id); }
+    }
+
+    // Torrents that are waiting, paused or failed go too; the one downloading stays.
+    const swarm = this.torrentSwarmInstance;
+    if (swarm) {
+      for (const p of swarm.getAllProgress()) {
+        if (p.state === 'queued' || p.state === 'paused' || p.state === 'error' || p.state === 'idle') {
+          swarm.remove(p.manifestId);
+          flushed++;
+        }
+      }
+    }
+    console.log(`[SwarmMesh] 🧹 Flushed ${flushed} stuck transfer(s), kept ${kept}`);
+    return { flushed, kept };
   }
 
   async reseedFile(fileId: string): Promise<void> {
@@ -5139,8 +5225,8 @@ export class StandaloneSwarmMesh {
       return;
     }
 
-    // Skip if previously exhausted (persisted across refreshes)
-    if (getExhaustedRetries().has(manifestId)) {
+    // Skip if previously exhausted (persisted across refreshes) or flushed
+    if (getExhaustedRetries().has(manifestId) || getFlushedAssets().has(manifestId)) {
       return;
     }
 
@@ -5540,7 +5626,8 @@ export class StandaloneSwarmMesh {
 
     // Filter out manifests that have exhausted retries across refreshes
     const exhausted = getExhaustedRetries();
-    const eligible = manifestIds.filter(id => !exhausted.has(id));
+    const flushed = getFlushedAssets();
+    const eligible = manifestIds.filter(id => !exhausted.has(id) && !flushed.has(id));
     if (eligible.length === 0) return;
 
     // Skip manifests we already have complete locally (self-seeded)
@@ -5766,6 +5853,9 @@ export class StandaloneSwarmMesh {
     const manifestId = typeof msg.manifestId === 'string' ? msg.manifestId : null;
     if (!manifestId) return;
     if (this.isFileBlocked(manifestId)) return;
+
+    // A real seeder showed up: a flushed file may be pulled again.
+    clearFlushedAsset(manifestId);
 
     // Track this peer as a seeder for this file
     if (!this.fileSeeders.has(manifestId)) {
