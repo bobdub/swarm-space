@@ -4795,18 +4795,29 @@ export class StandaloneSwarmMesh {
     // schedule a fresh retry.
     saveFlushedAssets(flushedSet);
 
+    // 1. In-memory cleanup first, all synchronous. Callers resumed by the
+    //    cancelled pulls see the flushed mark and stop (ensureManifestAndChunks
+    //    returns at once for flushed ids), so nothing cascades back in.
+    const targetSet = new Set(targets);
+    const cancelled = this.assetPullQueue.filter((e) => targetSet.has(e.manifestId));
+    this.assetPullQueue = this.assetPullQueue.filter((e) => !targetSet.has(e.manifestId));
     for (const id of targets) {
-      const idx = this.assetPullQueue.findIndex((e) => e.manifestId === id);
-      if (idx !== -1) {
-        const [entry] = this.assetPullQueue.splice(idx, 1);
-        this.assetPulls.delete(id);
-        entry.resolve({ changed: false, complete: false });
-      }
+      this.assetPulls.delete(id);
       this.clearAssetRetry(id);
       this.pendingAssetQueue.delete(id);
-      if (await this.deleteFile(id)) flushed++;
-      else { kept++; clearFlushedAsset(id); }
     }
+    const prefs = this.loadFilePrefs();
+    let prefsChanged = false;
+    for (const id of targets) if (prefs[id]) { delete prefs[id]; prefsChanged = true; }
+    if (prefsChanged) { this._filePrefs = prefs; this.saveFilePrefs(); }
+    for (const e of cancelled) e.resolve({ changed: false, complete: false });
+
+    // 2. One IndexedDB transaction for every manifest and its chunks, instead
+    //    of two per file (hundreds of files made the page hang).
+    const { deleted, engraved } = await this.deleteManifestsBatch(targets);
+    flushed += deleted;
+    kept += engraved.length;
+    for (const id of engraved) clearFlushedAsset(id);
 
     // Torrents that are waiting, paused or failed go too; the one downloading stays.
     const swarm = this.torrentSwarmInstance;
@@ -4820,6 +4831,40 @@ export class StandaloneSwarmMesh {
     }
     console.log(`[SwarmMesh] 🧹 Flushed ${flushed} stuck transfer(s), kept ${kept}`);
     return { flushed, kept };
+  }
+
+  /** Delete many manifests and their chunks in one transaction. Engraved (coin-bound) files are left alone. */
+  private async deleteManifestsBatch(ids: string[]): Promise<{ deleted: number; engraved: string[] }> {
+    if (ids.length === 0) return { deleted: 0, engraved: [] };
+    const db = await this.openDB();
+    try {
+      const stores = ['manifests', 'chunks'].filter((n) => db.objectStoreNames.contains(n));
+      if (!stores.includes('manifests')) return { deleted: 0, engraved: [] };
+      return await new Promise((resolve) => {
+        const tx = db.transaction(stores, 'readwrite');
+        const manifests = tx.objectStore('manifests');
+        const chunks = stores.includes('chunks') ? tx.objectStore('chunks') : null;
+        let deleted = 0;
+        const engraved: string[] = [];
+        for (const id of ids) {
+          const req = manifests.get(id);
+          req.onsuccess = () => {
+            const m = req.result as { chunks?: unknown; _coinId?: string } | undefined;
+            if (m?._coinId) { engraved.push(id); return; }
+            if (m && chunks && Array.isArray(m.chunks)) {
+              for (const ref of m.chunks) if (typeof ref === 'string') chunks.delete(ref);
+            }
+            if (m) manifests.delete(id);
+            deleted++;
+          };
+        }
+        tx.oncomplete = () => resolve({ deleted, engraved });
+        tx.onerror = () => resolve({ deleted: 0, engraved });
+        tx.onabort = () => resolve({ deleted: 0, engraved });
+      });
+    } finally {
+      db.close();
+    }
   }
 
   async reseedFile(fileId: string): Promise<void> {
@@ -5522,6 +5567,12 @@ export class StandaloneSwarmMesh {
     sourcePeerId?: string,
     opts: { next?: boolean } = {},
   ): Promise<{ changed: boolean; complete: boolean }> {
+    // A flushed file is only pulled again when someone opens it (`next`) or
+    // a seeder announces it (which lifts the flag first).
+    if (getFlushedAssets().has(manifestId)) {
+      if (!opts.next) return Promise.resolve({ changed: false, complete: false });
+      clearFlushedAsset(manifestId);
+    }
     const existing = this.assetPulls.get(manifestId);
     if (existing) {
       if (opts.next) {
