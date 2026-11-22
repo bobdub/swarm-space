@@ -44,4 +44,15 @@ describe('avatars follow the co-rotating surface', () => {
     expect(remaining(120)).toBeCloseTo(remaining(60), 12);
     expect(remaining(60)).toBeCloseTo(Math.exp(-12), 12);
   });
+
+  it('keeps the same pace when the governor throttles a remote avatar to 8 Hz', () => {
+    const remaining = (fps: number) => Math.pow(1 - avatarTrackingAlpha(1 / fps, false), fps);
+    expect(remaining(8)).toBeCloseTo(remaining(60), 12);
+    expect(remaining(20)).toBeCloseTo(remaining(60), 12);
+  });
+
+  it('treats bad deltas as no motion', () => {
+    expect(avatarTrackingAlpha(-1, false)).toBe(0);
+    expect(avatarTrackingAlpha(Number.NaN, false)).toBe(0);
+  });
 });
