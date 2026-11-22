@@ -17,6 +17,7 @@ import { base64ToArrayBuffer, computeUserId } from "@/lib/crypto";
 import { networkNow } from "@/lib/time/networkClock";
 import type { BlockSigner } from "../blockHeader";
 import { CADENCE_SPACING_MS, FUTURE_LIMIT_MS, planCatchup, type ChainMark } from "../chainCatchup";
+import { msUntilSpot, spotIndex } from "../manifold";
 import { claimHeight, signEndorsement, verifyEndorsement, type Endorsement, type EndorsementSigner } from "../endorsements";
 import type { SwarmBlock, SwarmTransaction } from "../types";
 import { CELL_ROSTER_TX, type CellChain } from "./cellChain";
@@ -24,6 +25,8 @@ import type { CellChains } from "./cellChains";
 import { canonical, type SignedRosterRecord, type TextSigner } from "./roster";
 
 export const CELL_CHAIN_CHANNEL = "cell-chain";
+/** How often the session checks whether its mining spot has come up. */
+const SPOT_CHECK_MS = 1_000;
 
 /** What a session needs from the cell engine's connections. */
 export interface CellTransport {
@@ -105,7 +108,7 @@ export class CellSession {
     this.unsubscribe.push(this.transport.onMessage((from, payload) => { void this.handle(from, payload as Msg); }));
     this.unsubscribe.push(this.transport.onPeersChange((peers) => this.greet(peers)));
     this.greet(this.transport.peers());
-    this.timer = setInterval(() => { void this.tick(); }, CADENCE_SPACING_MS / 3);
+    this.timer = setInterval(() => { void this.tick(); }, SPOT_CHECK_MS);
   }
 
   stop(): void {
@@ -393,7 +396,7 @@ export class CellSession {
     await this.sendAllowed({ t: "endorse", chain: chain.chainId, endorsement: e });
   }
 
-  /** One mining attempt per beat, while the mining switch is on. */
+  /** One mining attempt per beat, from this member's spot on the manifold, while the mining switch is on. */
   async tick(): Promise<SwarmBlock | null> {
     this.greet(this.transport.peers());
     if (this.mining || !this.opts.miningEnabled?.()) return null;
@@ -401,7 +404,9 @@ export class CellSession {
     try {
       const chain = await this.chain();
       const signers = await this.opts.signers();
-      if (!chain || !signers || !chain.getRoster().isMember(signers.block.userId)) return null;
+      const roster = chain?.getRoster();
+      if (!chain || !signers || !roster?.isMember(signers.block.userId)) return null;
+      if (msUntilSpot(spotIndex(signers.block.userId, roster.sortedMembers()), this.now()) > 0) return null;
       const witnesses = [...(this.agreements.get(chain.getLatestBlock().hash)?.values() ?? [])];
       const block = await chain.mine(signers.block, witnesses);
       if (!block) return null;

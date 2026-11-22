@@ -3,6 +3,7 @@ import { computeUserId, genIdentityKeyPair } from "@/lib/crypto";
 import { signerFromKeys } from "../blockHeader";
 import { endorsementSignerFromKeys } from "../endorsements";
 import { planCatchup } from "../chainCatchup";
+import { SPOT_WINDOW_MS } from "../manifold";
 import { memoryCellChainStorage } from "../cellChain/cellChain";
 import { CellChains } from "../cellChain/cellChains";
 import { CellSession, type CellSigners, type CellTransport } from "../cellChain/cellSync";
@@ -10,6 +11,8 @@ import { rosterSignerFromKeys } from "../cellChain/roster";
 
 const CELL = "u/alice/ab12";
 const T0 = Date.parse("2026-12-01T00:00:00Z");
+/** Late in a beat, past every mining spot, so a mining tick always goes ahead. */
+const LATE = T0 + 30_000 + SPOT_WINDOW_MS;
 
 function memoryStore() {
   const data = new Map<string, string>();
@@ -71,7 +74,7 @@ function node(net: Net, id: string, signers: CellSigners, clock: { t: number }, 
 
 describe("cell chain sync", () => {
   it("brings an invited account into the cell, then passes mined blocks and endorsements", async () => {
-    const clock = { t: T0 + 30_000 };
+    const clock = { t: LATE };
     const net = new Net();
     const ownerSigners = await newSigners();
     const owner = node(net, "peer-owner", ownerSigners, clock, true);
@@ -150,7 +153,7 @@ describe("cell chain sync", () => {
   });
 
   it("drops a live block stamped far from the mesh clock", async () => {
-    const clock = { t: T0 + 30_000 };
+    const clock = { t: LATE };
     const net = new Net();
     const ownerSigners = await newSigners();
     const owner = node(net, "peer-owner", ownerSigners, clock, true);
@@ -165,7 +168,7 @@ describe("cell chain sync", () => {
     // Bob's clock is far behind: the live block looks 10 minutes early to him.
     (bob.session as unknown as { now: () => number }).now = () => bobClock.t - 10 * 60_000;
     clock.t += 30_000;
-    await owner.session.tick();
+    expect(await owner.session.tick()).not.toBeNull();
     await settle();
     expect((await bob.chains.chain(CELL))!.getChain()).toHaveLength(1);
   });
@@ -219,7 +222,7 @@ describe("cell chain sync", () => {
   });
 
   it("settles two blocks mined in the same beat onto one chain", async () => {
-    const clock = { t: T0 + 30_000 };
+    const clock = { t: LATE };
     const net = new Net();
     const ownerSigners = await newSigners();
     const bobSigners = await newSigners();
