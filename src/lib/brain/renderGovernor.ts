@@ -26,11 +26,21 @@ export function welfordStd(s: WelfordStat): number {
 
 export const FRAME_BUDGET_MS = 16.7;
 export const EWMA_ALPHA = 0.1;
-/** Seconds between runs, per tier and pressure (0 = every frame). */
+/**
+ * Seconds between runs, per tier and pressure (0 = every frame).
+ *
+ * Pacing is switched off: every tier runs every frame, as it did before the
+ * governor. Profiling the Brain showed main-thread JS is under 5% of frame
+ * time; frames are bound by GPU drawing. Skipping JS frames therefore made
+ * sea life, hens, ash and remote avatars visibly choppy without making
+ * frames any faster. The governor still measures pressure, which now drives
+ * the render resolution instead (see AdaptiveDpr). To bring pacing back,
+ * restore non-zero intervals here.
+ */
 export const TIER_INTERVAL_S: Record<RenderTier, Record<RenderPressure, number>> = {
   critical: { calm: 0, stressed: 0, strained: 0 },
-  proximity: { calm: 0, stressed: 1 / 30, strained: 1 / 20 },
-  ambiance: { calm: 1 / 30, stressed: 1 / 15, strained: 1 / 8 },
+  proximity: { calm: 0, stressed: 0, strained: 0 },
+  ambiance: { calm: 0, stressed: 0, strained: 0 },
 };
 
 export function pressureFor(predictedMs: number): RenderPressure {

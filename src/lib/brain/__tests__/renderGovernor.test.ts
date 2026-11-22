@@ -22,14 +22,14 @@ describe('render governor', () => {
     expect(g.pressure()).toBe('calm');
     expect(g.frame.n).toBe(0);
   });
-  it('never throttles critical work and paces ambiance with accumulated delta', () => {
+  it('runs every tier every frame, even under strain', () => {
     const g = new RenderGovernor();
-    const critical = createTierGate('critical', g);
-    expect(critical(1 / 60)).toBeCloseTo(1 / 60);
-    const amb = createTierGate('ambiance', g);
-    expect(amb(1 / 120)).toBeNull();
-    expect(amb(1 / 120)).toBeNull();
-    expect(amb(1 / 120)).toBeNull();
-    expect(amb(1 / 120)).toBeCloseTo(4 / 120);
+    for (let i = 0; i < 100; i++) g.observeFrame(60);
+    expect(g.pressure()).toBe('strained');
+    for (const tier of ['critical', 'proximity', 'ambiance'] as const) {
+      const gate = createTierGate(tier, g);
+      expect(gate(1 / 120)).toBeCloseTo(1 / 120);
+      expect(gate(1 / 120)).toBeCloseTo(1 / 120);
+    }
   });
 });

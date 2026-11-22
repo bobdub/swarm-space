@@ -1,4 +1,4 @@
-import { RenderGovernorProbe } from './useGovernedFrame';
+import { AdaptiveDpr, RenderGovernorProbe } from './useGovernedFrame';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -2607,6 +2607,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
         </Suspense>
         <RenderGovernorProbe />
+        <AdaptiveDpr />
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}

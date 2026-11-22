@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react';
-import { useFrame, type RootState } from '@react-three/fiber';
+import { useEffect, useMemo, useRef } from 'react';
+import { useFrame, useThree, type RootState } from '@react-three/fiber';
 import { createTierGate, renderGovernor, type RenderTier } from '@/lib/brain/renderGovernor';
 
 /** useFrame paced by the render governor; the callback gets accumulated delta. */
@@ -19,5 +19,19 @@ export function useGovernedFrame(tier: RenderTier, name: string, cb: (state: Roo
 /** Mount once inside the Canvas: trains the governor on real frame time. */
 export function RenderGovernorProbe(): null {
   useFrame((_, delta) => { renderGovernor.observeFrame(delta * 1000); });
+  return null;
+}
+
+/**
+ * Mount once inside the Canvas: the Brain is GPU-bound, so when frames stay
+ * strained the cheapest real saving is fewer pixels. Drops the render
+ * resolution to 1× (from up to 1.5× on high-DPI screens) and keeps it there
+ * for the session, so the picture never pumps between sharp and soft.
+ */
+export function AdaptiveDpr(): null {
+  const setDpr = useThree((s) => s.setDpr);
+  useEffect(() => renderGovernor.onPressure((p) => {
+    if (p === 'strained') setDpr(1);
+  }), [setDpr]);
   return null;
 }
