@@ -9,7 +9,7 @@ import {
 } from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
-import { CADENCE_SPACING_MS, FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
+import { FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
 import { isSelfIssuedSwarmMint } from '@/lib/blockchain/issuance';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
@@ -1245,26 +1245,33 @@ export class StandaloneSwarmMesh {
 
   /**
    * Mine one shared-chain block on the cadence. Its single reward is how
-   * CREATOR work is paid; a hollow block pays half. Skips while the tip is
-   * younger than the cadence spacing, so the mesh keeps one block per beat
-   * instead of racing siblings.
+   * CREATOR work is paid; a hollow block pays half. One block per beat: each
+   * miner starts from its own spot on the manifold, and stands down once an
+   * earlier spot has taken the beat.
    */
   private async mineChainBlock(hollow: boolean, roundId?: string): Promise<void> {
     if (this.chainMiningBusy) { this.dropRound(roundId); return; }
     this.chainMiningBusy = true;
     let mined = false;
     try {
-      const [{ getSwarmChain }, { getLocalBlockSigner }] = await Promise.all([
+      const [{ getSwarmChain }, { getLocalBlockSigner, beatIsFree }, { msUntilSpot, spotIndex }] = await Promise.all([
         import('../blockchain/chain'),
         import('../blockchain/blockHeader'),
+        import('../blockchain/manifold'),
       ]);
       // Blocks are signed with the identity key from the vault: locked or signed out, no block.
       const signer = await getLocalBlockSigner();
       if (!signer) return;
       const chain = getSwarmChain();
       await chain.whenReady();
-      const tipAt = Date.parse(chain.getLatestBlock().timestamp);
-      if (Number.isFinite(tipAt) && networkNow() - tipAt < CADENCE_SPACING_MS) return;
+      if (!beatIsFree(chain.getLatestBlock(), networkNow())) return;
+      // Start from our own spot on the manifold. An earlier spot may take the beat while we wait.
+      const wait = msUntilSpot(spotIndex(signer.userId, chain.getVoters()), networkNow());
+      if (wait > 0) {
+        await new Promise((resolve) => setTimeout(resolve, wait));
+        if (this.phase !== 'online' || !this.toggles.mining) return;
+        if (!beatIsFree(chain.getLatestBlock(), networkNow())) return;
+      }
       // Record the agreements our parent collected: they put its witnesses on the chain.
       const { getCertificateBook } = await import('../blockchain/endorsements');
       const witnesses = getCertificateBook().get(chain.getLatestBlock().hash)?.signed ?? [];

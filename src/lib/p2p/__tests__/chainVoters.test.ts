@@ -4,6 +4,8 @@ const fake = vi.hoisted(() => ({
   voters: new Set<string>(),
   minedWith: null as unknown,
   tip: { hash: '00tip', index: 3, timestamp: '2020-01-01T00:00:00Z' },
+  spotWait: 0,
+  beatChecks: [] as boolean[],
 }));
 vi.mock('../../blockchain/chain', () => ({
   getSwarmChain: () => ({
@@ -18,6 +20,11 @@ vi.mock('../../blockchain/chain', () => ({
 }));
 vi.mock('../../blockchain/blockHeader', () => ({
   getLocalBlockSigner: async () => ({ userId: 'me', publicKey: 'pk', sign: async () => 'sig' }),
+  beatIsFree: () => fake.beatChecks.shift() ?? true,
+}));
+vi.mock('../../blockchain/manifold', () => ({
+  spotIndex: () => 0,
+  msUntilSpot: () => fake.spotWait,
 }));
 
 const { StandaloneSwarmMesh } = await import('../swarmMesh.standalone');
@@ -56,5 +63,19 @@ describe('CREATOR rounds use the chain voter list', () => {
     const h = round(['a', 'b']);
     await h.mineChainBlock(false, 'r');
     expect(h.pendingBlockVotes.get('r')!.totalPeers).toBe(2);
+  });
+
+  it('waits for its spot on the manifold, then stands down when an earlier spot took the beat', async () => {
+    fake.voters = new Set();
+    fake.minedWith = null;
+    fake.spotWait = 5;
+    fake.beatChecks = [true, false];
+    const h = round(['a']) as Harness & { phase: string; toggles: { mining: boolean } };
+    h.phase = 'online';
+    h.toggles.mining = true;
+    await h.mineChainBlock(false, 'r');
+    expect(fake.minedWith).toBeNull();
+    expect(h.pendingBlockVotes.has('r')).toBe(false);
+    fake.spotWait = 0;
   });
 });
