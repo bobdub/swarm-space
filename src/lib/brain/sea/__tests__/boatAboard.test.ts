@@ -20,7 +20,7 @@ import { fromBoatFrame, toBoatFrame, confineInBoatFrame } from '../boatDeck';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from '../boatHull';
 import { BOAT_RAIL_H } from '../boatSpec';
 import { _resetVillageBoatForTest, getVillageBoat } from '../vessel';
-import { HOLD_SLACK_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
+import { BOARD_REACH_M, HOLD_SLACK_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
 
 const T0 = (Date.UTC(2026, 10, 20) - Date.UTC(2026, 0, 1)) / 1000;
 type P = UqrcPhysics & { tick(): void };
@@ -122,6 +122,35 @@ describe('walls in the boat frame', () => {
 });
 
 describe('aboard the village boat', () => {
+  it('offers boarding only within two metres of either gate', () => {
+    const frame = villageBoatFrame();
+    if (!frame) throw new Error('Missing dock boat');
+    expect(BOARD_REACH_M).toBe(2.0);
+    const gateX = railHalfWidthAt(0);
+    for (const side of [-1, 1]) {
+      const near = world(fromBoatFrame(frame, side * (gateX + 1.99), 0, EARTH_RADIUS), JETTY_TOP);
+      const far = world(fromBoatFrame(frame, side * (gateX + 2.01), 0, EARTH_RADIUS), JETTY_TOP);
+      expect(boatActionFor(near)).toMatchObject({ kind: 'board' });
+      expect(boatActionFor(far)).toBeNull();
+      expect(boatActionFor(far, HOLD_SLACK_M)).toMatchObject({ kind: 'board' });
+    }
+  });
+
+  it('never offers boarding to someone at the deck rail or inside the hull', () => {
+    const frame = villageBoatFrame();
+    if (!frame) throw new Error('Missing dock boat');
+    const deckTop = getVillageBoat().deckTopAt(t);
+    for (const side of [-1, 1]) {
+      // Just outside isOnDeck's rail boundary, but still within body width.
+      const rail = world(fromBoatFrame(frame, side * (railHalfWidthAt(0) + 0.2), 0, EARTH_RADIUS), deckTop);
+      expect(boatActionFor(rail)).toBeNull();
+      expect(boatActionFor(rail, HOLD_SLACK_M)).toBeNull();
+    }
+    const deck = deckWorldPos(0, 1.2);
+    if (!deck) throw new Error('Missing deck position');
+    expect(boatActionFor(deck)).toMatchObject({ kind: 'take', role: 'oars' });
+  });
+
   it('holds an idle walker still on the heaving deck for 600 steps', () => {
     addWalker('self', deckWorldPos(0, 1.2)!);
     step(60);

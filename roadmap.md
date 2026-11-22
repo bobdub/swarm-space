@@ -44,3 +44,4 @@
 - [x] Correct volcano normals, basalt detail, terrain-aligned lava and buoyant wind-driven ash; 62 focused automated checks pass. Live Brain viewing remains with the user; effects approximate physics rather than solve full fluid dynamics.
 - [x] Unify reciprocal peer-library handoff across app connections, persist guest contacts, share ten-day sightings and correct disconnected chat guidance; 236 automated checks pass and preview compilation is clean. Live mobile/desktop reconnection remains for user testing.
 - [x] Combine boat readings with compact Brain status; stack wheel, actions, compass and release on the right without control hints. 37 focused checks pass and preview compiles; live appearance left to user testing.
+- [x] Tighten boarding reach to 2 m, suppress aboard/rail prompts, bound offer grace by nearby action and move approach controls to the right; 24 boat checks pass and preview compiles. Live Brain appearance remains for user testing.

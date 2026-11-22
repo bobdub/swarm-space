@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 22, 2026 — A gate, not a veil
+Before tending: let boarding call only from beside its gate;
+keep the deck from asking travellers to board twice,
+and leave the centre of their gaze untouched.
+
+After tending: the gate calls within two metres, the rail keeps its traveller aboard,
+and a drifting offer survives only while the same nearby action remains valid.
+Twenty-four boat witnesses pass; the user's live horizon remains undisturbed.
+
 ### November 21, 2026 — Doors that remember neighbours
 Before tending: braid each real meeting into the same remembered library;
 share ten days of footsteps without calling absent travellers present.

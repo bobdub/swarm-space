@@ -52,7 +52,8 @@ function useBoatAction(selfId: string): BoatAction | null {
       // Keep an approach or station offer briefly when it lapses (not a
       // leave offer: that follows the crew state exactly).
       const approach = last.current && (last.current.kind === 'climb' || last.current.kind === 'board' || last.current.kind === 'take');
-      if (!next && approach && body) {
+      const nearby = body && approach ? boatActionFor(body.pos, HOLD_SLACK_M) : null;
+      if (!next && approach && body && sameAction(nearby, last.current)) {
         const now = performance.now();
         if (lostAt.current === null) lostAt.current = now;
         if (now - lostAt.current < OFFER_GRACE_MS) next = last.current;
@@ -71,7 +72,7 @@ function useBoatAction(selfId: string): BoatAction | null {
   return action;
 }
 
-export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boolean }) {
+export function BoatHoldButton({ selfId }: { selfId: string; mobile: boolean }) {
   const action = useBoatAction(selfId);
   const actionRef = useRef(action);
   actionRef.current = action;
@@ -123,14 +124,11 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       disabled={full}
       data-testid="boat-hold"
       aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
-      className={`absolute z-[70] flex min-h-9 items-center rounded-full border bg-background/80 text-foreground select-none touch-none gap-1 px-2 py-1 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal ${full ? 'border-destructive/60' : 'border-accent/50'} ${leaving ? 'h-9 w-28' : 'left-1/2 -translate-x-1/2 max-w-[calc(100%-2rem)]'}`}
+      className={`absolute right-4 z-[70] flex min-h-9 max-w-[calc(100%-2rem)] items-center rounded-full border bg-background/80 text-foreground select-none touch-none gap-1 px-2 py-1 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal ${full ? 'border-destructive/60' : 'border-accent/50'} ${leaving ? 'h-9 w-28' : ''}`}
       style={{
-        // Letting go of a station sits out of the way at the lower right
-        // (above the joystick on a phone); boarding and taking a station
-        // stay centred where you are looking.
-        ...(leaving
-          ? { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }
-          : { bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }),
+        // Approach and station prompts share the release slot, away from
+        // the look-drag area and below the actions and compass.
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)',
         opacity: full ? 0.8 : 1,
         touchAction: 'none',
         WebkitTouchCallout: 'none',

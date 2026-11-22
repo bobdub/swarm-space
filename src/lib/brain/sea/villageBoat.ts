@@ -35,7 +35,7 @@ import { hookableShark, sharkStillHookable } from './sharks';
 export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
 
 /** How close to the boat's gate you must stand on the jetty to board (m). */
-export const BOARD_REACH_M = 4.5;
+export const BOARD_REACH_M = 2.0;
 /** How close a swimmer must be to the ladder or a gate to climb aboard (m). */
 export const CLIMB_REACH_M = 2.2;
 /** A swimmer this close to either side of the hull (m) can climb aboard
@@ -127,6 +127,11 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
       action = { kind: 'climb', boatKey: boat.key, from: p.x < 0 ? 'port' : 'starboard' };
     }
   } else if (p.feet > -0.1 && Math.min(dPort, dStar) <= BOARD_REACH_M + slack && Math.abs(p.aboveDeck) < 1.2) {
+    // Deck heave and the rail's body-width margin must not turn an
+    // already-aboard traveller into a new boarding offer.
+    const withinHull = Math.abs(p.z) <= HALF_L
+      && Math.abs(p.x) <= railHalfWidthAt(p.z) + 0.35;
+    if (withinHull) return null;
     action = { kind: 'board', boatKey: boat.key };
   }
   if (action && !boat.vessel.canBoard()) return { kind: 'full', boatKey: boat.key };
