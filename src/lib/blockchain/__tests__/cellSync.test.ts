@@ -8,6 +8,7 @@ import { memoryCellChainStorage } from "../cellChain/cellChain";
 import { CellChains } from "../cellChain/cellChains";
 import { CellSession, type CellSigners, type CellTransport } from "../cellChain/cellSync";
 import { rosterSignerFromKeys } from "../cellChain/roster";
+import { cellWalletView, inviteToCell, leaveCell, listWalletCellChains, sendCellCoin } from "../cellChain/cellWallet";
 
 const CELL = "u/alice/ab12";
 const T0 = Date.parse("2026-12-01T00:00:00Z");
@@ -252,4 +253,69 @@ describe("cell chain sync", () => {
     await settle();
     expect(ownerChain.getLatestBlock().hash).toBe(bobChain.getLatestBlock().hash);
   });
+});
+
+describe("cell chain in the wallet", () => {
+  it("shows for the creator alone, invites a connected account, then shows for both and carries a transfer", async () => {
+    const clock = { t: LATE };
+    const net = new Net();
+    const ownerSigners = await newSigners();
+    const bobSigners = await newSigners();
+    const ownerId = ownerSigners.text.userId;
+    const bobId = bobSigners.text.userId;
+    const owner = node(net, "peer-owner", ownerSigners, clock, true);
+    const bob = node(net, "peer-bob", bobSigners, clock, false, ownerId);
+    await owner.chains.ensureOwned(CELL, "Garden Club", ownerSigners.text, T0);
+    owner.session.start();
+    bob.session.start();
+    net.linkAll();
+    await settle();
+
+    // Before anyone joins: the creator sees it, a stranger doesn't, and gets nothing about it.
+    expect(await listWalletCellChains(ownerId, [CELL], owner.chains)).toEqual([
+      expect.objectContaining({ cellId: CELL, ticker: "GARDEN", isOwner: true }),
+    ]);
+    expect(await bob.chains.chain(CELL)).toBeNull();
+    const before = (await cellWalletView(CELL, ownerId, owner.session, owner.chains))!;
+    expect(before.members).toEqual([ownerId]);
+    expect(before.connected).toEqual([bobId]);
+
+    // Inviting a connected account hands it the cell, and it accepts on its own.
+    const deps = { chains: owner.chains, signer: ownerSigners.text, session: owner.session, now: clock.t };
+    expect(await inviteToCell(CELL, bobId, deps)).toEqual({ ok: true });
+    await settle();
+    expect((await cellWalletView(CELL, ownerId, owner.session, owner.chains))!.invited).toEqual([bobId]);
+    const bobChain = (await bob.chains.chain(CELL))!;
+    expect(bobChain).not.toBeNull();
+    expect(await listWalletCellChains(bobId, [CELL], bob.chains)).toEqual([]);
+
+    clock.t += 30_000;
+    expect(await owner.session.tick()).not.toBeNull();
+    await settle();
+    expect(await listWalletCellChains(bobId, [CELL], bob.chains)).toEqual([
+      expect.objectContaining({ cellId: CELL, isOwner: false }),
+    ]);
+    expect((await cellWalletView(CELL, ownerId, owner.session, owner.chains))!.members).toEqual([ownerId, bobId].sort());
+
+    // The creator can't leave; sending checks the recipient and the balance.
+    expect((await leaveCell(CELL, deps)).ok).toBe(false);
+    expect((await sendCellCoin(CELL, "someone-else", 1, deps)).ok).toBe(false);
+    expect((await sendCellCoin(CELL, bobId, 1, deps)).ok).toBe(false);
+
+    // Once the first rewards mature, a transfer reaches Bob's copy of the chain.
+    for (let i = 0; i < 21; i++) {
+      clock.t += 30_000;
+      await owner.session.tick();
+    }
+    await settle();
+    const ownerChain = (await owner.chains.chain(CELL))!;
+    expect(ownerChain.getBalance(ownerId)).toBeGreaterThan(1);
+    expect(await sendCellCoin(CELL, bobId, 1, { ...deps, now: clock.t })).toEqual({ ok: true });
+    await settle();
+    expect(bobChain.getPendingTransactions().some((tx) => tx.type === "cell_transfer" && tx.to === bobId)).toBe(true);
+    clock.t += 30_000;
+    await owner.session.tick();
+    await settle();
+    expect(bobChain.getBalance(bobId)).toBe(1);
+  }, 30_000);
 });

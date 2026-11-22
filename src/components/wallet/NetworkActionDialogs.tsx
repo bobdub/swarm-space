@@ -16,7 +16,7 @@ import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeWithdrawDialog } from "./MintMeWithdrawDialog";
 
-export type AssetNetwork = "swarm" | "mintme" | `chain:${string}`;
+export type AssetNetwork = "swarm" | "mintme" | `chain:${string}` | `cell:${string}`;
 
 /** Compact actions follow the wallet's shared network selection. */
 export function MintMeNativeActions({ userId, amount, network = "swarm" }: { userId: string; amount: number; network?: AssetNetwork }) {

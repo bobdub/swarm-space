@@ -1,8 +1,8 @@
 /**
  * Wallet network preference
  * ─────────────────────────
- * Remembers which network the wallet was last showing (SWARM, MintMe or a
- * deployed sub-chain) so /Wallet reopens where the member left it after
+ * Remembers which network the wallet was last showing (SWARM, MintMe, a
+ * deployed sub-chain or a cell chain) so /Wallet reopens where the member left it after
  * navigating away or reloading.
  *
  * Stored per user in localStorage. Every read and write is guarded: when
@@ -19,7 +19,8 @@ export function isAssetNetwork(value: unknown): value is AssetNetwork {
   return (
     value === "swarm" ||
     value === "mintme" ||
-    (typeof value === "string" && value.startsWith("chain:") && value.length > "chain:".length)
+    (typeof value === "string" && value.startsWith("chain:") && value.length > "chain:".length) ||
+    (typeof value === "string" && value.startsWith("cell:") && value.length > "cell:".length)
   );
 }
 
