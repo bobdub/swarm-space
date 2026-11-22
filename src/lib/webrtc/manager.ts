@@ -18,7 +18,9 @@ import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
 import { spikeHealth } from '@/lib/uqrc/withHealth';
 
 const MAX_RECONNECT_ATTEMPTS = 3;
-const DISCONNECT_GRACE_MS = 10_000;
+const DISCONNECT_GRACE_MS = 20_000;
+/** Bounded recovery permission after mesh silence, not proof of room presence. */
+const SILENT_RECOVERY_GRACE_MS = 120_000;
 const RECONNECT_TIMEOUT_MS = 15_000;
 const NEGOTIATION_WAIT_MS = 30_000;
 /** How often to verify each connection is really carrying media both ways. */
@@ -136,6 +138,9 @@ export class WebRTCManager {
   private healthTimer: ReturnType<typeof setInterval> | null = null;
   /** Last repair time per peer, so the sweep cannot fight itself. */
   private lastRepairAt = new Map<string, number>();
+  private meshSilentAt = new Map<string, number>();
+  /** Unknown microphone state must not be mistaken for missing audio. */
+  private remoteMicExpected = new Map<string, boolean>();
 
   constructor(userId: string, username: string) {
     this.userId = userId;
@@ -168,6 +173,7 @@ export class WebRTCManager {
       if (!this.currentRoomId || envelope.roomId !== this.currentRoomId) return;
 
       const meshPeerId = envelope.from;
+      if (envelope.msgType !== 'leave-room') this.meshSilentAt.delete(meshPeerId);
 
       switch (envelope.msgType) {
         case 'join-room': {
@@ -241,9 +247,13 @@ export class WebRTCManager {
           // connection that later fails goes through normal recovery.
           const reason = (envelope.data as { reason?: unknown } | undefined)?.reason;
           const livePc = this.connections.get(meshPeerId);
-          if (reason === 'silent' && livePc?.connectionState === 'connected') {
-            console.log(`[WebRTC] Peer ${meshPeerId} went quiet on the mesh but the call is live — keeping it`);
-            break;
+          if (reason === 'silent') {
+            if (!this.meshSilentAt.has(meshPeerId)) this.meshSilentAt.set(meshPeerId, Date.now());
+            if ((livePc && livePc.connectionState !== 'closed') ||
+                this.disconnectTimers.has(meshPeerId) || this.reconnectTimers.has(meshPeerId)) {
+              console.log(`[WebRTC] Peer ${meshPeerId} quiet on mesh — leaving call recovery in control`);
+              break;
+            }
           }
           console.log(`[WebRTC] Peer ${meshPeerId} left`);
           this.cleanupPeer(meshPeerId);
@@ -277,7 +287,10 @@ export class WebRTCManager {
           const participant = this.ensureParticipant(meshPeerId, envelope.username);
           const data = envelope.data as { camera?: unknown; mic?: unknown } | undefined;
           participant.isVideoEnabled = data?.camera === true;
-          participant.isMuted = data?.mic === false;
+          if (typeof data?.mic === 'boolean') {
+            this.remoteMicExpected.set(meshPeerId, data.mic);
+            participant.isMuted = !data.mic;
+          }
           this.broadcastMessage({
             type: 'peer-media-state',
             roomId: this.currentRoomId,
@@ -1178,6 +1191,10 @@ export class WebRTCManager {
       if (this.connections.get(peerId) !== pc) return;
       console.log('[WebRTC] 🎵 Received remote track from:', peerId, event.track.kind, 'streams:', event.streams.length);
       const participant = this.ensureParticipant(peerId);
+      if (event.track.kind === 'audio' && !this.remoteMicExpected.has(peerId)) {
+        this.remoteMicExpected.set(peerId, true);
+        participant.isMuted = false;
+      }
 
       // Camera and microphone are sent on the upfront transceivers without a
       // stream association, so they arrive with no MediaStream. The screen is
@@ -1369,7 +1386,9 @@ export class WebRTCManager {
       // network is just being difficult: keep them listed and start over
       // after a pause. Dropping them here left the two users unable to
       // hear each other until somebody re-joined.
-      if (isRoomPeerPresent(this.currentRoomId, peerId)) {
+      const silentSince = this.meshSilentAt.get(peerId);
+      const silentRecoveryAllowed = silentSince !== undefined && Date.now() - silentSince < SILENT_RECOVERY_GRACE_MS;
+      if (isRoomPeerPresent(this.currentRoomId, peerId) || silentRecoveryAllowed) {
         console.log(`[WebRTC] ⏸ Recovery attempts exhausted for ${peerId}; retrying in ${RECOVERY_BACKOFF_MS / 1000}s`);
         const timer = setTimeout(() => {
           this.reconnectTimers.delete(peerId);
@@ -1465,6 +1484,8 @@ export class WebRTCManager {
   private cleanupPeer(peerId: string): void {
     this.removePeer(peerId);
     this.participants.delete(peerId);
+    this.meshSilentAt.delete(peerId);
+    this.remoteMicExpected.delete(peerId);
     this.clearDisconnectTimer(peerId);
     this.clearReconnectTimer(peerId);
     this.reconnectAttempts.delete(peerId);
@@ -1718,6 +1739,8 @@ export class WebRTCManager {
     this.applyingRemoteOffer.clear();
     this.pendingCandidates.clear();
     this.participants.clear();
+    this.meshSilentAt.clear();
+    this.remoteMicExpected.clear();
     this.reconnectAttempts.clear();
     this.negotiationLock.clear();
     this.negotiationNeeded.clear();
@@ -1744,7 +1767,7 @@ export class WebRTCManager {
       peerId,
       username: named,
       stream: null,
-      isMuted: false,
+      isMuted: true,
       // No camera until the peer says otherwise: an empty video slot must
       // never render as a black tile.
       isVideoEnabled: false,
@@ -1860,7 +1883,7 @@ export class WebRTCManager {
         const receivingNothing =
           !!pc &&
           state === 'connected' &&
-          this.participants.get(peerId)?.isMuted !== true &&
+          this.remoteMicExpected.get(peerId) === true &&
           pc.getReceivers().every(r => !r.track || r.track.readyState === 'ended');
         // Our live mic must be on a negotiated transceiver. A track parked
         // on an unnegotiated one looks fine locally but never leaves.

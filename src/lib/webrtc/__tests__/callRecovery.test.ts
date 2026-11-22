@@ -95,7 +95,7 @@ afterEach(() => {
 async function connectedManager(peer = 'peer-B') {
   const m = new WebRTCManager('local-peer', 'Local');
   await m.joinRoom('brain');
-  signalHandler!({ msgType: 'join-room', from: peer, roomId: 'brain', ts: 1 });
+  signalHandler?.({ msgType: 'join-room', from: peer, roomId: 'brain', ts: 1 });
   await vi.advanceTimersByTimeAsync(0);
   const pc = created[created.length - 1];
   pc.setState('connected');
@@ -124,6 +124,7 @@ describe('Brain call recovery', () => {
   });
   it('re-offers a connected peer with no incoming audio, at most once per 12s cooldown', async () => {
     const { pc } = await connectedManager();
+    signalHandler?.({ msgType: 'media-state', from: 'peer-B', roomId: 'brain', ts: 2, data: { mic: true } });
     await vi.advanceTimersByTimeAsync(180_000);
     const offers = sentSignals.filter(sig => sig.type === 'offer' && sig.to === 'peer-B');
     expect(offers.length).toBeGreaterThan(0);
@@ -160,14 +161,14 @@ describe('Brain call recovery', () => {
 
   it('keeps a live call when the mesh only reports the peer as quiet', async () => {
     const { m, pc } = await connectedManager();
-    signalHandler!({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'silent' } });
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'silent' } });
     expect(pc.close).not.toHaveBeenCalled();
     expect(m.getParticipants()).toHaveLength(1);
   });
 
   it('still closes the call on a real leave', async () => {
     const { m, pc } = await connectedManager();
-    signalHandler!({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2 });
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2 });
     expect(pc.close).toHaveBeenCalled();
     expect(m.getParticipants()).toHaveLength(0);
   });
@@ -202,10 +203,62 @@ describe('Brain call recovery', () => {
     expect(pc.close).not.toHaveBeenCalled();
   });
 
+  it('allows twenty seconds for a network change before restarting ICE', async () => {
+    const { m, pc } = await connectedManager();
+    pc.setState('disconnected');
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(pc.offerOptions.filter(o => o?.iceRestart)).toHaveLength(0);
+    expect(pc.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(pc.offerOptions.filter(o => o?.iceRestart)).toHaveLength(1);
+    await m.leaveRoom();
+  });
+
+  it.each(['connecting', 'disconnected', 'failed'] as const)('mesh silence does not close a %s call', async (state) => {
+    const { m, pc } = await connectedManager();
+    pc.setState(state);
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'silent' } });
+    expect(pc.close).not.toHaveBeenCalled();
+    expect(m.getParticipants()).toHaveLength(1);
+    await m.leaveRoom();
+  });
+
+  it('keeps recovery alive after silent room eviction but eventually removes an unreachable peer', async () => {
+    const { m, pc } = await connectedManager();
+    peerPresent = false;
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'silent' } });
+    pc.setState('failed');
+    await vi.advanceTimersByTimeAsync(45_100);
+    expect(m.getParticipants()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(m.getParticipants()).toHaveLength(0);
+    await m.leaveRoom();
+  });
+
+  it('an explicit leave cancels recovery even after mesh silence', async () => {
+    const { m, pc } = await connectedManager();
+    pc.setState('disconnected');
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'silent' } });
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 3, data: { reason: 'left' } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pc.close).toHaveBeenCalledTimes(1);
+    expect(m.getParticipants()).toHaveLength(0);
+    expect(reconnectSignals).toHaveLength(0);
+    await m.leaveRoom();
+  });
+
+  it('local mesh shutdown still closes a healthy call', async () => {
+    const { m, pc } = await connectedManager();
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'local' } });
+    expect(pc.close).toHaveBeenCalledTimes(1);
+    expect(m.getParticipants()).toHaveLength(0);
+    await m.leaveRoom();
+  });
+
   it('answers a rebuilt peer from a fresh connection instead of the stale one', async () => {
     const { m, pc } = await connectedManager();
     await pc.setRemoteDescription({ type: 'answer', sdp: 'v=0\r\na=fingerprint:sha-256 AA:BB\r\n' });
-    signalHandler!({ msgType: 'offer', from: 'peer-B', roomId: 'brain', ts: 3,
+    signalHandler?.({ msgType: 'offer', from: 'peer-B', roomId: 'brain', ts: 3,
       data: { type: 'offer', sdp: 'v=0\r\na=fingerprint:sha-256 CC:DD\r\n' } });
     await vi.advanceTimersByTimeAsync(0);
     expect(pc.close).toHaveBeenCalled();
@@ -223,7 +276,7 @@ describe('Brain call recovery', () => {
     await vi.advanceTimersByTimeAsync(0);
     const count = created.length;
     pc.signalingState = 'stable';
-    signalHandler!({ msgType: 'offer', from: 'peer-B', roomId: 'brain', ts: 3,
+    signalHandler?.({ msgType: 'offer', from: 'peer-B', roomId: 'brain', ts: 3,
       data: { type: 'offer', sdp: 'a=fingerprint:sha-256 AA:BB' } });
     await vi.advanceTimersByTimeAsync(0);
     expect(created.length).toBe(count);
@@ -246,6 +299,26 @@ describe('Brain call recovery', () => {
     await vi.advanceTimersByTimeAsync(24_000);
     expect(sentSignals).toHaveLength(0);
     expect(pc.close).not.toHaveBeenCalled();
+  });
+
+  it('does not renegotiate while microphone permission/state is unknown', async () => {
+    const { m, pc } = await connectedManager();
+    signalHandler?.({ msgType: 'media-state', from: 'peer-B', roomId: 'brain', ts: 4, data: { camera: false } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(pc.close).not.toHaveBeenCalled();
+    await m.leaveRoom();
+  });
+
+  it('partial camera updates do not unmute a listen-only peer', async () => {
+    const { m, pc } = await connectedManager();
+    signalHandler?.({ msgType: 'media-state', from: 'peer-B', roomId: 'brain', ts: 4, data: { mic: false } });
+    signalHandler?.({ msgType: 'media-state', from: 'peer-B', roomId: 'brain', ts: 5, data: { camera: true } });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sentSignals).toHaveLength(0);
+    expect(m.getParticipants()[0]?.isMuted).toBe(true);
+    expect(pc.close).not.toHaveBeenCalled();
+    await m.leaveRoom();
   });
 
   it('the half-open sweep honors disconnect grace and existing recovery', async () => {

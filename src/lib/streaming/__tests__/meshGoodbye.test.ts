@@ -28,9 +28,25 @@ function makeMesh(id: string, connected: string[]) {
   };
 }
 
-afterEach(() => stopSignalingBridge());
+afterEach(() => { stopSignalingBridge(); vi.useRealTimers(); });
 
 describe('mesh goodbye reaches rooms, calls and chat', () => {
+  it('passes stale mesh silence through as one soft departure, never an explicit leave', () => {
+    vi.useFakeTimers();
+    const a = makeMesh('A', ['B']);
+    startSignalingBridge(a.mesh);
+    announceJoinRoom('brain', 'uA', 'A');
+    a.deliver('B', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: Date.now() });
+    // Move time without running the room sweep: exercise the mesh departure path itself.
+    vi.setSystemTime(Date.now() + 300_001);
+    const reasons: unknown[] = [];
+    const offSig = onSignal(e => { if (e.msgType === 'leave-room' && e.from === 'B') reasons.push(e.data); });
+    a.depart('B', 'silent');
+    expect(reasons).toEqual([{ reason: 'silent' }]);
+    a.deliver('B', { msgType: 'room-heartbeat', from: 'B', roomId: 'brain', ts: Date.now() });
+    expect(isRoomPeerPresent('brain', 'B')).toBe(true);
+    offSig();
+  });
   it('a peer that says goodbye leaves the room, the call and the chat at once', () => {
     const a = makeMesh('A', ['B']);
     startSignalingBridge(a.mesh);

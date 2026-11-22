@@ -35,6 +35,18 @@ afterEach(() => {
 });
 
 describe('Brain room membership', () => {
+  it('allows a full minute of missed room heartbeats before soft eviction', () => {
+    const a = makeMesh('A', ['B']);
+    startSignalingBridge(a.mesh as never);
+    announceJoinRoom('brain', 'uA', 'A');
+    const t0 = Date.now();
+    a.deliver('B', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: t0 });
+    expect(ROOM_PEER_SILENCE_MS).toBe(60_000);
+    sweepSilentRoomPeers(t0 + 59_999);
+    expect(isRoomPeerPresent('brain', 'B', t0 + 59_999)).toBe(true);
+    sweepSilentRoomPeers(t0 + 60_001);
+    expect(isRoomPeerPresent('brain', 'B', t0 + 60_001)).toBe(false);
+  });
   it('a peer evicted for silence comes back on its next heartbeat', () => {
     const a = makeMesh('A', ['B']);
     startSignalingBridge(a.mesh as never);

@@ -1,5 +1,16 @@
 ## MemoryGarden
 
+### November 22, 2026 — Voices beyond a quiet doorway
+Before tending: do not mistake a quiet mesh for a departed friend;
+give changing networks time to mend, and let listeners rest without repeated offers.
+Keep explicit farewells clear, and leave live testing with the travellers.
+
+After tending: silence keeps its own name from mesh to call;
+a minute shelters room heartbeats, twenty seconds shelters changing ICE,
+and recovery gets a bounded second chance without pretending a neighbour is present.
+Listeners no longer invite needless offers. Ninety-four automated witnesses pass;
+the preview compiles, while live two-device calls remain with the travellers.
+
 ### November 22, 2026 — A gate, not a veil
 Before tending: let boarding call only from beside its gate;
 keep the deck from asking travellers to board twice,

@@ -203,7 +203,8 @@ const silentAt = new Map<string, number>();
 /** `${roomId}|${peerId}` -> last time we heard anything from the peer. */
 const lastHeardAt = new Map<string, number>();
 const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void>();
-export const ROOM_PEER_SILENCE_MS = 20_000;
+// Background mobile timers can run only once a minute. Quiet is not a goodbye.
+export const ROOM_PEER_SILENCE_MS = 60_000;
 const ROOM_HEARTBEAT_MS = 7_000;
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 const roomKey = (roomId: string, peerId: string) => `${roomId}|${peerId}`;
@@ -924,11 +925,10 @@ function heardInRoomsSince(peerId: string, since: number): boolean {
 }
 
 /**
- * A mesh peer is gone (said goodbye when switching the mesh off, or nothing
- * heard for minutes): drop them from every room, the call and the shared
- * chat now, exactly as if they had left each room themselves.
+ * Preserve the distinction between an explicit goodbye, local shutdown and
+ * missing mesh traffic. Only the media layer knows whether a call is alive.
  */
-export function handleMeshPeerDeparted(peerId: string, reason: 'left' | 'local' = 'left'): void {
+export function handleMeshPeerDeparted(peerId: string, reason: 'left' | 'local' | 'silent' = 'left'): void {
   const rooms = new Set<string>([...joinedRooms.keys(), ...roomPresenceLog.keys()]);
   for (const roomId of rooms) {
     const key = roomKey(roomId, peerId);
@@ -940,8 +940,11 @@ export function handleMeshPeerDeparted(peerId: string, reason: 'left' | 'local' 
       roomPresenceLog.get(roomId)?.delete(peerId);
       for (const h of presenceRemovedHandlers) { try { h(roomId, peerId); } catch { /* ignore */ } }
     }
-    for (const h of signalHandlers) {
-      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason: 'left' } }); } catch { /* ignore */ }
+    // evictRoomPeer already forwards a silent notification for joined rooms.
+    if (reason !== 'silent' || !joinedRooms.has(roomId)) {
+      for (const h of signalHandlers) {
+        try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason } }); } catch { /* ignore */ }
+      }
     }
   }
   networkRoomHeardAt.delete(peerId);
@@ -982,7 +985,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
     // Silence on our direct link is not silence in the room: room members
     // need not share an edge, and their relayed traffic proves they are here.
     if (reason === 'silent' && heardInRoomsSince(peerId, Date.now() - MESH_SILENT_DEPARTURE_MS)) return;
-    handleMeshPeerDeparted(peerId);
+    handleMeshPeerDeparted(peerId, reason === 'silent' ? 'silent' : 'left');
   });
   unsubDepartures = () => { offBeforeStop?.(); offDeparted?.(); };
   // Seed snapshot so the first poll diff doesn't fire for already-known peers.
