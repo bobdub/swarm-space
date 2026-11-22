@@ -8,6 +8,7 @@
  * member: that is, once the cell is live between two or more members.
  */
 import { networkNow } from "@/lib/time/networkClock";
+import { getExternalTimestampsEnabled, getTimestampReceipts, type TimestampReceipt } from "../externalTimestamps";
 import { CELL_ROSTER_TX, signCellTransfer, type CellChain } from "./cellChain";
 import { getCellChains, getLocalRosterSigner, type CellChains } from "./cellChains";
 import type { CellSession } from "./cellSync";
@@ -35,6 +36,9 @@ export interface CellWalletView extends WalletCellChain {
   connected: string[];
   /** True when this cell is the one the device is in. */
   active: boolean;
+  /** Outside timestamps (OpenTimestamps): whether the switch is on, and this cell chain's newest receipt. */
+  anchoring: boolean;
+  anchor: TimestampReceipt | null;
 }
 
 /** True when the cell's chain belongs in this account's wallet. */
@@ -100,6 +104,8 @@ export async function cellWalletView(
     pending: chain.getPendingTransactions().length,
     connected,
     active,
+    anchoring: getExternalTimestampsEnabled(),
+    anchor: getTimestampReceipts(undefined, chain.chainId).at(-1) ?? null,
   };
 }
 

@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Users } from "lucide-react";
+import { Stamp, Users } from "lucide-react";
 import {
   cellWalletView,
   inviteToCell,
@@ -20,6 +20,7 @@ import {
   type CellWalletView,
 } from "@/lib/blockchain/cellChain/cellWallet";
 import { getCellSession } from "@/lib/blockchain/cellChain/cellRuntime";
+import { receiptToOtsFile, type TimestampReceipt } from "@/lib/blockchain/externalTimestamps";
 
 interface Props {
   cellId: string;
@@ -29,6 +30,17 @@ interface Props {
 
 function shortId(id: string): string {
   return id.length > 14 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+}
+
+function downloadOts(receipt: TimestampReceipt, ticker: string): void {
+  const file = receiptToOtsFile(receipt);
+  if (!file) return;
+  const url = URL.createObjectURL(new Blob([file], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${ticker.toLowerCase()}-checkpoint-${receipt.height}.ots`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function formatAmount(n: number): string {
@@ -133,6 +145,26 @@ export function CellChainPanel({ cellId, userId, onBack }: Props) {
               : "Enter the cell to mine it and sync with its members."}
             {view.pending > 0 ? ` ${view.pending} waiting for the next block.` : ""}
           </p>
+          {view.anchor ? (
+            <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Badge variant={view.anchor.status === "pending" ? "secondary" : "outline"} className="gap-1">
+                  <Stamp className="h-3 w-3" />
+                  {view.anchor.status === "pending" ? "Anchored" : "Anchor retrying"}
+                </Badge>
+                {view.anchor.status === "pending"
+                  ? `Checkpoint #${view.anchor.height} sent to ${view.anchor.proofs.length} OpenTimestamps calendar${view.anchor.proofs.length === 1 ? "" : "s"}, waiting for Bitcoin.`
+                  : `Checkpoint #${view.anchor.height}: calendars unreachable, will retry.`}
+              </span>
+              {view.anchor.proofs.length > 0 && (
+                <Button size="sm" variant="outline" onClick={() => downloadOts(view.anchor!, view.ticker)}>Download .ots</Button>
+              )}
+            </div>
+          ) : view.anchoring ? (
+            <p className="col-span-2 sm:col-span-4 text-xs text-muted-foreground">
+              Outside timestamps are on: this cell's newest checkpoint is anchored while you're in the cell.
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
