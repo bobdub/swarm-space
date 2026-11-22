@@ -83,14 +83,44 @@ function injectIntoField(evt: ScaffoldEvent): void {
   }
 }
 
+// ── Field-injection batching ───────────────────────────────────────
+// Every inject() drops the field engine's per-tick read caches (Q-score,
+// curvature map, basins). A pass that emits many events and reads the
+// field between them (the NPC tick: read curvature → decide → emit, ×N)
+// would otherwise recompute those caches once per event. Inside a batch,
+// listeners still fire synchronously, but the field nudges are queued and
+// applied together when the outermost batch ends, so every reader in the
+// pass sees the same field and shares one cached compute.
+let batchDepth = 0;
+const pendingInjects: ScaffoldEvent[] = [];
+
+function applyInject(evt: ScaffoldEvent): void {
+  try { injectIntoField(evt); } catch (err) {
+    console.warn('[scaffoldBus] field inject failed', err);
+  }
+}
+
+/** Run `fn` with scaffold field injections deferred until it returns. */
+export function batchScaffoldInjects<T>(fn: () => T): T {
+  batchDepth++;
+  try {
+    return fn();
+  } finally {
+    batchDepth--;
+    if (batchDepth === 0 && pendingInjects.length > 0) {
+      const queued = pendingInjects.splice(0, pendingInjects.length);
+      for (const evt of queued) applyInject(evt);
+    }
+  }
+}
+
 /** Emit a scaffold event. No-op when the feature flag is off. */
 export function emitScaffold(evt: ScaffoldEvent): void {
   if (!getFeatureFlags().scaffoldBus) return;
 
   // 1. Translate into the shared field (the "physics" side).
-  try { injectIntoField(evt); } catch (err) {
-    console.warn('[scaffoldBus] field inject failed', err);
-  }
+  if (batchDepth > 0) pendingInjects.push(evt);
+  else applyInject(evt);
 
   // 2. Fan out to listeners (the "wiring" side).
   for (const fn of bucket(evt.domain)) {
@@ -105,4 +135,6 @@ export function emitScaffold(evt: ScaffoldEvent): void {
 export function __resetScaffoldBusForTests(): void {
   domainHandlers.clear();
   wildcardHandlers.clear();
+  batchDepth = 0;
+  pendingInjects.length = 0;
 }

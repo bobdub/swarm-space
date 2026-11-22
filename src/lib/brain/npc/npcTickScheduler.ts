@@ -33,6 +33,7 @@ import { chooseIntent } from './npcDrives';
 import { sampleSignalsForNpc, applyDriveOutcome, clearNpcSignalMemo } from './npcSignals';
 import { recordOutcome } from './npcSkills';
 import { emitNpcDecision } from './npc.bus';
+import { batchScaffoldInjects } from '@/lib/uqrc/scaffoldBus';
 import { scheduleNpcRosterSave, flushNpcRosterSave } from './npcPersistence';
 import { type Npc, type NpcDrive } from './npcTypes';
 import { mortalityProbability } from './mortality';
@@ -326,11 +327,16 @@ function tickAll(): void {
       console.warn('[npcTick] unwanted tool sweep failed', err);
     }
   }
-  for (const npc of roster) {
-    try { tickOne(npc, brainDt); } catch (err) {
-      console.warn('[npcTick] tick failed for', npc.id, err);
+  // One shared field read per tick: decisions emitted during the pass are
+  // applied to the field together afterwards, so NPCs don't bust the
+  // engine's curvature cache for each other mid-pass.
+  batchScaffoldInjects(() => {
+    for (const npc of roster) {
+      try { tickOne(npc, brainDt); } catch (err) {
+        console.warn('[npcTick] tick failed for', npc.id, err);
+      }
     }
-  }
+  });
   scheduleNpcRosterSave(roster);
 }
 

@@ -40,6 +40,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
   getBrainPhysics,
+  FIELD_HZ,
   WORLD_SIZE,
 } from '@/lib/brain/uqrcPhysics';
 import { C_LIGHT } from '@/lib/brain/lightspeed';
@@ -615,20 +616,20 @@ function InfinityBindingTicker() {
   const lastFeedRef = useRef(0);
   useFrame(() => {
     if (!getFeatureFlags().infinityFieldBinding) return;
+    // The shared 3D field only steps at FIELD_HZ (4 Hz), so pinning
+    // Infinity's basin and sampling the lattice any faster just repeats
+    // the same work on an unchanged field. Run the whole binding on the
+    // field's own clock instead of every render frame.
+    const now = performance.now();
+    if (now - lastFeedRef.current < 1000 / FIELD_HZ) return;
+    lastFeedRef.current = now;
     try {
       const field = physics.getField();
       const projection = getInfinityProjection(engine);
       pinInfinityIntoField(field, projection);
       const snap = sampleFieldForInfinity(field);
       setLastInfinitySnapshot(snap);
-      // Throttle neural feed to ~4Hz — the prediction tracks are
-      // statistical, they do not need 60fps resolution and were
-      // dominating the render loop.
-      const now = performance.now();
-      if (now - lastFeedRef.current >= 250) {
-        lastFeedRef.current = now;
-        feedFieldIntoNeural(snap, engine);
-      }
+      feedFieldIntoNeural(snap, engine);
     } catch {
       /* binding is best-effort */
     }

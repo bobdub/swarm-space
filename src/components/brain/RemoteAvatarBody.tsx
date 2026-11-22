@@ -109,8 +109,9 @@ export function RemoteAvatarBody({
     });
   }, [intentDriven]);
 
-  // Distant avatars are paced by the render governor; the accumulated delta
+  // Remote avatars are paced by the render governor; the accumulated delta
   // feeds avatarTrackingAlpha, so smoothing catches up after skipped frames.
+  // The intent-driven (self) avatar bypasses both gates (critical tier).
   const farGate = useMemo(() => createTierGate('ambiance'), []);
   const nearGate = useMemo(() => createTierGate('proximity'), []);
   useFrame((state, frameDelta) => {
@@ -118,7 +119,9 @@ export function RemoteAvatarBody({
     const far = !!placed && placed.visible && placed.position.distanceToSquared(state.camera.position) > DISTANT_AVATAR_M * DISTANT_AVATAR_M;
     const farDue = farGate(frameDelta);
     const nearDue = nearGate(frameDelta);
-    const gated = far ? farDue : nearDue;
+    // The player's own avatar is critical-tier: it drives what the camera
+    // follows, so it runs every frame and is never paced by the governor.
+    const gated = intentDriven ? frameDelta : far ? farDue : nearDue;
     if (gated === null) return;
     const delta = gated;
     const body = bodyRef.current;

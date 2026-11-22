@@ -17,7 +17,14 @@ export function avatarLocalTarget(position: Vec3, pose: EarthPose, pinned: boole
   return [normal[0] * radius, normal[1] * radius, normal[2] * radius];
 }
 
-/** Same damping at every refresh rate; self and seated poses are authoritative. */
+/**
+ * Same damping at every refresh rate; self and seated poses are authoritative.
+ * The full accumulated delta is honoured, so a caller paced to 8–20 Hz by the
+ * render governor covers the same ground per second as one running at 60 Hz.
+ * A long gap (tab refocus) simply snaps toward 1, which is the right answer.
+ */
 export function avatarTrackingAlpha(delta: number, snap: boolean): number {
-  return snap ? 1 : 1 - Math.exp(-12 * Math.max(0, Math.min(delta, 0.05)));
+  if (snap) return 1;
+  const dt = Number.isFinite(delta) && delta > 0 ? delta : 0;
+  return 1 - Math.exp(-12 * dt);
 }
