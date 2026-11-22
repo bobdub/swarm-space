@@ -2372,9 +2372,11 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         >
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
-        <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
-          <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
-        </div>
+        {crewRole && (
+          <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
+            <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
+          </div>
+        )}
         <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
           <Button
             type="button"
@@ -2473,6 +2475,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               <Compass className="h-4 w-4" />
               <span className="ml-1 hidden sm:inline">Portal</span>
             </Button>
+          )}
+          {/* Compact Brain status chip — tucked under the top-right buttons
+              when on foot; while crewing a ship it stays in the top bar so
+              it never collides with the map below the wheel. */}
+          {!crewRole && (
+            <div className="flex w-full justify-end">
+              <div className="max-w-[70vw] truncate rounded-full border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.6)] px-2 py-0.5 text-[9px] font-mono text-foreground/70">
+                <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
+              </div>
+            </div>
           )}
         </div>
       </div>
