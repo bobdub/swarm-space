@@ -122,17 +122,26 @@ describe('walls in the boat frame', () => {
 });
 
 describe('aboard the village boat', () => {
-  it('offers boarding only within two metres of either gate', () => {
+  it('offers boarding only within three metres of either gate', () => {
     const frame = villageBoatFrame();
     if (!frame) throw new Error('Missing dock boat');
-    expect(BOARD_REACH_M).toBe(2.0);
+    expect(BOARD_REACH_M).toBe(3.0);
     const gateX = railHalfWidthAt(0);
     for (const side of [-1, 1]) {
-      const near = world(fromBoatFrame(frame, side * (gateX + 1.99), 0, EARTH_RADIUS), JETTY_TOP);
-      const far = world(fromBoatFrame(frame, side * (gateX + 2.01), 0, EARTH_RADIUS), JETTY_TOP);
+      const near = world(fromBoatFrame(frame, side * (gateX + 2.99), 0, EARTH_RADIUS), JETTY_TOP);
+      const far = world(fromBoatFrame(frame, side * (gateX + 3.01), 0, EARTH_RADIUS), JETTY_TOP);
       expect(boatActionFor(near)).toMatchObject({ kind: 'board' });
       expect(boatActionFor(far)).toBeNull();
       expect(boatActionFor(far, HOLD_SLACK_M)).toMatchObject({ kind: 'board' });
+    }
+  });
+
+  it('offers boarding to someone pressed against the hull from the jetty', () => {
+    const frame = villageBoatFrame();
+    if (!frame) throw new Error('Missing dock boat');
+    for (const side of [-1, 1]) {
+      const p = world(fromBoatFrame(frame, side * (railHalfWidthAt(0) + 0.35), 0, EARTH_RADIUS), JETTY_TOP);
+      expect(boatActionFor(p)).toMatchObject({ kind: 'board' });
     }
   });
 

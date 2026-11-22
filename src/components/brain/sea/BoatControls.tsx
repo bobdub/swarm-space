@@ -72,7 +72,7 @@ function useBoatAction(selfId: string): BoatAction | null {
   return action;
 }
 
-export function BoatHoldButton({ selfId }: { selfId: string; mobile: boolean }) {
+export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boolean }) {
   const action = useBoatAction(selfId);
   const actionRef = useRef(action);
   actionRef.current = action;
@@ -128,7 +128,11 @@ export function BoatHoldButton({ selfId }: { selfId: string; mobile: boolean }) 
       style={{
         // Approach and station prompts share the release slot, away from
         // the look-drag area and below the actions and compass.
-        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)',
+        // Letting go sits at the lower right; approach and station prompts
+        // stay on the right but above the joystick and jump controls.
+        bottom: leaving
+          ? 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)'
+          : mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)',
         opacity: full ? 0.8 : 1,
         touchAction: 'none',
         WebkitTouchCallout: 'none',
