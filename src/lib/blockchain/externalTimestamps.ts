@@ -8,6 +8,10 @@
  * within a few hours, and the standard `ots upgrade` / `ots verify` tools
  * can then complete and check the downloaded .ots file. When no calendar
  * answers, the checkpoint is marked unreachable and retried on the next run.
+ *
+ * The same switch covers the cell chain of the cell this device is in: its
+ * newest checkpoint is stamped on the same schedule, and its receipts are
+ * kept apart from the shared chain's, by the cell chain's id.
  */
 import { arrayBufferToBase64, base64ToArrayBuffer } from "@/lib/crypto";
 
@@ -20,6 +24,11 @@ export const OTS_CALENDARS = [
 export const STAMP_INTERVAL_MS = 60 * 60 * 1000;
 const ENABLED_KEY = "swarm-external-timestamps-enabled";
 const RECEIPTS_KEY = "swarm-external-timestamps-v1";
+/** The shared chain's receipts keep their original key; each cell chain's go under its chain id. */
+export const SHARED_NETWORK = "SWARM";
+function receiptsKey(network: string): string {
+  return network === SHARED_NETWORK ? RECEIPTS_KEY : `${RECEIPTS_KEY}:${network}`;
+}
 const MAX_RECEIPTS = 50;
 
 export interface TimestampReceipt {
@@ -56,19 +65,19 @@ export function setExternalTimestampsEnabled(on: boolean, store = defaultStore()
   notify();
 }
 
-export function getTimestampReceipts(store = defaultStore()): TimestampReceipt[] {
+export function getTimestampReceipts(store = defaultStore(), network = SHARED_NETWORK): TimestampReceipt[] {
   try {
-    const list = JSON.parse(store?.getItem(RECEIPTS_KEY) ?? "[]");
+    const list = JSON.parse(store?.getItem(receiptsKey(network)) ?? "[]");
     return Array.isArray(list) ? list as TimestampReceipt[] : [];
   } catch {
     return [];
   }
 }
 
-function saveReceipt(receipt: TimestampReceipt, store: Store | null): void {
-  const list = getTimestampReceipts(store).filter((r) => r.blockHash !== receipt.blockHash);
+function saveReceipt(receipt: TimestampReceipt, store: Store | null, network: string): void {
+  const list = getTimestampReceipts(store, network).filter((r) => r.blockHash !== receipt.blockHash);
   list.push(receipt);
-  try { store?.setItem(RECEIPTS_KEY, JSON.stringify(list.slice(-MAX_RECEIPTS))); } catch { /* best effort */ }
+  try { store?.setItem(receiptsKey(network), JSON.stringify(list.slice(-MAX_RECEIPTS))); } catch { /* best effort */ }
   notify();
 }
 
@@ -95,7 +104,7 @@ function hexToBytes(hex: string): Uint8Array<ArrayBuffer> | null {
 /** Send a block hash to each calendar and keep what they answer. */
 export async function stampCheckpoint(
   checkpoint: { hash: string; index: number; epoch?: number },
-  { fetchFn = fetch, store = defaultStore(), now = Date.now(), calendars = OTS_CALENDARS } = {},
+  { fetchFn = fetch, store = defaultStore(), now = Date.now(), calendars = OTS_CALENDARS, network = SHARED_NETWORK } = {},
 ): Promise<TimestampReceipt | null> {
   const digest = hexToBytes(checkpoint.hash);
   if (!digest) return null;
@@ -116,7 +125,7 @@ export async function stampCheckpoint(
     blockHash: checkpoint.hash, height: checkpoint.index, epoch: checkpoint.epoch ?? 0, at: now,
     status: proofs.length ? "pending" : "unreachable", proofs,
   };
-  saveReceipt(receipt, store);
+  saveReceipt(receipt, store, network);
   return receipt;
 }
 
@@ -147,14 +156,15 @@ export async function runExternalTimestamps(
   options: Parameters<typeof stampCheckpoint>[1] = {},
 ): Promise<TimestampReceipt | null> {
   const store = options.store ?? defaultStore();
+  const network = options.network ?? SHARED_NETWORK;
   if (!getExternalTimestampsEnabled(store)) return null;
   const height = chain.getLatestCheckpoint();
   if (height < 0) return null;
   const block = chain.getChain()[height];
   if (!block) return null;
   const now = options.now ?? Date.now();
-  if (!shouldStamp({ hash: block.hash, epoch: block.epoch ?? 0 }, getTimestampReceipts(store), now)) return null;
-  return stampCheckpoint(block, { ...options, store, now });
+  if (!shouldStamp({ hash: block.hash, epoch: block.epoch ?? 0 }, getTimestampReceipts(store, network), now)) return null;
+  return stampCheckpoint(block, { ...options, store, now, network });
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -167,6 +177,14 @@ export function startExternalTimestamps(): () => void {
       const chain = getSwarmChain();
       await chain.whenReady();
       await runExternalTimestamps(chain);
+    }).catch(() => { /* next tick */ });
+    // The cell this device is in: its own chain, its own receipts.
+    void import("./cellChain/cellRuntime").then(async ({ getCellSession }) => {
+      const session = getCellSession();
+      if (!session) return;
+      const { getCellChains } = await import("./cellChain/cellChains");
+      const cellChain = await getCellChains().chain(session.cellId);
+      if (cellChain) await runExternalTimestamps(cellChain, { network: cellChain.chainId });
     }).catch(() => { /* next tick */ });
   };
   timer = setInterval(tick, 10 * 60 * 1000);

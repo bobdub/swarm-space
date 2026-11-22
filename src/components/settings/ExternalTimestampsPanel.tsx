@@ -40,7 +40,8 @@ export function ExternalTimestampsPanel() {
           </Label>
           <p className="text-xs text-muted-foreground">
             Off by default. Sends the newest chain checkpoint's hash (and nothing else) to the OpenTimestamps
-            calendars, which anchor it in Bitcoin. Your choice is saved on this device.
+            calendars, which anchor it in Bitcoin. This covers the shared chain and the chain of the cell you're
+            in. Your choice is saved on this device.
           </p>
         </div>
         <Switch id="external-timestamps-switch" checked={enabled} onCheckedChange={setExternalTimestampsEnabled} />
