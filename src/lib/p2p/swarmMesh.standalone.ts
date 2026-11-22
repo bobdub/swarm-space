@@ -4700,7 +4700,7 @@ export class StandaloneSwarmMesh {
   // DELETE / RESEED — Exposed to dashboard
   // ═══════════════════════════════════════════════════════════════════
 
-  async deleteFile(fileId: string): Promise<void> {
+  async deleteFile(fileId: string): Promise<boolean> {
     // Remove from TorrentSwarm in-memory state
     if (this.torrentSwarmInstance) {
       // Try to find manifest by fileId (torrent manifests use their own IDs)
@@ -4731,9 +4731,51 @@ export class StandaloneSwarmMesh {
       const { deleteManifest } = await import('../fileEncryption');
       await deleteManifest(fileId);
       console.log(`[SwarmMesh] 🗑️ Deleted file ${fileId} from IndexedDB`);
+      return true;
     } catch (err) {
       console.warn('[SwarmMesh] Failed to delete file from IndexedDB:', err);
+      return false;
     }
+  }
+
+  /**
+   * Clear every incomplete media transfer that is not moving right now:
+   * cancel its retry, take it out of the pull line and drop the manifest and
+   * partial chunks. Complete files, the file being pulled, ignored files and
+   * coin-engraved files are kept. A post that still needs its media pulls it
+   * again later from a peer that actually has it.
+   */
+  async flushStuckTransfers(): Promise<{ flushed: number; kept: number }> {
+    const list = await this.getFileTransferList();
+    let flushed = 0;
+    let kept = 0;
+    for (const f of list) {
+      if (f.percent >= 100 || f.prefs.ignored) continue;
+      if (this.activeAssetPull === f.fileId) { kept++; continue; }
+
+      const idx = this.assetPullQueue.findIndex((e) => e.manifestId === f.fileId);
+      if (idx !== -1) {
+        const [entry] = this.assetPullQueue.splice(idx, 1);
+        this.assetPulls.delete(f.fileId);
+        entry.resolve({ changed: false, complete: false });
+      }
+      this.clearAssetRetry(f.fileId);
+
+      if (await this.deleteFile(f.fileId)) flushed++;
+      else kept++;
+    }
+    // Torrents that are waiting, paused or failed go too; the one downloading stays.
+    const swarm = this.torrentSwarmInstance;
+    if (swarm) {
+      for (const p of swarm.getAllProgress()) {
+        if (p.state === 'queued' || p.state === 'paused' || p.state === 'error' || p.state === 'idle') {
+          swarm.remove(p.manifestId);
+          flushed++;
+        }
+      }
+    }
+    console.log(`[SwarmMesh] 🧹 Flushed ${flushed} stuck transfer(s), kept ${kept}`);
+    return { flushed, kept };
   }
 
   async reseedFile(fileId: string): Promise<void> {
