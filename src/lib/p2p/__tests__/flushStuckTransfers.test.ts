@@ -25,11 +25,13 @@ function makeMesh(rows: Row[], opts: { undeletable?: string[]; ignored?: string[
   mesh.getFilePref = (id: string) => ({ paused: false, ignored: (opts.ignored ?? []).includes(id), hostFirst: false });
   mesh.prioritizeManifests = async (ids: string[]) => ids;
   mesh.emitTransferProgress = () => {};
+  mesh._filePrefs = {};
+  mesh.saveFilePrefs = () => {};
   const deleted: string[] = [];
-  mesh.deleteFile = async (id: string) => {
-    if ((opts.undeletable ?? []).includes(id)) return false;
-    deleted.push(id);
-    return true;
+  mesh.deleteManifestsBatch = async (ids: string[]) => {
+    const engraved = ids.filter((id) => (opts.undeletable ?? []).includes(id));
+    for (const id of ids) if (!engraved.includes(id)) deleted.push(id);
+    return { deleted: ids.length - engraved.length, engraved };
   };
   return { mesh, deleted };
 }
@@ -73,5 +75,56 @@ describe("flushStuckTransfers", () => {
     // A later sync of the same post skips it.
     await (mesh as unknown as { ensurePostAssets: (ids: string[]) => Promise<void> }).ensurePostAssets(["p1"]);
     expect(mesh.getAssetPullState("p1")).toBeNull();
+  });
+
+  it("a flushed file only comes back when someone opens it", async () => {
+    const { mesh } = makeMesh([row("moving", 40), row("f", 0)]);
+    void mesh.ensureManifestAndChunks("moving");
+    void mesh.ensureManifestAndChunks("f");
+    await mesh.flushStuckTransfers();
+
+    await expect(mesh.ensureManifestAndChunks("f")).resolves.toEqual({ changed: false, complete: false });
+    expect(mesh.getAssetPullState("f")).toBeNull();
+
+    void mesh.ensureManifestAndChunks("f", undefined, { next: true });
+    expect(mesh.getAssetPullState("f")).toBe("queued");
+  });
+});
+
+describe("deleteManifestsBatch", () => {
+  it("removes manifests and their chunks in one go, keeping engraved files", async () => {
+    await new Promise<void>((resolve) => {
+      const req = indexedDB.open("imagination-db", 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore("manifests", { keyPath: "fileId" });
+        req.result.createObjectStore("chunks", { keyPath: "ref" });
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(["manifests", "chunks"], "readwrite");
+        tx.objectStore("manifests").put({ fileId: "a", chunks: ["a1", "a2"] });
+        tx.objectStore("manifests").put({ fileId: "coin", chunks: ["c1"], _coinId: "x" });
+        for (const ref of ["a1", "a2", "c1"]) tx.objectStore("chunks").put({ ref });
+        tx.oncomplete = () => { db.close(); resolve(); };
+      };
+    });
+
+    const mesh = Object.create(StandaloneSwarmMesh.prototype) as StandaloneSwarmMesh & {
+      deleteManifestsBatch: (ids: string[]) => Promise<{ deleted: number; engraved: string[] }>;
+    };
+    const result = await mesh.deleteManifestsBatch(["a", "coin", "missing"]);
+    expect(result).toEqual({ deleted: 2, engraved: ["coin"] });
+
+    const left = await new Promise<{ manifests: unknown[]; chunks: unknown[] }>((resolve) => {
+      const req = indexedDB.open("imagination-db");
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction(["manifests", "chunks"], "readonly");
+        const m = tx.objectStore("manifests").getAllKeys();
+        const c = tx.objectStore("chunks").getAllKeys();
+        tx.oncomplete = () => { db.close(); resolve({ manifests: m.result, chunks: c.result }); };
+      };
+    });
+    expect(left).toEqual({ manifests: ["coin"], chunks: ["c1"] });
   });
 });
