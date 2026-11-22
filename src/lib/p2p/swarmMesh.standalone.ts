@@ -5414,6 +5414,12 @@ export class StandaloneSwarmMesh {
     if (!fileId) {
       return false;
     }
+    // Peers re-broadcast post manifests on every sync; without this a flushed
+    // file is back in the Transfers list within seconds. Opening the post or
+    // a seeder announce lifts the flag before pulling, so those still save.
+    if (getFlushedAssets().has(fileId)) {
+      return false;
+    }
 
     const db = await this.openDB();
     try {

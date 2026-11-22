@@ -91,9 +91,13 @@ export function TorrentSwarmPanel() {
   // key, and with hundreds of files overlapping polls piled up until the
   // page ran out of memory. Reads are also held while a flush runs.
   const loadingFilesRef = useRef(false);
+  const reloadAfterRef = useRef(false);
   const flushingRef = useRef(false);
-  const loadFiles = useCallback(async () => {
-    if (loadingFilesRef.current || flushingRef.current) return;
+  const loadFiles = useCallback(async (): Promise<void> => {
+    if (flushingRef.current) return;
+    // A read already running may have started before a change (a flush);
+    // remember to read again once it lands instead of dropping this one.
+    if (loadingFilesRef.current) { reloadAfterRef.current = true; return; }
     loadingFilesRef.current = true;
     try {
       const sm = getSwarmMeshStandalone();
@@ -110,6 +114,10 @@ export function TorrentSwarmPanel() {
       }
     } finally {
       loadingFilesRef.current = false;
+    }
+    if (reloadAfterRef.current) {
+      reloadAfterRef.current = false;
+      await loadFiles();
     }
   }, []);
 
@@ -281,15 +289,19 @@ export function TorrentSwarmPanel() {
   }, [loadFiles]);
 
   const [flushing, setFlushing] = useState(false);
+  const [flushNote, setFlushNote] = useState<string | null>(null);
   const handleFlushStuck = useCallback(async () => {
     if (!window.confirm('Clear every download that is waiting? Only the file moving now and finished files are kept. Posts that still need their media will fetch it again from a peer that has it.')) return;
     setFlushing(true);
     flushingRef.current = true;
     try {
-      await getSwarmMeshStandalone().flushStuckTransfers?.();
+      const r = await getSwarmMeshStandalone().flushStuckTransfers?.();
+      setFlushNote(r ? `Cleared ${r.flushed}${r.kept ? ` · kept ${r.kept} (moving or saved to a coin)` : ''}` : 'Flush unavailable');
     } catch (err) {
       console.warn('[TorrentSwarmPanel] Flush failed:', err);
+      setFlushNote('Flush failed — see console');
     } finally {
+      window.setTimeout(() => setFlushNote(null), 8000);
       flushingRef.current = false;
       setFlushing(false);
       void loadFiles();
@@ -421,11 +433,12 @@ export function TorrentSwarmPanel() {
           <div className="text-[0.6rem] uppercase tracking-wider text-foreground/40 flex items-center gap-1.5">
             <ArrowDownToLine className="h-3 w-3" />
             <span>Transfers ({incomplete.length}) · one file at a time</span>
+            {flushNote && <span className="ml-auto normal-case tracking-normal text-foreground/60">{flushNote}</span>}
             {incomplete.length - movingCount > 0 && (
               <Button
                 variant="outline"
                 size="sm"
-                className="ml-auto h-7 gap-1 px-2 text-[0.65rem] uppercase tracking-wider border-destructive/50 text-destructive hover:bg-destructive/10"
+                className={cn(flushNote ? 'ml-2' : 'ml-auto', 'h-7 gap-1 px-2 text-[0.65rem] uppercase tracking-wider border-destructive/50 text-destructive hover:bg-destructive/10')}
                 disabled={flushing}
                 title="Clear every waiting download (keeps the one moving and finished files)"
                 onClick={() => { void handleFlushStuck(); }}
