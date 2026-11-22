@@ -25,8 +25,8 @@
 
 // ── Inline Crypto ──────────────────────────────────────────────────────
 
-function ab2b64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
+function ab2b64(buf: ArrayBuffer | Uint8Array): string {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   const CHUNK = 8192;
   let binary = '';
   for (let i = 0; i < bytes.length; i += CHUNK) {
@@ -40,6 +40,60 @@ function b642ab(b64: string): ArrayBuffer {
   const arr = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return arr.buffer;
+}
+
+/**
+ * Whole-file work (the content hash, reassembly) used to run as one
+ * synchronous task: about 3.5 s for a 100 MB file, long enough for Firefox
+ * to flag the page as slowing the browser. These do the same work in
+ * pieces, yielding to the event loop between them, with identical output.
+ * The piece size is a multiple of 3, so base64 pieces join exactly into
+ * the base64 of the whole buffer.
+ */
+export const LARGE_WORK_SLICE_BYTES = 3 * 1024 * 1024;
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/** Same result as `ab2b64`, without blocking the page on large buffers. */
+export async function ab2b64Yielding(buf: ArrayBuffer | Uint8Array): Promise<string> {
+  const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  if (bytes.length <= LARGE_WORK_SLICE_BYTES) return ab2b64(bytes);
+  const pieces: string[] = [];
+  for (let i = 0; i < bytes.length; i += LARGE_WORK_SLICE_BYTES) {
+    pieces.push(ab2b64(bytes.subarray(i, Math.min(i + LARGE_WORK_SLICE_BYTES, bytes.length))));
+    await yieldToEventLoop();
+  }
+  return pieces.join("");
+}
+
+/** Decode a torrent's base64 chunks in order into one buffer, yielding as it goes. */
+async function assembleChunksYielding(
+  chunkMap: Map<number, TorrentChunk>,
+  totalChunks: number,
+): Promise<Uint8Array | null> {
+  const parts: Uint8Array[] = [];
+  let sinceYield = 0;
+  for (let i = 0; i < totalChunks; i++) {
+    const chunk = chunkMap.get(i);
+    if (!chunk) return null;
+    const part = new Uint8Array(b642ab(chunk.data));
+    parts.push(part);
+    sinceYield += part.byteLength;
+    if (sinceYield >= LARGE_WORK_SLICE_BYTES) {
+      sinceYield = 0;
+      await yieldToEventLoop();
+    }
+  }
+  const totalLen = parts.reduce((sum, p) => sum + p.byteLength, 0);
+  const assembled = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of parts) {
+    assembled.set(part, offset);
+    offset += part.byteLength;
+  }
+  return assembled;
 }
 
 function ab2hex(buf: ArrayBuffer): string {
@@ -378,7 +432,7 @@ export class TorrentSwarm {
     }
 
     // Content hash (full file)
-    const contentHash = await sha256(ab2b64(data.buffer as ArrayBuffer));
+    const contentHash = await sha256(await ab2b64Yielding(data.buffer as ArrayBuffer));
 
     const manifest: TorrentManifest = {
       id: generateId("torrent"),
@@ -936,28 +990,30 @@ export class TorrentSwarm {
   // COMPLETION
   // ═══════════════════════════════════════════════════════════════════
 
+  /** Downloads whose completion is being verified (it now spans several tasks). */
+  private completing = new Set<string>();
+
   private async handleComplete(manifestId: string): Promise<void> {
+    // A duplicate chunk arriving mid-verification must not start a second pass.
+    if (this.completing.has(manifestId) || this.states.get(manifestId) === "complete") return;
+    this.completing.add(manifestId);
+    try {
+      await this.completeDownload(manifestId);
+    } finally {
+      this.completing.delete(manifestId);
+    }
+  }
+
+  private async completeDownload(manifestId: string): Promise<void> {
     const manifest = this.manifests.get(manifestId)!;
     const chunkMap = this.chunks.get(manifestId)!;
 
-    // Reassemble in order
-    const parts: Uint8Array[] = [];
-    for (let i = 0; i < manifest.totalChunks; i++) {
-      const chunk = chunkMap.get(i)!;
-      parts.push(new Uint8Array(b642ab(chunk.data)));
-    }
-
-    // Concatenate
-    const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
-    const assembled = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const part of parts) {
-      assembled.set(part, offset);
-      offset += part.byteLength;
-    }
+    // Reassemble in order, in pieces so a large file doesn't freeze the page
+    const assembled = await assembleChunksYielding(chunkMap, manifest.totalChunks);
+    if (!assembled) return;
 
     // Verify content hash
-    const fullHash = await sha256(ab2b64(assembled.buffer as ArrayBuffer));
+    const fullHash = await sha256(await ab2b64Yielding(assembled.buffer as ArrayBuffer));
     if (fullHash !== manifest.contentHash) {
       console.error(`[TorrentSwarm] ❌ Content hash mismatch for "${manifest.name}"`);
       this.states.set(manifestId, "error");
@@ -982,7 +1038,7 @@ export class TorrentSwarm {
     this.states.set(manifestId, "seeding");
 
     console.log(
-      `[TorrentSwarm] ✅ Download complete: "${manifest.name}" (${totalLen} bytes, verified)`
+      `[TorrentSwarm] ✅ Download complete: "${manifest.name}" (${assembled.byteLength} bytes, verified)`
     );
 
     // Notify completion listeners
@@ -997,7 +1053,7 @@ export class TorrentSwarm {
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("torrent-complete", {
-          detail: { manifestId, name: manifest.name, size: totalLen },
+          detail: { manifestId, name: manifest.name, size: assembled.byteLength },
         })
       );
     }
@@ -1433,19 +1489,8 @@ export class TorrentSwarm {
     }
 
     // Reassemble original data
-    const parts: Uint8Array[] = [];
-    for (let i = 0; i < oldManifest.totalChunks; i++) {
-      const chunk = chunkMap.get(i);
-      if (!chunk) return null;
-      parts.push(new Uint8Array(b642ab(chunk.data)));
-    }
-    const totalLen = parts.reduce((s, p) => s + p.byteLength, 0);
-    const assembled = new Uint8Array(totalLen);
-    let offset = 0;
-    for (const part of parts) {
-      assembled.set(part, offset);
-      offset += part.byteLength;
-    }
+    const assembled = await assembleChunksYielding(chunkMap, oldManifest.totalChunks);
+    if (!assembled) return null;
 
     // Remove old torrent state
     this.remove(manifestId);
