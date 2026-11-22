@@ -128,3 +128,16 @@ describe("deleteManifestsBatch", () => {
     expect(left).toEqual({ manifests: ["coin"], chunks: ["c1"] });
   });
 });
+
+describe("flushed manifests stay out", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("a peer re-broadcasting a flushed manifest does not bring it back", async () => {
+    const { mesh } = makeMesh([row("moving", 40), row("f", 0)]);
+    void mesh.ensureManifestAndChunks("moving");
+    await mesh.flushStuckTransfers();
+    const save = (mesh as unknown as { saveManifestToDB: (m: unknown) => Promise<boolean> }).saveManifestToDB;
+    mesh.openDB = () => { throw new Error("should not touch the database"); };
+    await expect(save.call(mesh, { fileId: "f", chunks: ["x"] })).resolves.toBe(false);
+  });
+});
