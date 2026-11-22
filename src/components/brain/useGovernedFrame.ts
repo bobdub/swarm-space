@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree, type RootState } from '@react-three/fiber';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useFrame, type RootState } from '@react-three/fiber';
 import { createTierGate, renderGovernor, type RenderTier } from '@/lib/brain/renderGovernor';
 
 /** useFrame paced by the render governor; the callback gets accumulated delta. */
@@ -22,16 +22,21 @@ export function RenderGovernorProbe(): null {
   return null;
 }
 
+const FULL_DPR: [number, number] = [1, 1.5];
+
 /**
- * Mount once inside the Canvas: the Brain is GPU-bound, so when frames stay
- * strained the cheapest real saving is fewer pixels. Drops the render
- * resolution to 1× (from up to 1.5× on high-DPI screens) and keeps it there
- * for the session, so the picture never pumps between sharp and soft.
+ * Render resolution for the Brain Canvas. The Brain is GPU-bound, so when
+ * frames stay strained the cheapest real saving is fewer pixels: drop to 1×
+ * (from up to 1.5× on high-DPI screens) and keep it there for the session, so
+ * the picture never pumps between sharp and soft. Returned as the Canvas
+ * `dpr` prop, because the Canvas re-applies that prop on every render and
+ * would undo an imperative setDpr.
  */
-export function AdaptiveDpr(): null {
-  const setDpr = useThree((s) => s.setDpr);
-  useEffect(() => renderGovernor.onPressure((p) => {
-    if (p === 'strained') setDpr(1);
-  }), [setDpr]);
-  return null;
+export function useAdaptiveDpr(): number | [number, number] {
+  const [reduced, setReduced] = useState(() => renderGovernor.pressure() === 'strained');
+  useEffect(() => {
+    if (reduced) return;
+    return renderGovernor.onPressure((p) => { if (p === 'strained') setReduced(true); });
+  }, [reduced]);
+  return reduced ? 1 : FULL_DPR;
 }

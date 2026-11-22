@@ -1,4 +1,4 @@
-import { AdaptiveDpr, RenderGovernorProbe } from './useGovernedFrame';
+import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -1261,6 +1261,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   // True while a screen share is open full size; pauses scene rendering.
   const [screenExpanded, setScreenExpanded] = useState(false);
+  const canvasDpr = useAdaptiveDpr();
   // A share started earlier keeps running while Brain-synced on other pages,
   // so coming back picks the live capture up again.
   const [screenStream, setScreenStream] = useState<MediaStream | null>(() =>
@@ -2496,7 +2497,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // work. Physics, boats and position broadcasts run on their own
         // timers, so the world keeps moving and peers keep seeing us.
         frameloop={screenExpanded ? 'never' : 'always'}
-        dpr={[1, 1.5]}
+        dpr={canvasDpr}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
         onCreated={handleCanvasCreated}
@@ -2607,7 +2608,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
         </Suspense>
         <RenderGovernorProbe />
-        <AdaptiveDpr />
       </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
