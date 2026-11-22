@@ -497,13 +497,6 @@ export class StandaloneSwarmMesh {
   // ── Connection Library (persisted) ────────────────────────────────
   private library = new Map<string, LibraryPeer>();
   private blockedPeers = new Set<string>();
-  /**
-   * Peers dialed through connectToPeer in the last minute. Library reconnects
-   * of saved peers and inbound links without metadata also carry the
-   * 'manual' source, so only these get the "Connected to … (manual)" alert;
-   * otherwise every saved peer announced itself at once on startup.
-   */
-  private userDialedAt = new Map<string, number>();
 
   // ── Mining ────────────────────────────────────────────────────────
   private miningStats: MiningStats;
@@ -2725,11 +2718,9 @@ export class StandaloneSwarmMesh {
         this.startMiningLoop();
       }
 
-      const dialedAt = this.userDialedAt.get(rId);
-      if (source === 'manual' && dialedAt !== undefined) {
-        this.userDialedAt.delete(rId);
-        if (now() - dialedAt < 60_000) this.emitAlert(`Connected to ${rId.slice(0, 16)} (manual)`, 'info');
-      }
+      // No per-peer "Connected to … (manual)" alert: saved peers reconnect
+      // with the 'manual' source too, so it fired for every one at once. The
+      // connection list and the peer count already show a new link.
     });
 
     conn.on('data', (raw: unknown) => {
@@ -2879,7 +2870,6 @@ export class StandaloneSwarmMesh {
     // Trip 1: knock so the target dials back at the same time (two-way punch).
     void import('./globalCell').then(({ getGlobalCell }) => getGlobalCell().sendInviteKnock(remotePeerId)).catch(() => {});
 
-    this.userDialedAt.set(remotePeerId, now());
     this.dialPeer(remotePeerId, 'manual');
     this.emitAlert(`Dialing ${remotePeerId.slice(0, 16)}…`, 'info');
     return true;
