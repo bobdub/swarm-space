@@ -959,6 +959,9 @@ function FileRow({
   const isPaused = file.prefs.paused;
   const isIgnored = file.prefs.ignored;
   const isHostFirst = file.prefs.hostFirst;
+  // Only one file moves at a time; everything else in the list is waiting.
+  const isMoving = !isComplete && !isPaused && !isIgnored && file.transferState === 'active';
+  const isWaiting = !isComplete && !isPaused && !isIgnored && !isMoving;
 
   const progressColor = isIgnored
     ? 'bg-foreground/20'
@@ -973,6 +976,7 @@ function FileRow({
       'rounded-md border border-foreground/10 p-2 space-y-1',
       isPaused && 'border-amber-500/20',
       isIgnored && 'border-foreground/5',
+      isWaiting && !compact && 'opacity-60',
     )}>
       {/* Top row: icon + name + status + controls */}
       <div className="flex items-center gap-2">
@@ -1069,7 +1073,7 @@ function FileRow({
           {file.size > 0 && ` • ${formatBytes(file.size)}`}
         </span>
         <span className="flex items-center gap-1">
-          {file.retrying && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
+          {file.retrying && isMoving && <RefreshCw className="h-2.5 w-2.5 animate-spin text-amber-400" />}
           <span className={cn("flex items-center gap-0.5", file.seeders > 0 ? "text-sky-400" : "text-foreground/30")}>
             <Users className="h-2.5 w-2.5" />{file.seeders}
           </span>
@@ -1077,7 +1081,7 @@ function FileRow({
           {isIgnored && <span className="text-destructive">IGNORED</span>}
           {isHostFirst && <span className="text-amber-400">HOST FIRST</span>}
           {isComplete && !isIgnored && <span className="text-emerald-400">SEEDING</span>}
-          {!isComplete && !isPaused && !isIgnored && file.transferState === 'active' && <span className="text-sky-400">MOVING</span>}
+          {isMoving && <span className="text-sky-400">MOVING</span>}
           {!isComplete && !isPaused && !isIgnored && file.transferState === 'queued' && <span>QUEUED</span>}
           {!isComplete && !isPaused && !isIgnored && !file.transferState && <span className="text-foreground/30">WAITING</span>}
           {!isComplete && !isPaused && !isIgnored && <span>{file.percent}%</span>}
