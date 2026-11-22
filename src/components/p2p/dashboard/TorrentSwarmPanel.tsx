@@ -322,6 +322,16 @@ export function TorrentSwarmPanel() {
   }, [torrents, persistedTorrents]);
   const hasTorrents = mergedTorrents.length > 0;
   const incomingTorrentCount = mergedTorrents.filter(t => t.state === 'downloading' || t.state === 'queued' || t.state === 'paused').length;
+  const downloadingTorrentCount = mergedTorrents.filter(t => t.state === 'downloading').length;
+  const queuedTorrentCount = mergedTorrents.filter(t => t.state === 'queued').length;
+  // Torrents download one at a time: the moving one first, then the line in
+  // order, then everything else.
+  const torrentQueue = getTorrentSwarmForUi()?.getDownloadQueue?.() ?? [];
+  const torrentRank = (t: TorrentProgress) =>
+    t.state === 'downloading' ? -1
+    : t.state === 'queued' ? (torrentQueue.indexOf(t.manifestId) === -1 ? torrentQueue.length : torrentQueue.indexOf(t.manifestId))
+    : torrentQueue.length + 1;
+  const orderedTorrents = [...mergedTorrents].sort((a, b) => torrentRank(a) - torrentRank(b));
 
   // Get local peer ID for ownership detection
   const localPeerId = getSwarmMeshStandalone().getPeerId?.() ?? '';
@@ -458,12 +468,13 @@ export function TorrentSwarmPanel() {
               )}
               <Badge variant="outline" className="text-[0.55rem] uppercase tracking-widest text-foreground/40 border-foreground/20">
                 {incomingTorrentCount} incoming
+                {(downloadingTorrentCount > 0 || queuedTorrentCount > 0) && ` · ${downloadingTorrentCount} moving · ${queuedTorrentCount} queued`}
               </Badge>
             </div>
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto">
-            {mergedTorrents.map(t => (
-              <TorrentRow key={t.manifestId} progress={t} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
+            {orderedTorrents.map(t => (
+              <TorrentRow key={t.manifestId} progress={t} queuePosition={t.state === 'queued' ? torrentQueue.indexOf(t.manifestId) + 1 : 0} onReseed={handleTorrentReseed} reseedState={reseedingFiles.has(t.manifestId) ? 'spinning' : reseededFiles.has(t.manifestId) ? 'done' : 'idle'} />
             ))}
           </div>
         </div>
@@ -1076,20 +1087,25 @@ function FileRow({
   );
 }
 
-function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
+function getTorrentSwarmForUi() {
+  const sm = getSwarmMeshStandalone();
+  let swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
+  if (!swarm) { try { swarm = getTorrentSwarmSingleton(); } catch { /* noop */ } }
+  return swarm;
+}
+
+function TorrentRow({ progress, onReseed, reseedState = 'idle', queuePosition = 0 }: {
   progress: TorrentProgress;
+  /** 1-based place in the download line while queued (0 when unknown). */
+  queuePosition?: number;
   onReseed?: (manifestId: string) => void;
   reseedState?: 'idle' | 'spinning' | 'done';
 }) {
   const isComplete = progress.state === 'seeding' || progress.state === 'complete';
   const isPaused = progress.state === 'paused';
+  const isQueued = progress.state === 'queued';
 
-  const getSwarm = () => {
-    const sm = getSwarmMeshStandalone();
-    let swarm = sm.getTorrentSwarm?.() ?? getStandaloneBuilderMode().getTorrentSwarm?.();
-    if (!swarm) { try { swarm = getTorrentSwarmSingleton(); } catch { /* noop */ } }
-    return swarm;
-  };
+  const getSwarm = getTorrentSwarmForUi;
 
   const handlePause = () => { getSwarm()?.pause(progress.manifestId); };
   const handleResume = () => { getSwarm()?.resume(progress.manifestId); };
@@ -1099,7 +1115,7 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
   };
 
   return (
-    <div className="rounded-md border border-foreground/10 p-2 space-y-1">
+    <div className={cn('rounded-md border border-foreground/10 p-2 space-y-1', isQueued && 'opacity-60')}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           <Film className="h-3 w-3 shrink-0 text-rose-400" />
@@ -1110,7 +1126,7 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
         <div className="flex items-center gap-0.5 shrink-0">
           {/* Pause / Resume (downloading only) */}
           {!isComplete && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" title={isPaused ? 'Resume' : 'Pause'} onClick={isPaused ? handleResume : handlePause}>
+            <Button variant="ghost" size="icon" className="h-6 w-6" title={isPaused ? 'Resume (joins the front of the line)' : isQueued ? 'Take out of the line' : 'Pause'} onClick={isPaused ? handleResume : handlePause}>
               {isPaused ? <Play className="h-3 w-3 text-emerald-400" /> : <Pause className="h-3 w-3 text-amber-400" />}
             </Button>
           )}
@@ -1131,9 +1147,9 @@ function TorrentRow({ progress, onReseed, reseedState = 'idle' }: {
           </Button>
           <Badge variant="outline" className={cn(
             'text-[0.55rem] uppercase tracking-widest ml-1',
-            isComplete ? 'text-emerald-400 border-emerald-500/40' : isPaused ? 'text-amber-400 border-amber-500/40' : 'text-sky-400 border-sky-500/40'
+            isComplete ? 'text-emerald-400 border-emerald-500/40' : isPaused ? 'text-amber-400 border-amber-500/40' : isQueued ? 'text-foreground/50 border-foreground/20' : 'text-sky-400 border-sky-500/40'
           )}>
-            {progress.state}
+            {isQueued && queuePosition > 0 ? `queued #${queuePosition}` : progress.state}
           </Badge>
         </div>
       </div>

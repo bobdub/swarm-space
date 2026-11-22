@@ -101,6 +101,57 @@ describe("TorrentSwarm download queue", () => {
     expect(b.getProgress("m2")?.state).toBe("downloading");
   });
 
+  it("resuming a paused download waits for the one in flight, at the front of the line", () => {
+    const { b } = makePair();
+    b.enqueueDownload(fakeManifest("m1"));
+    b.pause("m1");
+    b.enqueueDownload(fakeManifest("m2")); // now active
+    b.enqueueDownload(fakeManifest("m3"));
+
+    b.resume("m1");
+    expect(b.getProgress("m1")?.state).toBe("queued");
+    expect(b.getProgress("m2")?.state).toBe("downloading");
+    expect(b.getDownloadQueue()).toEqual(["m1", "m3"]);
+
+    b.pause("m2");
+    expect(b.getProgress("m1")?.state).toBe("downloading");
+    expect(b.getProgress("m3")?.state).toBe("queued");
+  });
+
+  it("resuming several paused downloads never runs two at once", () => {
+    const { b } = makePair();
+    for (const id of ["m1", "m2", "m3"]) {
+      b.enqueueDownload(fakeManifest(id));
+      b.pause(id);
+    }
+    b.resume("m1");
+    b.resume("m2");
+    b.resume("m3");
+    const states = ["m1", "m2", "m3"].map((id) => b.getProgress(id)?.state);
+    expect(states.filter((s) => s === "downloading")).toHaveLength(1);
+    expect(states.filter((s) => s === "queued")).toHaveLength(2);
+  });
+
+  it("download() joins the line instead of starting beside the active download", () => {
+    const { b } = makePair();
+    b.enqueueDownload(fakeManifest("m1"));
+    b.enqueueDownload(fakeManifest("m2"));
+    b.download(fakeManifest("m3"));
+    expect(b.getProgress("m1")?.state).toBe("downloading");
+    expect(b.getProgress("m3")?.state).toBe("queued");
+    expect(b.getDownloadQueue()).toEqual(["m3", "m2"]);
+  });
+
+  it("stalled downloads hand over one by one, never piling up as downloading", () => {
+    const { b } = makePair();
+    for (const id of ["m1", "m2", "m3", "m4"]) b.enqueueDownload(fakeManifest(id));
+    for (let t = 0; t < 10; t++) {
+      vi.advanceTimersByTime(30_000);
+      const downloading = ["m1", "m2", "m3", "m4"].filter((id) => b.getProgress(id)?.state === "downloading");
+      expect(downloading.length).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("downloads announced files one at a time, next starting after the first verifies", async () => {
     const { a, b } = makePair();
     b.start();
