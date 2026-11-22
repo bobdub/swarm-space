@@ -408,13 +408,14 @@ export function TorrentSwarmPanel() {
             <span>Transfers ({incomplete.length}) · one file at a time</span>
             {incomplete.length - movingCount > 0 && (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="ml-auto h-5 px-1.5 text-[0.55rem] uppercase tracking-wider text-foreground/50 hover:text-destructive"
+                className="ml-auto h-7 gap-1 px-2 text-[0.65rem] uppercase tracking-wider border-destructive/50 text-destructive hover:bg-destructive/10"
                 disabled={flushing}
                 title="Clear every waiting download (keeps the one moving and finished files)"
                 onClick={() => { void handleFlushStuck(); }}
               >
+                <Trash2 className="h-3 w-3" />
                 {flushing ? 'Flushing…' : `Flush ${incomplete.length - movingCount} waiting`}
               </Button>
             )}
