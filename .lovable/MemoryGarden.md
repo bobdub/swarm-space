@@ -1262,3 +1262,7 @@ After tending: a render governor now learns frame time (Welford spread and a smo
 Before tending: fish, hens and faraway friends drew on every frame, and nests could keep filling. I will pace them and give each nest a limit.
 
 After tending: sea life and hens slow down only when the device strains, faraway avatars always breathe slower, and all of them land where shared time says they belong. Each nest keeps at most four eggs and each flock three chicks, the same for every peer, and fish schools and sharks keep space between their homes. Checked with unit tests; no live session was opened.
+
+## November 22, 2026 — A quieter helm
+Before tending: readings and instructions drift across the sailor's view. I will gather the instruments into Brain's small display and keep wheel, actions, compass and release in one quiet column, leaving the sea open.
+After tending: the helm, oars and rod now whisper their readings inside the compact Brain display. The wheel rests above small actions, compass and release, and instructions no longer fill the horizon. Sail holds, fishing input and boat motion passed 37 focused checks; the preview compiles. No live Brain session was opened.

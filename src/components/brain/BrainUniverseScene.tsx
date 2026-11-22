@@ -893,6 +893,7 @@ function RunPill({ onPress, mobile }: { onPress: () => void; mobile: boolean }) 
 }
 
 function MobileJoystick() {
+  const role = useCrewRole();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -924,8 +925,9 @@ function MobileJoystick() {
     <div
       ref={ref}
       // z-[90] sits above the live-chat tray (z-50); 8rem clears the chat dock.
-      className="absolute right-4 z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)]"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
+      className={`absolute z-[90] flex h-24 w-24 items-center justify-center rounded-full border-2 border-accent/40 bg-background/80 ${role ? 'right-6' : 'right-4'}`}
+      data-no-look="true"
+      style={{ bottom: role ? 'calc(env(safe-area-inset-bottom, 0px) + 9.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }}
     >
       <div className="h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)]" />
       <CrewJoystickSkin />
@@ -1022,6 +1024,7 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
  * drag. Updates the same `moveInput` globals as WASD so both work in parallel.
  */
 function DesktopJoystick() {
+  const role = useCrewRole();
   const ref = useRef<HTMLDivElement>(null);
   const knobRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1070,8 +1073,9 @@ function DesktopJoystick() {
   return (
     <div
       ref={ref}
-      className="absolute bottom-4 left-4 z-[70] flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.6)]"
-      title="Drag to move"
+      className={`absolute z-[70] flex h-24 w-24 cursor-pointer items-center justify-center rounded-full border-2 border-accent/40 bg-background/80 ${role ? 'right-6 bottom-[calc(env(safe-area-inset-bottom,0px)+9.5rem)]' : 'bottom-4 left-4'}`}
+      data-no-look="true"
+      title={role ? undefined : 'Drag to move'}
     >
       <div ref={knobRef} className="pointer-events-none h-10 w-10 rounded-full bg-[hsla(180,90%,60%,0.5)] transition-transform duration-75" />
       <CrewJoystickSkin />
@@ -1107,6 +1111,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const crewRole = useCrewRole();
+  const [boatReadoutTarget, setBoatReadoutTarget] = useState<HTMLDivElement | null>(null);
   // Live pending-cast state — drives overlay inertness so pointer events
   // can reach the in-Canvas AssetCaster while a cast is armed.
   const [pendingCast, setPendingCastState] = useState<PendingCast | null>(null);
@@ -2372,11 +2377,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         >
           <ArrowLeft className="mr-1 h-4 w-4" /> {leaveLabel}
         </Button>
-        {crewRole && (
-          <div className="order-last w-full truncate rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.7)] px-3 py-1 text-[10px] font-mono text-foreground/80 sm:order-none sm:w-auto sm:text-xs">
-            <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
-          </div>
-        )}
         <div className="flex flex-wrap justify-end gap-1.5 sm:gap-2">
           <Button
             type="button"
@@ -2476,16 +2476,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
               <span className="ml-1 hidden sm:inline">Portal</span>
             </Button>
           )}
-          {/* Compact Brain status chip — tucked under the top-right buttons
-              when on foot; while crewing a ship it stays in the top bar so
-              it never collides with the map below the wheel. */}
-          {!crewRole && (
-            <div className="flex w-full justify-end">
-              <div className="max-w-[70vw] truncate rounded-full border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.6)] px-2 py-0.5 text-[9px] font-mono text-foreground/70">
-                <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} />
+          {/* Boat readings share the compact Brain display, never a separate panel. */}
+          <div className="flex w-full justify-end">
+            <div className="pointer-events-none max-w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-accent/25 bg-background/70 px-2 py-1 text-[9px] leading-3 font-mono tracking-normal text-foreground/80 [&_span]:tracking-normal">
+              <div className="flex flex-wrap justify-end gap-x-1">
+                <BrainStatusReadout title={title} selfId={selfId} voiceCount={voicePeers.length + 1} compact />
               </div>
+              <div ref={setBoatReadoutTarget} className={crewRole ? 'mt-0.5' : 'hidden'} />
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -2773,7 +2772,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Compass + Mini-Map (always available once spawned) */}
       {ready && selfId && !isBuilding && (
         <>
-          <CompassHUD selfId={selfId} atWheel={crewRole === 'helm'} onOpenMap={() => setMapOpen((v) => !v)} />
+          <CompassHUD selfId={selfId} atWheel={!!crewRole} onOpenMap={() => setMapOpen((v) => !v)} />
           {mapOpen && <MiniMapHUD selfId={selfId} onClose={() => setMapOpen(false)} />}
           {/* Run / Flash pill — taps trigger sprint, also reflects Shift / RT. */}
           {!crewRole && <RunPill
@@ -2783,7 +2782,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
           {!crewRole && <JumpButton selfId={selfId} mobile={isMobile} />}
           <BoatHoldButton selfId={selfId} mobile={isMobile} />
-          <ShipControls mobile={isMobile} />
+          <ShipControls mobile={isMobile} readoutTarget={boatReadoutTarget} />
         </>
       )}
 

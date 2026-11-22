@@ -114,9 +114,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
         : action.kind === 'take'
           ? action.role === 'helm' ? 'Hold to take the wheel' : action.role === 'oars' ? 'Hold to take the oars' : 'Hold to take a rod'
           : action.role === 'helm' ? 'Hold to let go of the wheel' : action.role === 'oars' ? 'Hold to let go of the oars' : 'Hold to put the rod down';
-  const displayLabel = mobile && leaving
-    ? action.role === 'helm' ? 'Leave wheel' : action.role === 'oars' ? 'Leave oars' : 'Put rod down'
-    : label;
+  const displayLabel = leaving ? 'Let go' : action.kind === 'board' ? 'Board' : action.kind === 'climb' ? 'Climb aboard' : action.kind === 'take' ? action.role === 'helm' ? 'Take wheel' : action.role === 'oars' ? 'Take oars' : 'Take rod' : label;
   return (
     <Button
       type="button"
@@ -125,16 +123,13 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       disabled={full}
       data-testid="boat-hold"
       aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
-      title={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
-      className={`absolute z-[70] flex items-center rounded-full border bg-background/80 text-foreground select-none touch-none ${full ? 'border-destructive/60' : 'border-accent/50'} ${mobile && leaving ? 'h-9 w-28 gap-1 px-2 py-0 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal' : 'h-auto gap-2 px-4 py-2 text-sm font-semibold'} ${leaving ? '' : 'left-1/2 -translate-x-1/2'}`}
+      className={`absolute z-[70] flex min-h-9 items-center rounded-full border bg-background/80 text-foreground select-none touch-none gap-1 px-2 py-1 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal ${full ? 'border-destructive/60' : 'border-accent/50'} ${leaving ? 'h-9 w-28' : 'left-1/2 -translate-x-1/2 max-w-[calc(100%-2rem)]'}`}
       style={{
         // Letting go of a station sits out of the way at the lower right
         // (above the joystick on a phone); boarding and taking a station
         // stay centred where you are looking.
         ...(leaving
-          ? mobile
-            ? { right: '0.5rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 14.5rem)' }
-            : { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 9.5rem)' }
+          ? { right: '1rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }
           : { bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)' }),
         opacity: full ? 0.8 : 1,
         touchAction: 'none',
@@ -142,7 +137,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
         cursor: full ? 'default' : 'pointer',
       }}
     >
-      {!full && <HoldProgressRing value={hold.progress} size={mobile && leaving ? 16 : 20} />}
+      {!full && <HoldProgressRing value={hold.progress} size={16} />}
       {/* The label stays put while the ring fills: a button that shrank
           under a held finger could slip out from under it. */}
       <span>{displayLabel}</span>

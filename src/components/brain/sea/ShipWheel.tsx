@@ -21,7 +21,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Wind } from 'lucide-react';
+import { ChevronDown, ChevronUp, Wind, Undo2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/components/ui/button';
 import { moveInput } from '@/lib/brain/moveInput';
 import {
@@ -68,12 +69,12 @@ function useFishing(): FishingState {
 
 function fishingLine(f: FishingState): string {
   const shark = f.on === 'shark';
-  if (f.phase === 'caught') return shark ? 'You landed a shark! +5 Food' : 'Caught a fish! +1 Food';
+  if (f.phase === 'caught') return shark ? 'Shark +5 Food' : 'Fish +1 Food';
   if (f.phase === 'missed') return 'It got away.';
-  if (f.phase === 'bite') return shark ? 'Something big took it! Hook it!' : 'Fish on! Hook it!';
-  if (f.phase === 'fight') return shark ? 'A shark! Strike five times in the gold zone.' : 'Fighting! Strike while the marker is in the gold zone.';
-  if (f.phase === 'waiting') return f.tooFast ? 'Too fast: the line trails. Slow below 1.5 m/s.' : 'Line out. Waiting for a bite…';
-  return 'Cast your line.';
+  if (f.phase === 'bite') return shark ? 'Shark bite!' : 'Fish bite!';
+  if (f.phase === 'fight') return shark ? 'Shark · reeling' : 'Fish · reeling';
+  if (f.phase === 'waiting') return f.tooFast ? 'Too fast · slow down' : 'Waiting for a bite';
+  return 'Line ready';
 }
 
 export function useCrewRole(): CrewRole | null {
@@ -107,8 +108,7 @@ function FightBar({ fishing, mobile }: { fishing: FishingState; mobile: boolean 
   const flash = f.last && getEarthPoseTime() - f.lastAt < 0.6 ? f.last : null;
   return (
     <div
-      className="absolute z-[70] left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 select-none"
-      style={{ bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 19.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 13.5rem)' }}
+      className="absolute z-[70] right-36 bottom-[calc(env(safe-area-inset-bottom,0px)+6.25rem)] flex flex-col items-center gap-1 select-none"
     >
       <div className="flex gap-3 text-xs text-white" aria-live="polite">
         <span data-testid="fight-hits">{(fishing.on === 'shark' ? '🦈' : '🐟').repeat(f.hits)}{'·'.repeat(Math.max(0, f.need - f.hits))} {f.hits}/{f.need}</span>
@@ -121,7 +121,7 @@ function FightBar({ fishing, mobile }: { fishing: FishingState; mobile: boolean 
         onPointerDown={(e) => { e.preventDefault(); rodPress(); }}
         className="relative h-7 rounded-full border overflow-hidden"
         style={{
-          width: mobile ? 240 : 300,
+          width: `min(${mobile ? 180 : 220}px, calc(100vw - 10rem))`,
           background: 'hsla(265,70%,8%,0.85)',
           borderColor: flash === 'hit' ? 'hsla(140,80%,60%,0.95)' : flash === 'miss' ? 'hsla(0,80%,60%,0.95)' : 'hsla(180,80%,60%,0.55)',
           touchAction: 'none',
@@ -190,7 +190,7 @@ export function CrewJoystickSkin() {
 }
 
 /** Keyboard + joystick → crew input, and the small boat readout. */
-export function ShipControls({ mobile }: { mobile: boolean }) {
+export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; readoutTarget: HTMLDivElement | null }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
   const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
@@ -298,29 +298,19 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
   const knots = readout.speed * 1.944;
   const deg = Math.round((readout.windFrom * 180) / Math.PI);
   const windSide = Math.abs(deg) < 3 ? 'dead ahead' : Math.abs(deg) > 177 ? 'astern' : `${Math.abs(deg)}° ${deg > 0 ? 'starboard' : 'port'}`;
-  const hint = role === 'helm'
-    ? mobile ? 'Joystick turns the wheel · hold Raise sail to get under way' : 'A/D wheel · W/S or hold Raise / Lower sail'
-    : role === 'oars'
-      ? mobile ? 'Push the joystick forward to row, sideways to turn' : 'W/S row · A/D turn'
-      : mobile ? 'Tap Cast, Hook it when a fish bites, then tap in the gold zone' : 'F casts · F hooks · F strikes in the gold zone';
   const lineOut = fishing.phase === 'waiting' || fishing.phase === 'bite' || fishing.phase === 'fight';
   const hot = fishing.phase === 'bite' || fishing.phase === 'fight';
   const castButton = role === 'rod' ? (
-    <button
+    <Button
       type="button"
+      variant={hot ? 'secondary' : 'outline'}
       data-testid="fishing-cast"
       onPointerDown={(e) => { e.preventDefault(); rodPress(); }}
-      className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
-      style={{
-        bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)',
-        background: hot ? 'hsla(38,90%,40%,0.95)' : 'hsla(265,70%,8%,0.85)',
-        borderColor: hot ? 'hsla(38,90%,70%,0.9)' : 'hsla(180,80%,60%,0.55)',
-        touchAction: 'none',
-      }}
+      className="h-11 w-28 shrink-0 rounded-full border-accent/50 bg-background/80 px-2 text-[11px] text-foreground select-none touch-none"
       aria-label={fishing.phase === 'bite' ? `Hook the fish (${BITE_WINDOW_S} seconds)` : fishing.phase === 'fight' ? 'Strike' : lineOut ? 'Reel in the line' : 'Cast the line'}
     >
-      {fishing.phase === 'bite' ? 'Hook it!' : fishing.phase === 'fight' ? 'Reel!' : lineOut ? 'Reel in' : 'Cast'}
-    </button>
+      {fishing.phase === 'bite' ? 'Hook!' : fishing.phase === 'fight' ? 'Reel!' : lineOut ? 'Reel in' : 'Cast'}
+    </Button>
   ) : null;
   const sailButton = (dir: 1 | -1, label: string) => (
     <Button
@@ -336,108 +326,57 @@ export function ShipControls({ mobile }: { mobile: boolean }) {
       onPointerCancel={() => stopMastHold()}
       onLostPointerCapture={() => stopMastHold()}
       onContextMenu={(e) => e.preventDefault()}
-      className={`shrink-0 rounded-full border border-accent/50 text-foreground select-none touch-none ${readout.mast === dir ? 'bg-secondary/90' : 'bg-background/80'} ${mobile ? 'h-11 w-11 p-0' : 'h-auto px-4 py-2 text-sm font-semibold'}`}
+      className={`shrink-0 rounded-full border border-accent/50 text-foreground select-none touch-none ${readout.mast === dir ? 'bg-secondary/90' : 'bg-background/80'} h-11 w-11 p-0`}
       style={{
         WebkitTouchCallout: 'none',
       }}
       aria-label={`Hold to ${label.toLowerCase()}`}
-      title={`Hold to ${label.toLowerCase()}`}
     >
       {dir > 0 ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-      {!mobile && label}
     </Button>
   );
   const sailButtons = role === 'helm' ? (
-    <div
-      className={`absolute z-[70] flex ${mobile ? 'flex-col gap-1' : 'left-1/2 -translate-x-1/2 gap-2'}`}
-      style={mobile
-        ? { right: '7.5rem', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8rem)' }
-        : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 10.5rem)' }}
-    >
+    <>
       {sailButton(1, 'Raise sail')}
       {sailButton(-1, 'Lower sail')}
-    </div>
+    </>
   ) : null;
   const pushOffButton = (role === 'helm' || role === 'oars') && readout.aground ? (
-    <button
+    <Button
       type="button"
+      variant="outline"
       data-testid="push-off"
       onPointerDown={(e) => { e.preventDefault(); pushOff(); }}
-      className="absolute z-[70] left-1/2 -translate-x-1/2 rounded-full border px-5 py-2 text-sm font-semibold text-white select-none"
-      style={{
-        bottom: mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 19.5rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 13.5rem)',
-        background: 'hsla(28,85%,38%,0.95)',
-        borderColor: 'hsla(38,90%,70%,0.9)',
-        touchAction: 'none',
-      }}
+      className="absolute right-full mr-1 h-11 w-11 shrink-0 rounded-full border-accent/50 bg-background/80 p-0 text-foreground select-none touch-none"
       aria-label="Push off the ground"
     >
-      Push off{mobile ? '' : ' (R)'}
-    </button>
+      <Undo2 className="h-4 w-4" aria-hidden="true" />
+    </Button>
   ) : null;
   return (
     <>
-    {castButton}
-    {sailButtons}
-    {pushOffButton}
-    {role === 'rod' && <FightBar fishing={fishing} mobile={mobile} />}
-    <div
-      data-testid="ship-readout"
-      className={`pointer-events-none absolute z-[70] border border-accent/40 bg-background/70 text-foreground text-xs ${mobile ? 'right-4 max-w-[calc(100%-2rem)] rounded-lg px-2 py-1.5 tracking-normal [&_span]:tracking-normal' : 'left-1/2 -translate-x-1/2 rounded-xl px-3 py-2'}`}
-      style={{
-        top: mobile ? '8.5rem' : '4rem',
-        minWidth: mobile ? undefined : 220,
-      }}
-    >
-      {mobile ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 tabular-nums">
-          <span aria-label={`Speed ${knots.toFixed(1)} knots`}>{knots.toFixed(1)} kn</span>
-          <span className="flex items-center gap-1" aria-label={`Wind ${readout.wind.toFixed(1)} meters per second from ${windSide}`}>
-            <Wind className="h-3 w-3" aria-hidden="true" />
-            {readout.wind.toFixed(1)} m/s · {Math.abs(deg)}°{deg > 0 ? ' R' : deg < 0 ? ' L' : ''}
-          </span>
-          {role === 'helm' ? <span>Sail {Math.round(readout.sail * 100)}%</span> : <span>Food {readout.food}</span>}
-        </div>
-      ) : (
-      <>
-      <div className="font-semibold">{role === 'helm' ? 'At the helm' : role === 'oars' ? 'At the oars' : 'Fishing'}</div>
-      <div className="mt-1 flex items-center gap-2">
-        <span
-          aria-hidden="true"
-          style={{ display: 'inline-block', transform: `rotate(${deg + 180}deg)` }}
-          title="Wind direction relative to the bow"
-        >
-          ↑
-        </span>
-        <span>Wind {readout.wind.toFixed(1)} m/s from {windSide}</span>
-      </div>
-      <div>Speed {readout.speed.toFixed(1)} m/s ({knots.toFixed(1)} kn)</div>
-      {role === 'helm' && (
-        <div>
-          Sail {Math.round(readout.sail * 100)}%
-          {readout.mast ? (readout.mast > 0 ? ' · raising' : ' · lowering') : ''}
-        </div>
-      )}
-      {(role === 'oars' || role === 'rod') && <div>Food {readout.food}</div>}
-      </>
-      )}
-      {role === 'rod' && (
-        <div className={hot ? 'font-semibold text-amber-300' : fishing.phase === 'caught' ? 'text-emerald-300' : ''} data-testid="fishing-line">
-          {fishingLine(fishing)}
-        </div>
-      )}
-      {role === 'rod' && readout.shark && (
-        <div className="text-slate-300" data-testid="fishing-shark">Deep water with a shark about: a big bite could be it.</div>
-      )}
-      {role === 'rod' && readout.school && (
-        <div className="text-sky-300" data-testid="fishing-school">A school of fish is under the boat. Bites come fast here.</div>
-      )}
-      {role === 'oars' && readout.out && <div className="text-amber-300">{OUT_OF_FOOD_NOTE}</div>}
-      {(role === 'helm' || role === 'oars') && readout.aground && (
-        <div className="font-semibold text-amber-300" data-testid="aground">Aground! Push off, or row astern.</div>
-      )}
-      {!mobile && <div className="mt-1 opacity-70">{hint}</div>}
+    <div className="absolute right-4 bottom-[calc(env(safe-area-inset-bottom,0px)+6.25rem)] z-[70] flex h-11 w-28 items-center justify-center gap-1">
+      {castButton}
+      {sailButtons}
+      {pushOffButton}
     </div>
+    {role === 'rod' && <FightBar fishing={fishing} mobile={mobile} />}
+    {readoutTarget && createPortal(
+      <div data-testid="ship-readout" className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 tabular-nums">
+        <span>{role === 'helm' ? 'Helm' : role === 'oars' ? 'Oars' : 'Fishing'}</span>
+        <span aria-label={`Speed ${knots.toFixed(1)} knots`}>{knots.toFixed(1)} kn</span>
+        <span className="flex items-center gap-0.5" aria-label={`Wind ${readout.wind.toFixed(1)} meters per second from ${windSide}`}>
+          <Wind className="h-2.5 w-2.5" aria-hidden="true" />
+          {readout.wind.toFixed(1)} m/s · {Math.abs(deg)}°{deg > 0 ? ' R' : deg < 0 ? ' L' : ''}
+        </span>
+        {role === 'helm' ? <span>Sail {Math.round(readout.sail * 100)}%</span> : <span>Food {readout.food}</span>}
+        {role === 'rod' && <span className={hot ? 'font-semibold text-accent' : ''} data-testid="fishing-line">{fishingLine(fishing)}</span>}
+        {role === 'rod' && readout.shark && <span data-testid="fishing-shark">Shark nearby</span>}
+        {role === 'rod' && readout.school && <span data-testid="fishing-school">Fish below</span>}
+        {role === 'oars' && readout.out && <span className="text-destructive" aria-label={OUT_OF_FOOD_NOTE}>No food</span>}
+        {(role === 'helm' || role === 'oars') && readout.aground && <span className="font-semibold text-destructive" data-testid="aground">Aground</span>}
+      </div>, readoutTarget,
+    )}
     </>
   );
 }

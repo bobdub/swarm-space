@@ -50,10 +50,10 @@ export function CompassHUD({ selfId, onOpenMap, atWheel = false }: Props & { atW
       onClick={onOpenMap}
       aria-label="Open map"
       // Mobile stacks the compass on the left above the run bolt; desktop keeps right.
-      className="absolute z-[70] h-14 w-14 rounded-full border-2 border-[hsla(180,80%,60%,0.4)] bg-[hsla(265,70%,8%,0.7)]"
+      className={`absolute z-[70] rounded-full border-2 border-accent/40 bg-background/80 ${atWheel ? 'h-10 w-10' : 'h-14 w-14'}`}
       style={
-        isMobile && atWheel
-          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.25rem)', right: '1.25rem' }
+        atWheel
+          ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 3.25rem)', right: '3.25rem' }
           : isMobile
           ? { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12rem)', left: '1rem' }
           : { bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8.5rem)', right: '1rem' }
@@ -63,7 +63,7 @@ export function CompassHUD({ selfId, onOpenMap, atWheel = false }: Props & { atW
         className="relative flex h-full w-full items-center justify-center"
         style={{ transform: `rotate(${-heading}rad)`, transition: 'transform 80ms linear' }}
       >
-        <Compass className="h-5 w-5 text-[hsl(174,59%,66%)]" />
+        <Compass className="h-4 w-4 text-accent" />
         <span className="absolute top-0.5 text-[8px] font-bold text-destructive">N</span>
       </div>
     </Button>
