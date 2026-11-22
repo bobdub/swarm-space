@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
@@ -126,7 +126,7 @@ function buildSegments(): SegmentSpec[] {
   return segs;
 }
 
-export function SurfaceBar({
+export const SurfaceBar = memo(function SurfaceBar({
   anchorPeerId,
   rightOffset = -22,
   forwardOffset = 26,
@@ -779,7 +779,7 @@ export function SurfaceBar({
       </BuilderBlockView>
     </>
   );
-}
+});
 
 // Silence unused-import warning when tree-shaking removes THREE.
 void THREE;
