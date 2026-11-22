@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
+import { useBlockList } from '@/components/brain/builder/useBlockList';
 import { blockOffsetInFrame } from '@/lib/brain/blockFrame';
 import { beePoseAt, nearestFlowers, type V3 } from '@/lib/brain/nature/beeFlight';
 import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
@@ -44,9 +45,14 @@ import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
  * biome block through the BuilderBlockView contract. No behavior here:
  * pieces are static. Phase 3 (BiologyEngine) will animate / breed them.
  */
+function isBiomeBlock(b: BuilderBlock): boolean {
+  return b.meta?.biome === 'nature.biome.v1';
+}
+
 export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
-  const engine = useMemo(() => getBuilderBlockEngine(), []);
-  const [, force] = useState(0);
+  // Only biome-tagged blocks — leaves room for one-off pieces
+  // (SurfaceApartment, SurfaceTree) to keep their own renderers.
+  const blocks = useBlockList(isBiomeBlock);
 
   useEffect(() => {
     seedDefaultBiome(anchorPeerId);
@@ -57,8 +63,6 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // midpoints. They render the pressure the mantle releases instead of
     // letting that release leak into ground tremor.
     seedVolcanoes(anchorPeerId);
-    // Re-render when blocks are added/removed/upgraded by anyone.
-    const unsub = engine.subscribe(() => force((n) => (n + 1) & 0xfff));
     // Seedlings, new flowers, old trees dying back, trees felled by anyone
     // and where the hive hangs all follow the shared clock and the shared
     // nature events; check every couple of seconds and on every new event.
@@ -66,15 +70,10 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
     const growTimer = window.setInterval(() => syncNatureWorld(anchorPeerId), 2000);
     const unsubEvents = subscribeNatureEvents(() => syncNatureWorld(anchorPeerId));
     return () => {
-      unsub();
       unsubEvents();
       window.clearInterval(growTimer);
     };
-  }, [anchorPeerId, engine]);
-
-  // Only render biome-tagged blocks — leaves room for one-off pieces
-  // (SurfaceApartment, SurfaceTree) to keep their own renderers.
-  const blocks = engine.listBlocks((b) => b.meta?.biome === 'nature.biome.v1');
+  }, [anchorPeerId]);
 
   return (
     <>

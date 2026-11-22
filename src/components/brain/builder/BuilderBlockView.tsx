@@ -32,13 +32,18 @@ export function BuilderBlockView({
   const groupRef = useRef<THREE.Group>(null);
   const engine = useMemo(() => getBuilderBlockEngine(), []);
   const [block, setBlock] = useState(() => engine.getBlock(bodyId) ?? null);
+  // The engine upgrades blocks in place, so the event carries the same
+  // object; bump a version so this view re-renders on its own block's
+  // upgrades instead of relying on a parent re-render.
+  const [, setVersion] = useState(0);
 
   useEffect(() => {
     setBlock(engine.getBlock(bodyId) ?? null);
     const unsub = engine.subscribe((evt) => {
       if (evt.block.bodyId !== bodyId) return;
-      if (evt.type === 'remove') setBlock(null);
-      else setBlock(evt.block);
+      if (evt.type === 'remove') { setBlock(null); return; }
+      setBlock(evt.block);
+      setVersion((v) => (v + 1) & 0xfff);
     });
     return unsub;
   }, [engine, bodyId]);

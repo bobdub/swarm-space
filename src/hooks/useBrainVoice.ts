@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { sameParticipants } from "@/lib/webrtc/participantsEqual";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 import { useAuth } from "./useAuth";
@@ -65,6 +66,10 @@ export function useBrainVoice(
   const { audio = true } = options;
   const { user } = useAuth();
   const [rawParticipants, setRawParticipants] = useState<VideoParticipant[]>([]);
+  const refreshParticipants = useCallback((manager: { getParticipants(): VideoParticipant[] }) => {
+    const next = manager.getParticipants();
+    setRawParticipants((prev) => (sameParticipants(prev, next) ? prev : next));
+  }, []);
   const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
   // Mute lives on the call layer so it survives camera toggles, reconnects
   // and re-entering the Brain.
@@ -112,7 +117,7 @@ export function useBrainVoice(
       // reach us through an offer (common for someone who entered listen-only)
       // are added without a peer-joined event, so filtering on event type
       // left them out of the avatar list while their voice still played.
-      setRawParticipants(manager.getParticipants());
+      refreshParticipants(manager);
       // Re-broadcast our presence so late joiners (and reconnects) learn
       // our avatar selection right away.
       if (msg.type === "peer-joined" && joinedRef.current) {
@@ -144,7 +149,7 @@ export function useBrainVoice(
         if (!cancelled && ok) {
           joinedRef.current = true;
           setJoined(true);
-          setRawParticipants(manager.getParticipants());
+          refreshParticipants(manager);
           // Announce avatar selection to the room.
           broadcastSelfPresence();
           // Pull-on-join: ask any peer already in this room to reply
@@ -175,7 +180,7 @@ export function useBrainVoice(
         delete next[peerId];
         return next;
       });
-      setRawParticipants(manager.getParticipants());
+      refreshParticipants(manager);
     });
 
     return () => {
@@ -205,7 +210,7 @@ export function useBrainVoice(
       setRawParticipants([]);
       setPresenceById({});
     };
-  }, [enabled, user?.id, roomId]);
+  }, [enabled, user?.id, roomId, refreshParticipants]);
 
   // Mic acquisition is independent of join lifecycle. Toggling `audio`
   // (e.g. a spectator opening the dock as a participant) must NOT tear

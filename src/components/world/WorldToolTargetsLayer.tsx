@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Html } from '@react-three/drei';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
-import { getBuilderBlockEngine, type BuilderBlock } from '@/lib/brain/builderBlockEngine';
+import { useBlockList } from '@/components/brain/builder/useBlockList';
+import type { BuilderBlock } from '@/lib/brain/builderBlockEngine';
 import { getHeldTool, subscribeHeldTool } from '@/lib/world/heldToolStore';
 import { isBoundaryMarker } from '@/lib/world/boundaryMarker';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
@@ -43,20 +44,17 @@ function labelFor(kind: string): string {
   return kind.split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
 }
 
+function isToolTargetBlock(block: BuilderBlock): boolean {
+  return !String(block.id).startsWith('place:') && block.kind !== 'hive_husk';
+}
+
 export function WorldToolTargetsLayer() {
-  const engine = useMemo(() => getBuilderBlockEngine(), []);
-  const [version, force] = useState(0);
   const [held, setHeld] = useState(() => getHeldTool());
   const [target, setTarget] = useState<ToolTarget | null>(() => getToolTarget());
 
   useEffect(() => subscribeHeldTool(setHeld), []);
   useEffect(() => subscribeToolTarget(setTarget), []);
-  useEffect(() => engine.subscribe(() => force((n) => (n + 1) & 0xfff)), [engine]);
-
-  const blocks = useMemo(
-    () => engine.listBlocks((block) => !String(block.id).startsWith('place:') && block.kind !== 'hive_husk'),
-    [engine, version],
-  );
+  const blocks = useBlockList(isToolTargetBlock);
 
   // The Boundary marker points at grid blocks, not trees and stones.
   if (!held || isBoundaryMarker(held.prefabId)) return null;
@@ -71,37 +69,42 @@ export function WorldToolTargetsLayer() {
   );
 }
 
-function NatureTarget({ block, selected }: { block: BuilderBlock; selected: boolean }) {
-  const [w, h, d] = colliderFor(block.kind);
-  const label = labelFor(block.kind);
+function NatureTarget({ block: listed, selected }: { block: BuilderBlock; selected: boolean }) {
+  // Read size and label from the live block the view hands us: a seed that
+  // grows into a tree is upgraded in place, and this list no longer
+  // re-renders on upgrades.
   return (
-    <BuilderBlockView bodyId={block.bodyId}>
-      {() => (
-        <group>
-          <mesh
-            position={[0, h / 2, 0]}
-            onClick={(e) => {
-              e.stopPropagation();
-              setToolTarget(selected ? null : {
-                kind: 'nature',
-                id: block.bodyId,
-                label,
-                natureKind: block.kind,
-                blockId: block.bodyId,
-              });
-            }}
-          >
-            <boxGeometry args={[w, h, d]} />
-            <meshBasicMaterial transparent opacity={0} depthWrite={false} />
-          </mesh>
-          {selected && (
-            <mesh position={[0, h / 2, 0]}>
-              <boxGeometry args={[w + 0.08, h + 0.08, d + 0.08]} />
-              <meshBasicMaterial color="white" wireframe transparent opacity={0.45} depthWrite={false} />
+    <BuilderBlockView bodyId={listed.bodyId}>
+      {(block) => {
+        const [w, h, d] = colliderFor(block.kind);
+        const label = labelFor(block.kind);
+        return (
+          <group>
+            <mesh
+              position={[0, h / 2, 0]}
+              onClick={(e) => {
+                e.stopPropagation();
+                setToolTarget(selected ? null : {
+                  kind: 'nature',
+                  id: block.bodyId,
+                  label,
+                  natureKind: block.kind,
+                  blockId: block.bodyId,
+                });
+              }}
+            >
+              <boxGeometry args={[w, h, d]} />
+              <meshBasicMaterial transparent opacity={0} depthWrite={false} />
             </mesh>
-          )}
-        </group>
-      )}
+            {selected && (
+              <mesh position={[0, h / 2, 0]}>
+                <boxGeometry args={[w + 0.08, h + 0.08, d + 0.08]} />
+                <meshBasicMaterial color="white" wireframe transparent opacity={0.45} depthWrite={false} />
+              </mesh>
+            )}
+          </group>
+        );
+      }}
     </BuilderBlockView>
   );
 }

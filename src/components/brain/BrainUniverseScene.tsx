@@ -1,5 +1,5 @@
-import { RenderGovernorProbe } from './useGovernedFrame';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
+import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -36,6 +36,7 @@ import { claimLandPlot, ownedFootprintSpanM, subscribeLandPlots } from '@/lib/wo
 import { WORLD_GRID_ORIGIN_ANCHOR } from '@/lib/world/buildGrid';
 import { getSwarmBalance, burnSwarm } from '@/lib/blockchain/token';
 import { getWebRTCManager, SCREEN_CAPTURE_CONSTRAINTS } from '@/lib/webrtc/manager';
+import { sameParticipants } from '@/lib/webrtc/participantsEqual';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
 import {
@@ -610,6 +611,71 @@ function EarthPoseTicker() {
  * neural projection, then samples the field back into the neural engine and
  * caches the snapshot for EntityVoice / debug overlay. One organism, two faces.
  */
+// ── Memoized world layers ───────────────────────────────────────────
+// BrainUniverseScene re-renders whenever mesh state changes: every peer's
+// position/presence broadcast, call participant refreshes and HUD readouts.
+// Without these boundaries each of those re-rendered the whole world
+// (every nature piece, bar block, element pin, sea and hen layer), which is
+// why the Brain ran slower the more connected it was. These layers take no
+// props that change with mesh traffic, so memo keeps them out of it; each
+// still updates itself from its own stores and frame loop.
+const WorldBackdrop = memo(function WorldBackdrop({ selfId }: { selfId: string | null }) {
+  return (
+    <>
+  <StarField />
+  <AtmosphereSky />
+  {/* Real point-light "Sun" — placed off the galactic plane, casts on
+      Earth and standard materials. No abstract sky dome, no painted
+      sun: the planet is lit by an actual light source in the scene. */}
+  <SunLight />
+  {/* Soft hemisphere fill so the night side / underside isn't pitch black */}
+  <hemisphereLight args={['hsl(210, 70%, 55%)', 'hsl(30, 30%, 25%)', 0.45]} />
+  <ambientLight intensity={0.25} color="hsl(220, 40%, 60%)" />
+
+  <GalaxyVisual />
+  <ElementsVisual />
+  <EarthBody />
+  <AssetCaster selfId={selfId || undefined} />
+  <PendingBuildsLayer selfId={selfId || undefined} />
+  <WorldDropsLayer selfId={selfId || undefined} />
+  <WorldToolTargetsLayer />
+  <ToolSwingFX />
+  <CarvedCellsLayer />
+  <WeatherLayer />
+  <HeldToolMesh selfId={selfId || undefined} />
+  <BoundaryMarkerLayer selfId={selfId || undefined} />
+    </>
+  );
+});
+
+const VillageProps = memo(function VillageProps({ selfId }: { selfId: string | null }) {
+  return (
+    <>
+  <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+  {/* Village jetty + moored boat (procedural, Earth-local). The
+      planks register as a deck surface, so they are walkable. */}
+  <DockLayer />
+  {/* Schools of fish and sharks in the open sea, on the shared clock. */}
+  <SeaLifeLayer selfId={selfId} />
+  {/* Free-range hens on the land, on the shared clock. A Stone Knife catches one. */}
+  <ChickenLayer />
+  <PubDrinkProps />
+    </>
+  );
+});
+
+const VillageLife = memo(function VillageLife() {
+  return (
+    <>
+  <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+  {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
+  <NatureLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+  {/* Phase 7 — live NPC roster + deterministic resource clusters. */}
+  <NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+    </>
+  );
+});
+
 function InfinityBindingTicker() {
   const physics = useMemo(() => getBrainPhysics(), []);
   const engine = useMemo(() => getSharedNeuralEngine(), []);
@@ -1261,6 +1327,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   // True while a screen share is open full size; pauses scene rendering.
   const [screenExpanded, setScreenExpanded] = useState(false);
+  const canvasDpr = useAdaptiveDpr();
   // A share started earlier keeps running while Brain-synced on other pages,
   // so coming back picks the live capture up again.
   const [screenStream, setScreenStream] = useState<MediaStream | null>(() =>
@@ -1384,7 +1451,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   useEffect(() => {
     if (!ready || !user) return;
     const manager = getWebRTCManager(user.id, user.username);
-    const refresh = () => setRtcParticipants(manager.getParticipants());
+    const refresh = () => {
+      const next = manager.getParticipants();
+      setRtcParticipants((prev) => (sameParticipants(prev, next) ? prev : next));
+    };
     refresh();
     const unsub = manager.onMessage((m) => {
       if (m.type === 'peer-joined' || m.type === 'peer-left' || m.type === 'room-updated'
@@ -2496,7 +2566,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         // work. Physics, boats and position broadcasts run on their own
         // timers, so the world keeps moving and peers keep seeing us.
         frameloop={screenExpanded ? 'never' : 'always'}
-        dpr={[1, 1.5]}
+        dpr={canvasDpr}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
         onCreated={handleCanvasCreated}
@@ -2511,28 +2581,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <color attach="background" args={['#05060f']} />
         {/* Long, soft fog so distant galaxy fades but nearby ground reads crisp */}
         <fog attach="fog" args={['#05060f', 80, WORLD_SIZE * 1.5]} />
-        <StarField />
-        <AtmosphereSky />
-        {/* Real point-light "Sun" — placed off the galactic plane, casts on
-            Earth and standard materials. No abstract sky dome, no painted
-            sun: the planet is lit by an actual light source in the scene. */}
-        <SunLight />
-        {/* Soft hemisphere fill so the night side / underside isn't pitch black */}
-        <hemisphereLight args={['hsl(210, 70%, 55%)', 'hsl(30, 30%, 25%)', 0.45]} />
-        <ambientLight intensity={0.25} color="hsl(220, 40%, 60%)" />
-
-        <GalaxyVisual />
-        <ElementsVisual />
-        <EarthBody />
-        <AssetCaster selfId={selfId || undefined} />
-        <PendingBuildsLayer selfId={selfId || undefined} />
-        <WorldDropsLayer selfId={selfId || undefined} />
-        <WorldToolTargetsLayer />
-        <ToolSwingFX />
-        <CarvedCellsLayer />
-        <WeatherLayer />
-        <HeldToolMesh selfId={selfId || undefined} />
-        <BoundaryMarkerLayer selfId={selfId || undefined} />
+        <WorldBackdrop selfId={selfId} />
         <UserPlacementsLayer
           selfId={selfId}
           selectedPlacementId={builder.selectedBlockId}
@@ -2558,15 +2607,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             walls + roof + open south doorway. Each wall segment is a real
             BuilderBlock with a curvature basin, so the avatar collides
             via 𝒞_collide(u) instead of phasing through decorative mesh. */}
-        <SurfaceBar anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        {/* Village jetty + moored boat (procedural, Earth-local). The
-            planks register as a deck surface, so they are walkable. */}
-        <DockLayer />
-        {/* Schools of fish and sharks in the open sea, on the shared clock. */}
-        <SeaLifeLayer selfId={selfId} />
-        {/* Free-range hens on the land, on the shared clock. A Stone Knife catches one. */}
-        <ChickenLayer />
-        <PubDrinkProps />
+        <VillageProps selfId={selfId} />
         {isBuilding && (
           <BuildGridOverlay
             selfId={selfId}
@@ -2583,11 +2624,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           />
         )}
         {/* Building Blocks Engine test piece — simple UQRC tree beside the apartment. */}
-        <SurfaceTree anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        {/* Phase 2 — static nature biome (pond, grass, flowers, trees, fish, hive, bees). */}
-        <NatureLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
-        {/* Phase 7 — live NPC roster + deterministic resource clusters. */}
-        <NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />
+        <VillageLife />
         <InfinityBody position={getInfinityPosition()} />
         <InfinityBindingTicker />
         <EarthPoseTicker />
