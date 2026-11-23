@@ -223,3 +223,27 @@ describe('walking into the crater', () => {
     expect(w.state().feet).toBeLessThan(k.floorElev);
   });
 });
+
+describe('vent mouth', () => {
+  it('the bowl neck ring and the conduit sleeve top coincide in the crater frame', () => {
+    const k = getCraterCarve();
+    const g = buildCraterPatchGeometry();
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const n = new THREE.Vector3(...k.center);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n).invert();
+    const origin = EARTH_RADIUS + k.originElev;
+    const neckAng = k.neckR / EARTH_RADIUS;
+    const mouthR = (EARTH_RADIUS + k.floorElev) * Math.sin(neckAng);
+    const mouthY = (EARTH_RADIUS + k.floorElev) * Math.cos(neckAng) - origin;
+    const p = new THREE.Vector3();
+    for (let j = 0; j < CRATER_PATCH_SEGMENTS; j++) {
+      p.fromBufferAttribute(pos, j).addScaledVector(n, -origin).applyQuaternion(q);
+      const phi = (j / CRATER_PATCH_SEGMENTS) * Math.PI * 2;
+      // LatheGeometry ring vertex: (r sin φ, y, r cos φ).
+      expect(p.x).toBeCloseTo(mouthR * Math.sin(phi), 2);
+      expect(p.z).toBeCloseTo(mouthR * Math.cos(phi), 2);
+      expect(p.y).toBeCloseTo(mouthY, 2);
+    }
+    g.dispose();
+  });
+});

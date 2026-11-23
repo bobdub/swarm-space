@@ -369,8 +369,13 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
   const parts = useMemo(() => {
     const frame = makeCraterFrame(organ);
     const carve = getCraterCarve();
-    // The vent mouth: the bowl's flat floor ring, in the crater frame.
-    const mouthY = carve.floorElev - carve.originElev;
+    // The vent mouth: the bowl's neck ring (arc `neckR` on the sphere at
+    // floor level), projected into the crater frame so the sleeve meets
+    // it vertex for vertex.
+    const neckAng = carve.neckR / EARTH_RADIUS;
+    const neckRad = EARTH_RADIUS + carve.floorElev;
+    const mouthR = neckRad * Math.sin(neckAng);
+    const mouthY = neckRad * Math.cos(neckAng) - frame.origin;
     const pond = drapedDisk(frame, carve.rimR, 20, 64, 0);
     const flows = flowRibbons(frame, organ);
 
@@ -379,7 +384,7 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
     const pts = conduitProfile(organ)
       .filter(([, y]) => y < mouthY - 0.5)
       .map(([r, y]) => new THREE.Vector2(r, y));
-    pts.push(new THREE.Vector2(throat, mouthY));
+    pts.push(new THREE.Vector2(mouthR, mouthY));
     const sleeve = new THREE.LatheGeometry(pts, CRATER_PATCH_SEGMENTS);
     const head = new THREE.CircleGeometry(1, 32);
     head.rotateX(-Math.PI / 2);
