@@ -32,6 +32,7 @@ import { FloatingLiveDock } from "@/components/streaming/FloatingLiveDock";
 import { LiveRoomVoiceHost } from "@/components/streaming/LiveRoomVoiceHost";
 import { BrainSyncHost } from "@/components/brain/BrainSyncHost";
 import { BrainInviteConnection } from "@/components/brain/BrainInviteConnection";
+import { ManualConnectionRunner } from "@/components/p2p/ManualConnectionRunner";
 import { PersistentAudioLayer } from "@/components/streaming/PersistentAudioLayer";
 import { SwarmLinkInterceptor } from "@/components/routing/SwarmLinkInterceptor";
 
@@ -166,6 +167,7 @@ function AppContent() {
       <CoinEngravingService />
       <BrainChunkPreloader />
       <BrainInviteConnection />
+      <ManualConnectionRunner />
       {/* SWARM links navigate in-app so a Brain meeting keeps running. */}
       <SwarmLinkInterceptor />
 

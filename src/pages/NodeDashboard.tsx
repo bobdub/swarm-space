@@ -16,6 +16,7 @@ import { useAlertingStatus } from '@/hooks/useAlertingStatus';
 import { loadConnectionState } from '@/lib/p2p/connectionState';
 import { toast } from 'sonner';
 import { resolveNetworkId, formatNetworkId } from '@/lib/p2p/idResolver';
+import { requestManualConnect } from '@/lib/p2p/manualConnect';
 import { useAuth } from '@/hooks/useAuth';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
@@ -81,7 +82,6 @@ const NodeDashboard = () => {
   const handleConnectToPeer = (inputId: string) => {
     const resolved = resolveNetworkId(inputId);
     const displayLabel = formatNetworkId(inputId);
-    const tm = getTestMode();
     const sm = getSwarmMeshStandalone();
     const bm = getStandaloneBuilderMode();
 
@@ -90,18 +90,17 @@ const NodeDashboard = () => {
       return;
     }
 
-    // Route through the active mode: SWARM by default, Builder if a cell is active.
+    // Route through the active mode: SWARM by default, Builder if a cell is
+    // active. Either way the dial goes through the persistent manual connect
+    // coordinator, which re-knocks every 20 s (up to 8 tries) like an invite link.
     const target = resolved.peerId ?? (resolved.nodeId ? `peer-${resolved.nodeId}` : inputId);
-    if (activeCell) {
-      const started = bm.connectToPeer(target);
-      toast[started ? 'success' : 'info'](
-        started ? `Connecting to ${displayLabel}` : `Connection queued for ${displayLabel}`,
-        { id: `connect-${inputId}` },
-      );
-    } else {
-      if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
-      sm.connectToPeer(target);
-    }
+    const dial = activeCell
+      ? (peerId: string) => bm.connectToPeer(peerId)
+      : (peerId: string) => {
+          if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
+          return sm.connectToPeer(peerId);
+        };
+    requestManualConnect(target, { label: displayLabel, source: 'node-dashboard', dial });
   };
 
   // Inline stats
