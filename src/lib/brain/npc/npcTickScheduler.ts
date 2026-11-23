@@ -34,6 +34,7 @@ import { sampleSignalsForNpc, applyDriveOutcome, clearNpcSignalMemo } from './np
 import { recordOutcome } from './npcSkills';
 import { emitNpcDecision } from './npc.bus';
 import { batchScaffoldInjects } from '@/lib/uqrc/scaffoldBus';
+import { startBeatLoop, type BeatLoop } from '@/lib/time/sharedBeat';
 import { scheduleNpcRosterSave, flushNpcRosterSave } from './npcPersistence';
 import { type Npc, type NpcDrive } from './npcTypes';
 import { mortalityProbability } from './mortality';
@@ -57,6 +58,8 @@ export { retainNpcScene, isNpcSceneActive } from './npcSceneGate';
 
 const TICK_HZ = 8;
 const TICK_MS = 1000 / TICK_HZ;
+/** Most beats one tick may cover after the tab was throttled (2 s). */
+const MAX_CATCHUP_BEATS = 16;
 /** Brain-time compression — 1 wall second ≈ N brain-seconds. */
 const BRAIN_TIME_SCALE = 4;
 /** Brain-seconds in a brain-year (compact for play; matches lifespan ≈ 30 y). */
@@ -156,8 +159,9 @@ function fetchTool(
   return { tx: npc.tx, tz: npc.tz };
 }
 
-let _timer: ReturnType<typeof setInterval> | null = null;
-let _lastTickAt = 0;
+let _timer: BeatLoop | null = null;
+/** False while asleep, so the first awake beat steps one beat, not the gap. */
+let _awake = false;
 
 let _seeded = false;
 let _flagUnsub: (() => void) | null = null;
@@ -303,17 +307,20 @@ function tickOne(npc: Npc, dtSeconds: number): void {
   emitNpcDecision({ npcId: npc.id, verb: picked, qDelta });
 }
 
-function tickAll(): void {
+function tickAll(_beat: number, elapsedBeats: number): void {
   if (!getFeatureFlags().scaffoldBus) return;
   if (!isNpcSceneActive()) {
     // Asleep: the next awake tick starts a fresh dt instead of replaying
     // the whole off-scene gap as one giant step.
-    _lastTickAt = 0;
+    _awake = false;
     return;
   }
   const now = Date.now();
-  const wallDt = _lastTickAt === 0 ? TICK_MS / 1000 : (now - _lastTickAt) / 1000;
-  _lastTickAt = now;
+  // dt comes from shared beats, so every peer steps the village by the
+  // same amount on the same beat. Cap catch-up after a throttled tab.
+  const beats = _awake ? Math.max(1, Math.min(MAX_CATCHUP_BEATS, elapsedBeats)) : 1;
+  _awake = true;
+  const wallDt = (beats * TICK_MS) / 1000;
   const brainDt = wallDt * BRAIN_TIME_SCALE;
 
   // Regrow resource sites once per tick (cheap O(n_sites)).
@@ -374,14 +381,14 @@ export function startNpcTickScheduler(): void {
     ensureSeed();
   }
   hookUnloadOnce();
-  _lastTickAt = 0;
-  _timer = setInterval(tickAll, TICK_MS);
+  _awake = false;
+  _timer = startBeatLoop(TICK_MS, tickAll);
 
   // Kill-switch: stop when scaffoldBus flips off, restart when it flips on.
   if (!_flagUnsub) {
     _flagUnsub = subscribeToFeatureFlags((flags) => {
       if (!flags.scaffoldBus && _timer !== null) {
-        clearInterval(_timer);
+        _timer.stop();
         _timer = null;
       }
     });
@@ -390,7 +397,7 @@ export function startNpcTickScheduler(): void {
 
 /** Stop and tear down (test + HMR safety). */
 export function stopNpcTickScheduler(): void {
-  if (_timer !== null) { clearInterval(_timer); _timer = null; }
+  if (_timer !== null) { _timer.stop(); _timer = null; }
   if (_flagUnsub) { _flagUnsub(); _flagUnsub = null; }
   for (const npc of listNpcs()) clearNpcSignalMemo(npc.id);
 }
@@ -399,7 +406,7 @@ export function stopNpcTickScheduler(): void {
 export function _resetTickSchedulerForTest(): void {
   stopNpcTickScheduler();
   _seeded = false;
-  _lastTickAt = 0;
+  _awake = false;
   _unloadHooked = false;
   _looseTools = new Map();
   _fetching.clear();

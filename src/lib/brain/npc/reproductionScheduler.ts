@@ -1,7 +1,7 @@
 /**
  * reproductionScheduler — periodic harmony evaluator + birth gate.
  *
- * Phase 8 wiring. Runs once every REPRO_CHECK_MS wall-ms while the NPC
+ * Phase 8 wiring. Runs on the shared REPRO_CHECK_MS beat while the NPC
  * tick scheduler is alive. For every female × male pair currently in
  * the registry it:
  *   1. samples the field's pairwise curvature commutator proxy,
@@ -23,12 +23,14 @@ import { canBond, type StandardsContext } from './socialStandards';
 import { getInventory } from './npcChemistry';
 import { emitNpcDecision } from './npc.bus';
 import { NPC_CAP, type Npc, type NpcSex, type RelationalEdge } from './npcTypes';
+import { networkNow } from '@/lib/time/networkClock';
+import { startBeatLoop, type BeatLoop } from '@/lib/time/sharedBeat';
 
 const REPRO_CHECK_MS = 30 * 1000;
 const BRAIN_TIME_SCALE = 4;
 
 const _edges = new Map<string, RelationalEdge>();
-let _timer: ReturnType<typeof setInterval> | null = null;
+let _timer: BeatLoop | null = null;
 let _lastAt = 0;
 
 function sexFromPairId(pid: string): NpcSex {
@@ -63,7 +65,9 @@ function tick(): void {
   if (!isNpcSceneActive()) { _lastAt = 0; return; }
   if (npcCount() >= NPC_CAP) return;
 
-  const now = Date.now();
+  // Shared clock: the hourly birth slot below must flip on the same
+  // instant for every peer, not on each device's own clock.
+  const now = networkNow();
   const wallDt = _lastAt === 0 ? REPRO_CHECK_MS / 1000 : (now - _lastAt) / 1000;
   _lastAt = now;
   const brainDt = wallDt * BRAIN_TIME_SCALE;
@@ -125,11 +129,11 @@ export function startReproductionScheduler(): void {
   if (_timer !== null) return;
   if (typeof window === 'undefined') return;
   _lastAt = 0;
-  _timer = setInterval(tick, REPRO_CHECK_MS);
+  _timer = startBeatLoop(REPRO_CHECK_MS, () => tick());
 }
 
 export function stopReproductionScheduler(): void {
-  if (_timer !== null) { clearInterval(_timer); _timer = null; }
+  if (_timer !== null) { _timer.stop(); _timer = null; }
 }
 
 /** Test seam. */
