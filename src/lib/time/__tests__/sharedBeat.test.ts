@@ -42,4 +42,17 @@ describe('shared beat', () => {
     expect(elapsed[1]).toBeGreaterThanOrEqual(4);
     expect(elapsed.length).toBe(2);
   });
+
+  it('keeps beating when the clock is corrected backwards', () => {
+    vi.setSystemTime(Date.UTC(2026, 10, 23, 3, 0, 0));
+    const elapsed: number[] = [];
+    const loop = startBeatLoop(250, (_b, e) => { elapsed.push(e); });
+    vi.advanceTimersByTime(260);
+    // A device an hour ahead gets calibrated: the shared clock steps back.
+    setNetworkClockOffset(-60 * 60 * 1000);
+    vi.advanceTimersByTime(1000);
+    loop.stop();
+    expect(elapsed.length).toBeGreaterThanOrEqual(4);
+    for (const e of elapsed) expect(e).toBe(1);
+  });
 });

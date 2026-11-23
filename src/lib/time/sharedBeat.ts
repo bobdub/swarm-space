@@ -52,8 +52,11 @@ export function startBeatLoop(
     timer = null;
     if (stopped) return;
     const beat = beatAt(periodMs);
-    const elapsed = lastBeat === null ? 1 : beat - lastBeat;
-    // A clock correction can step backwards; wait for the beat to catch up.
+    let elapsed = lastBeat === null ? 1 : beat - lastBeat;
+    // A clock correction stepped backwards (a device that ran ahead was
+    // just calibrated): rebase on the corrected beat and keep going, rather
+    // than freezing until corrected time reaches the old beat number.
+    if (lastBeat !== null && beat < lastBeat) elapsed = 1;
     if (elapsed > 0) {
       lastBeat = beat;
       try { onBeat(beat, elapsed); } catch (err) {
