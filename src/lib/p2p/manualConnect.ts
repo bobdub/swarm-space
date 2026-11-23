@@ -30,6 +30,8 @@ export type ManualConnectEntry = {
   firstRefusedAt: number;
   /** When this request switched networking on; null if it never had to. */
   enableRequestedAt: number | null;
+  /** Networking has been seen on while this request was pending. */
+  sawEnabled: boolean;
   /** Optional dial override (e.g. Builder cell dashboard); defaults to the P2P context dial. */
   dial?: (peerId: string) => boolean;
 };
@@ -112,6 +114,7 @@ export function requestManualConnect(
     lastAttemptAt: 0,
     firstRefusedAt: 0,
     enableRequestedAt: null,
+    sawEnabled: false,
     dial: options.dial,
   });
   publish(next);
@@ -165,6 +168,11 @@ export function tickManualConnects(env: ManualConnectEnv) {
 function tickEntry(entry: ManualConnectEntry, env: ManualConnectEnv, now: number) {
   const { peerId } = entry;
 
+  if (env.isEnabled && !entry.sawEnabled) {
+    update(peerId, { sawEnabled: true });
+    entry = entries.get(peerId)!;
+  }
+
   if (env.isConnected(peerId)) {
     if (entry.phase !== 'syncing') {
       update(peerId, { phase: 'syncing', connectedAt: now, firstRefusedAt: 0 });
@@ -189,9 +197,11 @@ function tickEntry(entry: ManualConnectEntry, env: ManualConnectEnv, now: number
 
   if (!env.isEnabled) {
     if (!env.isConnecting) {
-      if (entry.enableRequestedAt !== null && now - entry.enableRequestedAt >= ENABLE_SETTLE_MS) {
-        // Networking was switched on for this request and is off again: the
-        // user turned it off (or it failed). Respect that instead of fighting it.
+      const enableSettled = entry.enableRequestedAt !== null && now - entry.enableRequestedAt >= ENABLE_SETTLE_MS;
+      if (entry.sawEnabled || enableSettled) {
+        // Networking was on during this request (already on, or switched on
+        // for it) and is off again: the user turned it off, or it failed.
+        // Respect that instead of switching it back on.
         cancelManualConnect(peerId);
         return;
       }

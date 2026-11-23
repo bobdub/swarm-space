@@ -101,6 +101,28 @@ describe('manual connect coordinator', () => {
     expect(e.enable).toHaveBeenCalledTimes(1);
   });
 
+  it('respects a disable when networking was already on at the start', () => {
+    const e = env();
+    requestManualConnect('peer-host', { now: 0 });
+    tickManualConnects({ ...e, now: 0 });
+    expect(phase()).toBe('connecting');
+    tickManualConnects({ ...e, isEnabled: false, now: 1000 });
+    expect(e.enable).not.toHaveBeenCalled();
+    expect(getManualConnects().has('peer-host')).toBe(false);
+  });
+
+  it('respects a disable that lands while the channel is syncing', () => {
+    let open = true;
+    const e = env({ isConnected: () => open });
+    requestManualConnect('peer-host', { now: 0 });
+    tickManualConnects({ ...e, now: 0 });
+    expect(phase()).toBe('syncing');
+    open = false;
+    tickManualConnects({ ...e, isEnabled: false, now: 1000 });
+    expect(e.enable).not.toHaveBeenCalled();
+    expect(getManualConnects().has('peer-host')).toBe(false);
+  });
+
   it('keeps a refused dial buffered instead of failing it', () => {
     let accept = false;
     const dial = vi.fn(() => accept);
