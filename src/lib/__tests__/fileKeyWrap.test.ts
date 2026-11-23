@@ -82,6 +82,16 @@ describe("file key wrapping (SEC-002 v2)", () => {
     expect(await backfillManifestRawKeys()).toBe(0);
   });
 
+  it("replaces a device key that a JSON backup restore turned into {}", async () => {
+    await put("meta", { k: `file-key-wrap:${user.id}`, v: {} });
+    __resetFileKeyWrapCacheForTests();
+    const raw = await exportKeyRaw(await genFileKey());
+    const wrapped = await wrapFileKeyForOwner(raw);
+    expect(await unwrapFileKeyFromOwner(wrapped)).toBe(raw);
+    const stored = await get<{ v: CryptoKey }>("meta", `file-key-wrap:${user.id}`);
+    expect(stored?.v).toBeInstanceOf(CryptoKey);
+  });
+
   it("leaves other users' legacy manifests alone", async () => {
     const raw = await exportKeyRaw(await genFileKey());
     const legacy = await legacyWrap(raw, "someone-else");

@@ -82,8 +82,9 @@ function deviceWrapOwner(): string {
 
 async function loadOrCreateDeviceWrapKey(owner: string, create: boolean): Promise<CryptoKey | null> {
   const metaKey = DEVICE_FILE_WRAP_PREFIX + owner;
-  const existing = await get<{ k: string; v: CryptoKey }>('meta', metaKey);
-  if (existing?.v) return existing.v;
+  const existing = await get<{ k: string; v: unknown }>('meta', metaKey);
+  // A JSON backup round-trip turns the CryptoKey into `{}`; treat that as missing.
+  if (isUsableWrapKey(existing?.v)) return existing.v;
   if (!create) return null;
   const key = await crypto.subtle.generateKey(
     { name: 'AES-GCM', length: 256 },
@@ -92,6 +93,11 @@ async function loadOrCreateDeviceWrapKey(owner: string, create: boolean): Promis
   );
   await put('meta', { k: metaKey, v: key });
   return key;
+}
+
+function isUsableWrapKey(v: unknown): v is CryptoKey {
+  return typeof CryptoKey !== 'undefined' && v instanceof CryptoKey
+    && v.algorithm?.name === 'AES-GCM' && v.usages.includes('encrypt') && v.usages.includes('decrypt');
 }
 
 /** The device-held key that wraps file keys for the current user (created on first use). */
