@@ -4,6 +4,7 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import type { Plugin } from "vite";
 
 // Build stamp: peers swap it over the mesh and compare `builtAt` to learn
@@ -18,8 +19,19 @@ function resolveBuildId(builtAt: number): string {
     return builtAt.toString(36);
   }
 }
+// Human-facing release counter (release.json, bumped on every push to main).
+function readRelease(): number {
+  try {
+    const r = JSON.parse(readFileSync(path.resolve(__dirname, "release.json"), "utf8")).release;
+    return Number.isSafeInteger(r) && r >= 0 ? r : 0;
+  } catch {
+    return 0;
+  }
+}
+const APP_RELEASE = readRelease();
+
 const BUILT_AT = Date.now();
-const APP_BUILD = { id: resolveBuildId(BUILT_AT), builtAt: BUILT_AT };
+const APP_BUILD = { id: resolveBuildId(BUILT_AT), builtAt: BUILT_AT, release: APP_RELEASE };
 
 function buildStampPlugin(): Plugin {
   return {
@@ -39,6 +51,7 @@ export default defineConfig(({ mode }) => ({
   },
   define: {
     __APP_BUILD__: JSON.stringify(APP_BUILD),
+    __APP_RELEASE__: JSON.stringify(APP_RELEASE),
   },
   plugins: [
     react(),

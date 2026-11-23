@@ -1,0 +1,40 @@
+name: Bump release version
+
+# Every push to main (each merged PR) adds 1 to release.json. The app shows
+# it as v0.001, v0.002, ... on the Node Dashboard. Pushes made with
+# GITHUB_TOKEN do not start workflows, so the bump commit cannot loop.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-release
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Increment release counter
+        run: |
+          next=$(node -e "const r=require('./release.json').release; process.stdout.write(String((Number.isSafeInteger(r)?r:0)+1))")
+          printf '{ "release": %s }\n' "$next" > release.json
+          echo "NEXT=$next" >> "$GITHUB_ENV"
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add release.json
+          git commit -m "Release $(node -e "process.stdout.write((${NEXT}/1000).toFixed(3))") [skip release]"
+          for i in 1 2 3; do
+            git push origin HEAD:main && exit 0
+            git pull --rebase origin main
+          done
+          exit 1
