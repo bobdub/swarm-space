@@ -16,6 +16,15 @@ const label = (id: string) => {
   return key;
 };
 
+/** Show which way a path mostly runs once one direction clearly leads. */
+const arrow = (l: SynapseLink) => {
+  const ab = l.ab ?? 0;
+  const ba = l.ba ?? 0;
+  if (ab > 2 * ba && ab > 0) return '→';
+  if (ba > 2 * ab && ba > 0) return '←';
+  return '↔';
+};
+
 /** Infinity's agent status and the strongest paths in its synapse graph. */
 export function InfinityAgentPanel(): JSX.Element {
   const status = useSyncExternalStore(subscribeAgent, getAgentStatus, getAgentStatus);
@@ -48,7 +57,7 @@ export function InfinityAgentPanel(): JSX.Element {
       <p className="mt-1 text-muted-foreground">{status.graph.nodes} nodes · {status.graph.links} links, kept on this device only.</p>
       {links.length ? <ul className="mt-3 space-y-1">
         {links.map((l) => <li key={`${l.a}|${l.b}`} className="flex items-center justify-between gap-3 border-b border-border/60 py-1.5">
-          <span className="min-w-0 truncate">{label(l.a)} ↔ {label(l.b)}</span>
+          <span className="min-w-0 truncate">{label(l.a)} {arrow(l)} {label(l.b)}</span>
           <span className="shrink-0 tabular-nums text-muted-foreground">{l.w.toFixed(2)}</span>
         </li>)}
       </ul> : <p className="mt-3 text-muted-foreground">No paths yet. They grow as Infinity learns from people who are not shy.</p>}
