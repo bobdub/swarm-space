@@ -1,6 +1,6 @@
 // Swarm-Space Blockchain Implementation
 import { SwarmBlock, SwarmTransaction, ChainState, SWARM_CONFIG } from "./types";
-import { calculateHash, calculateMerkleRoot } from "./crypto";
+import { calculateHash, calculateMerkleRoot, findProofOfWork } from "./crypto";
 import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
@@ -440,21 +440,12 @@ export class SwarmChain {
   }
 
   private async mineBlock(block: SwarmBlock): Promise<SwarmBlock> {
-    const target = "0".repeat(block.difficulty);
-    
-    while (true) {
-      block.hash = await calculateHash(block);
-      if (block.hash.substring(0, block.difficulty) === target) {
-        break;
-      }
-      block.nonce++;
-      
-      // Allow async breathing room
-      if (block.nonce % 1000 === 0) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-    
+    // Same nonce search as hashing each nonce in turn, without hogging the
+    // main thread: mining starts when the first peer joins, and the old loop
+    // made the whole page stall for seconds every block.
+    const { nonce, hash } = await findProofOfWork(block);
+    block.nonce = nonce;
+    block.hash = hash;
     return block;
   }
 
