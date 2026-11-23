@@ -622,6 +622,10 @@ export class NeuralStateEngine {
 
   /** Apply time-based decay to stale neurons so scores don't inflate */
   private maybeDecay(now: number): void {
+    // Runs for every peer packet. The interval is never below the minimum,
+    // so skip the field's wavelength scan (a full-lattice transform) until a
+    // decay could actually be due.
+    if (now - this.lastDecayAt < DECAY_INTERVAL_MIN_MS) return;
     // Adaptive heartbeat: fast-rhythm field → faster decay; slow → slower.
     try {
       const lambda = getSharedFieldEngine().getDominantWavelength();

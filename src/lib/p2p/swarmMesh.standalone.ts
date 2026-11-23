@@ -340,6 +340,10 @@ export function shouldEvictQuietPeer(idleMs: number, thresholdMs: number, linkLi
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
+/** Posts per content-push message when answering a content request. */
+const CONTENT_PUSH_BATCH = 40;
+/** Bursts of IndexedDB writes share one change event within this window. */
+const NOTICE_COALESCE_MS = 150;
 const CASCADE_SETTLE_TIME = 8_000;
 const CASCADE_POLL_INTERVAL = 300; // Check for connection every 300ms
 const SIGNALING_ENDPOINT_STORAGE_KEY = 'p2p-signaling-endpoint-id';
@@ -3641,15 +3645,58 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
     if (!conn) return;
-    const items = ids
-      .map(id => this.contentStore.get(id))
-      .filter((i): i is ContentItem => !!i && !(i.type === 'post' && isPostUnsupported(i.id)));
-    if (!items.length) return;
-    try {
-      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId }));
-      const p = this.peerData.get(from);
-      if (p) p.messagesSent++;
-    } catch { /* ignore */ }
+    const live = (id: string): ContentItem | undefined => {
+      const i = this.contentStore.get(id);
+      return i && !(i.type === 'post' && isPostUnsupported(i.id)) ? i : undefined;
+    };
+    const wanted = ids.filter((id) => live(id));
+    if (!wanted.length) return;
+    // A new peer asks for everything we hold. One message with every post
+    // meant serializing and chunking megabytes in a single task, which froze
+    // this page as they joined; send it in small batches, one task each.
+    // Receivers handle each content-push on its own, so older peers are fine.
+    // Each batch is read when it goes out, so a post deleted or no longer
+    // supported in the meantime is not sent.
+    const batches: string[][] = [];
+    for (let i = 0; i < wanted.length; i += CONTENT_PUSH_BATCH) batches.push(wanted.slice(i, i + CONTENT_PUSH_BATCH));
+    this.sendPaced(from, conn, batches.map((batch) => () => {
+      const items = batch.map(live).filter((i): i is ContentItem => !!i);
+      return items.length ? JSON.stringify({ type: 'content-push', items, from: this.peerId }) : null;
+    }));
+  }
+
+  /** Per peer: replies waiting to go out, one message per task. */
+  private pacedQueues = new Map<string, { conn: import('peerjs').DataConnection; messages: Array<() => string | null> }>();
+
+  /**
+   * Send messages to one peer, one per task, so a large reply never holds the
+   * main thread for long. Replies to the same peer queue behind each other, so
+   * each one still arrives as an unbroken run of messages (chain-sync pages
+   * are reassembled per peer). Stops if the channel closes or is replaced.
+   * A message builder that returns null is skipped.
+   */
+  private sendPaced(peerId: string, conn: import('peerjs').DataConnection, messages: Array<() => string | null>): void {
+    if (!messages.length) return;
+    const queued = this.pacedQueues.get(peerId);
+    if (queued && queued.conn === conn) { queued.messages.push(...messages); return; }
+    const queue = { conn, messages: [...messages] };
+    this.pacedQueues.set(peerId, queue);
+    const next = () => {
+      if (this.pacedQueues.get(peerId) !== queue) return;
+      const build = queue.messages.shift();
+      if (!build || this.connections.get(peerId) !== conn || !conn.open) { this.pacedQueues.delete(peerId); return; }
+      try {
+        const msg = build();
+        if (msg !== null) {
+          conn.send(msg);
+          const p = this.peerData.get(peerId);
+          if (p) p.messagesSent++;
+        }
+      } catch { this.pacedQueues.delete(peerId); return; }
+      if (queue.messages.length) setTimeout(next, 0);
+      else this.pacedQueues.delete(peerId);
+    };
+    next();
   }
 
   private handlePush(fromPeerId: string, msg: Record<string, unknown>): void {
@@ -3958,20 +4005,20 @@ export class StandaloneSwarmMesh {
         // the whole chain in a single message, as before.
         const legacy = !('since' in msg);
         const pages = planCatchup(blocks, since, legacy ? Infinity : undefined);
-        for (const page of pages) {
-          conn.send(JSON.stringify({
-            type: 'chain-sync-response',
-            // `chain` keeps its name so older peers still read the blocks.
-            chain: page.blocks,
-            fromIndex: page.fromIndex,
-            totalLength: page.totalLength,
-            tip: page.tip,
-            page: page.page,
-            pages: page.pages,
-            full: page.full,
-            from: this.peerId,
-          }));
-        }
+        // One page per task: a joiner with no chain mark gets the whole chain,
+        // and serializing it all at once stalled this page.
+        this.sendPaced(from, conn, pages.map((page) => () => JSON.stringify({
+          type: 'chain-sync-response',
+          // `chain` keeps its name so older peers still read the blocks.
+          chain: page.blocks,
+          fromIndex: page.fromIndex,
+          totalLength: page.totalLength,
+          tip: page.tip,
+          page: page.page,
+          pages: page.pages,
+          full: page.full,
+          from: this.peerId,
+        })));
         const sent = blocks.length - (pages[0]?.fromIndex ?? 0);
         console.log(
           `[SwarmMesh] ⛓️ Sent ${sent} of ${blocks.length} blocks to ${from.slice(0, 16)}… ` +
@@ -5132,6 +5179,23 @@ export class StandaloneSwarmMesh {
     return normalized;
   }
 
+  private pendingNotices = new Set<string>();
+
+  /**
+   * Fire a window "something changed" event once for a burst of writes.
+   * A joining peer can hand us hundreds of posts, and every feed, card and
+   * wall billboard reloads from IndexedDB on each event; one per post made
+   * the page stall while they arrived.
+   */
+  private notifySoon(eventName: string): void {
+    if (this.pendingNotices.has(eventName)) return;
+    this.pendingNotices.add(eventName);
+    setTimeout(() => {
+      this.pendingNotices.delete(eventName);
+      window.dispatchEvent(new Event(eventName));
+    }, NOTICE_COALESCE_MS);
+  }
+
   private async writePostToDB(postData: Record<string, unknown>, sourcePeerId?: string): Promise<void> {
     try {
       if (!postData.id) return;
@@ -5180,7 +5244,7 @@ export class StandaloneSwarmMesh {
         }
         store.put(mergedData);
         console.log(`[SwarmMesh] 💾 Upserted post ${String(mergedData.id)} in IndexedDB (origin=${String(mergedData._origin)})`);
-        window.dispatchEvent(new Event('p2p-posts-updated'));
+        this.notifySoon('p2p-posts-updated');
 
         // Trigger entity voice evaluation for new synced posts
         if (mergedData._origin === 'synced') {
@@ -5221,7 +5285,7 @@ export class StandaloneSwarmMesh {
       if (!existing) {
         store.put(commentData);
         console.log(`[SwarmMesh] 💾 Saved comment ${commentData.id} to IndexedDB`);
-        window.dispatchEvent(new Event('p2p-comments-updated'));
+        this.notifySoon('p2p-comments-updated');
       }
       db.close();
     } catch (err) {
