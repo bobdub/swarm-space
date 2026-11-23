@@ -79,12 +79,21 @@ import { containInVent, inMagmaAt } from './craterCarve';
 /** Why a body was rescued back to the village. */
 export type RescueReason = 'core' | 'lava';
 
-/** Radial launch speed of a jump (m/s). Against the mantle's tanh pull
- *  and the body's own damping this lifts the feet ≈ 1 m for ≈ 0.7 s,
- *  enough to clear a 0.6 m boat rail. */
-export const JUMP_SPEED = 7.5;
+/** Radial launch speed of a jump (m/s): v = √(2·g·h) for a 1 m rise under
+ *  real gravity, ≈ 0.9 s in the air, enough to clear a 0.6 m boat rail. */
+export const JUMP_SPEED = Math.sqrt(2 * 9.81 * 1.0);
 /** Longest a jump can stay airborne before the settle band takes over (s). */
 const JUMP_MAX_AIR_S = 3;
+/** Gravitational acceleration at the surface (m/s²). Airborne walkers fall
+ *  under it, like a real body; resting on the ground the mantle collider
+ *  holds them instead. */
+export const GRAVITY = 9.81;
+/** A human's terminal velocity in air (m/s); quadratic drag sets it. */
+export const TERMINAL_VELOCITY = 53;
+/** Feet more than this above their support are airborne (m). */
+const AIR_GAP_M = 0.3;
+/** Speed cap while falling: above the terminal velocity, so drag sets it. */
+const FALL_MAX_SPEED = 60;
 /** Body radius used against deck walls (rails, hulls) (m). */
 const DECK_BODY_RADIUS = 0.35;
 
@@ -1164,6 +1173,8 @@ export class UqrcPhysics {
         // writer already defines the intended radial collider analytically;
         // apply that same acceleration here so bodies below the basin are
         // pushed back out and bodies above it are pushed back down.
+        // Airborne (jumping, or feet clear of the ground): real gravity.
+        let freeFall = false;
         if (insideShell && rEarth > 1e-6) {
           // Local terrain elevation (volcano organ) lifts the effective
           // basin so the player walks UP the slope instead of clipping
@@ -1180,11 +1191,17 @@ export class UqrcPhysics {
               rEarth - BODY_SHELL_RADIUS - FOOT_CUSHION,
             )
             : 0;
-          const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
-          const invR = 1 / rEarth;
-          fx += radialAcc * dxC * invR * mass;
-          fy += radialAcc * dyC * invR * mass;
-          fz += radialAcc * dzC * invR * mass;
+          freeFall = isSurfaceHumanoid && (
+            this.airborne.has(b.id) ||
+            rEarth - BODY_SHELL_RADIUS - FOOT_CUSHION - elevation > AIR_GAP_M
+          );
+          if (!freeFall) {
+            const radialAcc = sampleMantleRadialAcceleration(rEarth - elevation);
+            const invR = 1 / rEarth;
+            fx += radialAcc * dxC * invR * mass;
+            fy += radialAcc * dyC * invR * mass;
+            fz += radialAcc * dzC * invR * mass;
+          }
         }
 
         // A surface avatar with no player input is a stationary observer.
@@ -1208,6 +1225,22 @@ export class UqrcPhysics {
           b.vel[2] = radialVelocity * uz;
         }
 
+        // Free fall: the radial motion is gravity and air drag alone,
+        // a = −g − k·v|v| with k = g / v_t², as for a real falling body.
+        // The field's radial pushes are dropped and the integrator's
+        // linear damping is cancelled radially; walking (tangential)
+        // forces are untouched.
+        if (freeFall) {
+          const ux = dxC / rEarth, uy = dyC / rEarth, uz = dzC / rEarth;
+          const fRad = fx * ux + fy * uy + fz * uz;
+          const vRad = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
+          const drag = (GRAVITY / (TERMINAL_VELOCITY * TERMINAL_VELOCITY)) * vRad * Math.abs(vRad);
+          const aRad = -GRAVITY - drag + gamma * vRad;
+          fx += (aRad * mass - fRad) * ux;
+          fy += (aRad * mass - fRad) * uy;
+          fz += (aRad * mass - fRad) * uz;
+        }
+
         const ax = fx / mass;
         const ay = fy / mass;
         const az = fz / mass;
@@ -1218,7 +1251,7 @@ export class UqrcPhysics {
             vel: b.vel,
             acc: [ax, ay, az],
             gamma,
-            maxSpeed,
+            maxSpeed: freeFall ? Math.max(maxSpeed, FALL_MAX_SPEED) : maxSpeed,
             prevPose,
             nextPose: pose,
           });
@@ -1342,9 +1375,9 @@ export class UqrcPhysics {
                     b.prevLocal[0] *= s; b.prevLocal[1] *= s; b.prevLocal[2] *= s;
                   }
                 }
-              } else if (dr < 4.0 && !inAir) {
-                // Settle band (widened so walking downhill off the cone
-                // follows the slope instead of floating off ledges).
+              } else if (dr < AIR_GAP_M && !inAir) {
+                // Settle band: the last few cm above the ground. Higher up
+                // the body is airborne and falls under real gravity.
                 const moving = Math.min(1, intentMag);
                 const damp = 0.15 + 0.55 * moving;      // 0.15 idle → 0.70 moving
                 const spring = 4.0 * (1 - 0.5 * moving); // 4.0 idle → 2.0 moving
