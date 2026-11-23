@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
 import { Wifi, WifiOff, Loader2, Copy, AlertTriangle, User, Link2, Share2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -26,7 +26,7 @@ import { getSwarmMeshStandalone, type SwarmPhase } from "@/lib/p2p/swarmMesh.sta
 import { getStandaloneBuilderMode, type BuilderPhase } from "@/lib/p2p/builderMode.standalone-archived";
 import { loadConnectionState } from "@/lib/p2p/connectionState";
 import { peerConnectUrl } from "@/lib/p2p/brainInvite";
-import { reachabilityStage, reachabilityWindowMs } from "@/lib/p2p/reachabilityWindow";
+import { MANUAL_MAX_ATTEMPTS, cancelManualConnect, getManualConnects, isManualConnectActive, manualConnectTarget, requestManualConnect, subscribeManualConnects } from "@/lib/p2p/manualConnect";
 
 function formatBandwidth(bytesUploaded: number, bytesDownloaded: number, uptimeMs: number): string {
   if (!Number.isFinite(uptimeMs) || uptimeMs <= 0) {
@@ -98,6 +98,8 @@ export function P2PStatusIndicator() {
   const navigate = useNavigate();
   const [remotePeerId, setRemotePeerId] = useState("");
   const [pendingPeers, setPendingPeers] = useState<Record<string, "connect" | "disconnect">>({});
+  const manualConnects = useSyncExternalStore(subscribeManualConnects, getManualConnects);
+  const activeManualConnects = [...manualConnects.values()].filter(isManualConnectActive);
   const [flags, setFlags] = useState(getFeatureFlags());
   const peerId = getPeerId();
 
@@ -297,58 +299,6 @@ export function P2PStatusIndicator() {
     { label: "Network", value: stats.networkContent.toString() },
   ];
 
-  const scheduleReachabilityToast = useCallback((targetId: string, label: string, onDone?: () => void) => {
-    const trimmed = targetId.trim();
-    if (!trimmed) {
-      onDone?.();
-      return;
-    }
-
-    const normalized = trimmed.startsWith('peer-') ? trimmed : `peer-${trimmed}`;
-    const mode = loadConnectionState().mode;
-    const startedAt = Date.now();
-    const windowMs = reachabilityWindowMs(mode);
-    const isUserCell = mode === 'builder';
-    // One toast slot per peer: "negotiating" is replaced by the final result.
-    const toastId = `reach-${normalized}`;
-    let negotiatingShown = false;
-
-    const check = () => {
-      const active = getActivePeerConnections().map((connection) => connection.peerId);
-      const reached = active.some((peerId) => peerId === trimmed || peerId === normalized);
-
-      if (reached) {
-        toast.success(`Connected to ${label}`, { id: toastId });
-        onDone?.();
-        return;
-      }
-
-      const stage = reachabilityStage(Date.now() - startedAt, windowMs);
-      if (stage === 'expired') {
-        toast.warning(`${label} not reached yet`, {
-          id: toastId,
-          description: isUserCell
-            ? 'Peer did not respond. Make sure both nodes are in the same User Cell and try again.'
-            : 'Peer did not respond. They may be offline — retry or open the Node Dashboard.',
-        });
-        onDone?.();
-        return;
-      }
-
-      if (stage === 'negotiating' && !negotiatingShown) {
-        negotiatingShown = true;
-        toast.loading(`Negotiating WebRTC handshake with ${label}…`, {
-          id: toastId,
-          description: 'NAT traversal can take up to 20 seconds on mobile networks.',
-        });
-      }
-
-      window.setTimeout(check, 900);
-    };
-
-    window.setTimeout(check, 900);
-  }, [getActivePeerConnections]);
-
   const quickPeers = livePeers.slice(0, 6);
 
   const setPeerPending = (peerId: string, action: "connect" | "disconnect") => {
@@ -389,36 +339,36 @@ export function P2PStatusIndicator() {
   }, [fallbackId, getActivePeerConnections, connectToPeer, enable, disable, isEnabled]);
 
   const handleConnectToPeer = () => {
-    if (!remotePeerId.trim()) {
+    const input = remotePeerId.trim();
+    if (!input) {
       return;
     }
 
-    if (!isEnabled) {
-      toast.info("Enable P2P first", {
-        description: "Turn on P2P networking to dial peers.",
-      });
+    const target = manualConnectTarget(input);
+    if (!target) {
+      toast.error("Invalid ID", { description: "Enter a Peer ID (peer-xxx) or Node ID." });
       return;
     }
 
-    if (isPeerBlocked(remotePeerId.trim())) {
+    if (isPeerBlocked(input) || isPeerBlocked(target)) {
       toast.info("Connection blocked", {
         description: "This peer is currently blocked. Adjust blocks from the dashboard.",
       });
       return;
     }
 
-    const input = remotePeerId.trim();
-    const success = connectToPeer(input, { manual: true, source: "manual" });
-    if (success) {
-      scheduleReachabilityToast(input, input.slice(0, 16));
-      setRemotePeerId("");
-    } else if (controls.paused) {
+    if (controls.paused) {
       toast.info("Mesh paused", {
         description: "Resume the mesh to allow new connections.",
       });
+      return;
     }
-  };
 
+    // Persistent connect: enables networking if needed and keeps knocking
+    // every 20 s (up to 8 tries) until the DataChannel opens.
+    requestManualConnect(input, { label: input.slice(0, 16), source: "manual" });
+    setRemotePeerId("");
+  };
 
   const handleQuickDisconnect = (peerId: string, label: string) => {
     const trimmedPeerId = peerId.trim();
@@ -716,6 +666,30 @@ export function P2PStatusIndicator() {
                 Connect
               </Button>
             </div>
+            {activeManualConnects.length > 0 && (
+              <ul className="space-y-1" aria-live="polite">
+                {activeManualConnects.map((entry) => (
+                  <li key={entry.peerId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {entry.phase === "syncing"
+                        ? `Connected to ${entry.label}, syncing…`
+                        : entry.phase === "starting"
+                          ? `Getting ready to dial ${entry.label}…`
+                          : `Connecting to ${entry.label}… (try ${entry.attempts} of ${MANUAL_MAX_ATTEMPTS})`}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => cancelManualConnect(entry.peerId)}
+                    >
+                      Stop
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           )}
 
@@ -743,7 +717,8 @@ export function P2PStatusIndicator() {
                   const lastSeenLabel = formatLastSeen(lastSeenDate);
                   const availableCount = peer.availableContent?.size ?? 0;
                   const isConnected = connectedPeerIds.has(peer.peerId);
-                  const pendingAction = pendingPeers[peer.peerId];
+                  const pendingAction = pendingPeers[peer.peerId]
+                    ?? (!isConnected && isManualConnectActive(manualConnects.get(peer.peerId)) ? "connect" : undefined);
                   const buttonDisabled = Boolean(pendingAction);
 
                   return (
@@ -796,21 +771,11 @@ export function P2PStatusIndicator() {
                             handleQuickDisconnect(peer.peerId, friendlyLabel);
                           } else {
                             const trimmed = peer.peerId.trim();
-                            if (!isEnabled) {
-                              toast.info("Enable P2P first");
-                              return;
-                            }
                             if (isPeerBlocked(trimmed)) {
                               toast.info("This peer is blocked");
                               return;
                             }
-                            setPeerPending(peer.peerId, "connect");
-                            const ok = connectToPeer(trimmed, { manual: true, source: "popover-discovered" });
-                            if (ok) {
-                              scheduleReachabilityToast(trimmed, friendlyLabel.slice(0, 24), () => clearPeerPending(peer.peerId));
-                            } else {
-                              clearPeerPending(peer.peerId);
-                            }
+                            requestManualConnect(trimmed, { label: friendlyLabel.slice(0, 24), source: "popover-discovered" });
                           }
                         }}
                         disabled={buttonDisabled}

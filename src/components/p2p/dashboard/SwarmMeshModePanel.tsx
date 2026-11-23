@@ -88,7 +88,8 @@ export function SwarmMeshModePanel({
 
   const handleConnectManual = () => {
     if (!manualPeerId.trim()) { toast.error("Enter a Peer ID"); return; }
-    mesh.connectToPeer(manualPeerId.trim());
+    // The dashboard routes this through the persistent manual connect
+    // coordinator; dialing the mesh here as well would double-dial.
     onConnectToPeer(manualPeerId.trim());
     setManualPeerId("");
   };
