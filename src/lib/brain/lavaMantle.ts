@@ -358,6 +358,11 @@ export function initLavaMantle(field: Field3D): void {
  * so the operator carries the dynamics in between (this is the entire
  * point of using the diffusion term instead of stamping every frame).
  */
+/** True when the next `updateLavaMantlePin` call will re-stamp the field. */
+export function lavaMantleReassertDue(field: Field3D): boolean {
+  return field.ticks - _lastWriteTick >= REASSERT_EVERY_TICKS;
+}
+
 export function updateLavaMantlePin(
   field: Field3D,
   pose: EarthPose = getEarthPose(),

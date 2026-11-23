@@ -252,6 +252,7 @@ export function step3D(field: Field3D): Field3D {
   if (!field.phi || field.phi.length !== size) field.phi = new Float32Array(size);
   const phi = field.phi;
   const phiNext = scratch.phi;
+  let phiSum = 0;
   for (let k = 0; k < N; k++) {
     const kp = (k + 1) % N, km = (k + N - 1) % N;
     for (let j = 0; j < N; j++) {
@@ -268,10 +269,18 @@ export function step3D(field: Field3D): Field3D {
           phi[i + N * (jp + N * k)] + phi[i + N * (jm + N * k)] +
           phi[i + N * (j + N * kp)] + phi[i + N * (j + N * km)];
         // Jacobi update: Φ = (Σ_neighbours − ρ) / 6
-        phiNext[flat] = (sumNb - rho) / 6;
+        const v = (sumNb - rho) / 6;
+        phiNext[flat] = v;
+        phiSum += v;
       }
     }
   }
+  // Gauge fix: on a torus ∇²Φ = ρ has no solution unless ρ has zero mean,
+  // so the Jacobi sweep pushed Φ's mean down by mean(ρ)/6 every tick
+  // (≈ −32 per hour at 4 Hz) without bound. Removing the mean leaves every
+  // gradient (the only thing 𝒢_mass reads) unchanged and keeps Φ bounded.
+  const phiMean = phiSum / size;
+  if (phiMean !== 0) for (let f = 0; f < size; f++) phiNext[f] -= phiMean;
   field.phi = phiNext;
   scratch.phi = phi;
   const Phi = phiNext;
