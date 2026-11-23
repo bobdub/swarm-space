@@ -18,7 +18,8 @@
  * so `uqrcConformance.test.ts` keeps passing.
  */
 
-import { getSharedFieldEngine, type FieldEngine } from './fieldEngine';
+import { getSharedFieldEngine } from './fieldEngine';
+import { queueFieldInject } from './fieldInjectQueue';
 
 export type HealthDomain = 'p2p' | 'storage' | 'stream' | 'mining' | 'route' | 'browser';
 
@@ -92,8 +93,9 @@ function namespace(domain: HealthDomain, key: string): string {
 }
 
 /**
- * Record an application event. Internally injects into the shared field with
- * key `${domain}:${key}`. Per-key 250 ms debounce.
+ * Record an application event. Queues a field perturbation with key
+ * `${domain}:${key}` (applied in the next batched flush). Per-key 250 ms
+ * debounce.
  */
 export function recordAppEvent(
   domain: HealthDomain,
@@ -107,19 +109,13 @@ export function recordAppEvent(
   lastInjectAt.set(ns, now);
   rememberKey(ns, domain);
 
-  try {
-    const fe: FieldEngine = getSharedFieldEngine();
-    fe.inject(ns, {
-      amplitude: opts.amplitude,
-      reward: opts.reward,
-      trust: opts.trust,
-    });
-  } catch (err) {
-    // Field outage must never break the calling subsystem.
-    if (typeof console !== 'undefined') {
-      console.warn('[AppHealth] inject failed:', err);
-    }
-  }
+  // Queued, not applied inline: the nudge lands with the next batched
+  // flush instead of dropping the field caches on every event. Never throws.
+  queueFieldInject(ns, {
+    amplitude: opts.amplitude,
+    reward: opts.reward,
+    trust: opts.trust,
+  });
 }
 
 /** Keep `knownKeys` in least-recently-recorded order and bounded. */

@@ -1,6 +1,7 @@
 import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
 import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { queueFieldInject } from '../uqrc/fieldInjectQueue';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
 import { CORE_MEMORY_STORAGE_KEY, adoptReflectionCoins, engravePendingIntoCoins } from '../brain/coreMemories';
 
@@ -353,7 +354,9 @@ export class NeuralStateEngine {
     // raise local curvature.  Failures inject zero reward but still register
     // trust so the field "feels" the attempt.
     try {
-      getSharedFieldEngine().inject(peerId, {
+      // Queued: every peer packet lands here, so applying it inline would
+      // drop the field caches once per message (see fieldInjectQueue.ts).
+      queueFieldInject(peerId, {
         reward: options.success ? Math.min(2, synapse.weight / 10) : 0,
         trust: neuron.trust,
       });

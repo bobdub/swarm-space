@@ -366,6 +366,28 @@ const MAX_SHARED_SAVED_CONTACTS = 200;
 /** Saved (manual/library) friends stay dialable this long after last presence. */
 export const SAVED_FRIEND_FRESHNESS_WINDOW = 10 * 60_000;
 
+// The shared neural engine is loaded lazily (kept out of this module's static
+// graph), but handleMessage feeds it for every peer packet. Resolve the module
+// once and call it synchronously afterwards instead of a promise per message.
+type SharedNeuralModule = typeof import('./sharedNeuralEngine');
+type SharedNeuralEngine = ReturnType<SharedNeuralModule['getSharedNeuralEngine']>;
+let sharedNeuralModule: SharedNeuralModule | null = null;
+let sharedNeuralLoading: Promise<void> | null = null;
+
+function withSharedNeuralEngine(fn: (engine: SharedNeuralEngine) => void): void {
+  const run = () => {
+    if (!sharedNeuralModule) return;
+    try { fn(sharedNeuralModule.getSharedNeuralEngine()); } catch { /* engine optional */ }
+  };
+  if (sharedNeuralModule) { run(); return; }
+  if (!sharedNeuralLoading) {
+    sharedNeuralLoading = import('./sharedNeuralEngine')
+      .then((m) => { sharedNeuralModule = m; })
+      .catch(() => { sharedNeuralLoading = null; });
+  }
+  void sharedNeuralLoading.then(run);
+}
+
 /** Cooldown between auto-dials to the same peer via Global Cell (steady state) */
 const CELL_DIAL_COOLDOWN = 30_000;
 
@@ -3545,17 +3567,17 @@ export class StandaloneSwarmMesh {
       if (!data || typeof data !== 'object') return;
       const msg = data as { type?: string; [key: string]: unknown };
 
-      // Feed every peer message into the shared neural engine
-      try {
-        import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
-          const engine = getSharedNeuralEngine();
-          const kind = msg.type === 'ping' || msg.type === 'pong' ? 'ping' as const
-            : msg.type === 'content-push' ? 'sync' as const
-            : msg.type === 'blockchain-tx' || msg.type === 'mining-ack' ? 'chunk' as const
-            : 'gossip' as const;
-          engine.onInteraction(from, { kind, success: true });
-        }).catch(() => { /* shared engine not available */ });
-      } catch { /* ignore */ }
+      // Feed every peer message into the shared neural engine. The module is
+      // resolved once and then called synchronously — this runs for every
+      // presence / movement / relay packet, so no per-message promise. Its
+      // field nudge is queued (fieldInjectQueue), not applied inline.
+      {
+        const kind = msg.type === 'ping' || msg.type === 'pong' ? 'ping' as const
+          : msg.type === 'content-push' ? 'sync' as const
+          : msg.type === 'blockchain-tx' || msg.type === 'mining-ack' ? 'chunk' as const
+          : 'gossip' as const;
+        withSharedNeuralEngine((engine) => engine.onInteraction(from, { kind, success: true }));
+      }
 
       if (typeof msg.type === 'string' && msg.type.startsWith('channel:')) {
         this.handleChannelMessage(from, msg.type, msg.payload);
