@@ -34,6 +34,7 @@ import { sampleLandMask, sampleBaseLandMask, OCEAN_FLOOR_DEPTH_M, LAND_LIFT, get
 import { getVolcanoOrgan } from '../volcanoOrgan';
 import { UqrcPhysics, PHYSICS_HZ } from '../uqrcPhysics';
 import { HORIZON_M } from '../horizonFade';
+import { tideAt } from '../sea/seaSurface';
 
 const VILLAGE = 'swarm-shared-village';
 /** A realistic shared-epoch time (mid-November 2026), not t = 0. */
@@ -270,7 +271,8 @@ describe('walking: feet stay on the drawn ground and ride the planet', () => {
     expect(worst).toBeGreaterThan(-1e-6);
     const r = bodyRadius(p);
     expect(r).toBeCloseTo(EARTH_RADIUS - SWIM_BODY_DEPTH, 0);
-    expect(r + EYE_LIFT).toBeGreaterThan(EARTH_RADIUS + 0.2);
+    // Head out of the water as it stands now: mean sea level plus the tide.
+    expect(r + EYE_LIFT).toBeGreaterThan(EARTH_RADIUS + tideAt(deep, T_NOV) + 0.2);
   });
 
   it('a walker shoved below the sea floor is put straight back on top', () => {

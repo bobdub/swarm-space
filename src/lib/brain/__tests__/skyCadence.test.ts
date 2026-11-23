@@ -65,3 +65,35 @@ describe('local sky cadence', () => {
     expect(skyCadenceAt(surface(-1), live).starOpacity).toBeCloseTo(0.85);
   });
 });
+describe('village day and night', () => {
+  afterEach(() => setEarthPoseTime(null));
+
+  it('the village gets real nights (stars out) and real days over one game day', async () => {
+    const earth = await import('../earth');
+    const n = earth.getEarthLocalSiteFrame(earth.SHARED_VILLAGE_ISLAND_ANCHOR).normal;
+    let nights = 0;
+    let days = 0;
+    const N = 96;
+    for (let i = 0; i < N; i++) {
+      const pose = earth.getEarthPoseAt(i * earth.GAME_DAY_SECONDS / N);
+      const w = earth.quatRotate(pose.spinQuat, n);
+      const sky = skyCadenceAt([
+        pose.center[0] + w[0] * EARTH_RADIUS,
+        pose.center[1] + w[1] * EARTH_RADIUS,
+        pose.center[2] + w[2] * EARTH_RADIUS,
+      ], pose);
+      if (sky.starOpacity > 0.5) nights++;
+      if (sky.daylight > 0.5) days++;
+    }
+    expect(nights / N).toBeGreaterThan(0.2);
+    expect(days / N).toBeGreaterThan(0.35);
+  });
+
+  it('tilting the Sun never moved the village', async () => {
+    const earth = await import('../earth');
+    const n = earth.getEarthLocalSiteFrame(earth.SHARED_VILLAGE_ISLAND_ANCHOR).normal;
+    expect(n[0]).toBeCloseTo(0.5375953640941978, 9);
+    expect(n[1]).toBeCloseTo(0.6933925219745195, 9);
+    expect(n[2]).toBeCloseTo(0.47978957364061414, 9);
+  });
+});
