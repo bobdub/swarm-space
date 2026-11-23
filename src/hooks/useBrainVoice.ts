@@ -51,6 +51,20 @@ export interface BrainVoicePeer {
   muted?: boolean;
 }
 
+/** The roster part of a presence: who a peer is, not where they stand. */
+type PresenceMeta = Pick<RoomPresence, "peerId" | "username" | "avatarId" | "color" | "pv">;
+
+const metaOf = (p: RoomPresence): PresenceMeta => ({
+  peerId: p.peerId,
+  username: p.username,
+  avatarId: p.avatarId,
+  color: p.color,
+  pv: p.pv,
+});
+
+const sameMeta = (a: PresenceMeta, b: PresenceMeta): boolean =>
+  a.username === b.username && a.avatarId === b.avatarId && a.color === b.color && a.pv === b.pv;
+
 /**
  * P2P voice chat for the Brain. Reuses the existing WebRTCManager exactly
  * the same way streaming rooms do — `BRAIN_ROOM_ID` is just another room.
@@ -70,7 +84,15 @@ export function useBrainVoice(
     const next = manager.getParticipants();
     setRawParticipants((prev) => (sameParticipants(prev, next) ? prev : next));
   }, []);
-  const [presenceById, setPresenceById] = useState<Record<string, RoomPresence>>({});
+  // Presence arrives every 1.5 s per walking peer (3 Hz on a boat). The
+  // latest packet per peer lives in a ref; React state only holds the
+  // roster (who is here, name, avatar), so walking never re-renders the
+  // scene or re-runs effects keyed on `participants`. Positions reach
+  // consumers through `getPeerPresence` / `onPeerPresence`.
+  const presenceRef = useRef(new Map<string, RoomPresence>());
+  const presenceListenersRef = useRef(new Set<(p: RoomPresence) => void>());
+  const rosterRef = useRef<Record<string, PresenceMeta>>({});
+  const [rosterById, setRosterById] = useState<Record<string, PresenceMeta>>({});
   // Mute lives on the call layer so it survives camera toggles, reconnects
   // and re-entering the Brain.
   const [isMuted, setIsMuted] = useState(() =>
@@ -125,21 +147,37 @@ export function useBrainVoice(
       }
     });
 
+    const presence = presenceRef.current;
+    const ingestPresence = (list: RoomPresence[]) => {
+      let roster = rosterRef.current;
+      for (const p of list) {
+        presence.set(p.peerId, p);
+        const meta = metaOf(p);
+        const known = roster[p.peerId];
+        if (known && sameMeta(known, meta)) continue;
+        if (roster === rosterRef.current) roster = { ...roster };
+        roster[p.peerId] = meta;
+      }
+      if (roster !== rosterRef.current) {
+        rosterRef.current = roster;
+        setRosterById(roster);
+      }
+      for (const p of list) {
+        for (const listener of presenceListenersRef.current) {
+          try { listener(p); } catch (err) { console.warn("[BrainVoice] presence listener failed", err); }
+        }
+      }
+    };
+
     // Subscribe to remote presence updates.
     const unsubPresence = onRoomPresence((p) => {
       if (p.roomId !== roomId) return;
-      setPresenceById((prev) => ({ ...prev, [p.peerId]: p }));
+      ingestPresence([p]);
     });
     // Hydrate from any presence already cached.
     try {
       const initial = getRoomPresences(roomId);
-      if (initial.length > 0) {
-        setPresenceById((prev) => {
-          const next = { ...prev };
-          for (const p of initial) next[p.peerId] = p;
-          return next;
-        });
-      }
+      if (initial.length > 0) ingestPresence(initial);
     } catch { /* ignore */ }
 
     if (pendingLeave) { clearTimeout(pendingLeave); pendingLeave = null; }
@@ -174,12 +212,13 @@ export function useBrainVoice(
 
     const unsubRemoved = onRoomPresenceRemoved((rid, peerId) => {
       if (rid !== roomId) return;
-      setPresenceById((prev) => {
-        if (!(peerId in prev)) return prev;
-        const next = { ...prev };
+      presence.delete(peerId);
+      if (peerId in rosterRef.current) {
+        const next = { ...rosterRef.current };
         delete next[peerId];
-        return next;
-      });
+        rosterRef.current = next;
+        setRosterById(next);
+      }
       refreshParticipants(manager);
     });
 
@@ -208,7 +247,9 @@ export function useBrainVoice(
       }
       setJoined(false);
       setRawParticipants([]);
-      setPresenceById({});
+      presence.clear();
+      rosterRef.current = {};
+      setRosterById({});
     };
   }, [enabled, user?.id, roomId, refreshParticipants]);
 
@@ -240,13 +281,15 @@ export function useBrainVoice(
   }, [audio, enabled, user]);
 
   // Merge raw WebRTC participants with presence data so callers get
-  // { peerId, username, avatarId } in one shape. Memoized so the
-  // returned array only gets a new identity when peer data actually
-  // changes — consumers keying effects on `participants` would
-  // otherwise re-run every render.
+  // { peerId, username, avatarId } in one shape. Memoized on the roster,
+  // so the array only gets a new identity when someone joins, leaves or
+  // changes name/avatar/call state, never on a position update. The
+  // position fields are a snapshot from that moment; read live poses
+  // with `getPeerPresence` / `onPeerPresence`.
   const participants: BrainVoicePeer[] = useMemo(() => {
+    const presenceById = presenceRef.current;
     const fromCall = rawParticipants.map((p) => {
-      const pres = presenceById[p.peerId];
+      const pres = presenceById.get(p.peerId);
       return {
         peerId: p.peerId,
         username: pres?.username || p.username || p.peerId.slice(0, 8),
@@ -267,8 +310,10 @@ export function useBrainVoice(
     // bridge when a peer leaves or goes quiet.
     const self = (() => { try { return getLocalMeshPeerId(); } catch { return null; } })();
     const inCall = new Set(rawParticipants.map((p) => p.peerId));
-    const presenceOnly = Object.values(presenceById)
-      .filter((pres) => pres.peerId !== self && !inCall.has(pres.peerId))
+    const presenceOnly = Object.keys(rosterById)
+      .filter((peerId) => peerId !== self && !inCall.has(peerId))
+      .map((peerId) => presenceById.get(peerId))
+      .filter((pres): pres is RoomPresence => !!pres)
       .map((pres) => ({
         peerId: pres.peerId,
         username: pres.username || pres.peerId.slice(0, 8),
@@ -283,7 +328,22 @@ export function useBrainVoice(
         muted: true,
       }));
     return presenceOnly.length > 0 ? [...fromCall, ...presenceOnly] : fromCall;
-  }, [rawParticipants, presenceById]);
+  }, [rawParticipants, rosterById]);
+
+  /** Latest presence a peer sent (position, Earth-local point, boat). */
+  const getPeerPresence = useCallback(
+    (peerId: string): RoomPresence | undefined => presenceRef.current.get(peerId),
+    [],
+  );
+
+  /**
+   * Called for every presence packet in this room, outside React. Use it
+   * to move bodies; do not set React state from it per packet.
+   */
+  const onPeerPresence = useCallback((listener: (p: RoomPresence) => void) => {
+    presenceListenersRef.current.add(listener);
+    return () => { presenceListenersRef.current.delete(listener); };
+  }, []);
 
   // Record a "brain" activity point the first time a peer shares the room
   // in a session (0 → >0 participants). Resets when the room empties.
@@ -431,5 +491,7 @@ export function useBrainVoice(
     sendChatLine,
     onChatLine,
     broadcastSelfPosition,
+    getPeerPresence,
+    onPeerPresence,
   };
 }

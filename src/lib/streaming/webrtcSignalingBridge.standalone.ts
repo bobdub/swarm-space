@@ -644,7 +644,7 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       // A relayed copy can arrive after a newer direct one. Never let an
       // older update move an avatar back to where it was.
       const known = bucket.get(envelope.from);
-      if (known && (envelope.ts ?? 0) < known.ts) return;
+      if (known && (envelope.ts ?? 0) <= known.ts) return;
       bucket.set(envelope.from, presence);
       if (joinedRooms.has(envelope.roomId)) dialRoomPeer(envelope.from);
       for (const handler of roomPresenceHandlers) {

@@ -228,6 +228,75 @@ const RUN_COOLDOWN_MS = 6000;
 // same intent magnitude.
 const RUN_MULTIPLIER = 2.0;
 
+/** What one presence says about a remote peer's avatar. */
+interface RemotePeerPose {
+  peerId: string;
+  username: string;
+  avatarId?: string;
+  position?: [number, number, number];
+  local?: [number, number, number];
+  presenceTs?: number;
+  boat?: unknown;
+}
+
+/**
+ * Place (or create) a remote peer's avatar body from their latest
+ * presence. The body is kinematic: the peer's own device solves its
+ * physics, so here it only holds the received transform. A presence
+ * already applied (same send time) leaves position and boat alone.
+ */
+function syncRemotePeerBody(
+  physics: ReturnType<typeof getBrainPhysics>,
+  applied: Map<string, number>,
+  p: RemotePeerPose,
+  pose: ReturnType<typeof getEarthPose>,
+  fleet: ReturnType<typeof getFleet>,
+): void {
+  const id = `peer-${p.peerId}`;
+  const fresh = p.presenceTs === undefined || applied.get(p.peerId) !== p.presenceTs;
+  // Accept the peer's broadcast position verbatim: their physics already
+  // solved the surface. Earth-local points are turned into world space
+  // with OUR Earth pose, so the avatar sits on the same patch of ground
+  // it does for them. Peers with no position yet cluster near the shared
+  // village so late joiners stay in view.
+  const broadcastPos = resolvePeerWorldPosition(p, pose);
+  // Boats: this peer's own boat, and where on a deck they stand. A peer
+  // on a deck is drawn on that deck spot (deck lock), so they ride a
+  // moving boat instead of trailing its 1.5 s-old position.
+  let deckPos: [number, number, number] | null = null;
+  if (fresh) {
+    const boatInfo = decodeBoatPresence(p.boat);
+    fleet.applyRemote(p.peerId, boatInfo?.v);
+    // One stroke per presence.
+    if (boatInfo?.r && p.presenceTs !== undefined) fleet.remoteRow(p.peerId, boatInfo.r, undefined, p.presenceTs);
+    const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
+    deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
+  }
+  const meta = { username: p.username, peerId: p.peerId, avatarId: p.avatarId };
+  const existing = physics.getBody(id);
+  if (existing) {
+    existing.mass = 0;
+    existing.kinematic = true;
+    existing.vel = [0, 0, 0];
+    if (deckPos) existing.pos = deckPos;
+    else if (broadcastPos && fresh) existing.pos = broadcastPos;
+    const old = existing.meta ?? {};
+    if (old.username !== meta.username || old.peerId !== meta.peerId || old.avatarId !== meta.avatarId) {
+      existing.meta = { ...old, ...meta };
+    }
+  } else {
+    physics.addBody({
+      id, kind: 'avatar',
+      pos: deckPos ?? broadcastPos ?? spawnNearSharedVillage(p.peerId, pose, 10, 22),
+      vel: [0, 0, 0],
+      mass: 0, trust: 0.5,
+      kinematic: true,
+      meta: { attachedTo: 'earth-surface' as const, ...meta },
+    });
+  }
+  if (p.presenceTs !== undefined) applied.set(p.peerId, p.presenceTs);
+}
+
 function tryStartRun(now: number): boolean {
   if (runState.active) return false;
   if (now < runState.cooldownUntil) return false;
@@ -1415,6 +1484,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     sendChatLine,
     onChatLine,
     broadcastSelfPosition,
+    getPeerPresence,
+    onPeerPresence,
   } = useBrainVoice(ready, roomId, { audio: micOn });
   const onMicButton = useCallback(() => {
     if (micOn) { toggleMute(); return; }
@@ -1857,83 +1928,31 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [universeKey]);
 
   // ── Remote voice peers ⇒ physics bodies on Earth's surface ────────
-  // Presence send time last applied per peer. This effect re-runs whenever
-  // any peer changes; re-applying an old position snapped every avatar back
-  // to where it was when its last update was sent.
+  // Presence send time last applied per peer. Re-applying an old presence
+  // snapped every avatar back to where it was when its last update was
+  // sent, and restarted remote boats' hand-over ease.
   const appliedPresenceTsRef = useRef(new Map<string, number>());
+
+  // Roster pass: runs only when someone joins, leaves or changes name or
+  // avatar (`voicePeers` keeps its identity while people walk). Adds and
+  // removes bodies; positions arrive per packet in the effect below.
   useEffect(() => {
     if (!ready) return;
     const applied = appliedPresenceTsRef.current;
     const seen = new Set(voicePeers.map((p) => `peer-${p.peerId}`));
     const pose = getEarthPose();
-    // Cluster fallback spawns near the local user's spawn so peers without
-    // a broadcast position are visible neighbours instead of antipodal
-    // dots (Earth radius is only 1700 m — random spawns can land on the
-    // far hemisphere and never enter the player's view frustum).
-    // Cluster fallback peers around the *shared village* (same anchor used
-    // by SurfaceApartment + SurfaceLandmarks) rather than the local body.
-    // This way every viewer sees remote peers congregating at the one
-    // apartment everyone shares, instead of orbiting their private spawn.
     const fleet = getFleet();
-    const fallbackNear = (peerId: string): [number, number, number] => {
-      return spawnNearSharedVillage(peerId, pose, 10, 22);
-    };
-    // Place peers on Earth's outer surface, deterministic per peerId.
-    for (const [index, p] of voicePeers.entries()) {
-      const id = `peer-${p.peerId}`;
-      void index;
-      // Prefer the position the peer actually broadcast — that's the
-      // truth of where their avatar lives on their machine. Fall back to
-      // a *near-cluster* spawn around the local user so we still render
-      // late joiners that haven't published a position yet AND keep them
-      // inside the player's view frustum. The deterministic global spawn
-      // is only used when we have no self-anchor (very early boot).
-      // Phase 4A — accept the peer's broadcast position verbatim. Their
-      // physics already solved the surface; reprojecting it here would
-      // snap walking remote avatars off-position every render.
-      // Earth-local points are turned into world space with OUR Earth pose,
-      // so the avatar sits on the same patch of ground it does for them.
-      const fresh = p.presenceTs !== undefined && applied.get(p.peerId) !== p.presenceTs;
-      const broadcastPos = resolvePeerWorldPosition(p, pose);
-      const initPos = broadcastPos ?? fallbackNear(p.peerId);
-      // Per-peer spawn log removed — this effect re-runs every render
-      // because `voicePeers` is a fresh array reference, and the log was
-      // flooding the console (thousands/min) and stalling input.
-      const init = {
-        pos: initPos,
-        vel: [0, 0, 0] as [number, number, number],
-        meta: { attachedTo: 'earth-surface' as const },
-      };
-      // Boats: this peer's own boat, and where on a deck they stand. A
-      // peer on a deck is drawn on that deck spot (deck lock), so they
-      // ride a moving boat instead of trailing its 1.5 s-old position.
-      const boatInfo = decodeBoatPresence(p.boat);
-      fleet.applyRemote(p.peerId, boatInfo?.v);
-      // One stroke per presence: replays of a quiet rower's last presence
-      // (this effect re-runs on any peer's update) must not keep them rowing.
-      if (boatInfo?.r && p.presenceTs !== undefined) fleet.remoteRow(p.peerId, boatInfo.r, undefined, p.presenceTs);
-      const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
-      const deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
-      const existing = physics.getBody(id);
-      if (existing) {
-        // Only adopt the broadcast position when the peer actually sent
-        // one. Phase 4A — when no broadcast arrived we leave the live
-        // body's position untouched (no shell reprojection) so the
-        // field's surface basin owns radial placement.
-        existing.mass = 0;
-        existing.vel = [0, 0, 0];
-        if (deckPos) existing.pos = deckPos;
-        else if (broadcastPos && fresh) existing.pos = broadcastPos;
-        existing.meta = { ...(existing.meta ?? {}), username: p.username, peerId: p.peerId, avatarId: p.avatarId };
-      } else {
-        physics.addBody({
-          id, kind: 'avatar',
-          pos: init.pos, vel: init.vel,
-          mass: 0, trust: 0.5,
-          meta: { ...init.meta, username: p.username, peerId: p.peerId, avatarId: p.avatarId },
-        });
-      }
-      if (broadcastPos && p.presenceTs !== undefined) applied.set(p.peerId, p.presenceTs);
+    for (const p of voicePeers) {
+      const live = getPeerPresence(p.peerId);
+      syncRemotePeerBody(physics, applied, {
+        peerId: p.peerId,
+        username: p.username,
+        avatarId: p.avatarId,
+        position: live?.position ?? p.position,
+        local: live?.local ?? p.local,
+        presenceTs: live?.ts ?? p.presenceTs,
+        boat: live ? live.boat : p.boat,
+      }, pose, fleet);
     }
     for (const peerId of Array.from(applied.keys())) {
       if (!seen.has(`peer-${peerId}`)) applied.delete(peerId);
@@ -1948,7 +1967,29 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         try { physics.removeBody(b.id); } catch { /* ignore */ }
       }
     }
-  }, [guestCandidateId, physics, ready, selfId, voicePeers]);
+  }, [guestCandidateId, physics, ready, selfId, voicePeers, getPeerPresence]);
+
+  // Pose pass: each presence packet moves only its own peer's body,
+  // outside React. Peers not on the roster yet are added by the pass above.
+  useEffect(() => {
+    if (!ready) return;
+    const applied = appliedPresenceTsRef.current;
+    return onPeerPresence((p) => {
+      const id = `peer-${p.peerId}`;
+      const existing = physics.getBody(id);
+      if (!existing) return;
+      const meta = existing.meta ?? {};
+      syncRemotePeerBody(physics, applied, {
+        peerId: p.peerId,
+        username: typeof meta.username === 'string' ? meta.username : (p.username ?? p.peerId.slice(0, 8)),
+        avatarId: typeof meta.avatarId === 'string' ? meta.avatarId : p.avatarId,
+        position: p.position,
+        local: p.local,
+        presenceTs: p.ts,
+        boat: p.boat,
+      }, getEarthPose(), getFleet());
+    });
+  }, [physics, ready, onPeerPresence]);
 
   // ── Broadcast our world-space position to the room ────────────────
   // Throttled to 1.5 s. Phase 4A — we send the *solved* body position
