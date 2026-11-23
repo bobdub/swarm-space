@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { getManualConnects, isManualConnectActive, requestManualConnect, subscribeManualConnects } from "@/lib/p2p/manualConnect";
+import { cancelManualConnect, getManualConnects, isManualConnectActive, requestManualConnect, subscribeManualConnects } from "@/lib/p2p/manualConnect";
 import { Avatar } from "@/components/Avatar";
 import { getFeatureFlags } from "@/config/featureFlags";
 import {
@@ -165,6 +165,8 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
   };
 
   const handleDisconnect = (peerId: string) => {
+    // An explicit disconnect must not be undone by a pending manual retry.
+    cancelManualConnect(peerId);
     disconnectFromPeer(peerId);
   };
 

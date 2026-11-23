@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useP2PContext } from '@/contexts/P2PContext';
-import { requestManualConnect } from '@/lib/p2p/manualConnect';
+import { cancelManualConnect, requestManualConnect } from '@/lib/p2p/manualConnect';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -42,6 +42,8 @@ export function PeerConnectionManager() {
   };
 
   const handleDisconnect = (peerId: string) => {
+    // An explicit disconnect must not be undone by a pending manual retry.
+    cancelManualConnect(peerId);
     disconnectFromPeer(peerId);
   };
 

@@ -373,6 +373,8 @@ export function P2PStatusIndicator() {
   const handleQuickDisconnect = (peerId: string, label: string) => {
     const trimmedPeerId = peerId.trim();
     setPeerPending(peerId, "disconnect");
+    // An explicit disconnect must not be undone by a pending manual retry.
+    cancelManualConnect(trimmedPeerId);
     disconnectFromPeer(trimmedPeerId);
     clearPeerPending(peerId);
   };
