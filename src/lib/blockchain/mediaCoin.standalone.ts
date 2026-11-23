@@ -115,6 +115,24 @@ export interface MediaCoinManifest {
   encryptionKey?: string;
   /** Optional IV prefix for encrypted chunks */
   encryptionIvPrefix?: string;
+  /**
+   * The post's torrent this coin carries, so a peer holding part of that
+   * torrent can rebuild the missing chunks from the coin's bytes. Opaque
+   * to the engine; like the key, it rides only direct hand-offs.
+   */
+  torrent?: MediaCoinTorrentBinding;
+}
+
+/** Where a coin's bytes live in the regular torrent (the post's file manifest). */
+export interface MediaCoinTorrentBinding {
+  /** The post's file manifest id. */
+  fileId: string;
+  /** The signed file manifest itself, for peers that have not received it yet. */
+  manifest: Record<string, unknown>;
+  /** Per-chunk AES-GCM IVs (base64), in manifest chunk order. */
+  chunkIvs: string[];
+  /** Per-chunk plaintext sizes, in manifest chunk order. */
+  chunkSizes: number[];
 }
 
 /** Progress during minting or playback */
@@ -387,6 +405,8 @@ export class MediaCoinEngine {
       encrypt?: boolean;
       /** Real mined wallet coin id to engrave onto; generated when absent. */
       coinId?: string;
+      /** The post's torrent these bytes belong to (see MediaCoinTorrentBinding). */
+      torrent?: MediaCoinTorrentBinding;
       onProgress?: (p: MediaCoinProgress) => void;
     }
   ): Promise<MediaCoinManifest> {
@@ -497,6 +517,7 @@ export class MediaCoinEngine {
       mintedAt: Date.now(),
       encryptionKey: encKeyB64,
       encryptionIvPrefix: encIvPrefix,
+      torrent: options?.torrent,
     };
 
     this.manifests.set(coinId, manifest);
@@ -521,7 +542,7 @@ export class MediaCoinEngine {
 
     // Broadcast announce. The decryption key never rides a broadcast: it
     // travels only inside a direct coin hand-off (see launch()).
-    const { encryptionKey: _key, encryptionIvPrefix: _iv, ...publicManifest } = manifest;
+    const { encryptionKey: _key, encryptionIvPrefix: _iv, torrent: _torrent, ...publicManifest } = manifest;
     const msg: MediaCoinMessage = {
       type: "coin-announce",
       coinId: manifest.coinId,

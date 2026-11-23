@@ -15,6 +15,7 @@ import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEnd
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 import { getAppVersionWatch } from './appVersion';
 import { GUN_RELAYS } from './gunRelays';
+import { getFlushedAssets, saveFlushedAssets, clearFlushedAsset } from './flushedAssets';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -404,31 +405,6 @@ function markRetryExhausted(manifestId: string): void {
     if (arr.length > 200) arr.splice(0, arr.length - 200);
     localStorage.setItem(EXHAUSTED_RETRIES_KEY, JSON.stringify(arr));
   } catch { /* noop */ }
-}
-
-// Files the user flushed from the Transfers list. Automatic post sync and
-// retries skip them; a peer announcing that it seeds one lifts the flag.
-const FLUSHED_ASSETS_KEY = 'swarm-flushed-assets';
-
-function getFlushedAssets(): Set<string> {
-  try {
-    const raw = localStorage.getItem(FLUSHED_ASSETS_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch { return new Set(); }
-}
-
-function saveFlushedAssets(set: Set<string>): void {
-  try {
-    // Bounded so the key can't grow forever; newest ids are kept.
-    const arr = Array.from(set);
-    if (arr.length > 2000) arr.splice(0, arr.length - 2000);
-    localStorage.setItem(FLUSHED_ASSETS_KEY, JSON.stringify(arr));
-  } catch { /* noop */ }
-}
-
-function clearFlushedAsset(manifestId: string): void {
-  const set = getFlushedAssets();
-  if (set.delete(manifestId)) saveFlushedAssets(set);
 }
 
 function clearRetryExhausted(manifestId: string): void {
@@ -1984,6 +1960,7 @@ export class StandaloneSwarmMesh {
     // Listen for profile updates so avatar changes propagate in real-time
     if (typeof window !== 'undefined') {
       window.addEventListener('profile-updated', this._onProfileUpdated);
+      window.addEventListener('media-coin-torrent-filled', this._onCoinTorrentFilled);
     }
 
     await this.attachContentLifecycle();
@@ -2061,6 +2038,24 @@ export class StandaloneSwarmMesh {
         this.sendProfileExchange(conn);
       }
     }
+  };
+
+  /**
+   * A media coin filled the empty spots of a post's torrent
+   * (`TORRENT_FILLED_EVENT` in mediaCoinTorrentFill.ts). Show the new
+   * progress, and once every chunk is here treat it like a finished pull:
+   * stop retrying, seed it, and let the post re-render its media.
+   */
+  private _onCoinTorrentFilled = (evt: Event) => {
+    const detail = (evt as CustomEvent<{ fileId?: string; status?: string; filled?: number }>).detail;
+    const fileId = typeof detail?.fileId === 'string' ? detail.fileId : null;
+    if (!fileId) return;
+    void this.emitTransferProgress(fileId);
+    if (detail.status !== 'complete') return;
+    this.clearAssetRetry(fileId);
+    clearRetryExhausted(fileId);
+    this.announceSeeding(fileId);
+    if (detail.filled) window.dispatchEvent(new Event('p2p-posts-updated'));
   };
 
   // ── Departures ────────────────────────────────────────────────────
@@ -2151,6 +2146,7 @@ export class StandaloneSwarmMesh {
     this.queuedManualDials.clear();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
+      window.removeEventListener('media-coin-torrent-filled', this._onCoinTorrentFilled);
     }
     const peer = this.peer;
     this.peer = null;
