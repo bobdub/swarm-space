@@ -54,6 +54,7 @@ import {
 import { causalCollide } from './collide';
 import {
   initLavaMantle,
+  lavaMantleReassertDue,
   sampleMantleRadialAcceleration,
   updateLavaMantlePin,
 } from './lavaMantle';
@@ -291,6 +292,11 @@ export class UqrcPhysics {
    * template. Keeping it separate prevents one moving pub prop from erasing
    * Earth or a neighbouring prop when its old stamp is removed. */
   private supportBasins = new Map<number, SupportContribution>();
+  /** Running Σ of every live support contribution per lattice cell, plus
+   * how many basins own it. Composing a cell is base + sum, O(1), so a
+   * village of N builds crossing a lattice cell together costs O(N), not
+   * O(N²) (each rebuild used to walk every other basin for every cell). */
+  private supportSum = new Map<number, { v: [number, number, number]; owners: number }>();
   private supportBase = new Map<number, [number, number, number]>();
   private nextSupportBasinId = 1;
   /** Last finite Earth-local state for surface bodies. Used only if a bad
@@ -643,6 +649,7 @@ export class UqrcPhysics {
       }
     }
     this.supportBasins.set(id, { cells: written, axes });
+    for (const [flat, value] of axes) this.addSupportSum(flat, value, 1);
     this.composeSupportCells(written);
     return { id, cells: written };
   }
@@ -651,6 +658,10 @@ export class UqrcPhysics {
    * plus every remaining overlapping support. */
   unpinSupportBasin(handle: SupportBasinHandle | null | undefined): void {
     if (!handle) return;
+    const support = this.supportBasins.get(handle.id);
+    if (support) {
+      for (const [flat, value] of support.axes) this.addSupportSum(flat, value, -1);
+    }
     this.supportBasins.delete(handle.id);
     this.composeSupportCells(handle.cells);
     handle.cells.length = 0;
@@ -664,17 +675,32 @@ export class UqrcPhysics {
     return this.pinSupportBasin(next, radiusM, 0.6);
   }
 
+  private addSupportSum(flat: number, value: [number, number, number], sign: 1 | -1): void {
+    let entry = this.supportSum.get(flat);
+    if (!entry) {
+      if (sign < 0) return;
+      entry = { v: [0, 0, 0], owners: 0 };
+      this.supportSum.set(flat, entry);
+    }
+    entry.owners += sign;
+    if (entry.owners <= 0) {
+      // Last owner gone: drop the sum outright so float residue from
+      // repeated add/subtract never lingers in an empty cell.
+      this.supportSum.delete(flat);
+      return;
+    }
+    for (let a = 0; a < FIELD3D_AXES; a++) entry.v[a] += sign * value[a];
+  }
+
   private composeSupportCells(cells: Iterable<number>): void {
     const unique = new Set(cells);
     for (const flat of unique) {
       const base = this.supportBase.get(flat) ?? [0, 0, 0];
       const composed: [number, number, number] = [base[0], base[1], base[2]];
-      let owners = 0;
-      for (const support of this.supportBasins.values()) {
-        const value = support.axes.get(flat);
-        if (!value) continue;
-        owners++;
-        for (let a = 0; a < FIELD3D_AXES; a++) composed[a] += value[a];
+      const sum = this.supportSum.get(flat);
+      const owners = sum?.owners ?? 0;
+      if (sum) {
+        for (let a = 0; a < FIELD3D_AXES; a++) composed[a] += sum.v[a];
       }
       for (let a = 0; a < FIELD3D_AXES; a++) {
         if (owners > 0 || composed[a] !== 0) {
@@ -740,7 +766,18 @@ export class UqrcPhysics {
   restore(snap: Field3DSnapshot): void {
     if (this.restored) return;
     this.restored = true;
-    try { this.field = deserializeField3D(snap); }
+    try {
+      // Restore only the evolved field values. Every pin (mantle, galaxy,
+      // elements, round curvature, portals, builder support) is rewritten
+      // by its owner at boot from the live pose; a saved pin template
+      // still holds the stamp from wherever Earth sat at save time, and
+      // the mantle only clears its own current cells, so restoring it
+      // left a ghost Earth basin that was re-saved and compounded on
+      // every reload.
+      const saved = deserializeField3D(snap);
+      if (saved.N !== this.field.N) return;
+      for (let a = 0; a < FIELD3D_AXES; a++) this.field.axes[a].set(saved.axes[a]);
+    }
     catch (err) { console.warn('[UqrcPhysics] restore failed:', err); }
   }
 
@@ -829,7 +866,11 @@ export class UqrcPhysics {
     try {
       const pose: EarthPose = getEarthPose();
       const prevPose: EarthPose = this.lastPose ?? pose;
-      this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, getEarthPoseTime()));
+      // The mantle re-stamps every few field ticks; between stamps the
+      // support overlay is unchanged, so skip the recompose entirely.
+      if (lavaMantleReassertDue(this.field)) {
+        this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, getEarthPoseTime()));
+      }
 
       // 1. Field evolves
       // 1. Field evolves on its own (documented) clock, 𝒪_UQRC at FIELD_HZ.
@@ -1183,9 +1224,9 @@ export class UqrcPhysics {
           if (rMag > 1e-6) {
             const ux = rdx / rMag, uy = rdy / rMag, uz = rdz / rMag;
             const vRad = b.vel[0] * ux + b.vel[1] * uy + b.vel[2] * uz;
-            const tx = b.vel[0] - vRad * ux;
-            const ty = b.vel[1] - vRad * uy;
-            const tz = b.vel[2] - vRad * uz;
+            let tx = b.vel[0] - vRad * ux;
+            let ty = b.vel[1] - vRad * uy;
+            let tz = b.vel[2] - vRad * uz;
             const tMag = Math.hypot(tx, ty, tz);
             // Wading scales the tangential speed cap. Open water → 45%
             // of land walk speed; partial coast → linearly interpolated.
@@ -1201,10 +1242,14 @@ export class UqrcPhysics {
             const walkCap = SURFACE_WALK_SPEED * sprintScale *
               groundWalkScaleAt(localNwalk, feetNow);
             if (tMag > walkCap) {
+              // Keep the capped tangent: the floor clamp and settle band
+              // below rebuild the velocity from (tx, ty, tz), and using
+              // the pre-cap values there silently undid the cap.
               const k = walkCap / tMag;
-              b.vel[0] = vRad * ux + tx * k;
-              b.vel[1] = vRad * uy + ty * k;
-              b.vel[2] = vRad * uz + tz * k;
+              tx *= k; ty *= k; tz *= k;
+              b.vel[0] = vRad * ux + tx;
+              b.vel[1] = vRad * uy + ty;
+              b.vel[2] = vRad * uz + tz;
             }
             // Radial settle. Within the settle band the residual radial
             // velocity is the sampled-gradient noise that showed up as the
