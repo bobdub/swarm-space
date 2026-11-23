@@ -20,6 +20,8 @@ import {
   VideoOff,
   Volume2,
   VolumeX,
+  Bell,
+  BellOff,
   X,
   HelpCircle,
 } from 'lucide-react';
@@ -66,6 +68,7 @@ import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { networkNow } from '@/lib/time/networkClock';
 import { causalOrder } from '@/lib/chat/chatOrder';
 import { getAppVersionWatch } from '@/lib/p2p/appVersion';
+import { isChatChirpEnabled, setChatChirpEnabled } from '@/lib/brain/chatChirp';
 
 export interface BrainChatLine {
   id: string;
@@ -172,6 +175,12 @@ export function BrainChatPanel({
   const isMobile = useIsMobile();
   const [text, setText] = useState('');
   const [fullscreen, setFullscreen] = useState(false);
+  const [chirpOn, setChirpOn] = useState(isChatChirpEnabled);
+  const toggleChirp = useCallback(() => {
+    const next = !chirpOn;
+    setChatChirpEnabled(next);
+    setChirpOn(next);
+  }, [chirpOn]);
   const [replyTo, setReplyTo] = useState<BrainChatLine['replyTo'] | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [seededLines, setSeededLines] = useState<BrainChatLine[]>([]);
@@ -745,6 +754,17 @@ export function BrainChatPanel({
               </Button>
             )
           )}
+          {!isEmbedded && <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-foreground/60 hover:text-foreground"
+            onClick={toggleChirp}
+            aria-label={chirpOn ? 'Turn off new message chirp' : 'Turn on new message chirp'}
+            title={chirpOn ? 'Turn off new message chirp' : 'Turn on new message chirp'}
+          >
+            {chirpOn ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
+          </Button>}
           {!isEmbedded && <Button
             type="button"
             size="icon"

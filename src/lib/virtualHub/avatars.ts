@@ -59,6 +59,8 @@ export interface VirtualHubPrefs {
   infinityChatMode?: InfinityChatMode;
   /** Guest choice is isolated from member participation preferences. */
   guestInfinityChatMode?: InfinityChatMode;
+  /** Bird chirp when someone else's Brain chat message arrives; absent means on. */
+  chatChirp?: boolean;
 }
 
 const PREFS_KEY = "swarm-virtual-hub-prefs";
