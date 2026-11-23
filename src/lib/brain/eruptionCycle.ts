@@ -27,12 +27,16 @@
  *
  * Pure: no state, no writes. Safe to call per frame.
  */
+import { GAME_DAY_SECONDS } from './earth';
 import { ventSupplyPressure } from './lavaMantle';
 import { STROMBOLIAN_PERIOD_S, magmaHeadAt, slugPhaseAt } from './magmaConduit';
 import type { VolcanoOrgan } from './volcanoOrgan';
 
-/** Seconds from one cycle's start to the next, on the shared clock. */
-export const ERUPTION_CYCLE_S = 1500;
+/** Seconds from one cycle's start to the next, on the shared clock: one
+ *  eruption per game week (one real day). Between eruptions the magma
+ *  rests down the conduit and the flank flows cool and weather away, so
+ *  lava only runs down the volcano when it has erupted recently. */
+export const ERUPTION_CYCLE_S = 7 * GAME_DAY_SECONDS;
 /** Depth (m) below the crater floor where the column rests when quiet. */
 export const REST_DEPTH_M = 42;
 /** Pond level (m) above the crater-frame origin while effusing. */

@@ -1,5 +1,5 @@
 import { BODY_CENTER_HEIGHT, FEET_SHELL_RADIUS, FOOT_CUSHION } from './earth';
-import { sampleTerrainLift } from './terrainMesh';
+import { craterGroundAt } from './craterCarve';
 import { deckElevationAt } from './sea/deckSupport';
 import { WATER_WADE_DEPTH, WATER_WALK_SCALE } from './surfaceProfile';
 import { seaLevelAt } from './sea/seaSurface';
@@ -17,11 +17,14 @@ export function groundWalkScaleAt(localN: [number, number, number], feet?: numbe
  * Metres above sea level (EARTH_RADIUS) of the solid ground at an
  * Earth-local unit normal — the exact displaced triangle the Earth mesh
  * draws there. On land: land lift + volcano cone. Out at sea: negative,
- * the sea floor (beach shelf → shelf → slope → deep ocean bed). Solid
- * everywhere, so nothing can fall into the planet.
+ * the sea floor (beach shelf → shelf → slope → deep ocean bed). At the
+ * summit the crater is carved into it (`craterCarve.ts`): a bowl you can
+ * walk down into, and over the vent no ground until the magma head far
+ * down the shaft. Solid everywhere else, so nothing can fall into the
+ * planet.
  */
 export function groundElevationAt(localN: [number, number, number]): number {
-  return sampleTerrainLift(localN);
+  return craterGroundAt(localN);
 }
 
 /**
@@ -51,7 +54,7 @@ export const SWIM_FEET_DEPTH = SWIM_BODY_DEPTH + BODY_CENTER_HEIGHT + FOOT_CUSHI
  * so a swimmer under the jetty or beside a hull stays in the water.
  */
 export function supportElevationAt(localN: [number, number, number], feet?: number): number {
-  return Math.max(groundElevationAt(localN), seaLevelAt(localN) - SWIM_FEET_DEPTH, deckElevationAt(localN, feet));
+  return Math.max(craterGroundAt(localN, undefined, feet), seaLevelAt(localN) - SWIM_FEET_DEPTH, deckElevationAt(localN, feet));
 }
 
 /** True when the walker at this point is swimming rather than standing. */

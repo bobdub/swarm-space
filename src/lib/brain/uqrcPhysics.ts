@@ -74,6 +74,10 @@ import { EARTH_CORE_RADIUS } from './earthCore';
 import { FOOT_CUSHION, getEarthPoseTime } from './earth';
 import { groundWalkScaleAt, isSwimmingAt, supportElevationAt } from './groundHeight';
 import { confineToDecks, hasDeckWalls } from './sea/deckSupport';
+import { containInVent, inMagmaAt } from './craterCarve';
+
+/** Why a body was rescued back to the village. */
+export type RescueReason = 'core' | 'lava';
 
 /** Radial launch speed of a jump (m/s). Against the mantle's tanh pull
  *  and the body's own damping this lifts the feet ≈ 1 m for ≈ 0.7 s,
@@ -287,7 +291,7 @@ export class UqrcPhysics {
   /** Optional rescue hook — set by the scene to teleport a body that has
    *  fallen through the volcano back to the shared village. Pure callback;
    *  physics only invokes it, the scene supplies the spawn point. */
-  private coreRescue: ((id: string) => void) | null = null;
+  private coreRescue: ((id: string, reason: RescueReason) => void) | null = null;
   /** Builder support is an overlay, never an owner of the shared mantle
    * template. Keeping it separate prevents one moving pub prop from erasing
    * Earth or a neighbouring prop when its old stamp is removed. */
@@ -306,7 +310,7 @@ export class UqrcPhysics {
   private airborne = new Map<string, number>();
 
   /** Register the rescue hook (scene-owned: it knows the village anchor). */
-  setCoreRescue(fn: ((id: string) => void) | null): void {
+  setCoreRescue(fn: ((id: string, reason: RescueReason) => void) | null): void {
     this.coreRescue = fn;
   }
 
@@ -797,6 +801,34 @@ export class UqrcPhysics {
       if (!(r > 1e-6)) continue;
       const n = quatRotate(pose.invSpinQuat, [rx / r, ry / r, rz / r]);
       const fixed = confineToDecks(n, r - BODY_SHELL_RADIUS - FOOT_CUSHION, DECK_BODY_RADIUS);
+      if (!fixed) continue;
+      const w = quatRotate(pose.spinQuat, fixed);
+      const dx = w[0] * r - rx;
+      const dy = w[1] * r - ry;
+      const dz = w[2] * r - rz;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1e-9) continue;
+      b.pos[0] += dx; b.pos[1] += dy; b.pos[2] += dz;
+      const nx = dx / d, ny = dy / d, nz = dz / d;
+      const vIn = b.vel[0] * nx + b.vel[1] * ny + b.vel[2] * nz;
+      if (vIn < 0) {
+        b.vel[0] -= vIn * nx; b.vel[1] -= vIn * ny; b.vel[2] -= vIn * nz;
+      }
+    }
+  }
+
+  private resolveVentWalls(pose: EarthPose): void {
+    for (const b of this.bodies.values()) {
+      if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (b.meta?.attachedTo !== 'earth-surface') continue;
+      if (!b.pos.every(Number.isFinite)) continue;
+      const rx = b.pos[0] - pose.center[0];
+      const ry = b.pos[1] - pose.center[1];
+      const rz = b.pos[2] - pose.center[2];
+      const r = Math.hypot(rx, ry, rz);
+      if (!(r > 1e-6)) continue;
+      const n = quatRotate(pose.invSpinQuat, [rx / r, ry / r, rz / r]);
+      const fixed = containInVent(n, r - BODY_SHELL_RADIUS - FOOT_CUSHION);
       if (!fixed) continue;
       const w = quatRotate(pose.spinQuat, fixed);
       const dx = w[0] * r - rx;
@@ -1353,6 +1385,9 @@ export class UqrcPhysics {
       //    below, a tangential push-out after the step; radial motion is
       //    untouched. Runs before the local track so renderers see it.
       this.resolveDeckWalls(pose);
+      // ── Vent walls: once down the volcano's shaft, its rock walls hold
+      //    the body in (a tangential push-out, like the deck walls).
+      this.resolveVentWalls(pose);
 
       this.lastPose = pose;
 
@@ -1399,12 +1434,20 @@ export class UqrcPhysics {
           const acc = (this.coreDwell.get(b.id) ?? 0) + dt;
           if (acc > CORE_ESCAPE_DWELL_S && this.coreRescue) {
             this.coreDwell.delete(b.id);
-            try { this.coreRescue(b.id); } catch { /* ignore */ }
+            try { this.coreRescue(b.id, 'core'); } catch { /* ignore */ }
           } else {
             this.coreDwell.set(b.id, acc);
           }
         } else if (this.coreDwell.has(b.id)) {
           this.coreDwell.delete(b.id);
+        }
+        // Down the volcano's vent and into the magma: rescued to the
+        // village like a fall through the core.
+        if (this.coreRescue && b.meta?.attachedTo === 'earth-surface' && r > 1e-6) {
+          const n = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
+          if (inMagmaAt(n, r - BODY_SHELL_RADIUS - FOOT_CUSHION)) {
+            try { this.coreRescue(b.id, 'lava'); } catch { /* ignore */ }
+          }
         }
       }
 

@@ -2,7 +2,8 @@
  * lavaFlows — where lava goes when the shared volcano overflows, and how
  * far and how hot it is at any shared moment.
  *
- * Paths. Lava leaves the summit pond over its lowest edges and runs down
+ * Paths. Lava fills the carved crater (`craterCarve.ts`) and pours over
+ * the lowest points of its rim, the spill saddles, then runs down
  * the steepest descent of the RENDERED ground (`sampleTerrainLift`, the
  * same baked triangles the player walks on), with a little inertia so a
  * tongue does not zig-zag across mesh facets. Up to `MAX_TONGUES` tongues
@@ -34,10 +35,8 @@ export const MIN_TONGUE_SEPARATION_DEG = 80;
 export const FLOW_STEP_M = 3;
 /** Longest a tongue can run (m). */
 export const MAX_FLOW_M = 240;
-/** Where tongues start: inside the summit pond (m from the vent). */
-const START_R_M = 12;
-/** Ring (m from the vent) searched for the lowest saddles. */
-const SADDLE_R_M = 24;
+/** Run (m) down from the rim before a tongue may stop on a flat. */
+const RIM_RUN_M = 12;
 /** Seconds for the crust to darken once supply stops. */
 export const COOL_S = 90;
 /** Seconds for cold basalt to weather back into the slope. */
@@ -120,7 +119,8 @@ export function saddleAzimuths(organ: VolcanoOrgan): number[] {
       e1[1] * Math.cos(az) + e2[1] * Math.sin(az),
       e1[2] * Math.cos(az) + e2[2] * Math.sin(az),
     ];
-    samples.push({ az, lift: sampleTerrainLift(stepOnSphere(n, dir, SADDLE_R_M)) });
+    // On the rim: the crater's spill points.
+    samples.push({ az, lift: sampleTerrainLift(stepOnSphere(n, dir, organ.craterRadius)) });
   }
   samples.sort((a, b) => a.lift - b.lift || a.az - b.az);
   const chosen: number[] = [];
@@ -143,7 +143,9 @@ function tracePath(organ: VolcanoOrgan, az: number): FlowPath {
     e1[1] * Math.cos(az) + e2[1] * Math.sin(az),
     e1[2] * Math.cos(az) + e2[2] * Math.sin(az),
   ];
-  let d = stepOnSphere(n, radial, START_R_M);
+  // Starts at the spill saddle on the rim: inside it the crater is a bowl
+  // that fills, and lava only leaves it over the rim.
+  let d = stepOnSphere(n, radial, organ.craterRadius);
   // Heading: start radially outward, carried along the great circle.
   let heading = tangent(d, radial);
   const dirs: Vec3[] = [];
@@ -158,11 +160,11 @@ function tracePath(organ: VolcanoOrgan, az: number): FlowPath {
     left.push(cross(d, heading));
     if (travelled >= MAX_FLOW_M) break;
     // Off the cone (or into a flat): the flow spreads out and stops.
-    if (travelled > SADDLE_R_M && sampleVolcanoElevation(organ, d) < 2) break;
+    if (travelled > RIM_RUN_M && sampleVolcanoElevation(organ, d) < 2) break;
     const g = downhill(d);
-    if (travelled > SADDLE_R_M && g.slope < 0.02) break;
+    if (travelled > RIM_RUN_M && g.slope < 0.02) break;
     // Inertia: lava keeps some of its heading over a mesh crease.
-    const blend = travelled < SADDLE_R_M - START_R_M ? 0.25 : 0.55;
+    const blend = travelled < RIM_RUN_M ? 0.25 : 0.55;
     heading = tangent(d, [
       heading[0] * (1 - blend) + g.dir[0] * blend,
       heading[1] * (1 - blend) + g.dir[1] * blend,
