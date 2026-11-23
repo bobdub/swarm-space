@@ -60,6 +60,7 @@ import { BrainStatusReadout } from '@/components/brain/BrainStatusReadout';
 import { needsBoomClearance } from '@/lib/brain/cameraClearance';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
+import { Constellations } from '@/components/brain/Constellations';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
@@ -627,6 +628,8 @@ const WorldBackdrop = memo(function WorldBackdrop({ selfId }: { selfId: string |
   return (
     <>
   <StarField />
+  {/* Cat, Dragon, Pirate Ship and Flask: fixed sky, shared Earth clock. */}
+  <Constellations />
   <AtmosphereSky />
   {/* Real point-light "Sun" — placed off the galactic plane, casts on
       Earth and standard materials. No abstract sky dome, no painted
