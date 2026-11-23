@@ -15,7 +15,7 @@
  * UQRC field, so behavioural patterns and language share one geometry.
  */
 
-import { getSharedFieldEngine } from '../uqrc/fieldEngine';
+import { queueFieldInject } from '../uqrc/fieldInjectQueue';
 
 // ── Event Types ─────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ export class PatternLearner {
     // Behavioural events become lattice perturbations on the shared ring.
     // Reward-bearing patterns build basins; toxic ones raise curvature.
     try {
-      getSharedFieldEngine().inject(event.type, {
+      queueFieldInject(event.type, {
         reward: event.reward,
         trust: event.trustScore,
       });

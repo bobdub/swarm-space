@@ -141,14 +141,21 @@ export class FieldEngine {
     });
   }
 
-  inject(text: string, opts: { amplitude?: number; axis?: number; reward?: number; trust?: number } = {}): void {
-    const baseAmp = opts.amplitude ?? 0.3;
-    const rewardBoost = opts.reward !== undefined ? Math.min(2, opts.reward) * 0.2 : 0;
-    const trustBoost = opts.trust !== undefined ? Math.min(1, opts.trust / 100) * 0.1 : 0;
-    fieldInject(this.field, text, baseAmp + rewardBoost + trustBoost, opts.axis ?? 0);
-    if (opts.reward !== undefined) {
-      fieldInject(this.field, text, Math.min(1, opts.reward) * 0.2, 2); // reward axis
+  inject(text: string, opts: InjectOpts = {}): void {
+    for (const c of resolveInjectAmplitudes(opts)) {
+      fieldInject(this.field, text, c.amplitude, c.axis);
     }
+    this.invalidateCache();
+  }
+
+  /**
+   * Apply many raw (already-resolved) perturbations and drop the read
+   * caches once, instead of once per perturbation. Used by the deferred
+   * inject queue so a burst of bus / peer events costs one invalidation.
+   */
+  injectBatch(entries: ReadonlyArray<ResolvedInject>): void {
+    if (entries.length === 0) return;
+    for (const e of entries) fieldInject(this.field, e.text, e.amplitude, e.axis);
     this.invalidateCache();
   }
 
@@ -332,6 +339,25 @@ export class FieldEngine {
       try { fn(status); } catch { /* ignore listener errors */ }
     }
   }
+}
+
+export interface InjectOpts { amplitude?: number; axis?: number; reward?: number; trust?: number }
+export interface ResolvedInject { text: string; axis: number; amplitude: number }
+
+/**
+ * The per-axis amplitudes `FieldEngine.inject(text, opts)` writes. The
+ * lattice write is linear in amplitude (up to the ±4 clamp), so queued
+ * nudges for the same text and axis can be summed before they land.
+ */
+export function resolveInjectAmplitudes(opts: InjectOpts = {}): Array<{ axis: number; amplitude: number }> {
+  const baseAmp = opts.amplitude ?? 0.3;
+  const rewardBoost = opts.reward !== undefined ? Math.min(2, opts.reward) * 0.2 : 0;
+  const trustBoost = opts.trust !== undefined ? Math.min(1, opts.trust / 100) * 0.1 : 0;
+  const out = [{ axis: opts.axis ?? 0, amplitude: baseAmp + rewardBoost + trustBoost }];
+  if (opts.reward !== undefined) {
+    out.push({ axis: 2, amplitude: Math.min(1, opts.reward) * 0.2 }); // reward axis
+  }
+  return out;
 }
 
 // ── Singleton ────────────────────────────────────────────────────────
