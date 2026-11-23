@@ -1,6 +1,7 @@
 import { getCallAudioContext } from '@/lib/webrtc/sharedAudioContext';
 import { loadHubPrefs, saveHubPrefs } from '@/lib/virtualHub/avatars';
 import { isPeerMuted } from '@/lib/brain/mutedPeersStore';
+import { deriveBlockedPeerIds, loadBlocklistFromStorage } from '@/lib/p2p/blocklistStore';
 
 /**
  * Brain chat chirp: a short synthesized bird call when someone else's chat
@@ -108,11 +109,15 @@ function markSeen(id: string): boolean {
 
 /**
  * Chirp for a chat line from someone else. Own lines never reach here (the
- * room chat drops our echoes); duplicates and lines from muted or blocked
- * people stay silent.
+ * room chat drops our echoes); duplicates and lines from muted people or
+ * anyone on the P2P blocklist stay silent.
  */
 export function chirpForRemoteLine(line: { id: string; peerId?: string; authorId?: string }, now: number = Date.now()): boolean {
   if (!markSeen(line.id)) return false;
-  if ((line.peerId && isPeerMuted(line.peerId)) || (line.authorId && isPeerMuted(line.authorId))) return false;
+  const ids = [line.peerId, line.authorId].filter((id): id is string => Boolean(id));
+  if (ids.some((id) => isPeerMuted(id))) return false;
+  // Blocks made outside the Brain (connections panel) live only in the P2P blocklist.
+  const blocked = new Set(deriveBlockedPeerIds(loadBlocklistFromStorage()));
+  if (ids.some((id) => blocked.has(id))) return false;
   return playChatChirp(now);
 }

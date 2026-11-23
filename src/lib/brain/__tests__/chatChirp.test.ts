@@ -32,6 +32,7 @@ import {
   setChatChirpEnabled,
 } from '../chatChirp';
 import { mutePeer, unmutePeer } from '../mutedPeersStore';
+import { persistBlocklist } from '@/lib/p2p/blocklistStore';
 
 describe('Brain chat chirp', () => {
   beforeEach(() => {
@@ -69,6 +70,12 @@ describe('Brain chat chirp', () => {
     unmutePeer('p1');
     setChatChirpEnabled(false);
     expect(chirpForRemoteLine({ id: 'c' }, 300_000)).toBe(false);
+  });
+
+  it('stays silent for people on the P2P blocklist', () => {
+    persistBlocklist([{ peerId: 'p9', direction: 'all', addedAt: 1 }]);
+    expect(chirpForRemoteLine({ id: 'x', peerId: 'p9' }, 0)).toBe(false);
+    expect(chirpForRemoteLine({ id: 'y', peerId: 'p8' }, 0)).toBe(true);
   });
 
   it('does not force audio before the context may run', () => {
