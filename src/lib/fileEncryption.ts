@@ -52,19 +52,65 @@ export async function importKeyRaw(b64: string): Promise<CryptoKey> {
   );
 }
 
-// SEC-002: File key wrapping/unwrapping using the owner's passphrase-derived key
-// The key is wrapped with a deterministic key derived from the user's identity
-// so only the local owner can decrypt files. Peers receive manifests but cannot
-// access the raw AES key without the owner's session.
+// SEC-002: File key wrapping/unwrapping for the owner's at-rest copy.
+//
+// v2 (current): the file key is wrapped with a NON-EXTRACTABLE AES-GCM key
+// generated on this device and kept in IndexedDB (`meta` store). Script can
+// use it but never export its bytes, and it is never derived from anything a
+// peer can see.
+//
+// v1 (legacy, read-only): the wrapping key was PBKDF2(userId, salt). Both the
+// userId and the salt travel inside the public manifest, so any peer could
+// re-derive it. We still unwrap v1 so nobody loses access to old files, and
+// `backfillManifestRawKeys` re-wraps the owner's own v1 manifests as v2.
+
+export const FILE_KEY_WRAP_VERSION = 2;
 
 interface WrappedFileKey {
   wrapped: string; // base64 AES-GCM ciphertext of the raw file key
   iv: string;      // base64 IV
-  salt: string;    // base64 salt for PBKDF2
+  salt?: string;   // base64 PBKDF2 salt (v1 only)
+  version?: number;
 }
 
-async function deriveFileKeyWrappingKey(salt: Uint8Array): Promise<CryptoKey> {
-  // Use the owner's userId as the wrapping secret — available in session
+const DEVICE_FILE_WRAP_PREFIX = 'file-key-wrap:';
+const deviceWrapKeyCache = new Map<string, Promise<CryptoKey>>();
+
+function deviceWrapOwner(): string {
+  return getCurrentUser()?.id ?? 'local-default';
+}
+
+async function loadOrCreateDeviceWrapKey(owner: string, create: boolean): Promise<CryptoKey | null> {
+  const metaKey = DEVICE_FILE_WRAP_PREFIX + owner;
+  const existing = await get<{ k: string; v: CryptoKey }>('meta', metaKey);
+  if (existing?.v) return existing.v;
+  if (!create) return null;
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    false, // non-extractable: the raw bytes never leave the browser's key store
+    ['encrypt', 'decrypt']
+  );
+  await put('meta', { k: metaKey, v: key });
+  return key;
+}
+
+/** The device-held key that wraps file keys for the current user (created on first use). */
+async function getDeviceWrapKey(create = true): Promise<CryptoKey | null> {
+  const owner = deviceWrapOwner();
+  const cached = deviceWrapKeyCache.get(owner);
+  if (cached) return cached;
+  const key = await loadOrCreateDeviceWrapKey(owner, create);
+  if (key) deviceWrapKeyCache.set(owner, Promise.resolve(key));
+  return key;
+}
+
+/** @internal test hook */
+export function __resetFileKeyWrapCacheForTests(): void {
+  deviceWrapKeyCache.clear();
+}
+
+/** v1 wrapping key — derived from the PUBLIC userId. Kept only to read old manifests. */
+async function deriveLegacyFileKeyWrappingKey(salt: Uint8Array): Promise<CryptoKey> {
   const user = getCurrentUser();
   const secret = user?.id ?? 'local-default';
   const enc = new TextEncoder();
@@ -76,29 +122,34 @@ async function deriveFileKeyWrappingKey(salt: Uint8Array): Promise<CryptoKey> {
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
-    ['encrypt', 'decrypt']
+    ['decrypt']
   );
 }
 
-async function wrapFileKeyForOwner(rawKeyB64: string): Promise<WrappedFileKey> {
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+export async function wrapFileKeyForOwner(rawKeyB64: string): Promise<WrappedFileKey> {
+  const wrappingKey = await getDeviceWrapKey(true);
+  if (!wrappingKey) throw new Error('No device wrapping key available');
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const wrappingKey = await deriveFileKeyWrappingKey(salt);
-  const plaintext = base64ToArrayBuffer(rawKeyB64);
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv }, wrappingKey, plaintext
+    { name: 'AES-GCM', iv }, wrappingKey, base64ToArrayBuffer(rawKeyB64)
   );
   return {
     wrapped: arrayBufferToBase64(ciphertext),
     iv: arrayBufferToBase64(iv.buffer),
-    salt: arrayBufferToBase64(salt.buffer),
+    version: FILE_KEY_WRAP_VERSION,
   };
 }
 
-async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> {
-  const salt = new Uint8Array(base64ToArrayBuffer(wrapped.salt));
+export async function unwrapFileKeyFromOwner(wrapped: WrappedFileKey): Promise<string> {
   const iv = new Uint8Array(base64ToArrayBuffer(wrapped.iv));
-  const wrappingKey = await deriveFileKeyWrappingKey(salt);
+  let wrappingKey: CryptoKey | null;
+  if ((wrapped.version ?? 1) >= 2) {
+    wrappingKey = await getDeviceWrapKey(false);
+    if (!wrappingKey) throw new Error('File key was wrapped on another device');
+  } else {
+    if (!wrapped.salt) throw new Error('Legacy wrapped key is missing its salt');
+    wrappingKey = await deriveLegacyFileKeyWrappingKey(new Uint8Array(base64ToArrayBuffer(wrapped.salt)));
+  }
   const plaintext = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv }, wrappingKey, base64ToArrayBuffer(wrapped.wrapped)
   );
@@ -117,6 +168,7 @@ export async function importFileKey(manifest: {
   fileKeyWrapped?: boolean;
   fileKeySalt?: string;
   fileKeyIv?: string;
+  fileKeyWrapVersion?: number;
 }): Promise<CryptoKey> {
   // 1. Peer-readable raw key (non-walled shared content)
   if (manifest.fileKeyRaw) {
@@ -127,18 +179,21 @@ export async function importFileKey(manifest: {
     }
   }
 
-  // 2. Owner-wrapped key (SEC-002)
-  if (manifest.fileKeyWrapped && manifest.fileKeySalt && manifest.fileKeyIv && manifest.fileKey) {
+  // 2. Owner-wrapped key (SEC-002; v2 device key, or legacy v1)
+  if (manifest.fileKeyWrapped && manifest.fileKeyIv && manifest.fileKey) {
     try {
       const rawB64 = await unwrapFileKeyFromOwner({
         wrapped: manifest.fileKey,
         iv: manifest.fileKeyIv,
         salt: manifest.fileKeySalt,
+        version: manifest.fileKeyWrapVersion,
       });
       return await importKeyRaw(rawB64);
     } catch {
       // Fall through to legacy
     }
+    // A wrapped key is never a raw key; don't try to import it as one.
+    throw new Error('Unable to unwrap file key');
   }
 
   // 3. Legacy: raw base64 key stored directly in fileKey
@@ -179,8 +234,10 @@ export interface Manifest {
   fileKeyWrapped?: boolean;
   /** IV for key wrapping */
   fileKeyIv?: string;
-  /** Salt for key wrapping */
+  /** Salt for key wrapping (legacy v1 only) */
   fileKeySalt?: string;
+  /** Wrapping scheme: 2 = device-held key; absent/1 = legacy userId-derived */
+  fileKeyWrapVersion?: number;
   createdAt: string;
   /** Natural width of image/video media in pixels */
   mediaWidth?: number;
@@ -268,8 +325,8 @@ export async function chunkAndEncryptFile(
     }
   }
   
-  // SEC-002: Wrap the file encryption key with the owner's identity for at-rest
-  // protection. Also store the raw key so peers on the mesh can decrypt shared content.
+  // SEC-002: Wrap the file encryption key with this device's private wrapping
+  // key for at-rest protection. Also store the raw key so peers on the mesh can decrypt shared content.
   const exportedKey = await exportKeyRaw(fileKey);
   const wrappedFileKey = await wrapFileKeyForOwner(exportedKey);
 
@@ -283,7 +340,7 @@ export async function chunkAndEncryptFile(
     fileKey: wrappedFileKey.wrapped,
     fileKeyRaw: exportedKey, // Raw key for peer decryption
     fileKeyIv: wrappedFileKey.iv,
-    fileKeySalt: wrappedFileKey.salt,
+    fileKeyWrapVersion: wrappedFileKey.version,
     fileKeyWrapped: true,
     createdAt: new Date().toISOString()
   };
@@ -377,7 +434,8 @@ export async function deleteManifest(fileId: string): Promise<void> {
 }
 
 /**
- * Backfill existing manifests with fileKeyRaw.
+ * Backfill existing manifests with fileKeyRaw, and re-wrap the owner's legacy
+ * (v1, userId-derived) wrapped keys with this device's key (v2).
  * Manifests created before this fix only have the wrapped key, which
  * peers cannot decrypt. This unwraps the key using the current user's
  * identity and stores the raw key so it gets shared on next sync.
@@ -387,33 +445,69 @@ export async function backfillManifestRawKeys(): Promise<number> {
   try {
     const allManifests = await getAll('manifests') as Array<Record<string, unknown>>;
     for (const m of allManifests) {
-      if (m.fileKeyRaw) continue; // already has raw key
-      if (!m.fileKeyWrapped || !m.fileKeySalt || !m.fileKeyIv || !m.fileKey) {
+      const isLegacyWrapped = Boolean(
+        m.fileKeyWrapped && m.fileKeySalt && m.fileKeyIv && m.fileKey &&
+        ((m.fileKeyWrapVersion as number | undefined) ?? 1) < 2
+      );
+      if (m.fileKeyRaw && !isLegacyWrapped) continue; // nothing to do
+      if (!m.fileKeyWrapped) {
         // Legacy manifest — fileKey is already raw, just copy it
-        if (m.fileKey && !m.fileKeyWrapped) {
+        if (m.fileKey && !m.fileKeyRaw) {
           await put('manifests', { ...m, fileKeyRaw: m.fileKey });
           upgraded++;
         }
         continue;
       }
-      // Try to unwrap using current user's identity
+      if (!isLegacyWrapped) continue;
+      // Try to unwrap using current user's identity (only succeeds for our own manifests)
+      let rawB64: string;
       try {
-        const rawB64 = await unwrapFileKeyFromOwner({
+        rawB64 = await unwrapFileKeyFromOwner({
           wrapped: m.fileKey as string,
           iv: m.fileKeyIv as string,
           salt: m.fileKeySalt as string,
+          version: 1,
         });
-        await put('manifests', { ...m, fileKeyRaw: rawB64 });
-        upgraded++;
       } catch {
-        // Not our manifest — can't unwrap, skip
+        continue; // Not our manifest — can't unwrap, skip
       }
+      const next = await rewrapLegacyManifest(m, rawB64);
+      await put('manifests', next);
+      upgraded++;
     }
     if (upgraded > 0) {
-      console.log(`[FileEncryption] ✅ Backfilled ${upgraded} manifests with raw keys`);
+      console.log(`[FileEncryption] ✅ Backfilled ${upgraded} manifests`);
     }
   } catch (err) {
     console.warn('[FileEncryption] Backfill failed:', err);
   }
   return upgraded;
+}
+
+/**
+ * Replace a legacy v1 wrapped key with a v2 device-wrapped one. `fileKey` is part
+ * of the signed manifest payload, so the manifest must be re-signed; if signing
+ * isn't possible right now we only add fileKeyRaw (the previous behaviour) and
+ * retry on the next backfill.
+ */
+async function rewrapLegacyManifest(
+  m: Record<string, unknown>,
+  rawB64: string,
+): Promise<Record<string, unknown>> {
+  const withRaw = { ...m, fileKeyRaw: (m.fileKeyRaw as string | undefined) ?? rawB64 };
+  try {
+    const wrapped = await wrapFileKeyForOwner(rawB64);
+    const rewrapped: Record<string, unknown> = {
+      ...withRaw,
+      fileKey: wrapped.wrapped,
+      fileKeyIv: wrapped.iv,
+      fileKeyWrapVersion: wrapped.version,
+      fileKeyWrapped: true,
+    };
+    delete rewrapped.fileKeySalt;
+    return await signManifest(rewrapped as unknown as import('@/lib/store').Manifest) as unknown as Record<string, unknown>;
+  } catch (err) {
+    console.warn('[FileEncryption] Could not re-wrap legacy file key; will retry later', err);
+    return withRaw;
+  }
 }
