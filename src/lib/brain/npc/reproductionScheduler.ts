@@ -12,6 +12,7 @@
  * No Math.random anywhere — drift seed is a deterministic time-slot
  * key; sex is hash-derived from the pairId.
  */
+import { isNpcSceneActive } from './npcSceneGate';
 import { getSharedFieldEngine } from '@/lib/uqrc/fieldEngine';
 import { getFeatureFlags } from '@/config/featureFlags';
 import { listNpcs, isSeedUnique, npcCount } from './npcRegistry';
@@ -58,6 +59,8 @@ function sampleCommutator(a: Npc, b: Npc): number {
 
 function tick(): void {
   if (!getFeatureFlags().scaffoldBus) return;
+  // Sleeps with the NPC heartbeat while no Brain scene shows the village.
+  if (!isNpcSceneActive()) { _lastAt = 0; return; }
   if (npcCount() >= NPC_CAP) return;
 
   const now = Date.now();

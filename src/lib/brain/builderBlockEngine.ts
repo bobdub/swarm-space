@@ -110,6 +110,9 @@ function computeWorldPos(spec: Required<Pick<BuilderBlockSpec,
 
 class BuilderBlockEngine {
   private blocks = new Map<string, BuilderBlock>();
+  /** Bare id → first block placed with it, so bare-id lookups (every NPC
+   *  slot, every heartbeat tick) don't scan the whole world. */
+  private byBareId = new Map<string, BuilderBlock>();
   private listeners = new Set<Listener>();
   private tickCounter = 0;
   private tickUnsub: (() => void) | null = null;
@@ -187,6 +190,7 @@ class BuilderBlockEngine {
       placedAt: ++this.tickCounter,
     };
     this.blocks.set(bodyId, block);
+    if (!this.byBareId.has(block.id)) this.byBareId.set(block.id, block);
     this.ensureTickHook();
     this.emit({ type: 'place', block });
     return block;
@@ -201,6 +205,12 @@ class BuilderBlockEngine {
     try { physics.unpinSupportBasin(block.support); } catch { /* ignore */ }
     physics.removeBody(block.bodyId);
     this.blocks.delete(block.bodyId);
+    if (this.byBareId.get(block.id) === block) {
+      this.byBareId.delete(block.id);
+      for (const b of this.blocks.values()) {
+        if (b.id === block.id) { this.byBareId.set(b.id, b); break; }
+      }
+    }
     this.emit({ type: 'remove', block });
   }
 
@@ -231,8 +241,18 @@ class BuilderBlockEngine {
     if (needsRepin) {
       const newBasin = patch.basin ?? block.basin;
       const newPos = computeWorldPos(block);
-      try { physics.unpinSupportBasin(block.support); } catch { /* ignore */ }
       const body = physics.getBody(block.bodyId);
+      if (body && newBasin === block.basin) {
+        // Pure moves (NPC footsteps, drifting hives) only re-stamp the field
+        // when the rounded lattice centre changes; a sub-cell step keeps the
+        // existing basin instead of a full unpin/repin recomposition.
+        try {
+          block.support = physics.moveSupportBasin(block.support, body.pos, newPos, newBasin);
+        } catch { /* ignore */ }
+      } else {
+        try { physics.unpinSupportBasin(block.support); } catch { /* ignore */ }
+        block.support = physics.pinSupportBasin(newPos, newBasin, 0.6);
+      }
       if (body) {
         body.pos[0] = newPos[0];
         body.pos[1] = newPos[1];
@@ -245,7 +265,6 @@ class BuilderBlockEngine {
           (body.meta as Record<string, unknown>).anchorPeerId = patch.anchorPeerId;
         }
       }
-      block.support = physics.pinSupportBasin(newPos, newBasin, 0.6);
       block.basin = newBasin;
     }
     block.placedAt = ++this.tickCounter;
@@ -274,8 +293,7 @@ class BuilderBlockEngine {
   }
 
   private findByBareId(id: string): BuilderBlock | undefined {
-    for (const b of this.blocks.values()) if (b.id === id) return b;
-    return undefined;
+    return this.byBareId.get(id);
   }
 }
 

@@ -212,6 +212,9 @@ import {
   SPECTATOR_UP_M,
 } from '@/lib/pub/spectatorCameraStore';
 
+/** Field snapshot cadence — the project's 2.5 min throttled-write rule. */
+const BRAIN_FIELD_SAVE_MS = 2.5 * 60 * 1000;
+
 const lookInput = { yaw: 0, pitch: 0 };
 /** Run/Flash sprint state — toggled by Shift / on-screen pill. */
 const runState = { active: false, until: 0, cooldownUntil: 0 };
@@ -1820,11 +1823,24 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   }, [guestCandidateId, physics, ready]);
 
   // ── Periodic field snapshot save (no per-tick scene state) ─────────
+  // Throttled to the project's 2.5 min write cadence: serialising three
+  // dense Float32Array grids into IndexedDB every few seconds made Firefox's
+  // structured clone and disk IPC stall the main thread. Leaving the scene or
+  // hiding the tab still captures the latest field.
   useEffect(() => {
-    const saveTimer = setInterval(() => {
+    const save = () => {
       try { void saveBrainField(physics.snapshot(), universeKey); } catch { /* ignore */ }
-    }, 5000);
-    return () => clearInterval(saveTimer);
+    };
+    const saveTimer = setInterval(save, BRAIN_FIELD_SAVE_MS);
+    const onVisibility = () => { if (document.visibilityState === 'hidden') save(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', save);
+    return () => {
+      clearInterval(saveTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', save);
+      save();
+    };
   }, [physics, universeKey]);
 
   // ── Scope user placements (walls, decorations, tools) to this universe ──
