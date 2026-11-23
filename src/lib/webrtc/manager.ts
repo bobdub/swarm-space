@@ -5,6 +5,7 @@ import {
   sendSignalViaMesh,
   sendReconnectRequest,
   sendScreenShareState,
+  sendScreenView,
   sendMediaState,
   announceJoinRoom,
   announceLeaveRoom,
@@ -53,6 +54,51 @@ export const SCREEN_CAPTURE_CONSTRAINTS: DisplayMediaStreamOptions = {
 /** Upper bounds for the screen sender's encoder, per peer connection. */
 export const SCREEN_SENDER_MAX_BITRATE = 2_500_000;
 export const SCREEN_SENDER_MAX_FRAMERATE = 30;
+
+/**
+ * How a viewer is showing someone's screen. A viewer tells the sharer, and
+ * the sharer encodes for that viewer accordingly, so a 128 px thumbnail or a
+ * minimized share no longer costs the viewer a full 1080p decode.
+ */
+export type ScreenView = 'full' | 'preview' | 'off';
+
+const SCREEN_VIEW_RANK: Record<ScreenView, number> = { off: 0, preview: 1, full: 2 };
+
+/** Encoder settings for one viewer of a screen share. */
+export function screenEncodingFor(view: ScreenView): {
+  active: boolean;
+  maxBitrate: number;
+  maxFramerate: number;
+  scaleResolutionDownBy: number;
+} {
+  if (view === 'preview') {
+    // 1080p becomes 640x360 at 8 fps: plenty for a thumbnail or the small
+    // floating viewer, at a fraction of the decode work.
+    return { active: true, maxBitrate: 400_000, maxFramerate: 8, scaleResolutionDownBy: 3 };
+  }
+  return {
+    // `off`: nobody is looking, so nothing is encoded, sent or decoded.
+    active: view === 'full',
+    maxBitrate: SCREEN_SENDER_MAX_BITRATE,
+    maxFramerate: SCREEN_SENDER_MAX_FRAMERATE,
+    scaleResolutionDownBy: 1,
+  };
+}
+
+/** The most any of a viewer's open screen elements needs. */
+export function strongestScreenView(views: Iterable<ScreenView>): ScreenView {
+  let best: ScreenView = 'off';
+  for (const v of views) if (SCREEN_VIEW_RANK[v] > SCREEN_VIEW_RANK[best]) best = v;
+  return best;
+}
+
+/**
+ * A viewer asks for more right away, and for less only after a pause: a tile
+ * that remounts, or a stream that arrives before its tile, must not flip the
+ * sharer's encoder off and on again.
+ */
+const SCREEN_VIEW_UPGRADE_DELAY_MS = 100;
+const SCREEN_VIEW_DOWNGRADE_DELAY_MS = 2500;
 
 /**
  * Tell the encoder this is screen content: keep resolution (text stays
@@ -104,6 +150,15 @@ export class WebRTCManager {
   private screenSenders = new Map<string, RTCRtpSender>();
   /** Screen stream id announced by each remote peer, when sharing. */
   private remoteScreenStreamIds = new Map<string, string>();
+  /** Sharing: how each viewer shows our screen (absent = full, for older viewers). */
+  private screenViewByPeer = new Map<string, ScreenView>();
+  /** One encoder update at a time per screen sender. */
+  private screenParamQueue = new WeakMap<RTCRtpSender, Promise<void>>();
+  /** Viewing: the open screen elements per sharing peer, and what each needs. */
+  private screenWatchers = new Map<string, Map<symbol, ScreenView>>();
+  /** Viewing: the view last sent to each sharing peer. */
+  private sentScreenView = new Map<string, ScreenView>();
+  private screenViewTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private currentRoomId: string | null = null;
   private messageHandlers = new Set<(message: VideoRoomMessage) => void>();
   private userId: string;
@@ -302,6 +357,17 @@ export class WebRTCManager {
           break;
         }
 
+        case 'screen-view': {
+          const view = (envelope.data as { view?: unknown } | undefined)?.view;
+          if (view !== 'full' && view !== 'preview' && view !== 'off') break;
+          if (this.screenViewByPeer.get(meshPeerId) === view) break;
+          this.screenViewByPeer.set(meshPeerId, view);
+          const sender = this.screenSenders.get(meshPeerId);
+          const pc = this.connections.get(meshPeerId);
+          if (sender && pc) this.applyScreenSenderLimits(meshPeerId, pc, sender);
+          break;
+        }
+
         case 'screen-share-state': {
           const participant = this.ensureParticipant(meshPeerId, envelope.username);
           const data = envelope.data as { active?: unknown; streamId?: unknown } | undefined;
@@ -309,6 +375,8 @@ export class WebRTCManager {
           const streamId = typeof data?.streamId === 'string' ? data.streamId : undefined;
           if (active) {
             if (streamId) this.remoteScreenStreamIds.set(meshPeerId, streamId);
+            // The sharer may have restarted: tell them again how we watch.
+            this.resendScreenView(meshPeerId);
           } else {
             this.remoteScreenStreamIds.delete(meshPeerId);
             participant.screenStream = null;
@@ -1062,37 +1130,121 @@ export class WebRTCManager {
     }
     const sender = pc.addTrack(track, stream);
     this.screenSenders.set(peerId, sender);
-    this.applyScreenSenderLimits(pc, sender);
+    this.applyScreenSenderLimits(peerId, pc, sender);
   }
 
   /**
-   * Cap the screen sender's bitrate and frame rate. Some browsers (Firefox)
-   * report no encodings until the connection has negotiated, so retry once
-   * when signaling next returns to stable.
+   * Set the screen sender's encoding for how this viewer shows the share:
+   * capped bitrate and frame rate when watched full size, a small, slow
+   * picture for a thumbnail, paused when not shown at all. Some browsers
+   * (Firefox) report no encodings until the connection has negotiated, so
+   * retry once when signaling next returns to stable. Updates for one sender
+   * run one after another: overlapping setParameters calls are rejected.
    */
-  private applyScreenSenderLimits(pc: RTCPeerConnection, sender: RTCRtpSender): void {
-    const tryApply = (): boolean => {
+  private applyScreenSenderLimits(peerId: string, pc: RTCPeerConnection, sender: RTCRtpSender): void {
+    const stillOurs = () => this.screenSenders.get(peerId) === sender && !!sender.track;
+    const tryApply = async (): Promise<boolean> => {
       if (typeof sender.getParameters !== 'function' || typeof sender.setParameters !== 'function') return true;
-      let params: RTCRtpSendParameters;
-      try { params = sender.getParameters(); } catch { return true; }
-      if (!params.encodings || params.encodings.length === 0) return false;
-      for (const enc of params.encodings) {
-        enc.maxBitrate = SCREEN_SENDER_MAX_BITRATE;
-        enc.maxFramerate = SCREEN_SENDER_MAX_FRAMERATE;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        let params: RTCRtpSendParameters;
+        try { params = sender.getParameters(); } catch { return true; }
+        if (!params.encodings || params.encodings.length === 0) return false;
+        const enc = screenEncodingFor(this.screenViewByPeer.get(peerId) ?? 'full');
+        for (const e of params.encodings) {
+          e.active = enc.active;
+          e.maxBitrate = enc.maxBitrate;
+          e.maxFramerate = enc.maxFramerate;
+          e.scaleResolutionDownBy = enc.scaleResolutionDownBy;
+        }
+        try {
+          await sender.setParameters(params);
+          return true;
+        } catch (err) {
+          // Usually another update (media priority) raced this one.
+          if (attempt === 2) console.warn('[WebRTC] Could not set screen sender encoding:', err);
+          await new Promise((r) => setTimeout(r, 200));
+          if (!stillOurs()) return true;
+        }
       }
-      void sender.setParameters(params).catch((err) => {
-        console.warn('[WebRTC] Could not cap screen sender encoding:', err);
-      });
       return true;
     };
-    if (tryApply() || typeof pc.addEventListener !== 'function') return;
-    const onSignaling = () => {
-      if (pc.signalingState !== 'stable') return;
-      pc.removeEventListener('signalingstatechange', onSignaling);
-      // Skip if the share ended (or moved to another sender) meanwhile.
-      if ([...this.screenSenders.values()].includes(sender) && sender.track) tryApply();
+    const prev = this.screenParamQueue.get(sender) ?? Promise.resolve();
+    const job = prev.then(async () => {
+      if (!stillOurs()) return;
+      if (await tryApply() || typeof pc.addEventListener !== 'function') return;
+      const onSignaling = () => {
+        if (pc.signalingState !== 'stable') return;
+        pc.removeEventListener('signalingstatechange', onSignaling);
+        // Skip if the share ended (or moved to another sender) meanwhile.
+        if (stillOurs()) this.applyScreenSenderLimits(peerId, pc, sender);
+      };
+      pc.addEventListener('signalingstatechange', onSignaling);
+    }).catch(() => { /* logged above */ });
+    this.screenParamQueue.set(sender, job);
+  }
+
+  /**
+   * Viewing: register an element showing `peerId`'s screen. The sharer is
+   * told the most any open element needs; when the last one closes they
+   * stop sending the picture to us. Returns the unregister function.
+   */
+  watchRemoteScreen(peerId: string, view: Exclude<ScreenView, 'off'>): () => void {
+    const token = Symbol('screen-watch');
+    let watchers = this.screenWatchers.get(peerId);
+    if (!watchers) { watchers = new Map(); this.screenWatchers.set(peerId, watchers); }
+    watchers.set(token, view);
+    this.scheduleScreenViewSync(peerId);
+    return () => {
+      const current = this.screenWatchers.get(peerId);
+      if (!current) return;
+      current.delete(token);
+      if (current.size === 0) this.screenWatchers.delete(peerId);
+      this.scheduleScreenViewSync(peerId);
     };
-    pc.addEventListener('signalingstatechange', onSignaling);
+  }
+
+  private wantedScreenView(peerId: string): ScreenView {
+    return strongestScreenView(this.screenWatchers.get(peerId)?.values() ?? []);
+  }
+
+  private scheduleScreenViewSync(peerId: string): void {
+    const wanted = this.wantedScreenView(peerId);
+    // A sharer that has not heard from us sends full quality.
+    const sent = this.sentScreenView.get(peerId) ?? 'full';
+    const existing = this.screenViewTimers.get(peerId);
+    if (existing) clearTimeout(existing);
+    this.screenViewTimers.delete(peerId);
+    if (wanted === sent && this.sentScreenView.has(peerId)) return;
+    const delay = SCREEN_VIEW_RANK[wanted] > SCREEN_VIEW_RANK[sent]
+      ? SCREEN_VIEW_UPGRADE_DELAY_MS
+      : SCREEN_VIEW_DOWNGRADE_DELAY_MS;
+    this.screenViewTimers.set(peerId, setTimeout(() => {
+      this.screenViewTimers.delete(peerId);
+      this.flushScreenView(peerId);
+    }, delay));
+  }
+
+  private flushScreenView(peerId: string): void {
+    const roomId = this.currentRoomId;
+    if (!roomId) return;
+    const wanted = this.wantedScreenView(peerId);
+    if (this.sentScreenView.get(peerId) === wanted) return;
+    this.sentScreenView.set(peerId, wanted);
+    sendScreenView(peerId, roomId, wanted);
+  }
+
+  /** A (re)started share or a rebuilt connection: say again how we watch. */
+  private resendScreenView(peerId: string): void {
+    this.sentScreenView.delete(peerId);
+    this.scheduleScreenViewSync(peerId);
+  }
+
+  private forgetScreenView(peerId: string): void {
+    this.screenViewByPeer.delete(peerId);
+    this.sentScreenView.delete(peerId);
+    const timer = this.screenViewTimers.get(peerId);
+    if (timer) clearTimeout(timer);
+    this.screenViewTimers.delete(peerId);
   }
 
   async startScreenShare(): Promise<MediaStream> {
@@ -1114,6 +1266,8 @@ export class WebRTCManager {
       if (this.currentRoomId && pc) void this.ensureOfferToPeer(peerId).catch(() => {});
     }
     this.screenSenders.clear();
+    // A new share starts at full quality until each viewer says otherwise.
+    this.screenViewByPeer.clear();
 
     this.screenStream = null;
     console.log('[WebRTC] Screen share stopped');
@@ -1228,6 +1382,7 @@ export class WebRTCManager {
 
       if (isScreenTrack && incomingStream) {
         participant.screenStream = incomingStream;
+        this.resendScreenView(peerId);
         console.log('[WebRTC] 🖥️ Screen share stream received from', peerId, incomingStream.id);
         incomingStream.addEventListener('removetrack', () => {
           if (incomingStream.getVideoTracks().length === 0) {
@@ -1509,6 +1664,7 @@ export class WebRTCManager {
     this.makingOffer.delete(peerId);
     this.remoteScreenStreamIds.delete(peerId);
     this.screenSenders.delete(peerId);
+    this.forgetScreenView(peerId);
   }
 
   private async flushPendingCandidates(peerId: string, pc: RTCPeerConnection): Promise<void> {
@@ -1950,6 +2106,8 @@ export class WebRTCManager {
     this.messageHandlers.clear();
     this.disconnectTimers.forEach(t => clearTimeout(t));
     this.reconnectTimers.forEach(t => clearTimeout(t));
+    this.screenViewTimers.forEach(t => clearTimeout(t));
+    this.screenViewTimers.clear();
     registerCallActivityProbe(null);
   }
 }
@@ -1960,6 +2118,11 @@ export function getWebRTCManager(userId: string, username: string): WebRTCManage
   if (!webrtcManager) {
     webrtcManager = new WebRTCManager(userId, username);
   }
+  return webrtcManager;
+}
+
+/** The call manager if one exists; never creates it. */
+export function getExistingWebRTCManager(): WebRTCManager | null {
   return webrtcManager;
 }
 
