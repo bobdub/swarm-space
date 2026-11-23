@@ -300,6 +300,23 @@ export interface VentEmission {
   compound: CosmoCompound;
 }
 
+/**
+ * The mantle pressure every peer's live integrator settles to under the
+ * shared volcano. `getMantlePressure()` integrates ṗ = k_in − k_out(p) on
+ * each device; with k_in fixed by the vent's plate seam and
+ * k_out(p) = p·(0.02 + 0.12·p), it converges (within about a minute) to the
+ * root of 0.12·p² + 0.02·p − k_in = 0. Reading that root directly lets a
+ * peer that has just joined agree with everyone else at once, so the
+ * eruption cycle (`eruptionCycle.ts`) can depend on it without peers
+ * disagreeing about whether the volcano is erupting.
+ */
+export function ventSupplyPressure(): number {
+  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+  const inflow = sampleTectonicInflow(organ.centerNormal);
+  const p = (-0.02 + Math.sqrt(0.02 * 0.02 + 4 * 0.12 * inflow)) / (2 * 0.12);
+  return Math.max(0, Math.min(1, p));
+}
+
 export function sampleVentEmission(): VentEmission {
   const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
   return {

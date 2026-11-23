@@ -820,11 +820,10 @@ function VolcanoOverlay({ anchorPeerId: _anchorPeerId }: { anchorPeerId: string 
     spin.set(...pose.spinQuat);
     groupRef.current.quaternion.copy(spin).multiply(localOrientation);
   });
-  const craterR = organ.craterRadius;
   return (
     <group ref={groupRef}>
-      {/* Lava lake fed by the deep magma conduit (seen down the neck). */}
-      <VolcanoLavaPool radius={craterR * 0.95} organ={organ} />
+      {/* Magma column down the vent; summit pond and flank flows when it erupts. */}
+      <VolcanoLavaPool organ={organ} />
       {/* Heat comes from the molten crust; no hovering solid orange ball. */}
       <VolcanoAshPlume organ={organ} altitude={lavaR - EARTH_RADIUS} />
     </group>
