@@ -36,6 +36,7 @@ import {
   WORLD_SCALE,
   BODY_SHELL_RADIUS,
   getEarthPose,
+  getEarthPoseTime,
   type EarthPose,
 } from './earth';
 import { boundaryInfo } from './tectonics';
@@ -44,6 +45,7 @@ import {
   SHARED_VOLCANO_ANCHOR_ID,
 } from './volcanoOrgan';
 import { COSMO_COMPOUNDS, type CosmoCompound } from './cosmoChemistry';
+import { eruptionStateAt } from './eruptionCycle';
 
 const WORLD_SIZE = 60 * WORLD_SCALE;
 const EARTH_CORE_RADIUS = EARTH_RADIUS * 0.35;
@@ -100,11 +102,30 @@ const VENT_FALLOFF = 0.18;
 //   ṗ = +k_in − k_out · vent(p)
 //   vent(p) = VENT_AMP_BASE + (VENT_AMP_MAX − VENT_AMP_BASE) · p
 //   p ∈ [0, 1]
-let _mantlePressure = 0.5;
-let _lastPressureT = 0;
+//
+// The loop's steady state p* (`ventSupplyPressure`) is fixed by the vent's
+// plate seam, so it is the same on every device. Mantle pressure used to
+// be integrated per device from `Date.now()`, starting at 0.5 when the
+// Brain opened, so two players read different values for their first
+// minute. It is now a pure read of the shared Earth clock: p* modulated by
+// the shared eruption cycle (`eruptionCycle.ts`), rising as the chamber
+// recharges toward an eruption and falling as the eruption vents it. Every
+// peer reads the same number at the same moment, with nothing sent.
+//
+// The modulation is slow (one swing per ~25 min cycle) and lives only in
+// the deep vent sink, so no tremor reaches the surface lattice.
+const MANTLE_SWING = 0.3;
 
-/** Read-only — current normalised mantle pressure for HUD / debug. */
-export function getMantlePressure(): number { return _mantlePressure; }
+/**
+ * Normalised mantle pressure under the shared volcano at shared time `t`
+ * (defaults to now on the shared Earth clock). Pure: same on every peer.
+ */
+export function getMantlePressure(t: number = getEarthPoseTime()): number {
+  const s = eruptionStateAt(t);
+  const charge = Math.max(s.pressure, s.effusion);
+  const p = ventSupplyPressure() * (1 - MANTLE_SWING / 2 + MANTLE_SWING * charge);
+  return Math.max(0, Math.min(1, p));
+}
 
 /** Plate boundary coupling — radial bias only, applied inside the
  *  dynamic mantle band so surface tangential drift never appears. */
@@ -288,8 +309,8 @@ function sampleVentOutflow(pressure: number, ventAmp: number): number {
  * report which gases are venting (H₂O + CO₂ + SO₂) instead of an
  * abstract pressure number.
  *
- * Pure read — no field writes, no time term. Reads the live mantle
- * pressure integrated by `updateLavaMantlePin`.
+ * Pure read — no field writes. Reads the shared-clock mantle pressure
+ * (`getMantlePressure`), so every peer reports the same emission.
  */
 export interface VentEmission {
   /** Normalised emission rate in [0, ~0.14]. */
@@ -301,27 +322,28 @@ export interface VentEmission {
 }
 
 /**
- * The mantle pressure every peer's live integrator settles to under the
- * shared volcano. `getMantlePressure()` integrates ṗ = k_in − k_out(p) on
- * each device; with k_in fixed by the vent's plate seam and
- * k_out(p) = p·(0.02 + 0.12·p), it converges (within about a minute) to the
- * root of 0.12·p² + 0.02·p − k_in = 0. Reading that root directly lets a
- * peer that has just joined agree with everyone else at once, so the
- * eruption cycle (`eruptionCycle.ts`) can depend on it without peers
- * disagreeing about whether the volcano is erupting.
+ * Steady state of the mantle ↔ vent loop under the shared volcano: with
+ * k_in fixed by the vent's plate seam and k_out(p) = p·(0.02 + 0.12·p),
+ * ṗ = k_in − k_out(p) = 0 at the root of 0.12·p² + 0.02·p − k_in = 0.
+ * Fixed by the terrain, so the same on every peer; the eruption cycle
+ * scales with it and `getMantlePressure()` swings around it.
  */
+let _supply: number | null = null;
 export function ventSupplyPressure(): number {
+  if (_supply !== null) return _supply;
   const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
   const inflow = sampleTectonicInflow(organ.centerNormal);
   const p = (-0.02 + Math.sqrt(0.02 * 0.02 + 4 * 0.12 * inflow)) / (2 * 0.12);
-  return Math.max(0, Math.min(1, p));
+  _supply = Math.max(0, Math.min(1, p));
+  return _supply;
 }
 
-export function sampleVentEmission(): VentEmission {
-  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
+export function sampleVentEmission(t: number = getEarthPoseTime()): VentEmission {
+  const pressure = getMantlePressure(t);
+  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * pressure;
   return {
-    rate: sampleVentOutflow(_mantlePressure, ventAmp),
-    pressure: _mantlePressure,
+    rate: sampleVentOutflow(pressure, ventAmp),
+    pressure,
     compound: COSMO_COMPOUNDS.vent_gas,
   };
 }
@@ -339,7 +361,7 @@ export function initLavaMantle(field: Field3D): void {
 export function updateLavaMantlePin(
   field: Field3D,
   pose: EarthPose = getEarthPose(),
-  t: number = Date.now() / 1000,
+  t: number = getEarthPoseTime(),
 ): void {
   if (field.ticks - _lastWriteTick < REASSERT_EVERY_TICKS) return;
   _lastWriteTick = field.ticks;
@@ -348,18 +370,9 @@ export function updateLavaMantlePin(
   const ventNormal = organ.centerNormal;
   const ventFalloff = organ.pressureRadius;
 
-  // Integrate mantle pressure from ACTUAL tectonic inflow under the shared
-  // volcano seam and bleed it via ACTUAL vent throughput. The previous
-  // constant-rate loop was only a buffer: it could change response time,
-  // but it did not represent build-up/release from the same organ.
-  const dt = _lastPressureT > 0 ? Math.max(0, Math.min(1.0, t - _lastPressureT)) : 0;
-  _lastPressureT = t;
-  const tectonicInflow = sampleTectonicInflow(ventNormal);
-  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * _mantlePressure;
-  const ventOutflow = sampleVentOutflow(_mantlePressure, ventAmp);
-  _mantlePressure += dt * (tectonicInflow - ventOutflow);
-  if (_mantlePressure < 0) _mantlePressure = 0;
-  if (_mantlePressure > 1) _mantlePressure = 1;
+  // Mantle pressure from the shared clock (see `getMantlePressure`), so
+  // the vent sink stamped here is the same on every peer.
+  const ventAmp = VENT_AMP_BASE + (VENT_AMP_MAX - VENT_AMP_BASE) * getMantlePressure(t);
 
   const N = field.N;
 
@@ -385,7 +398,6 @@ export function updateLavaMantlePin(
   const ek = Math.round(worldToLattice(pose.center[2], N));
 
   const outerCells = writerOuterRadius * cellsPerUnit;
-  void t;
   for (let dk = -stamp; dk <= stamp; dk++) {
     for (let dj = -stamp; dj <= stamp; dj++) {
       for (let di = -stamp; di <= stamp; di++) {

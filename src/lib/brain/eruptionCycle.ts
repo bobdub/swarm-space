@@ -21,9 +21,9 @@
  * The cycle is `ERUPTION_CYCLE_S` long. Each cycle's onset and intensity
  * come from an integer hash of its index, so eruptions are irregular but
  * the same on every device. Intensity also scales with the mantle supply
- * under the vent (`ventSupplyPressure`, the value every peer's
- * `getMantlePressure()` settles to), so a stronger mantle feeds bigger
- * eruptions and longer flows.
+ * under the vent (`ventSupplyPressure`, the mantle loop's steady state,
+ * around which `getMantlePressure()` swings with this cycle), so a
+ * stronger mantle feeds bigger eruptions and longer flows.
  *
  * Pure: no state, no writes. Safe to call per frame.
  */

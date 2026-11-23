@@ -330,9 +330,9 @@ export function EarthBody() {
       lavaPosition.z += pose.center[2];
       (matRef.current.uniforms.uLavaPos.value as THREE.Vector3).copy(lavaPosition);
       // Vent glow follows the shared eruption cycle (faint while the magma
-      // rests deep in the conduit); live mantle pressure only shades it.
+      // rests deep in the conduit); shared mantle pressure shades it.
       matRef.current.uniforms.uLavaPower.value = (1 + 19 * ventGlowAt(tNow))
-        * (0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure())));
+        * (0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure(tNow))));
     }
     if (moonMatRef.current) {
       (moonMatRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);

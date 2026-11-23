@@ -76,16 +76,23 @@ describe('eruption cycle', () => {
       .toBeCloseTo(-REST_DEPTH_M, 6);
   });
 
-  it('scales with the mantle supply every peer settles to', () => {
+  it('reads mantle pressure from the shared clock, swinging with the cycle', () => {
+    const c = eruptionCycleAt(Math.floor(T0 / ERUPTION_CYCLE_S));
+    const supply = ventSupplyPressure();
+    const quiet = getMantlePressure(c.startS + 10);
+    const charged = getMantlePressure(c.startS + c.onsetS - 1);
+    // Pure: same time, same value, regardless of when a device joined or
+    // how often the physics stamped the field.
     const field = createField3D(16);
-    const pose = getEarthPose();
-    let t = 1_000;
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < 40; i++) {
       field.ticks += 8;
-      t += 1;
-      updateLavaMantlePin(field, pose, t);
+      updateLavaMantlePin(field, getEarthPose(), c.startS + i);
     }
-    expect(getMantlePressure()).toBeCloseTo(ventSupplyPressure(), 2);
+    expect(getMantlePressure(c.startS + 10)).toBe(quiet);
+    expect(quiet).toBeCloseTo(supply * 0.85, 6);
+    expect(charged).toBeGreaterThan(supply * 1.1);
+    // Venting during the eruption lets it fall back.
+    expect(getMantlePressure(c.startS + c.onsetS + c.durationS + 5)).toBeLessThan(charged);
   });
 });
 

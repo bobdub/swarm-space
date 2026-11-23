@@ -482,9 +482,8 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
     const state = eruptionStateAt(time);
     const level = magmaLevelAt(organ, time);
     const burstAge = slugPhaseAt(time) * STROMBOLIAN_PERIOD_S;
-    // Live mantle pressure only shades brightness (it is integrated per
-    // device); when and how high the magma stands is shared.
-    const mantle = 0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure()));
+    // Mantle pressure (shared clock) shades the brightness.
+    const mantle = 0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure(time)));
     const glow = ventGlowAt(time);
     const heat = Math.min(1, 0.4 + 0.6 * Math.max(state.pressure, state.effusion));
 
