@@ -176,10 +176,29 @@ describe('WebRTC negotiation loop — theoretical edge cases', () => {
     expect(created).toHaveLength(1);
   });
 
-  it('polite rollback answers first, then drains queued local media exactly once', async () => {
+  it('polite glare on the first negotiation answers from a fresh connection', async () => {
     const m = makeManager();
     const remote = 'zzz-polite-target';
     await m.createOffer(remote);
+    await m.createOffer(remote);
+    sentSignals.length = 0;
+    await m.handleSignal({ type: 'offer', from: remote, to: 'local-peer', data: { type: 'offer', sdp: 'remote' } });
+    await vi.advanceTimersByTimeAsync(0);
+    // The rolled-back connection's upfront transceivers would be left with
+    // no mid and keep raising negotiationneeded forever: replace it, and
+    // answer once with no follow-up offer (local media rides the answer).
+    expect(sentSignals.map(s => s.type)).toEqual(['answer']);
+    expect(created).toHaveLength(2);
+    expect(created[0].close).toHaveBeenCalled();
+    expect(created[1].close).not.toHaveBeenCalled();
+  });
+
+  it('polite glare during a renegotiation rolls back on the same connection, then drains queued media once', async () => {
+    const m = makeManager();
+    const remote = 'zzz-polite-target';
+    await m.createOffer(remote);
+    // The call has negotiated before: this is a renegotiation glare.
+    (created[0] as unknown as { currentRemoteDescription: unknown }).currentRemoteDescription = { type: 'answer', sdp: 'earlier' };
     await m.createOffer(remote);
     sentSignals.length = 0;
     await m.handleSignal({ type: 'offer', from: remote, to: 'local-peer', data: { type: 'offer', sdp: 'remote' } });
