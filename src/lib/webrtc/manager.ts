@@ -438,6 +438,21 @@ export class WebRTCManager {
       this.makingOffer.set(meshPeerId, false);
       this.negotiationLock.set(meshPeerId, false);
     }
+    // Glare on the very first negotiation, and we are the polite side: our
+    // connection exists only to carry the offer we are about to roll back.
+    // Its upfront audio/video transceivers survive a rollback without a mid,
+    // and stopping them leaves them pending forever, so the browser raised
+    // negotiationneeded after every answer: an offer/answer loop for the
+    // life of the call. Answer from a fresh connection instead.
+    const firstGlare = this.connections.get(meshPeerId);
+    if (firstGlare && !firstGlare.currentRemoteDescription && !firstGlare.currentLocalDescription
+        && firstGlare.signalingState === 'have-local-offer' && this.isPolite(meshPeerId)) {
+      const queued = this.pendingCandidates.get(meshPeerId);
+      this.removePeer(meshPeerId);
+      if (queued) this.pendingCandidates.set(meshPeerId, queued);
+      this.makingOffer.set(meshPeerId, false);
+      this.negotiationLock.set(meshPeerId, false);
+    }
     const pc = await this.createPeerConnection(meshPeerId, { reuseFailed: sameRemote, forAnswer: true });
     if (this.currentRoomId !== roomId || this.connections.get(meshPeerId) !== pc) return;
 
