@@ -105,7 +105,13 @@ export interface Body {
    *  register with the ground while Earth translates along its orbit. */
   prevLocal?: [number, number, number];
   local?: [number, number, number];
-
+  /**
+   * Render-only body that follows a transform it is given (a remote
+   * peer's avatar: that peer's own device solves its physics). The tick
+   * carries it with Earth's spin and nothing else: no field drift,
+   * collision, terrain settle or obstacle push-out.
+   */
+  kinematic?: boolean;
 }
 
 
@@ -744,6 +750,7 @@ export class UqrcPhysics {
     if (!hasDeckWalls()) return;
     for (const b of this.bodies.values()) {
       if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (b.kinematic) continue;
       if (b.meta?.attachedTo !== 'earth-surface') continue;
       if (!b.pos.every(Number.isFinite)) continue;
       const rx = b.pos[0] - pose.center[0];
@@ -778,6 +785,7 @@ export class UqrcPhysics {
     if (solids.length === 0) return;
     for (const b of this.bodies.values()) {
       if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+      if (b.kinematic) continue;
       if (!b.pos.every(Number.isFinite)) continue;
       const ux0 = b.pos[0] - pose.center[0];
       const uy0 = b.pos[1] - pose.center[1];
@@ -886,6 +894,24 @@ export class UqrcPhysics {
         const isSurfaceHumanoid =
           (b.kind === 'self' || b.kind === 'avatar') &&
           b.meta?.attachedTo === 'earth-surface';
+        if (b.kinematic) {
+          // Remote avatars are authoritative on their own device. Hold the
+          // last received transform on the same patch of ground while
+          // Earth turns; skip the whole field/collision solve.
+          b.vel[0] = 0; b.vel[1] = 0; b.vel[2] = 0;
+          if (isSurfaceHumanoid && b.pos.every(Number.isFinite)) {
+            const rel = quatRotate(prevPose.invSpinQuat, [
+              b.pos[0] - prevPose.center[0],
+              b.pos[1] - prevPose.center[1],
+              b.pos[2] - prevPose.center[2],
+            ]);
+            const w = quatRotate(pose.spinQuat, rel);
+            b.pos[0] = pose.center[0] + w[0];
+            b.pos[1] = pose.center[1] + w[1];
+            b.pos[2] = pose.center[2] + w[2];
+          }
+          continue;
+        }
         if (isSurfaceHumanoid) {
           const finite = b.pos.every(Number.isFinite) && b.vel.every(Number.isFinite);
           if (!finite) {
@@ -1319,6 +1345,7 @@ export class UqrcPhysics {
       const CORE_ESCAPE_DWELL_S = 1.0;
       for (const b of this.bodies.values()) {
         if (b.kind !== 'self' && b.kind !== 'avatar') continue;
+        if (b.kinematic) continue;
         const dx = b.pos[0] - pose.center[0];
         const dy = b.pos[1] - pose.center[1];
         const dz = b.pos[2] - pose.center[2];

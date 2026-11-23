@@ -232,3 +232,42 @@ describe('uqrcPhysics co-rotating transport', () => {
     expect(physics.getCausalDiagnostics().probeRuns).toBe(1);
   });
 });
+describe('uqrcPhysics kinematic remote avatars', () => {
+  afterEach(() => setEarthPoseTime(null));
+
+  it('holds a remote avatar on its received Earth-local spot while Earth turns', () => {
+    setEarthPoseTime(0);
+    const physics = new UqrcPhysics();
+    // One step first so the integrator has a previous pose to carry from.
+    (physics as unknown as { tick(): void }).tick();
+    const pose = getEarthPose();
+    const start = spawnOnEarth('remote-peer', pose);
+    // Off the solved shell on purpose: a simulated body would be pushed
+    // back to the ground; a kinematic one keeps what its owner sent.
+    const dx = start[0] - pose.center[0];
+    const dy = start[1] - pose.center[1];
+    const dz = start[2] - pose.center[2];
+    const r = Math.hypot(dx, dy, dz);
+    const k = (BODY_SHELL_RADIUS + 3) / r;
+    const placed: [number, number, number] = [pose.center[0] + dx * k, pose.center[1] + dy * k, pose.center[2] + dz * k];
+    const startLocal = quatRotate(pose.invSpinQuat, [placed[0] - pose.center[0], placed[1] - pose.center[1], placed[2] - pose.center[2]]);
+    physics.addBody({
+      id: 'peer-remote', kind: 'avatar', kinematic: true,
+      pos: [...placed], vel: [0, 0, 0], mass: 0, trust: 0.5,
+      meta: { attachedTo: 'earth-surface' },
+    });
+
+    for (let i = 1; i <= 120; i++) {
+      setEarthPoseTime(i / PHYSICS_HZ);
+      (physics as unknown as { tick(): void }).tick();
+    }
+
+    const body = physics.getBody('peer-remote')!;
+    const now = getEarthPose();
+    const endLocal = quatRotate(now.invSpinQuat, [body.pos[0] - now.center[0], body.pos[1] - now.center[1], body.pos[2] - now.center[2]]);
+    expect(endLocal[0]).toBeCloseTo(startLocal[0], 4);
+    expect(endLocal[1]).toBeCloseTo(startLocal[1], 4);
+    expect(endLocal[2]).toBeCloseTo(startLocal[2], 4);
+    expect(body.vel).toEqual([0, 0, 0]);
+  });
+});
