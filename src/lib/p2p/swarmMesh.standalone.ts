@@ -3645,34 +3645,56 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
     if (!conn) return;
-    const items = ids
-      .map(id => this.contentStore.get(id))
-      .filter((i): i is ContentItem => !!i && !(i.type === 'post' && isPostUnsupported(i.id)));
-    if (!items.length) return;
+    const live = (id: string): ContentItem | undefined => {
+      const i = this.contentStore.get(id);
+      return i && !(i.type === 'post' && isPostUnsupported(i.id)) ? i : undefined;
+    };
+    const wanted = ids.filter((id) => live(id));
+    if (!wanted.length) return;
     // A new peer asks for everything we hold. One message with every post
     // meant serializing and chunking megabytes in a single task, which froze
     // this page as they joined; send it in small batches, one task each.
     // Receivers handle each content-push on its own, so older peers are fine.
-    const batches: ContentItem[][] = [];
-    for (let i = 0; i < items.length; i += CONTENT_PUSH_BATCH) batches.push(items.slice(i, i + CONTENT_PUSH_BATCH));
-    this.sendPaced(from, conn, batches.map((batch) => () => JSON.stringify({ type: 'content-push', items: batch, from: this.peerId })));
+    // Each batch is read when it goes out, so a post deleted or no longer
+    // supported in the meantime is not sent.
+    const batches: string[][] = [];
+    for (let i = 0; i < wanted.length; i += CONTENT_PUSH_BATCH) batches.push(wanted.slice(i, i + CONTENT_PUSH_BATCH));
+    this.sendPaced(from, conn, batches.map((batch) => () => {
+      const items = batch.map(live).filter((i): i is ContentItem => !!i);
+      return items.length ? JSON.stringify({ type: 'content-push', items, from: this.peerId }) : null;
+    }));
   }
+
+  /** Per peer: replies waiting to go out, one message per task. */
+  private pacedQueues = new Map<string, { conn: import('peerjs').DataConnection; messages: Array<() => string | null> }>();
 
   /**
    * Send messages to one peer, one per task, so a large reply never holds the
-   * main thread for long. Stops if the channel closes or is replaced.
+   * main thread for long. Replies to the same peer queue behind each other, so
+   * each one still arrives as an unbroken run of messages (chain-sync pages
+   * are reassembled per peer). Stops if the channel closes or is replaced.
+   * A message builder that returns null is skipped.
    */
-  private sendPaced(peerId: string, conn: import('peerjs').DataConnection, messages: Array<() => string>): void {
-    let i = 0;
+  private sendPaced(peerId: string, conn: import('peerjs').DataConnection, messages: Array<() => string | null>): void {
+    if (!messages.length) return;
+    const queued = this.pacedQueues.get(peerId);
+    if (queued && queued.conn === conn) { queued.messages.push(...messages); return; }
+    const queue = { conn, messages: [...messages] };
+    this.pacedQueues.set(peerId, queue);
     const next = () => {
-      if (i >= messages.length) return;
-      if (this.connections.get(peerId) !== conn || !conn.open) return;
+      if (this.pacedQueues.get(peerId) !== queue) return;
+      const build = queue.messages.shift();
+      if (!build || this.connections.get(peerId) !== conn || !conn.open) { this.pacedQueues.delete(peerId); return; }
       try {
-        conn.send(messages[i++]());
-        const p = this.peerData.get(peerId);
-        if (p) p.messagesSent++;
-      } catch { return; }
-      if (i < messages.length) setTimeout(next, 0);
+        const msg = build();
+        if (msg !== null) {
+          conn.send(msg);
+          const p = this.peerData.get(peerId);
+          if (p) p.messagesSent++;
+        }
+      } catch { this.pacedQueues.delete(peerId); return; }
+      if (queue.messages.length) setTimeout(next, 0);
+      else this.pacedQueues.delete(peerId);
     };
     next();
   }
