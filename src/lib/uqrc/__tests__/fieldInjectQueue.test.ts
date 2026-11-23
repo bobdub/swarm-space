@@ -83,6 +83,34 @@ describe('deferred field-inject queue', () => {
     }
   });
 
+  it('keeps a penalty that follows a reward on a saturated site (clamp order)', () => {
+    const direct = new FieldEngine();
+    const shared = getSharedFieldEngine();
+    // Saturate the peer's sites at the +4 bound on both engines.
+    direct.inject('p2p:peer-sat', { amplitude: 10 });
+    shared.inject('p2p:peer-sat', { amplitude: 10 });
+
+    // connect (+) then disconnect (−) for the same peer in one batch window.
+    const events = [
+      { amplitude: 0.5 },
+      { amplitude: 0.2 },
+      { amplitude: -0.3 },
+      { amplitude: -0.2 },
+      { amplitude: 0.1 },
+    ];
+    for (const o of events) direct.inject('p2p:peer-sat', o);
+    for (const o of events) queueFieldInject('p2p:peer-sat', o);
+    // Same-sign runs merge, sign changes stay separate: 3 writes, not 1.
+    expect(getFieldInjectQueueStats().pending).toBe(3);
+    flushFieldInjects();
+
+    const a = direct.cloneSnapshot().axes[0];
+    const b = shared.cloneSnapshot().axes[0];
+    const peak = a.indexOf(Math.max(...a));
+    expect(a[peak]).toBeLessThan(4); // the penalty landed below the bound
+    for (let i = 0; i < a.length; i++) expect(b[i]).toBeCloseTo(a[i], 6);
+  });
+
   it('falls back to a synchronous inject per event when the flag is off', () => {
     flags.deferredFieldInjects = false;
     const fe = getSharedFieldEngine();
