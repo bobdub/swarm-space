@@ -381,16 +381,12 @@ export function updateLavaMantlePin(
 
   const N = field.N;
 
-  // Clear previous-stamp cells.
-  if (_lastMantleFlats.size > 0) {
-    for (const flat of _lastMantleFlats) {
-      for (let a = 0; a < FIELD3D_AXES; a++) {
-        field.pinTemplate[a][flat] = 0;
-        field.pinMask[a][flat] = 0;
-      }
-    }
-    _lastMantleFlats.clear();
-  }
+  // Previous-stamp cells are cleared only where the new stamp does not
+  // land (after the write below). Clearing everything first dropped the
+  // mask on every cell, so each re-stamp re-seeded the live field and
+  // jolted u every few seconds.
+  const previousFlats = new Set(_lastMantleFlats);
+  _lastMantleFlats.clear();
 
   const cellsPerUnit = N / WORLD_SIZE;
   // Stamp out to the top of the atmosphere wall so airborne bodies still
@@ -456,6 +452,13 @@ export function updateLavaMantlePin(
         }
         _lastMantleFlats.add(flat);
       }
+    }
+  }
+  for (const flat of previousFlats) {
+    if (_lastMantleFlats.has(flat)) continue;
+    for (let a = 0; a < FIELD3D_AXES; a++) {
+      field.pinTemplate[a][flat] = 0;
+      field.pinMask[a][flat] = 0;
     }
   }
 }
