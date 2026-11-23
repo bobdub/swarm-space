@@ -8,8 +8,12 @@
  * kept those caches cold and did lattice work on the main thread for every
  * message.
  *
- * Instead, producers call `queueFieldInject()`. Perturbations are summed per
- * (text, axis) — the lattice write is linear in amplitude — and applied in
+ * Instead, producers call `queueFieldInject()`. Consecutive same-sign
+ * nudges for one (text, axis) are summed — the lattice write is linear and
+ * clamps to ±4 after each write, so a same-sign sum lands exactly what the
+ * separate writes would. A sign change starts a new entry, kept in order,
+ * so a penalty that follows a reward still lands on a saturated site.
+ * Everything is applied in
  * one `injectBatch()` (one cache invalidation) on a relaxed cadence: a
  * timer of FLUSH_INTERVAL_MS, then the next idle slot (bounded by
  * IDLE_TIMEOUT_MS). Between flushes the field only changes on its own
@@ -31,10 +35,13 @@ import { getFeatureFlags } from '@/config/featureFlags';
 export const FLUSH_INTERVAL_MS = 1000;
 /** Upper bound on waiting for an idle slot after the interval elapses. */
 export const IDLE_TIMEOUT_MS = 1000;
-/** Distinct (text, axis) entries held before an early flush. */
+/** Queued lattice writes held before an early flush. */
 const MAX_PENDING = 512;
 
-const pending = new Map<string, ResolvedInject>();
+/** Ordered lattice writes waiting for the next flush. */
+const queue: ResolvedInject[] = [];
+/** (text, axis) → the queue entry its latest nudge was added to. */
+const lastEntry = new Map<string, ResolvedInject>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let idleHandle: number | null = null;
 
@@ -73,11 +80,16 @@ export function queueFieldInject(text: string, opts: InjectOpts = {}): void {
   for (const c of resolveInjectAmplitudes(opts)) {
     if (!Number.isFinite(c.amplitude) || c.amplitude === 0) continue;
     const k = `${c.axis}\u0000${text}`;
-    const prev = pending.get(k);
-    if (prev) prev.amplitude += c.amplitude;
-    else pending.set(k, { text, axis: c.axis, amplitude: c.amplitude });
+    const prev = lastEntry.get(k);
+    if (prev && (prev.amplitude > 0) === (c.amplitude > 0)) {
+      prev.amplitude += c.amplitude;
+    } else {
+      const entry = { text, axis: c.axis, amplitude: c.amplitude };
+      queue.push(entry);
+      lastEntry.set(k, entry);
+    }
   }
-  if (pending.size >= MAX_PENDING) {
+  if (queue.length >= MAX_PENDING) {
     flushFieldInjects();
     return;
   }
@@ -85,7 +97,7 @@ export function queueFieldInject(text: string, opts: InjectOpts = {}): void {
 }
 
 function schedule(): void {
-  if (timer !== null || idleHandle !== null || pending.size === 0) return;
+  if (timer !== null || idleHandle !== null || queue.length === 0) return;
   timer = setTimeout(() => {
     timer = null;
     const ric = typeof window !== 'undefined'
@@ -115,9 +127,9 @@ function cancelScheduled(): void {
 /** Apply everything queued now (one cache invalidation). */
 export function flushFieldInjects(): void {
   cancelScheduled();
-  if (pending.size === 0) return;
-  const entries = Array.from(pending.values());
-  pending.clear();
+  if (queue.length === 0) return;
+  const entries = queue.splice(0, queue.length);
+  lastEntry.clear();
   try {
     getSharedFieldEngine().injectBatch(entries);
     stats.applied += entries.length;
@@ -128,7 +140,7 @@ export function flushFieldInjects(): void {
 }
 
 export function getFieldInjectQueueStats(): FieldInjectQueueStats {
-  return { ...stats, pending: pending.size };
+  return { ...stats, pending: queue.length };
 }
 
 // Devtools handle for A/B runs: `__swarmFieldInjects()` in the console.
@@ -142,7 +154,8 @@ if (typeof window !== 'undefined') {
 /** Test helper. */
 export function __resetFieldInjectQueueForTests(): void {
   cancelScheduled();
-  pending.clear();
+  queue.length = 0;
+  lastEntry.clear();
   stats.received = 0;
   stats.applied = 0;
   stats.flushes = 0;
