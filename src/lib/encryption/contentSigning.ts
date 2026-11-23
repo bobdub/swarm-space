@@ -4,6 +4,7 @@
  */
 
 import { sha256Async } from '../blockchain/crypto';
+import { canonicalJson, canonicalJsonBytes } from '../utils/canonicalJson';
 
 function safeAb2b64(bytes: Uint8Array): string {
   const CHUNK = 8192;
@@ -40,18 +41,18 @@ export async function signContent<T>(
 ): Promise<SignedContent<T>> {
   const contentString = typeof content === 'string' 
     ? content 
-    : JSON.stringify(content);
+    : canonicalJson(content);
   
   const contentHash = await sha256Async(contentString);
   const signer = await getSignerFn();
+  // Sign and publish the SAME timestamp (they used to be two Date.now() calls).
+  const timestamp = Date.now();
   
-  const payload = new TextEncoder().encode(
-    JSON.stringify({
-      content: contentString,
-      contentHash,
-      timestamp: Date.now(),
-    })
-  );
+  const payload = canonicalJsonBytes({
+    content: contentString,
+    contentHash,
+    timestamp,
+  });
   
   const signatureBytes = await signer.sign(payload);
   
@@ -73,7 +74,7 @@ export async function signContent<T>(
       signature,
       publicKey: signer.publicKey,
       contentHash,
-      timestamp: Date.now(),
+      timestamp,
       algorithm: 'ed25519',
     },
   };
@@ -97,13 +98,20 @@ export async function verifyContentSignature<T>(
       return false;
     }
     
-    // Verify content hash
-    const contentString = typeof content === 'string' 
-      ? content 
-      : JSON.stringify(content);
-    const computedHash = await sha256Async(contentString);
+    // Verify content hash. Objects are hashed canonically; signatures made
+    // before canonicalisation hashed plain JSON.stringify output, so accept that too.
+    const candidates = typeof content === 'string'
+      ? [content]
+      : [canonicalJson(content), JSON.stringify(content)];
+    let contentString: string | null = null;
+    for (const candidate of candidates) {
+      if (await sha256Async(candidate) === signature.contentHash) {
+        contentString = candidate;
+        break;
+      }
+    }
     
-    if (computedHash !== signature.contentHash) {
+    if (contentString === null) {
       console.warn('[ContentSigning] Content hash mismatch');
       return false;
     }
@@ -118,25 +126,20 @@ export async function verifyContentSignature<T>(
       ['verify']
     );
     
-    // Verify signature
-    const payload = new TextEncoder().encode(
-      JSON.stringify({
-        content: contentString,
-        contentHash: signature.contentHash,
-        timestamp: signature.timestamp,
-      })
-    );
-    
+    // Verify signature: canonical payload first, then the legacy
+    // JSON.stringify payload so older signatures keep verifying.
+    const fields = {
+      content: contentString,
+      contentHash: signature.contentHash,
+      timestamp: signature.timestamp,
+    };
     const signatureBytes = Uint8Array.from(atob(signature.signature), c => c.charCodeAt(0));
-    
-    const valid = await crypto.subtle.verify(
-      'Ed25519',
-      publicKey,
-      signatureBytes,
-      payload
-    );
-    
-    return valid;
+    for (const payload of [canonicalJsonBytes(fields), new TextEncoder().encode(JSON.stringify(fields))]) {
+      if (await crypto.subtle.verify('Ed25519', publicKey, signatureBytes, payload)) {
+        return true;
+      }
+    }
+    return false;
   } catch (error) {
     console.error('[ContentSigning] Verification failed:', error);
     return false;

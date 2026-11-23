@@ -46,3 +46,23 @@ test("native tip signature binds sender, recipient, token and amount", async () 
   expect(await verifyWalletTip({ ...signed, to: "aabbccddeeff0011" })).toBe(false);
   expect(await verifyWalletTip(await signWalletTip({ ...tx, to: "infinity:market" }, keys.privateKey))).toBe(false);
 });
+
+test("tip verification accepts the canonical encoding, so meta key order can't break it", async () => {
+  const { canonicalJsonBytes } = await import("@/lib/utils/canonicalJson");
+  const { arrayBufferToBase64, base64ToArrayBuffer } = await import("@/lib/crypto");
+  const keys = await genIdentityKeyPair();
+  const from = await computeUserId(keys.publicKey);
+  const tx: SwarmTransaction = { id: "tip-canon", type: "wallet_tip", from, to: "aabbccddeeff0011", amount: 1,
+    timestamp: "2026-11-23T21:19:00.000Z", signature: "", publicKey: keys.publicKey, nonce: 3, fee: 0,
+    meta: { ticker: "SWARM", assetId: "chain:SWARM" } };
+  const key = await crypto.subtle.importKey("pkcs8", base64ToArrayBuffer(keys.privateKey),
+    { name: "ECDSA", namedCurve: "P-256" }, false, ["sign"]);
+  const payload = canonicalJsonBytes({ id: tx.id, type: tx.type, from: tx.from, to: tx.to, amount: tx.amount,
+    tokenId: null, chainId: "SWARM", timestamp: tx.timestamp, nonce: tx.nonce, fee: tx.fee, meta: tx.meta });
+  const sig = arrayBufferToBase64(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key, payload));
+  const signed = { ...tx, signature: sig };
+  expect(await verifyWalletTip(signed)).toBe(true);
+  // Same tip with meta keys in a different order still verifies.
+  expect(await verifyWalletTip({ ...signed, meta: { assetId: "chain:SWARM", ticker: "SWARM" } })).toBe(true);
+  expect(await verifyWalletTip({ ...signed, amount: 2 })).toBe(false);
+});

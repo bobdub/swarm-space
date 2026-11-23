@@ -16,10 +16,40 @@ export interface ProtectedRecord<T> {
 }
 
 /**
+ * Record versions:
+ *  - v1 (legacy, read-only): PBKDF2 with fixed salts "swarm-storage-v1" / "swarm-hmac-v1".
+ *  - v2 (current): a fresh random 16-byte salt per record, stored next to the IV.
+ */
+const LEGACY_STORAGE_SALT = new TextEncoder().encode("swarm-storage-v1");
+const LEGACY_HMAC_SALT = new TextEncoder().encode("swarm-hmac-v1");
+const RECORD_VERSION = 2;
+const SALT_BYTES = 16;
+
+/** Keep the AES and HMAC derivations apart even though they share a per-record salt. */
+function domainSalt(salt: Uint8Array, label: "enc" | "mac"): Uint8Array {
+  const tag = new TextEncoder().encode(`swarm-protected-v2:${label}:`);
+  const out = new Uint8Array(tag.length + salt.length);
+  out.set(tag, 0);
+  out.set(salt, tag.length);
+  return out;
+}
+
+interface EncryptedPayload { cipher: string; iv: string; salt?: string }
+
+function saltsFor(record: ProtectedRecord<unknown>, encData: EncryptedPayload): { enc: Uint8Array; mac: Uint8Array } {
+  if ((record.version ?? 1) >= 2) {
+    if (!encData.salt) throw new Error("Protected record v2 is missing its salt");
+    const salt = new Uint8Array(base64ToArrayBuffer(encData.salt));
+    return { enc: domainSalt(salt, "enc"), mac: domainSalt(salt, "mac") };
+  }
+  return { enc: LEGACY_STORAGE_SALT, mac: LEGACY_HMAC_SALT };
+}
+
+/**
  * Derive a storage encryption key from user's private key
  * This ensures only the key holder can decrypt stored data
  */
-async function deriveStorageKey(userPrivateKey: string): Promise<CryptoKey> {
+async function deriveStorageKey(userPrivateKey: string, salt: Uint8Array): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     base64ToArrayBuffer(userPrivateKey),
@@ -31,7 +61,7 @@ async function deriveStorageKey(userPrivateKey: string): Promise<CryptoKey> {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: new TextEncoder().encode("swarm-storage-v1"),
+      salt: salt as BufferSource,
       iterations: 100000,
       hash: "SHA-256"
     },
@@ -45,7 +75,7 @@ async function deriveStorageKey(userPrivateKey: string): Promise<CryptoKey> {
 /**
  * Derive an HMAC key for integrity verification
  */
-async function deriveHMACKey(userPrivateKey: string): Promise<CryptoKey> {
+async function deriveHMACKey(userPrivateKey: string, salt: Uint8Array): Promise<CryptoKey> {
   const keyMaterial = await crypto.subtle.importKey(
     "raw",
     base64ToArrayBuffer(userPrivateKey),
@@ -57,7 +87,7 @@ async function deriveHMACKey(userPrivateKey: string): Promise<CryptoKey> {
   return crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: new TextEncoder().encode("swarm-hmac-v1"),
+      salt: salt as BufferSource,
       iterations: 100000,
       hash: "SHA-256"
     },
@@ -84,8 +114,9 @@ export async function putProtected<T>(
   data: T,
   userPrivateKey: string
 ): Promise<void> {
-  // 1. Derive storage key from user's private key
-  const storageKey = await deriveStorageKey(userPrivateKey);
+  // 1. Derive storage key from user's private key and a fresh per-record salt
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const storageKey = await deriveStorageKey(userPrivateKey, domainSalt(salt, "enc"));
   
   // 2. Encrypt data with AES-GCM
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -97,7 +128,7 @@ export async function putProtected<T>(
   );
   
   // 3. Calculate HMAC over encrypted data for integrity
-  const hmacKey = await deriveHMACKey(userPrivateKey);
+  const hmacKey = await deriveHMACKey(userPrivateKey, domainSalt(salt, "mac"));
   const hmac = await crypto.subtle.sign(
     "HMAC",
     hmacKey,
@@ -109,10 +140,11 @@ export async function putProtected<T>(
     id,
     encryptedData: JSON.stringify({
       cipher: arrayBufferToBase64(encrypted),
-      iv: arrayBufferToBase64(iv.buffer)
-    }),
+      iv: arrayBufferToBase64(iv.buffer),
+      salt: arrayBufferToBase64(salt.buffer)
+    } satisfies EncryptedPayload),
     hmac: arrayBufferToBase64(hmac),
-    version: 1,
+    version: RECORD_VERSION,
     timestamp: Date.now()
   };
   
@@ -140,11 +172,12 @@ export async function getProtected<T>(
   }
   
   // 2. Parse encrypted data
-  const encData = JSON.parse(record.encryptedData);
+  const encData = JSON.parse(record.encryptedData) as EncryptedPayload;
   const encryptedBuffer = base64ToArrayBuffer(encData.cipher);
+  const salts = saltsFor(record, encData);
   
   // 3. Verify HMAC to detect tampering
-  const hmacKey = await deriveHMACKey(userPrivateKey);
+  const hmacKey = await deriveHMACKey(userPrivateKey, salts.mac);
   const valid = await crypto.subtle.verify(
     "HMAC",
     hmacKey,
@@ -159,15 +192,23 @@ export async function getProtected<T>(
   }
   
   // 4. Decrypt data
-  const storageKey = await deriveStorageKey(userPrivateKey);
+  const storageKey = await deriveStorageKey(userPrivateKey, salts.enc);
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64ToArrayBuffer(encData.iv) },
     storageKey,
     encryptedBuffer
   );
   
-  // 5. Parse and return
-  return JSON.parse(new TextDecoder().decode(decrypted));
+  // 5. Parse; migrate legacy fixed-salt records to v2 on the way out
+  const data = JSON.parse(new TextDecoder().decode(decrypted)) as T;
+  if ((record.version ?? 1) < RECORD_VERSION) {
+    try {
+      await putProtected(storeName, id, data, userPrivateKey);
+    } catch (error) {
+      console.warn(`[Protected Storage] Could not migrate ${storeName}/${id} to v2`, error);
+    }
+  }
+  return data;
 }
 
 /**
@@ -190,8 +231,8 @@ export async function verifyProtected(
   }
   
   try {
-    const encData = JSON.parse(record.encryptedData);
-    const hmacKey = await deriveHMACKey(userPrivateKey);
+    const encData = JSON.parse(record.encryptedData) as EncryptedPayload;
+    const hmacKey = await deriveHMACKey(userPrivateKey, saltsFor(record, encData).mac);
     
     return await crypto.subtle.verify(
       "HMAC",
