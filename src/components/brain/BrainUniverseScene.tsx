@@ -183,6 +183,7 @@ import { encodeSelfPosition, localDistance, resolvePeerWorldPosition } from '@/l
 import { isBrainEntryComplete, setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
+import { chirpForRemoteLine } from '@/lib/brain/chatChirp';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
@@ -2052,6 +2053,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         }
         return; // No second generation or learning from the broadcast reply.
       }
+      chirpForRemoteLine(remote);
       setChatLines((prev) => {
         if (prev.some((l) => l.id === remote.id)) return prev;
         const line: BrainChatLine = {
