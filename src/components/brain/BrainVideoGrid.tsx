@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Maximize2, Mic, MicOff, MonitorUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VideoParticipant } from "@/lib/webrtc/types";
-import { LOCAL_INPUT_SWITCHED_EVENT } from "@/lib/webrtc/manager";
+import { LOCAL_INPUT_SWITCHED_EVENT, getExistingWebRTCManager } from "@/lib/webrtc/manager";
 
 interface BrainVideoGridProps {
   participants: VideoParticipant[];
@@ -25,18 +25,31 @@ interface Tile {
   isSelf: boolean;
   muted: boolean;
   isScreen: boolean;
+  /** For a peer's screen: whose it is. */
+  peerId?: string;
 }
 
 export function TileVideo({
   stream,
   muted,
   className,
+  screenOf,
+  screenView = "preview",
 }: {
   stream: MediaStream;
   muted: boolean;
   className?: string;
+  /** Peer whose screen this shows; they are told how big it is drawn. */
+  screenOf?: string;
+  /** Full size, or a thumbnail / small viewer that needs far less. */
+  screenView?: "full" | "preview";
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+  // While mounted, ask the sharer for only the quality this element needs.
+  useEffect(() => {
+    if (!screenOf) return;
+    return getExistingWebRTCManager()?.watchRemoteScreen(screenOf, screenView);
+  }, [screenOf, screenView]);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -89,6 +102,8 @@ function VideoTile({
         <TileVideo
           stream={tile.stream}
           muted
+          screenOf={tile.isScreen ? tile.peerId : undefined}
+          screenView="preview"
           className={cn(
             "block bg-black",
             tile.isScreen ? "object-contain" : "object-cover",
@@ -191,6 +206,7 @@ export function BrainVideoGrid({
           isSelf: false,
           muted: true,
           isScreen: true,
+          peerId: p.peerId,
         });
       }
     }
@@ -247,6 +263,8 @@ export function BrainVideoGrid({
           <TileVideo
             stream={expanded.stream}
             muted
+            screenOf={expanded.isScreen ? expanded.peerId : undefined}
+            screenView="full"
             className="min-h-0 w-full flex-1 rounded-md bg-black object-contain"
           />
         </div>

@@ -14,6 +14,7 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
     reconnectSignals.push({ to, kind });
   },
   sendScreenShareState: vi.fn(),
+  sendScreenView: vi.fn(),
   sendMediaState: vi.fn(),
   announceJoinRoom: vi.fn(),
   announceLeaveRoom: vi.fn(),

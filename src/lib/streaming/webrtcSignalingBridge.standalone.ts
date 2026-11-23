@@ -34,6 +34,7 @@ interface SignalEnvelope {
     | 'reconnect-ack'
     | 'chat-message'
     | 'screen-share-state'
+    | 'screen-view'
     | 'media-state'
     | 'presence'
     | 'room-hello'
@@ -576,6 +577,13 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
     case 'answer':
     case 'candidate': {
       console.log(`[WebRTC-Bridge] 📥 Received ${envelope.msgType} from ${envelope.from}`);
+      for (const h of signalHandlers) {
+        try { h(envelope); } catch { /* ignore */ }
+      }
+      break;
+    }
+
+    case 'screen-view': {
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
       }
@@ -1199,6 +1207,23 @@ export function sendScreenShareState(roomId: string, active: boolean, streamId?:
     data: { active, streamId },
     ts: Date.now(),
   } satisfies SignalEnvelope);
+}
+
+/**
+ * Tell a sharer how this viewer is showing their screen, so they send only
+ * what is needed: full quality when watched full size, a small, slow picture
+ * for a thumbnail, and nothing at all when the share is closed or minimized.
+ */
+export function sendScreenView(toPeerId: string, roomId: string, view: 'full' | 'preview' | 'off'): void {
+  if (!meshRef) return;
+  sendDirected({
+    msgType: 'screen-view',
+    from: meshRef.getPeerId(),
+    to: toPeerId,
+    roomId,
+    data: { view },
+    ts: Date.now(),
+  });
 }
 
 /**

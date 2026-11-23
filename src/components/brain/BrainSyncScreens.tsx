@@ -157,6 +157,8 @@ export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
       <TileVideo
         stream={active.stream}
         muted
+        screenOf={active.peerId}
+        screenView={expanded ? 'full' : 'preview'}
         className={cn('block w-full bg-black object-contain', expanded ? 'min-h-0 flex-1' : 'aspect-video')}
       />
     </div>
