@@ -31,7 +31,7 @@ import * as THREE from 'three';
 import { EARTH_RADIUS, getEarthPoseTime, type Vec3 } from '@/lib/brain/earth';
 import { getMantlePressure } from '@/lib/brain/lavaMantle';
 import { sampleTerrainLift } from '@/lib/brain/terrainMesh';
-import { carvedGroundAt, getCraterCarve } from '@/lib/brain/craterCarve';
+import { carvedGroundAt, craterMagmaLevelAt, getCraterCarve } from '@/lib/brain/craterCarve';
 import { CRATER_PATCH_SEGMENTS } from '@/lib/brain/terrainGeometry';
 import type { VolcanoOrgan } from '@/lib/brain/volcanoOrgan';
 import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
@@ -43,7 +43,7 @@ import {
   slugPhaseAt,
   throatRadius,
 } from '@/lib/brain/magmaConduit';
-import { eruptionStateAt, magmaLevelAt, ventGlowAt } from '@/lib/brain/eruptionCycle';
+import { eruptionStateAt, ventGlowAt } from '@/lib/brain/eruptionCycle';
 import {
   flowHalfWidthAt,
   lavaFlowPaths,
@@ -469,7 +469,8 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
     const time = getEarthPoseTime();
     const wrapped = ((time % SHADER_CLOCK_WRAP_S) + SHADER_CLOCK_WRAP_S) % SHADER_CLOCK_WRAP_S;
     const state = eruptionStateAt(time);
-    const level = magmaLevelAt(organ, time);
+    // Capped at the rim's spill point: above it the magma pours out.
+    const level = craterMagmaLevelAt(time);
     const burstAge = slugPhaseAt(time) * STROMBOLIAN_PERIOD_S;
     // Mantle pressure (shared clock) shades the brightness.
     const mantle = 0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure(time)));

@@ -247,3 +247,25 @@ describe('vent mouth', () => {
     g.dispose();
   });
 });
+
+describe('magma obeys the crater it is in', () => {
+  it('never stands above the rim\'s spill point; it pours out there', () => {
+    const k = getCraterCarve();
+    expect(k.spillElev).toBeLessThanOrEqual(k.originElev + 1);
+    for (let t = 0; t < 3000; t += 7) {
+      expect(magmaSurfaceElevationAt(t)).toBeLessThanOrEqual(k.spillElev + 1e-9);
+    }
+  });
+
+  it('lava tongues leave over the rim, never across the bowl', async () => {
+    const { lavaFlowPaths } = await import('../lavaFlows');
+    const { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } = await import('../volcanoOrgan');
+    const k = getCraterCarve();
+    for (const path of lavaFlowPaths(getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID))) {
+      for (const d of path.dirs) expect(craterArcAt(d)).toBeGreaterThanOrEqual(k.rimR - 0.5);
+      // Starts near the spill height and runs downhill from there.
+      expect(path.lift[0]).toBeLessThan(k.spillElev + 6);
+      expect(path.lift[path.lift.length - 1]).toBeLessThan(path.lift[0]);
+    }
+  });
+});

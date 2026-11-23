@@ -54,7 +54,14 @@ export interface CraterCarve {
   floorElev: number;
   /** cos of the rim's angular radius, for a cheap early-out. */
   cosRim: number;
+  /** Elevation (m above sea level) of the lowest point on the rim: the
+   *  spill point. Magma in the crater can never stand above it; it pours
+   *  out there instead (the flank flows start at the rim's low saddles). */
+  spillElev: number;
 }
+
+/** Azimuth samples used to find the rim's lowest point. */
+const RIM_SAMPLES = 144;
 
 let _carve: CraterCarve | null = null;
 
@@ -65,6 +72,29 @@ export function getCraterCarve(): CraterCarve {
   const len = Math.hypot(c[0], c[1], c[2]) || 1;
   const center: Vec3 = [c[0] / len, c[1] / len, c[2] / len];
   const baked = sampleTerrainLift(center);
+  // Lowest point on the rim: walk the rim circle on the baked ground.
+  const ref: Vec3 = Math.abs(center[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+  let e1: Vec3 = [
+    ref[1] * center[2] - ref[2] * center[1],
+    ref[2] * center[0] - ref[0] * center[2],
+    ref[0] * center[1] - ref[1] * center[0],
+  ];
+  const l1 = Math.hypot(e1[0], e1[1], e1[2]);
+  e1 = [e1[0] / l1, e1[1] / l1, e1[2] / l1];
+  const e2: Vec3 = [
+    center[1] * e1[2] - center[2] * e1[1],
+    center[2] * e1[0] - center[0] * e1[2],
+    center[0] * e1[1] - center[1] * e1[0],
+  ];
+  const ang = organ.craterRadius / EARTH_RADIUS;
+  let spillElev = Infinity;
+  for (let i = 0; i < RIM_SAMPLES; i++) {
+    const az = (i / RIM_SAMPLES) * Math.PI * 2;
+    const ca = Math.cos(az), sa = Math.sin(az);
+    const d: Vec3 = [0, 1, 2].map((j) =>
+      center[j] * Math.cos(ang) + (e1[j] * ca + e2[j] * sa) * Math.sin(ang)) as Vec3;
+    spillElev = Math.min(spillElev, sampleTerrainLift(d));
+  }
   _carve = {
     center,
     rimR: organ.craterRadius,
@@ -72,6 +102,7 @@ export function getCraterCarve(): CraterCarve {
     originElev: baked + LAVA_DEPTH_M,
     floorElev: baked - CRATER_FLOOR_DEPTH_M,
     cosRim: Math.cos(organ.craterRadius / EARTH_RADIUS),
+    spillElev,
   };
   return _carve;
 }
@@ -115,10 +146,20 @@ export function isOverVent(localN: Vec3): boolean {
   return craterArcAt(localN) < getCraterCarve().neckR;
 }
 
+/**
+ * Magma level (m, crater frame) at shared time `t`, as it can actually
+ * stand in the carved crater: never above the rim's spill point, where it
+ * overflows down the flanks instead.
+ */
+export function craterMagmaLevelAt(t: number = getEarthPoseTime()): number {
+  const k = getCraterCarve();
+  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+  return Math.min(magmaLevelAt(organ, t), k.spillElev - k.originElev);
+}
+
 /** Elevation (m above sea level) of the magma surface at shared time `t`. */
 export function magmaSurfaceElevationAt(t: number = getEarthPoseTime()): number {
-  const organ = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
-  return getCraterCarve().originElev + magmaLevelAt(organ, t);
+  return getCraterCarve().originElev + craterMagmaLevelAt(t);
 }
 
 /**
