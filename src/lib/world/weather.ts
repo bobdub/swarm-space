@@ -70,6 +70,10 @@ const W_CURVE = 0.6;
  * only a well-defined moisture well now nucleates.
  */
 export const NUCLEATION_SCORE = 0.6;
+/** Fraction of the air moisture at the ground that drains into the sea per tick. */
+export const SEA_DRAIN_RATE = 0.06;
+/** Fraction of the air moisture at the ground that seeps into land per tick. */
+export const GROUND_SEEP_RATE = 0.04;
 /** Minimum angular separation between two clouds (rad). */
 const MIN_SEPARATION = 0.05;
 
@@ -199,13 +203,31 @@ export function tickWeather(): WeatherSnapshot {
     const normal = fibonacciNormal(i, SAMPLES);
     const worldN = quatRotate(pose.spinQuat, normal);
     const lit = Math.max(0, worldN[0] * sun[0] + worldN[1] * sun[1] + worldN[2] * sun[2]);
-    if (lit <= 0.02) continue;
 
     const surfaceWorld = earthLocalToWorld(
       [normal[0] * EARTH_RADIUS, normal[1] * EARTH_RADIUS, normal[2] * EARTH_RADIUS],
       pose,
     );
     const cls = sampleSurfaceClass(normal);
+
+    // The sink term, day and night: air moisture at the ground seeps into
+    // land or drains back into the sea, in proportion to how much is
+    // there. Without it evaporation only ever added to u₂, which then
+    // sat at the field bound, flattened the wind to zero, and relied on
+    // pins re-seeding the field to drain it.
+    const ground = sample3D(
+      field,
+      MOISTURE_AXIS,
+      worldToLattice(surfaceWorld[0], field.N),
+      worldToLattice(surfaceWorld[1], field.N),
+      worldToLattice(surfaceWorld[2], field.N),
+    );
+    if (ground > 0) {
+      const rate = cls === 'ocean' || cls === 'shore' ? SEA_DRAIN_RATE : GROUND_SEEP_RATE;
+      physics.injectAt(surfaceWorld, -rate * ground, MOISTURE_AXIS);
+    }
+
+    if (lit <= 0.02) continue;
     if (cls === 'ocean' || cls === 'shore') {
       // The source term. Amplitude is the physical driver: how much sun
       // reaches this water. Nothing else scales it.

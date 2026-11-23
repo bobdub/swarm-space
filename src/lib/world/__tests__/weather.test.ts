@@ -22,6 +22,17 @@ describe('weather as a field observable', () => {
     teardownBrainPhysics();
   });
 
+  it('drains a saturated atmosphere into the ground and sea', () => {
+    const u2 = getBrainPhysics().getField().axes[2];
+    u2.fill(FIELD3D_BOUND);
+    const before = u2.reduce((s, v) => s + v, 0);
+    tickWeather();
+    const after = u2.reduce((s, v) => s + v, 0);
+    // Evaporation alone can only add (and clips at the bound); the
+    // seep/drain sink is what lets moisture leave the air.
+    expect(after).toBeLessThan(before);
+  });
+
   it('derives humidity from the field instead of an internal counter', () => {
     expect(getWeather().humidity).toBe(0);
     let humid = 0;

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { setEarthPoseTime, getEarthPose, spawnOnEarth, EARTH_ORBIT_PERIOD } from '../earth';
 import { UqrcPhysics, AVATAR_WALK_SPEED_MPS, PHYSICS_HZ, WORLD_SIZE } from '../uqrcPhysics';
 import { createField3D, step3D, FIELD3D_N, type Field3D } from '../../uqrc/field3D';
-import { initLavaMantle } from '../lavaMantle';
+import { initLavaMantle, updateLavaMantlePin, lavaMantleReassertDue } from '../lavaMantle';
 
 const tickOf = (p: UqrcPhysics) => (p as unknown as { tick(): void }).tick();
 function maskCount(f: Field3D): number {
@@ -69,6 +69,23 @@ describe('UQRC hotspot regressions', () => {
       compared++;
     }
     expect(compared).toBeGreaterThan(0);
+  });
+
+  it('re-stamping the mantle leaves live u to the operator instead of snapping it', () => {
+    setEarthPoseTime(0);
+    const field = createField3D();
+    initLavaMantle(field);
+    let flat = -1;
+    for (let i = 0; i < field.pinMask[0].length; i++) {
+      if (field.pinMask[0][i] && field.pinTemplate[0][i] !== 0) { flat = i; break; }
+    }
+    expect(flat).toBeGreaterThanOrEqual(0);
+    field.axes[0][flat] = field.pinTemplate[0][flat] + 0.5;
+    field.ticks += 8;
+    expect(lavaMantleReassertDue(field)).toBe(true);
+    updateLavaMantlePin(field, getEarthPose(), 0);
+    expect(field.pinMask[0][flat]).toBe(1);
+    expect(field.axes[0][flat]).toBeCloseTo(field.pinTemplate[0][flat] + 0.5, 5);
   });
 
   it('keeps a light surface walker under the walk-speed cap through the ground settle', () => {

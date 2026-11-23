@@ -207,9 +207,13 @@ export function writePinTemplate(
   target: number,
 ): void {
   if (axis < 0 || axis >= FIELD3D_AXES) return;
+  const wasPinned = field.pinMask[axis][flatIdx] === 1;
   field.pinTemplate[axis][flatIdx] = target;
   field.pinMask[axis][flatIdx] = 1;
-  field.axes[axis][flatIdx] = target; // seed for instant visibility
+  // Seed only a newly pinned cell, for instant visibility. A cell that is
+  // already pinned is moved by L_S^pin inside step3D; overwriting u on
+  // every re-assert snapped the field (a ~5× jump in max |Δu| per step).
+  if (!wasPinned) field.axes[axis][flatIdx] = target;
 }
 
 /**

@@ -722,9 +722,11 @@ export class UqrcPhysics {
     for (const flat of touched) {
       const base = this.supportBase.get(flat);
       if (!base) continue;
+      // Template only: the mask stays set, so the recompose below finds
+      // the cell already pinned and never re-seeds the live field (no
+      // step3D runs between this reset and the recompose).
       for (let a = 0; a < FIELD3D_AXES; a++) {
         this.field.pinTemplate[a][flat] = base[a];
-        this.field.pinMask[a][flat] = base[a] === 0 ? 0 : 1;
       }
     }
     writeStructuralPins();
