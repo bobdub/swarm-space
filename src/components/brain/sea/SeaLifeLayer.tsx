@@ -51,7 +51,7 @@ import {
 const FISH_VIEW_M = 160;
 const SHARK_VIEW_M = 260;
 /** Most fish and sharks drawn at once. */
-const MAX_FISH = 360;
+const MAX_FISH = 200;
 const MAX_SHARKS = 8;
 /** Seconds between re-picking which creatures are near. */
 const PICK_EVERY_S = 1;

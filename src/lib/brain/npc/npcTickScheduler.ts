@@ -51,6 +51,9 @@ import {
   type NpcToolKind,
 } from './npcTools';
 import { resolveLocalAnchorId } from './localAnchor';
+import { isNpcSceneActive } from './npcSceneGate';
+
+export { retainNpcScene, isNpcSceneActive } from './npcSceneGate';
 
 const TICK_HZ = 8;
 const TICK_MS = 1000 / TICK_HZ;
@@ -155,6 +158,7 @@ function fetchTool(
 
 let _timer: ReturnType<typeof setInterval> | null = null;
 let _lastTickAt = 0;
+
 let _seeded = false;
 let _flagUnsub: (() => void) | null = null;
 let _unloadHooked = false;
@@ -301,6 +305,12 @@ function tickOne(npc: Npc, dtSeconds: number): void {
 
 function tickAll(): void {
   if (!getFeatureFlags().scaffoldBus) return;
+  if (!isNpcSceneActive()) {
+    // Asleep: the next awake tick starts a fresh dt instead of replaying
+    // the whole off-scene gap as one giant step.
+    _lastTickAt = 0;
+    return;
+  }
   const now = Date.now();
   const wallDt = _lastTickAt === 0 ? TICK_MS / 1000 : (now - _lastTickAt) / 1000;
   _lastTickAt = now;

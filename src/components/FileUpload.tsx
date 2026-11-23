@@ -9,6 +9,7 @@ import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { formatUploadLimit, VIDEO_TRANSCODE_WAIT_TOOLTIP } from "@/lib/media/meshUploadLimits";
+import { AudioTranscodeError, shouldTranscodeAudio, transcodeAudioForMesh } from "@/lib/media/audioTranscode";
 
 /** Extract natural width/height from an image or video File */
 function getMediaDimensions(file: File): Promise<{ width: number; height: number } | null> {
@@ -59,8 +60,11 @@ interface FileWithProgress {
   id: string;
   file: File;
   progress: number;
-  /** "queued" = waiting for the file ahead of it to finish encrypting. */
-  status: "queued" | "encrypting" | "done" | "error";
+  /**
+   * "queued" = waiting for the file ahead of it to finish encrypting.
+   * "transcoding" = long audio being compressed to fit the mesh limit.
+   */
+  status: "queued" | "transcoding" | "encrypting" | "done" | "error";
   manifest?: Manifest;
   error?: string;
   /** Local blob: URL so queued videos can be watched before they are processed. */
@@ -115,7 +119,8 @@ export const FileUpload = ({
     const newFiles: FileWithProgress[] = [];
     for (const file of fileArray) {
       // Check file size
-      if (file.size > maxFileSize) {
+      // Long audio is compressed to fit instead of being turned away.
+      if (file.size > maxFileSize && !shouldTranscodeAudio(file, maxFileSize)) {
         toast.error(
           `${file.name} is ${formatFileSize(file.size)}. Files are limited to ${limitLabel} so peers can carry them over the mesh.`
         );
@@ -166,20 +171,30 @@ export const FileUpload = ({
       cancelledRef.current.delete(item.id);
       return;
     }
+    let source = item.file;
     try {
+      if (shouldTranscodeAudio(source, maxFileSize)) {
+        updateFile(item.id, { status: "transcoding", progress: 0 });
+        source = await transcodeAudioForMesh(source, {
+          limitBytes: maxFileSize,
+          onProgress: (progress) => updateFile(item.id, { progress }),
+        });
+        updateFile(item.id, { file: source, progress: 0 });
+      }
+
       updateFile(item.id, { status: "encrypting" });
 
       // Generate file key and encrypt
       const fileKey = await genFileKey();
       const manifest = await chunkAndEncryptFile(
-        item.file,
+        source,
         fileKey,
-        getAdaptiveChunkSize(item.file.size),
+        getAdaptiveChunkSize(source.size),
         (progress) => updateFile(item.id, { progress })
       );
 
       // Capture media dimensions for images/videos to prevent layout shift
-      const dims = await getMediaDimensions(item.file);
+      const dims = await getMediaDimensions(source);
       if (dims) {
         manifest.mediaWidth = dims.width;
         manifest.mediaHeight = dims.height;
@@ -191,8 +206,13 @@ export const FileUpload = ({
       announceContent(manifest.fileId);
 
       onFilesReady([manifest]);
-      toast.success(`${item.file.name} encrypted and ready`);
+      toast.success(`${source.name} encrypted and ready`);
     } catch (error) {
+      if (error instanceof AudioTranscodeError) {
+        updateFile(item.id, { status: "error", error: "Couldn't compress audio" });
+        toast.error(`${item.file.name}: ${error.message}`);
+        return;
+      }
       console.error("Encryption error:", error);
       updateFile(item.id, { status: "error", error: "Encryption failed" });
       toast.error(`Failed to encrypt ${item.file.name}`);
@@ -261,6 +281,9 @@ export const FileUpload = ({
         <p className="text-sm text-muted-foreground">
           Max {maxFiles} files, up to {limitLabel} each (mesh limit)
         </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          Longer audio is compressed to fit automatically.
+        </p>
         <input
           ref={fileInputRef}
           type="file"
@@ -289,7 +312,7 @@ export const FileUpload = ({
                       variant="ghost"
                       size="sm"
                       onClick={() => removeFile(fileWithProgress.id)}
-                      disabled={fileWithProgress.status === "encrypting"}
+                      disabled={fileWithProgress.status === "encrypting" || fileWithProgress.status === "transcoding"}
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -298,6 +321,7 @@ export const FileUpload = ({
                   <p className="text-sm text-muted-foreground mb-2">
                     {formatFileSize(fileWithProgress.file.size)}
                     {fileWithProgress.status === "queued" && !isVideo(fileWithProgress.file) && " • Queued"}
+                    {fileWithProgress.status === "transcoding" && " • Compressing audio to fit the mesh..."}
                     {fileWithProgress.status === "encrypting" && " • Encrypting..."}
                     {fileWithProgress.status === "done" && " • Encrypted ✓"}
                     {fileWithProgress.status === "error" && ` • ${fileWithProgress.error}`}
@@ -330,7 +354,7 @@ export const FileUpload = ({
                     />
                   )}
 
-                  {(fileWithProgress.status === "encrypting" || fileWithProgress.status === "done") && (
+                  {(fileWithProgress.status === "transcoding" || fileWithProgress.status === "encrypting" || fileWithProgress.status === "done") && (
                     <Progress value={fileWithProgress.progress} className="h-1" />
                   )}
                 </div>

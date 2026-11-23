@@ -18,6 +18,17 @@ vi.mock("@/contexts/P2PContext", () => ({
   useP2PContext: () => ({ announceContent: vi.fn() }),
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const transcoded: string[] = [];
+vi.mock("@/lib/media/audioTranscode", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/media/audioTranscode")>();
+  return {
+    ...actual,
+    transcodeAudioForMesh: vi.fn(async (file: File) => {
+      transcoded.push(file.name);
+      return new File([new Uint8Array(8)], file.name.replace(/\.wav$/, ".m4a"), { type: "audio/mp4" });
+    }),
+  };
+});
 
 import { FileUpload } from "./FileUpload";
 import { toast } from "sonner";
@@ -38,6 +49,7 @@ describe("FileUpload queue", () => {
   beforeEach(() => {
     resolvers.length = 0;
     started.length = 0;
+    transcoded.length = 0;
     vi.mocked(toast.error).mockClear();
     URL.createObjectURL = vi.fn(() => "blob:local-preview");
     URL.revokeObjectURL = vi.fn();
@@ -98,5 +110,23 @@ describe("FileUpload queue", () => {
     await act(async () => { resolvers[1](); });
     await waitFor(() => expect(onReady).toHaveBeenCalledTimes(2));
     expect(onEncrypting).toHaveBeenLastCalledWith(false);
+  });
+
+  it("compresses long audio to fit instead of rejecting it", async () => {
+    const onReady = vi.fn();
+    const { container } = render(
+      <TooltipProvider>
+        <FileUpload onFilesReady={onReady} maxFileSize={MESH_POST_UPLOAD_LIMIT_BYTES} />
+      </TooltipProvider>
+    );
+    const wav = new File([new Uint8Array(8)], "show.wav", { type: "audio/wav" });
+    Object.defineProperty(wav, "size", { value: 250 * 1024 * 1024 });
+    drop(container, [wav]);
+
+    await waitFor(() => expect(started).toEqual(["show.m4a"]));
+    expect(transcoded).toEqual(["show.wav"]);
+    expect(toast.error).not.toHaveBeenCalled();
+    await act(async () => { resolvers[0](); });
+    await waitFor(() => expect(onReady).toHaveBeenCalledTimes(1));
   });
 });

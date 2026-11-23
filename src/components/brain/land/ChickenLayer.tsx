@@ -37,9 +37,9 @@ import {
 
 /** Draw distance (m) and most hens drawn at once. */
 const VIEW_M = 90;
-const MAX_HENS = 96;
-const MAX_NESTS = 24;
-const MAX_EGGS = 72;
+const MAX_HENS = 48;
+const MAX_NESTS = 12;
+const MAX_EGGS = 36;
 /** Seconds between re-picking which hens are near. */
 const PICK_EVERY_S = 1;
 

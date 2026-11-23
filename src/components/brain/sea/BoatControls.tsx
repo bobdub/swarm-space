@@ -126,13 +126,14 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
       aria-label={full ? label : `Press and hold: ${label.replace(/^Hold to /, '')}`}
       className={`absolute right-4 z-[70] flex min-h-9 max-w-[calc(100%-2rem)] items-center rounded-full border bg-background/80 text-foreground select-none touch-none gap-1 px-2 py-1 text-[11px] font-semibold tracking-normal [&_span]:tracking-normal ${full ? 'border-destructive/60' : 'border-accent/50'} ${leaving ? 'h-9 w-28' : ''}`}
       style={{
-        // Approach and station prompts share the release slot, away from
-        // the look-drag area and below the actions and compass.
-        // Letting go sits at the lower right; approach and station prompts
-        // stay on the right but above the joystick and jump controls.
+        // Letting go sits at the lower right. Approach and station prompts
+        // stay on the right but clear of the other controls: on a phone the
+        // joystick fills 8rem to 14rem on the right (run, jump and compass
+        // are on the left), so the prompt sits just above it; on desktop the
+        // compass fills 8.5rem to 12rem on the right, so it sits below that.
         bottom: leaving
           ? 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)'
-          : mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 13rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 7rem)',
+          : mobile ? 'calc(env(safe-area-inset-bottom, 0px) + 15rem)' : 'calc(env(safe-area-inset-bottom, 0px) + 5.5rem)',
         opacity: full ? 0.8 : 1,
         touchAction: 'none',
         WebkitTouchCallout: 'none',
