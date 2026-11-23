@@ -9,7 +9,8 @@
  *   2. Use the local manifest when this device has the post's media,
  *      otherwise save the coin's copy (signature checked).
  *   3. Count which chunks are already here (how far the torrent got).
- *   4. For each missing chunk only: re-encrypt the coin's slice with the
+ *   4. Check every slice (present chunks too) and store missing ones only:
+ *      re-encrypt the coin's slice with the
  *      file key and that chunk's IV. AES-GCM is deterministic for a fixed
  *      key and IV, so this reproduces the original chunk exactly; it is
  *      stored only when its hash equals the manifest's chunk ref.
@@ -172,52 +173,55 @@ export async function fillTorrentFromCoin(
   if (sizeSum !== bytes.byteLength) return result;
 
   // 2. How far did the torrent get?
-  const missing: number[] = [];
+  const present: boolean[] = [];
   for (let i = 0; i < total; i++) {
-    if (await get("chunks", refs[i])) result.had++;
-    else missing.push(i);
+    present.push(Boolean(await get("chunks", refs[i])));
+    if (present[i]) result.had++;
   }
 
-  // 3. Rebuild only the empty spots.
-  if (missing.length) {
-    let key: CryptoKey;
+  // 3. Check every slice of the coin against the manifest (chunks already
+  //    here too, so a coin carrying other bytes can never pass as this
+  //    torrent), and store only the empty spots.
+  let key: CryptoKey;
+  try {
+    const { importFileKey } = await import("@/lib/fileEncryption");
+    key = await importFileKey(manifest);
+  } catch {
+    return result;
+  }
+  let at = 0;
+  for (let i = 0; i < total; i++) {
+    const offset = at;
+    at += chunkSizes[i];
     try {
-      const { importFileKey } = await import("@/lib/fileEncryption");
-      key = await importFileKey(manifest);
-    } catch {
-      return result;
-    }
-    const offsets: number[] = [];
-    let at = 0;
-    for (const n of chunkSizes) { offsets.push(at); at += n; }
-    for (const i of missing) {
-      try {
-        const slice = bytes.subarray(offsets[i], offsets[i] + chunkSizes[i]);
-        const iv = b642bytes(chunkIvs[i]);
-        const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, slice);
-        const cipherB64 = ab2b64(cipher);
-        if ((await chunkRef(cipherB64, i)) !== refs[i]) {
-          result.mismatched++;
-          continue;
-        }
-        const chunk: StoredChunk = {
-          ref: refs[i],
-          seq: i,
-          total,
-          size: chunkSizes[i],
-          iv: chunkIvs[i],
-          cipher: cipherB64,
-          meta: { mime: manifest.mime, originalName: manifest.originalName },
-        };
-        await put("chunks", chunk);
-        result.filled++;
-      } catch {
+      const slice = bytes.subarray(offset, offset + chunkSizes[i]);
+      const iv = b642bytes(chunkIvs[i]);
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, slice);
+      const cipherB64 = ab2b64(cipher);
+      if ((await chunkRef(cipherB64, i)) !== refs[i]) {
         result.mismatched++;
+        continue;
       }
+      if (present[i]) continue; // already here: verified, never rewritten
+      const chunk: StoredChunk = {
+        ref: refs[i],
+        seq: i,
+        total,
+        size: chunkSizes[i],
+        iv: chunkIvs[i],
+        cipher: cipherB64,
+        meta: { mime: manifest.mime, originalName: manifest.originalName },
+      };
+      await put("chunks", chunk);
+      result.filled++;
+    } catch {
+      result.mismatched++;
     }
   }
 
-  result.status = result.had + result.filled === total ? "complete" : "partial";
+  // Complete only when the coin is this torrent, byte for byte, and every
+  // chunk is now here; otherwise the caller keeps the coin as its own copy.
+  result.status = result.mismatched === 0 && result.had + result.filled === total ? "complete" : "partial";
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(TORRENT_FILLED_EVENT, { detail: { ...result } }));
   }

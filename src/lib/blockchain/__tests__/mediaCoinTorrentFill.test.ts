@@ -122,6 +122,18 @@ describe("mediaCoinTorrentFill", () => {
     expect(s("chunks").has(chunks[1].ref as string)).toBe(false);
   });
 
+  it("does not call a torrent complete when the coin's bytes differ from chunks already here", async () => {
+    const { manifest, chunks } = await seedFile("file-d", data, 4);
+    s("manifests").set("file-d", manifest);
+    for (const c of chunks) s("chunks").set(c.ref as string, c);
+    const binding = { fileId: "file-d", manifest, chunkIvs: chunks.map((c) => c.iv as string), chunkSizes: [4, 4, 2] };
+    const other = data.slice();
+    other[0] ^= 0xff;
+    const result = await fillTorrentFromCoin(binding, other);
+    expect(result).toMatchObject({ status: "partial", had: 3, filled: 0, mismatched: 1 });
+    expect(s("chunks").get(chunks[0].ref as string)).toMatchObject({ cipher: chunks[0].cipher });
+  });
+
   it("leaves a flushed file flushed", async () => {
     const { manifest, chunks } = await seedFile("file-f", data, 4);
     localStorage.setItem("swarm-flushed-assets", JSON.stringify(["file-f"]));
