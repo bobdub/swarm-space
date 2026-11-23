@@ -203,8 +203,11 @@ const silentAt = new Map<string, number>();
 /** `${roomId}|${peerId}` -> last time we heard anything from the peer. */
 const lastHeardAt = new Map<string, number>();
 const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void>();
-// Background mobile timers can run only once a minute. Quiet is not a goodbye.
-export const ROOM_PEER_SILENCE_MS = 60_000;
+// Room heartbeats only refresh lastHeardAt and revive soft evictions. They
+// never remove anyone: quiet is not a goodbye, and a silence timer here kept
+// dropping live peers whose background tabs or busy Brain frames went quiet.
+// A room member goes only on a leave-room, a mesh goodbye, or the mesh's own
+// long silence check (handleMeshPeerDeparted).
 const ROOM_HEARTBEAT_MS = 7_000;
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 const roomKey = (roomId: string, peerId: string) => `${roomId}|${peerId}`;
@@ -240,18 +243,8 @@ function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent'
   }
 }
 
-/** Test/internal: remove peers silent longer than the window. */
-export function sweepSilentRoomPeers(now: number = Date.now()): void {
-  const myPeerId = meshRef?.getPeerId();
-  for (const [roomId, members] of joinedRooms) {
-    for (const peerId of Array.from(members)) {
-      if (peerId === myPeerId) continue;
-      const heard = lastHeardAt.get(roomKey(roomId, peerId));
-      if (heard !== undefined && now - heard > ROOM_PEER_SILENCE_MS) {
-        evictRoomPeer(roomId, peerId, 'silent');
-      }
-    }
-  }
+/** Forget old departure records. Never removes a room member. */
+function pruneDepartureMemory(now: number = Date.now()): void {
   for (const [k, t] of departedAt) {
     if (now - t > 5 * 60_000) departedAt.delete(k);
   }
@@ -261,17 +254,15 @@ export function sweepSilentRoomPeers(now: number = Date.now()): void {
 }
 
 /**
- * True while `peerId` is a live member of a room we are in: announced, not
- * departed, and heard from recently. The call layer uses it to keep trying
- * to reach a peer that is clearly still there instead of giving up.
+ * True while `peerId` is a member of a room we are in and has not left.
+ * Going quiet does not count as leaving. The call layer uses it to keep
+ * trying to reach a peer that is still there instead of giving up.
  */
-export function isRoomPeerPresent(roomId: string, peerId: string, now: number = Date.now()): boolean {
+export function isRoomPeerPresent(roomId: string, peerId: string): boolean {
   const members = joinedRooms.get(roomId);
   if (!members) return false;
   const key = roomKey(roomId, peerId);
   if (departedAt.has(key) || silentAt.has(key)) return false;
-  const heard = lastHeardAt.get(key);
-  if (heard !== undefined) return now - heard <= ROOM_PEER_SILENCE_MS;
   return members.has(peerId);
 }
 
@@ -292,7 +283,7 @@ function ensureSweep(): void {
   if (sweepTimer || typeof window === 'undefined') return;
   sweepTimer = setInterval(() => {
     heartbeatRooms();
-    sweepSilentRoomPeers();
+    pruneDepartureMemory();
   }, ROOM_HEARTBEAT_MS);
   // A refresh or tab close is a clean disconnect: tell every room now.
   window.addEventListener('pagehide', () => {
