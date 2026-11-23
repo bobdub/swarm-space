@@ -14,6 +14,7 @@ import { isSelfIssuedSwarmMint } from '@/lib/blockchain/issuance';
 import { resolveSignalingEndpoints, SignalingEndpointRotation, type SignalingEndpoint } from './signalingEndpoints';
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 import { getAppVersionWatch } from './appVersion';
+import { GUN_RELAYS } from './gunRelays';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -4691,7 +4692,9 @@ export class StandaloneSwarmMesh {
     import('./transports/gunAdapter').then(({ GunAdapter }) => {
       if (!this.torrentSwarmInstance) return;
       const gun = new GunAdapter({
-        peers: ['https://gun-manhattan.herokuapp.com/gun'],
+        // gun-manhattan.herokuapp.com went away with Heroku's free tier; a
+        // dead relay here just reconnected forever. Share the live list.
+        peers: GUN_RELAYS,
         graphKey: 'swarm-space/torrent',
       });
       gun.start({ peerId: this.peerId }).then(() => {

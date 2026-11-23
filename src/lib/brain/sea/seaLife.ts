@@ -71,7 +71,7 @@ export const SCHOOL_DEPTH = 0.9;
 /** Shark body centre (m under): the dorsal fin breaks the surface. */
 export const SHARK_DEPTH = 0.45;
 /** Lattice sizes over the planet. */
-const SCHOOL_LATTICE = 900;
+const SCHOOL_LATTICE = 450;
 const SHARK_LATTICE = 140;
 /** A school this close to the boat (m) makes the fish bite sooner. */
 export const SCHOOL_NEAR_BOAT_M = 25;
@@ -176,7 +176,7 @@ function make(
     w2,
     p1: r() * Math.PI * 2,
     p2: r() * Math.PI * 2,
-    size: kind === 'school' ? 8 + Math.floor(r() * 9) : 1,
+    size: kind === 'school' ? 6 + Math.floor(r() * 6) : 1,
     depth: kind === 'school' ? SCHOOL_DEPTH : SHARK_DEPTH,
     seed: Math.floor(r() * 2 ** 31),
   };
@@ -232,7 +232,7 @@ export function getSeaLife(): SeaCreature[] {
   const all: SeaCreature[] = [];
   // Near the jetty: smaller loops so fish can live in the shelf water a
   // short row out, and two sharks well out past the shelf.
-  all.push(...nearVillage('school', 6, 30, 220, SCHOOL_ROAM_M * 0.6, SCHOOL_MIN_DEPTH, 0x5ea1));
+  all.push(...nearVillage('school', 4, 30, 220, SCHOOL_ROAM_M * 0.6, SCHOOL_MIN_DEPTH, 0x5ea1));
   all.push(...nearVillage('shark', 2, 260, 520, SHARK_ROAM_M, SHARK_MIN_DEPTH, 0x54a2c));
   for (let i = 0; i < SCHOOL_LATTICE; i++) {
     const c = make('school', `school-${i}`, fibonacci(i, SCHOOL_LATTICE), 0x1000 + i * 2654435761, SCHOOL_ROAM_M, SCHOOL_MIN_DEPTH);

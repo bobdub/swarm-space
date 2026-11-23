@@ -25,6 +25,7 @@ export interface GunAdapterOptions {
   registryMode?: boolean;
 }
 
+import { getRelayBackoffSocket } from './relayBackoffSocket';
 const DEFAULT_CHANNEL = 'swarm-space-gun';
 const DEFAULT_GRAPH_KEY = 'swarm-space/chunks';
 
@@ -262,10 +263,14 @@ export class GunAdapter {
           return false;
         }
 
+        // Dead relays back off exponentially instead of reconnecting on
+        // Gun's flat 2 s timer for the life of the tab.
+        const BackoffSocket = getRelayBackoffSocket();
         this.gun = GunCtor({
           peers: this.options.peers ?? [],
           radisk: false,
           localStorage: false,
+          ...(BackoffSocket ? { WebSocket: BackoffSocket } : {}),
         });
 
         const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;

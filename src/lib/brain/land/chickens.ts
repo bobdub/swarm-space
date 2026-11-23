@@ -87,11 +87,11 @@ const HEN_MAX_RISE = 5;
 /** Flocks keep this far (m) clear of the volcano's foot. */
 const VOLCANO_CLEAR_M = 25;
 /** Village flocks: count, ring (m from the village centre). */
-const VILLAGE_FLOCKS = 5;
+const VILLAGE_FLOCKS = 3;
 const VILLAGE_FROM_M = 28;
 const VILLAGE_TO_M = 150;
 /** Lattice size over the planet (most points fall in the sea). */
-const FLOCK_LATTICE = 420;
+const FLOCK_LATTICE = 210;
 /** Walking: one step-and-peck cycle (s), and the walking part of it. */
 const CYCLE_S = 7;
 

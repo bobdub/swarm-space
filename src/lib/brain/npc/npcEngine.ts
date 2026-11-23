@@ -42,7 +42,23 @@ function seedOffset(id: string): { tx: number; tz: number } {
 function syncNpcBlocks(npc: Npc): void {
   const engine = getBuilderBlockEngine();
   for (const slot of npc.body) {
-    engine.upgradeBlock(`${npc.id}:${slot.kind}`, {
+    const id = `${npc.id}:${slot.kind}`;
+    // The 8 Hz heartbeat syncs every slot of every NPC. Skip slots whose
+    // block already matches, so a standing NPC neither touches the support
+    // lattice nor fires an `upgrade` event to every engine listener.
+    const current = engine.getBlock(id);
+    if (current
+      && current.rightOffset === npc.tx + slot.rightOffset
+      && current.forwardOffset === npc.tz + slot.forwardOffset
+      && current.upOffset === slot.upOffset
+      && current.yaw === slot.yaw
+      && current.meta.npcId === npc.id
+      && current.meta.compoundName === slot.compoundName
+      && current.meta.constituents === slot.constituents
+      && current.meta.npcName === npc.name
+      && current.meta.npcSex === npc.sex
+      && current.meta.slotKind === slot.kind) continue;
+    engine.upgradeBlock(id, {
       rightOffset: npc.tx + slot.rightOffset,
       forwardOffset: npc.tz + slot.forwardOffset,
       upOffset: slot.upOffset,

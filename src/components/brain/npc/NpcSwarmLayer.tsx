@@ -21,6 +21,7 @@ import type { Npc } from '@/lib/brain/npc/npcTypes';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 import { bootNpcWorld } from '@/lib/brain/npc/bootNpcWorld';
+import { retainNpcScene } from '@/lib/brain/npc/npcSceneGate';
 import { subscribeDroppedTools, toolsOwnedByNpc } from '@/lib/world/droppedToolsStore';
 import { toolKindOf, type NpcToolKind } from '@/lib/brain/npc/npcTools';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
@@ -175,8 +176,10 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
     // Boot NPCs anchored to the shared village frame so they appear in
     // the same world site the camera + WetWorkHabitat live on.
     void bootNpcWorld(anchorPeerId);
+    // The heartbeat only ticks while a scene showing the village is mounted.
+    const releaseScene = retainNpcScene();
     const unsub = subscribeRegistry(setRoster);
-    return () => { unsub(); };
+    return () => { unsub(); releaseScene(); };
   }, [anchorPeerId]);
 
   return (

@@ -10,6 +10,8 @@
  *   • Per-key 250 ms debounce inside `recordAppEvent` so chatty subsystems
  *     can't saturate the lattice.
  *   • UI subscriptions throttled to 1 Hz.
+ *   • Hotspot / coldspot / domain curvature scans memoised for 1 s and
+ *     only recomputed on demand, over at most MAX_KNOWN_KEYS keys.
  *   • Console log throttled to once per 5 s.
  *
  * Reads only via FieldEngine public API (inject / curvature / basins / λ),
@@ -57,10 +59,25 @@ const DEBOUNCE_MS = 250;
 const UI_THROTTLE_MS = 1000;
 const LOG_THROTTLE_MS = 5000;
 const TREND_WINDOW = 8;
+/** Curvature scans over the known keys are reused for this long. */
+const SCAN_TTL_MS = 1000;
+/** Least-recently-recorded keys beyond this are forgotten (peer ids etc.). */
+const MAX_KNOWN_KEYS = 256;
 
 const lastInjectAt = new Map<string, number>();
 const knownKeys = new Map<string, HealthDomain>();
 const qHistory: number[] = [];
+/** Bumped whenever the key set changes, so a cached scan never hides a key. */
+let keysVersion = 0;
+
+interface ScanEntry { key: string; domain: HealthDomain; curvature: number }
+interface ScanCache {
+  at: number;
+  version: number;
+  entries: ScanEntry[];
+  cold: Map<string, ColdKey[]>;
+}
+let scanCache: ScanCache | null = null;
 
 let lastUiNotifyAt = 0;
 let lastLogAt = 0;
@@ -88,7 +105,7 @@ export function recordAppEvent(
   const last = lastInjectAt.get(ns) ?? 0;
   if (now - last < DEBOUNCE_MS) return;
   lastInjectAt.set(ns, now);
-  knownKeys.set(ns, domain);
+  rememberKey(ns, domain);
 
   try {
     const fe: FieldEngine = getSharedFieldEngine();
@@ -103,6 +120,44 @@ export function recordAppEvent(
       console.warn('[AppHealth] inject failed:', err);
     }
   }
+}
+
+/** Keep `knownKeys` in least-recently-recorded order and bounded. */
+function rememberKey(ns: string, domain: HealthDomain): void {
+  if (knownKeys.has(ns)) {
+    knownKeys.delete(ns);
+    knownKeys.set(ns, domain);
+    return;
+  }
+  knownKeys.set(ns, domain);
+  keysVersion++;
+  while (knownKeys.size > MAX_KNOWN_KEYS) {
+    const oldest = knownKeys.keys().next().value as string;
+    knownKeys.delete(oldest);
+    lastInjectAt.delete(oldest);
+  }
+}
+
+/**
+ * Curvature of every known key, computed at most once per SCAN_TTL_MS (or
+ * when the key set changes) and only when someone actually reads health.
+ * Every hotspot, coldspot and domain view shares this one scan instead of
+ * re-hashing every key through the field per call.
+ */
+function scanKeys(): ScanCache {
+  const now = Date.now();
+  if (scanCache && scanCache.version === keysVersion && now - scanCache.at < SCAN_TTL_MS) {
+    return scanCache;
+  }
+  const fe = getSharedFieldEngine();
+  const entries: ScanEntry[] = [];
+  for (const [ns, dom] of knownKeys.entries()) {
+    let c = 0;
+    try { c = fe.getCurvatureForText(ns); } catch { c = 0; }
+    entries.push({ key: ns, domain: dom, curvature: c });
+  }
+  scanCache = { at: now, version: keysVersion, entries, cold: new Map() };
+  return scanCache;
 }
 
 function computeTrend(): AppHealth['trend'] {
@@ -121,28 +176,30 @@ function computeTrend(): AppHealth['trend'] {
 }
 
 function topHotKeys(domain?: HealthDomain, limit = 3): HotKey[] {
-  const fe = getSharedFieldEngine();
   const out: HotKey[] = [];
-  for (const [ns, dom] of knownKeys.entries()) {
-    if (domain && dom !== domain) continue;
-    let c = 0;
-    try { c = fe.getCurvatureForText(ns); } catch { c = 0; }
-    out.push({ key: ns, curvature: c });
+  for (const e of scanKeys().entries) {
+    if (domain && e.domain !== domain) continue;
+    out.push({ key: e.key, curvature: e.curvature });
   }
   out.sort((a, b) => b.curvature - a.curvature);
   return out.slice(0, limit);
 }
 
 function topColdKeys(domain?: HealthDomain, limit = 3): ColdKey[] {
+  const scan = scanKeys();
+  const memoKey = `${domain ?? '*'}:${limit}`;
+  const memo = scan.cold.get(memoKey);
+  if (memo) return memo;
   const fe = getSharedFieldEngine();
   const cold: ColdKey[] = [];
-  for (const [ns, dom] of knownKeys.entries()) {
-    if (domain && dom !== domain) continue;
+  for (const e of scan.entries) {
+    if (domain && e.domain !== domain) continue;
     try {
-      if (fe.isTextInBasin(ns)) cold.push({ key: ns });
+      if (fe.isTextInBasin(e.key)) cold.push({ key: e.key });
     } catch { /* ignore */ }
     if (cold.length >= limit) break;
   }
+  scan.cold.set(memoKey, cold);
   return cold;
 }
 
@@ -173,13 +230,12 @@ export function getAppHealth(): AppHealth {
 
 /** Read health for a single domain only. */
 export function getDomainHealth(domain: HealthDomain): DomainHealth {
-  const fe = getSharedFieldEngine();
   let total = 0;
   let count = 0;
-  for (const [ns, dom] of knownKeys.entries()) {
-    if (dom !== domain) continue;
+  for (const e of scanKeys().entries) {
+    if (e.domain !== domain) continue;
     count++;
-    try { total += fe.getCurvatureForText(ns); } catch { /* ignore */ }
+    total += e.curvature;
   }
   const qScore = count > 0 ? total / count : 0;
   return {
@@ -242,6 +298,8 @@ export function subscribeAppHealth(fn: (h: AppHealth) => void): () => void {
 export function __resetAppHealthForTests(): void {
   lastInjectAt.clear();
   knownKeys.clear();
+  keysVersion = 0;
+  scanCache = null;
   qHistory.length = 0;
   lastUiNotifyAt = 0;
   lastLogAt = 0;
