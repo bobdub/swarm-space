@@ -1,6 +1,6 @@
 /**
  * FieldEngine — stateful singleton wrapper over the pure UQRC field math.
- * Owns the lattice, ticks at 4 Hz via setInterval (with rIC fallback),
+ * Owns the lattice, ticks on the shared 4 Hz beat (Cadence Clock),
  * notifies subscribers, and persists snapshots through fieldPersistence.
  */
 
@@ -26,6 +26,7 @@ import {
   saveFieldSnapshot,
 } from './fieldPersistence';
 import { runClosureProof, type ClosureReport } from './closure';
+import { startBeatLoop, type BeatLoop } from '@/lib/time/sharedBeat';
 
 export interface FieldStatus {
   ticks: number;
@@ -45,9 +46,9 @@ const MAX_CATCHUP_TICKS = 4;
 export class FieldEngine {
   private field: Field;
   private listeners = new Set<(s: FieldStatus) => void>();
-  private tickTimer: ReturnType<typeof setInterval> | null = null;
+  private beatLoop: BeatLoop | null = null;
   private lastSaveAt = 0;
-  private lastTickAt = 0;
+  private lastBeat = -1;
   private restored = false;
   // ── Per-tick read caches ───────────────────────────────────────────
   // Heavy derived observables (qScore, basins, curvatureMap,
@@ -99,34 +100,31 @@ export class FieldEngine {
   }
 
   start(): void {
-    if (this.tickTimer || typeof window === 'undefined') return;
-    this.lastTickAt = Date.now();
-    this.tickTimer = setInterval(() => {
-      const run = () => this.tickOnce();
-      // Yield to idle if available
-      const ric = (window as unknown as {
-        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => void;
-      }).requestIdleCallback;
-      if (ric) ric(run, { timeout: 200 });
-      else run();
-    }, TICK_INTERVAL_MS);
+    if (this.beatLoop || typeof window === 'undefined') return;
+    // Step on the shared 4 Hz beat (Cadence Clock), so every calibrated
+    // peer advances its field on the same instant and the same beat number.
+    this.beatLoop = startBeatLoop(TICK_INTERVAL_MS, (beat, elapsed) => {
+      this.tickOnce(beat, elapsed);
+    });
   }
 
   stop(): void {
-    if (this.tickTimer) {
-      clearInterval(this.tickTimer);
-      this.tickTimer = null;
+    if (this.beatLoop) {
+      this.beatLoop.stop();
+      this.beatLoop = null;
     }
   }
 
-  private tickOnce(): void {
+  /** The shared beat this field last stepped on (-1 before the first). */
+  getBeat(): number {
+    return this.lastBeat;
+  }
+
+  private tickOnce(beat: number = this.lastBeat + 1, elapsedBeats = 1): void {
     try {
-      const now = Date.now();
-      const elapsed = this.lastTickAt > 0 ? now - this.lastTickAt : TICK_INTERVAL_MS;
-      const due = Math.max(1, Math.min(MAX_CATCHUP_TICKS,
-        Math.floor(elapsed / TICK_INTERVAL_MS)));
+      const due = Math.max(1, Math.min(MAX_CATCHUP_TICKS, elapsedBeats));
       for (let i = 0; i < due; i++) step(this.field);
-      this.lastTickAt = now;
+      this.lastBeat = beat;
       this.notify();
       this.maybePersist();
     } catch (err) {
