@@ -22,10 +22,12 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
   isBridgeActive: () => true,
   isRoomPeerPresent: () => peerPresent,
   registerMediaPeerConnection: vi.fn(),
+  registerCallLivenessProbe: vi.fn(),
 }));
 
 import { WebRTCManager } from '../manager';
 import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
+import { registerCallLivenessProbe } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 
 class FakePC {
   config: RTCConfiguration;
@@ -244,6 +246,29 @@ describe('Brain call recovery', () => {
     expect(pc.close).toHaveBeenCalledTimes(1);
     expect(m.getParticipants()).toHaveLength(0);
     expect(reconnectSignals).toHaveLength(0);
+    await m.leaveRoom();
+  });
+
+  it('a peer the room found dead on every channel is removed at once', async () => {
+    const { m, pc } = await connectedManager();
+    pc.setState('failed');
+    signalHandler?.({ msgType: 'leave-room', from: 'peer-B', roomId: 'brain', ts: 2, data: { reason: 'gone' } });
+    expect(pc.close).toHaveBeenCalled();
+    expect(m.getParticipants()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(m.getParticipants()).toHaveLength(0);
+    await m.leaveRoom();
+  });
+
+  it('tells the room which calls are live, so quiet peers on a working call are kept', async () => {
+    const { m, pc } = await connectedManager();
+    const probe = vi.mocked(registerCallLivenessProbe).mock.calls.at(-1)?.[0] as (id: string) => boolean;
+    expect(probe('peer-B')).toBe(true);
+    pc.setState('disconnected');
+    expect(probe('peer-B')).toBe(true);
+    pc.setState('failed');
+    expect(probe('peer-B')).toBe(false);
+    expect(probe('peer-ghost')).toBe(false);
     await m.leaveRoom();
   });
 

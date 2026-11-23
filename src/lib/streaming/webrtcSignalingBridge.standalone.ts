@@ -206,9 +206,24 @@ const presenceRemovedHandlers = new Set<(roomId: string, peerId: string) => void
 // Room heartbeats only refresh lastHeardAt and revive soft evictions. They
 // never remove anyone: quiet is not a goodbye, and a silence timer here kept
 // dropping live peers whose background tabs or busy Brain frames went quiet.
-// A room member goes only on a leave-room, a mesh goodbye, or the mesh's own
-// long silence check (handleMeshPeerDeparted).
+// A room member goes only on a leave-room, a mesh goodbye, the mesh's own
+// long silence check (handleMeshPeerDeparted), or the dead-peer check below.
 const ROOM_HEARTBEAT_MS = 7_000;
+/**
+ * A member we have heard nothing from for this long AND have no live call
+ * with is gone. Both signals must be dead: a quiet peer whose call still
+ * carries media stays, and so does a peer whose call failed but whose room
+ * heartbeats still arrive. Without this, a peer that crashed, lost power, or
+ * was only ever named in someone's room-sync stayed in the room for good.
+ */
+export const ROOM_PEER_GONE_MS = 2 * 60_000;
+/** How long a soft (silent/gone) eviction blocks third-party room-sync relists. */
+const SILENT_MEMORY_MS = 30 * 60_000;
+/** Asks the call layer whether a call with `peerId` is up (or briefly blipping). */
+let callLivenessProbe: ((peerId: string) => boolean) | null = null;
+export function registerCallLivenessProbe(probe: ((peerId: string) => boolean) | null): void {
+  callLivenessProbe = probe;
+}
 let sweepTimer: ReturnType<typeof setInterval> | null = null;
 const roomKey = (roomId: string, peerId: string) => `${roomId}|${peerId}`;
 
@@ -219,11 +234,19 @@ export function onRoomPresenceRemoved(handler: (roomId: string, peerId: string) 
 }
 
 /** Forget a peer in a room everywhere and tell local listeners. */
-function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent' | 'local'): void {
+function evictRoomPeer(roomId: string, peerId: string, reason: 'left' | 'silent' | 'local' | 'gone'): void {
   joinedRooms.get(roomId)?.delete(peerId);
   roomPresenceLog.get(roomId)?.delete(peerId);
   lastHeardAt.delete(roomKey(roomId, peerId));
-  if (reason === 'silent') {
+  if (reason === 'gone') {
+    // No call and no traffic: drop them from the call and the world now.
+    // Still a soft eviction, so their own next packet brings them back.
+    silentAt.set(roomKey(roomId, peerId), Date.now());
+    console.log(`[WebRTC-Bridge] 🪦 ${peerId} unreachable in ${roomId} — removing`);
+    for (const h of signalHandlers) {
+      try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now(), data: { reason: 'gone' } }); } catch { /* ignore */ }
+    }
+  } else if (reason === 'silent') {
     // Quiet is not gone: a mesh edge hiccup or a throttled background tab
     // stops heartbeats while the call itself is fine. Remember it softly
     // so the next packet from them revives the membership.
@@ -249,7 +272,34 @@ function pruneDepartureMemory(now: number = Date.now()): void {
     if (now - t > 5 * 60_000) departedAt.delete(k);
   }
   for (const [k, t] of silentAt) {
-    if (now - t > 5 * 60_000) silentAt.delete(k);
+    if (now - t > SILENT_MEMORY_MS) silentAt.delete(k);
+  }
+}
+
+/**
+ * Remove members that are dead on every channel: nothing heard in the room
+ * for ROOM_PEER_GONE_MS and no live call. Quiet peers with a working call
+ * are never touched. Exported for tests.
+ */
+export function sweepGoneRoomPeers(now: number = Date.now()): void {
+  const myPeerId = meshRef?.getPeerId();
+  if (!myPeerId) return;
+  for (const [roomId, members] of joinedRooms) {
+    if (!members.has(myPeerId)) continue;
+    const peers = new Set<string>(members);
+    for (const peerId of roomPresenceLog.get(roomId)?.keys() ?? []) peers.add(peerId);
+    for (const peerId of peers) {
+      if (peerId === myPeerId) continue;
+      const key = roomKey(roomId, peerId);
+      const heard = lastHeardAt.get(key);
+      // Never heard (e.g. named only in a room-sync): start their clock now.
+      if (heard === undefined) { lastHeardAt.set(key, now); continue; }
+      if (now - heard <= ROOM_PEER_GONE_MS) continue;
+      let callLive = false;
+      try { callLive = callLivenessProbe?.(peerId) ?? false; } catch { /* treat as no call */ }
+      if (callLive) continue;
+      evictRoomPeer(roomId, peerId, 'gone');
+    }
   }
 }
 
@@ -284,6 +334,7 @@ function ensureSweep(): void {
   sweepTimer = setInterval(() => {
     heartbeatRooms();
     pruneDepartureMemory();
+    sweepGoneRoomPeers();
   }, ROOM_HEARTBEAT_MS);
   // A refresh or tab close is a clean disconnect: tell every room now.
   window.addEventListener('pagehide', () => {
@@ -487,15 +538,21 @@ function handleIncoming(fromPeerId: string, raw: unknown): void {
       const room = joinedRooms.get(envelope.roomId);
       if (room) {
         const participants = envelope.participants ?? [];
+        // A peer we dropped (left, or dead on every channel) comes back by
+        // talking to us, not because someone else still lists them; a
+        // relisted ghost otherwise bounced between peers for good.
+        const dropped = (p: string) =>
+          p !== envelope.from && (departedAt.has(roomKey(envelope.roomId, p)) || silentAt.has(roomKey(envelope.roomId, p)));
         for (const p of participants) {
-          if (p !== envelope.from && departedAt.has(roomKey(envelope.roomId, p))) continue;
+          if (dropped(p)) continue;
+          // A newly listed member gets a fresh clock: an old timestamp from an
+          // earlier visit must not make them look long gone before the call forms.
+          const key = roomKey(envelope.roomId, p);
+          if (!room.has(p) || !lastHeardAt.has(key)) lastHeardAt.set(key, Date.now());
           room.add(p);
           dialRoomPeer(p);
-          if (!lastHeardAt.has(roomKey(envelope.roomId, p))) lastHeardAt.set(roomKey(envelope.roomId, p), Date.now());
         }
-        envelope.participants = participants.filter(
-          (p) => p === envelope.from || !departedAt.has(roomKey(envelope.roomId, p)),
-        );
+        envelope.participants = participants.filter((p) => !dropped(p));
       }
       for (const h of signalHandlers) {
         try { h(envelope); } catch { /* ignore */ }
@@ -1214,6 +1271,9 @@ export function announceLeaveRoom(roomId: string): void {
     ts: Date.now(),
   } satisfies SignalEnvelope);
   joinedRooms.delete(roomId);
+  for (const key of Array.from(lastHeardAt.keys())) {
+    if (key.startsWith(`${roomId}|`)) lastHeardAt.delete(key);
+  }
 }
 
 export function sendRoomChatMessage(
