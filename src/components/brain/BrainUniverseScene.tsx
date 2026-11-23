@@ -43,6 +43,7 @@ import {
   getBrainPhysics,
   FIELD_HZ,
   WORLD_SIZE,
+  type RescueReason,
 } from '@/lib/brain/uqrcPhysics';
 import { C_LIGHT } from '@/lib/brain/lightspeed';
 import {
@@ -1736,7 +1737,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       });
       // Wire core-escape rescue: if the body falls through the volcano and
       // dwells inside the inner core, respawn it at the shared village.
-      physics.setCoreRescue((rescuedId: string) => {
+      physics.setCoreRescue((rescuedId: string, reason: RescueReason) => {
         if (rescuedId !== id) return;
         const livePoseRescue = getEarthPose();
         const respawn = spawnNearSharedVillage(rescuedId, livePoseRescue);
@@ -1747,7 +1748,10 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           body.pos[2] = respawn[2];
           body.vel[0] = 0; body.vel[1] = 0; body.vel[2] = 0;
         }
-        try { toast.info('You fell through the volcano — respawned at the village'); } catch { /* ignore */ }
+        const message = reason === 'lava'
+          ? 'You fell into the volcano\'s lava — respawned at the village'
+          : 'You fell through the volcano — respawned at the village';
+        try { toast.info(message); } catch { /* ignore */ }
       });
       // Surface support is owned by the Earth field (lava-mantle basin)
       // and the per-block volumetric basins written by the

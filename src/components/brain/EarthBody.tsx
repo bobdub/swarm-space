@@ -12,7 +12,8 @@ import {
   worldPosToLocalNormal,
 } from '@/lib/brain/earth';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
-import { buildTerrainGeometry } from '@/lib/brain/terrainGeometry';
+import { buildCraterPatchGeometry, buildTerrainGeometry } from '@/lib/brain/terrainGeometry';
+import { getCraterCarve } from '@/lib/brain/craterCarve';
 import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observationBias';
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
@@ -86,6 +87,10 @@ const earthFragment = /* glsl */ `
   uniform float uVolcCraterR;
   uniform float uVolcCraterD;
   uniform float uEarthR;
+  // The summit crater is cut out of the baked Earth mesh and drawn by the
+  // crater patch (same shader, CRATER_PATCH defined) from the carved
+  // heights physics walks on (craterCarve.ts).
+  uniform float uCraterHoleCos;
 
   // Cheap value noise — enough for a believable continents pattern.
   float hash(vec3 p) {
@@ -106,6 +111,9 @@ const earthFragment = /* glsl */ `
 
   void main() {
     vec3 n = normalize(vNormalLocal);
+#ifndef CRATER_PATCH
+    if (dot(n, uVolcCenter) > uCraterHoleCos) discard;
+#endif
     // Land / volcano classification comes from the same baked values that
     // displaced the vertices, so colour and height can never disagree.
     float continents = vContinents;
@@ -181,6 +189,8 @@ const earthFragment = /* glsl */ `
 
 /** Seconds between sea-state reads at the camera (weather moves slowly). */
 const SEA_STATE_EVERY_S = 0.5;
+/** How far inside the rim the Earth mesh's crater hole starts (m). */
+const CRATER_HOLE_OVERLAP_M = 0.6;
 
 export function EarthBody() {
   const ref = useRef<THREE.Mesh>(null);
@@ -201,6 +211,8 @@ export function EarthBody() {
   const lavaSpin = useMemo(() => new THREE.Quaternion(), []);
   const terrainGeometry = useMemo(() => buildTerrainGeometry(), []);
   useEffect(() => () => terrainGeometry.dispose(), [terrainGeometry]);
+  const craterGeometry = useMemo(() => buildCraterPatchGeometry(), []);
+  useEffect(() => () => craterGeometry.dispose(), [craterGeometry]);
   const seaGeometry = useMemo(() => new THREE.SphereGeometry(EARTH_RADIUS, EARTH_SPHERE_SEGMENTS, EARTH_SPHERE_RINGS), []);
   useEffect(() => () => seaGeometry.dispose(), [seaGeometry]);
   // The Moon is placed from the shared-epoch pose (earth.ts), never from
@@ -241,6 +253,8 @@ export function EarthBody() {
         uVolcCraterR: { value: organ.craterRadius },
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
+        // Hole a little inside the rim: the patch overlaps the mesh there.
+        uCraterHoleCos: { value: Math.cos((getCraterCarve().rimR - CRATER_HOLE_OVERLAP_M) / EARTH_RADIUS) },
         // Observation channel palette — per-channel colors for each
         // physics SurfaceClass. Switching the channel never alters the
         // classification, only the rendered RGB.
@@ -263,6 +277,20 @@ export function EarthBody() {
     },
     [initialPose, lavaSite],
   );
+  // The carved crater: drawn by the Earth shader itself (shared uniforms,
+  // so Sun and lava glow stay in step), without the crater hole.
+  const craterMat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: earthVertex,
+    fragmentShader: earthFragment,
+    uniforms,
+    defines: { CRATER_PATCH: 1 },
+    side: THREE.DoubleSide,
+    // Wins the thin overlap band at the rim where both surfaces coincide.
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  }), [uniforms]);
+  useEffect(() => () => craterMat.dispose(), [craterMat]);
   // Moon shader: cratered grey lit by the same Sun. Direction recomputed
   // each frame against the moon's live world position.
   // Sea surface uses the same blue as the ocean channel (ocean palette
@@ -368,6 +396,9 @@ export function EarthBody() {
           uniforms={uniforms}
           side={THREE.DoubleSide}
         />
+        {/* Summit crater: the bowl and the open vent mouth, carved from the
+            same heights the walker stands on (craterCarve.ts). */}
+        <mesh geometry={craterGeometry} material={craterMat} />
       </mesh>
       {/* Sea surface at sea level, raised and lowered by the shared tide
           (sea/seaSurface.ts) — the same tide swimmers and boats float on. Out at sea the terrain below is the sea

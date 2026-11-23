@@ -9,31 +9,30 @@
  * from `lavaFlows.ts`; both read the shared Earth clock, so every peer
  * sees the same eruption.
  *
- * The crater is smaller than one cell of the baked Earth mesh (~40 m), so
- * the summit is a few flat-ish triangles, not a carved bowl. Everything
- * here is therefore draped on the RENDERED ground (`sampleTerrainLift`),
- * never a flat plate floating over it:
+ * The crater is carved for real (`craterCarve.ts`): EarthBody cuts it out
+ * of the baked mesh and draws the bowl, whose flat floor ring opens onto
+ * the vent. Everything here sits on that same carved ground, never a flat
+ * plate floating over it:
  *
- * 1. A vent "window" draped on the floor over the conduit's neck. It draws
- *    no colour; it only marks its pixels in the stencil buffer where
- *    nothing stands in front.
- * 2. Through that window only (stencil test, no depth test): the top of
- *    the magma column, far down the conduit when the volcano is quiet,
- *    and the dark rock walls above it, warmed by its glow. Without a
- *    stencil buffer the window is drawn as a dark vent instead.
- * 3. The summit pond: when the column reaches the floor, magma ponds to
- *    `POND_LEVEL_M`, filling only where the draped ground is lower, with
+ * 1. The conduit, continuing the vent mouth straight down: dark rock walls
+ *    warmed by the magma's glow, and the top of the magma column, far down
+ *    when the volcano is quiet. Ordinary depth-tested geometry, so you can
+ *    walk to the edge, look down the shaft, and fall in.
+ * 2. The summit pond: when the column reaches the floor, magma fills the
+ *    bowl to `POND_LEVEL_M`, only where the carved ground is lower, with
  *    crust plates and slug-burst rings.
- * 4. Lava tongues: ribbons draped down the steepest descent of the baked
+ * 3. Lava tongues: ribbons draped down the steepest descent of the baked
  *    slopes, revealed up to each front, incandescent in the fed channel
  *    and at the front, then crusting dark and weathering away.
  */
 import { useEffect, useMemo, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { EARTH_RADIUS, getEarthPoseTime, type Vec3 } from '@/lib/brain/earth';
 import { getMantlePressure } from '@/lib/brain/lavaMantle';
 import { sampleTerrainLift } from '@/lib/brain/terrainMesh';
+import { carvedGroundAt, getCraterCarve } from '@/lib/brain/craterCarve';
+import { CRATER_PATCH_SEGMENTS } from '@/lib/brain/terrainGeometry';
 import type { VolcanoOrgan } from '@/lib/brain/volcanoOrgan';
 import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
 import {
@@ -54,12 +53,10 @@ import {
 
 /** Shader clock wraps here so float32 keeps sub-millisecond detail. */
 const SHADER_CLOCK_WRAP_S = 3600;
-/** Window stencil value. */
-const NECK_STENCIL = 1;
 /** How far draped surfaces sit above the baked ground (m). */
 const DRAPE_M = 0.12;
-/** Summit pond reach (m from the vent). */
-const POND_RADIUS_M = 24;
+/** Reach of the vent light (m). */
+const LIGHT_REACH_M = 288;
 
 const noiseGlsl = /* glsl */ `
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -74,12 +71,15 @@ const noiseGlsl = /* glsl */ `
 /** Pond: draped ground below, flat melt surface wherever it is deeper. */
 const pondVertex = /* glsl */ `
   attribute float aGround;
+  attribute float aCarve;
   uniform float uLevel;
   varying vec2 vUv;
   varying float vSub;
+  varying float vCarve;
   void main() {
     vUv = uv;
     vSub = uLevel - aGround;
+    vCarve = aCarve;
     vec3 p = position;
     p.y = max(aGround + ${DRAPE_M.toFixed(2)}, uLevel);
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
@@ -90,9 +90,11 @@ const pondVertex = /* glsl */ `
 const headVertex = /* glsl */ `
   varying vec2 vUv;
   varying float vSub;
+  varying float vCarve;
   void main() {
     vUv = uv;
     vSub = 1.0;
+    vCarve = 0.0;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
@@ -100,6 +102,7 @@ const headVertex = /* glsl */ `
 const meltFragment = /* glsl */ `
   varying vec2 vUv;
   varying float vSub;
+  varying float vCarve;
   uniform float uTime;
   uniform float uHeat;     // 0 crusted … 1 vigorous
   uniform float uThroat;   // neck radius / surface radius
@@ -113,8 +116,9 @@ const meltFragment = /* glsl */ `
     float r = length(uv);
     if (r > 1.0) discard;
     // Melt only where it is actually deeper than the ground (pond), and
-    // never as a sheet hanging off the summit's lower edge.
-    float wet = smoothstep(0.0, 0.15, vSub) * (1.0 - smoothstep(1.1, 1.7, vSub));
+    // never as a sheet hanging off the summit's lower edge. Depth carved
+    // out of the crater bowl (vCarve) is legitimately deep: it fills.
+    float wet = smoothstep(0.0, 0.15, vSub) * (1.0 - smoothstep(1.1, 1.7, vSub - vCarve));
     if (wet <= 0.001) discard;
     vec2 dir = r > 1e-4 ? uv / r : vec2(1.0, 0.0);
 
@@ -261,20 +265,26 @@ function dirUnder(f: CraterFrame, x: number, z: number): Vec3 {
 }
 
 /**
- * A polar disk draped on the baked ground: vertex positions sit `lift` m
- * above it, `aGround` holds the ground's crater-frame height, and the uv
+ * A polar disk draped on the carved crater ground (`carvedGroundAt`: the
+ * bowl, and the floor level across the vent mouth): vertex positions sit
+ * `lift` m above it, `aGround` holds the ground's crater-frame height,
+ * `aCarve` how far the bowl is carved below the baked summit, and the uv
  * is the nominal disk coordinate (for the melt shader).
  */
 function drapedDisk(f: CraterFrame, radius: number, rings: number, segments: number, lift: number) {
   const positions: number[] = [];
   const uvs: number[] = [];
   const ground: number[] = [];
+  const carve: number[] = [];
   const index: number[] = [];
   const p = new THREE.Vector3();
   const push = (x: number, z: number) => {
     const d = dirUnder(f, x, z);
-    toCrater(f, d, EARTH_RADIUS + sampleTerrainLift(d), p);
+    const baked = sampleTerrainLift(d);
+    const carved = carvedGroundAt(d, baked);
+    toCrater(f, d, EARTH_RADIUS + carved, p);
     ground.push(p.y);
+    carve.push(baked - carved);
     positions.push(p.x, p.y + lift, p.z);
     uvs.push(0.5 + (0.5 * x) / radius, 0.5 + (0.5 * z) / radius);
   };
@@ -302,9 +312,10 @@ function drapedDisk(f: CraterFrame, radius: number, rings: number, segments: num
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   g.setAttribute('aGround', new THREE.Float32BufferAttribute(ground, 1));
+  g.setAttribute('aCarve', new THREE.Float32BufferAttribute(carve, 1));
   g.setIndex(index);
   g.computeBoundingSphere();
-  return { geometry: g, minGround: Math.min(...ground), maxGround: Math.max(...ground) };
+  return { geometry: g, minGround: Math.min(...ground) };
 }
 
 /** All tongues as one draped ribbon mesh (one draw call). */
@@ -352,45 +363,26 @@ function flowRibbons(f: CraterFrame, organ: VolcanoOrgan): THREE.BufferGeometry 
 
 export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrgan }) {
   const lightRef = useRef<THREE.PointLight>(null);
-  const gl = useThree((s) => s.gl);
-  // Without a stencil buffer the conduit could not be confined to the
-  // vent, so the vent is drawn as a dark hole instead.
-  const hasStencil = useMemo(() => gl.getContextAttributes()?.stencil === true, [gl]);
 
   const throat = throatRadius(organ);
 
   const parts = useMemo(() => {
     const frame = makeCraterFrame(organ);
-    const vent = drapedDisk(frame, throat, 4, 32, DRAPE_M);
-    const pond = drapedDisk(frame, POND_RADIUS_M, 14, 64, 0);
+    const carve = getCraterCarve();
+    // The vent mouth: the bowl's flat floor ring, in the crater frame.
+    const mouthY = carve.floorElev - carve.originElev;
+    const pond = drapedDisk(frame, carve.rimR, 20, 64, 0);
     const flows = flowRibbons(frame, organ);
 
-    // Conduit sleeve from the deep root up to just above the draped vent.
-    const pts = conduitProfile(organ).map(([r, y]) => new THREE.Vector2(r, y));
-    pts.push(new THREE.Vector2(throat, Math.max(0, vent.maxGround + DRAPE_M)));
-    const sleeve = new THREE.LatheGeometry(pts, 24);
+    // Conduit sleeve from the deep root up to the vent mouth, where it
+    // meets the bowl's neck ring vertex for vertex.
+    const pts = conduitProfile(organ)
+      .filter(([, y]) => y < mouthY - 0.5)
+      .map(([r, y]) => new THREE.Vector2(r, y));
+    pts.push(new THREE.Vector2(throat, mouthY));
+    const sleeve = new THREE.LatheGeometry(pts, CRATER_PATCH_SEGMENTS);
     const head = new THREE.CircleGeometry(1, 32);
     head.rotateX(-Math.PI / 2);
-
-    const stencilRead = {
-      stencilWrite: true,
-      stencilRef: NECK_STENCIL,
-      stencilFunc: THREE.EqualStencilFunc,
-      stencilFail: THREE.KeepStencilOp,
-      stencilZFail: THREE.KeepStencilOp,
-      stencilZPass: THREE.KeepStencilOp,
-    } as const;
-
-    const windowMat = hasStencil
-      ? new THREE.MeshBasicMaterial({
-          colorWrite: false,
-          depthWrite: false,
-          stencilWrite: true,
-          stencilRef: NECK_STENCIL,
-          stencilFunc: THREE.AlwaysStencilFunc,
-          stencilZPass: THREE.ReplaceStencilOp,
-        })
-      : new THREE.MeshBasicMaterial({ color: new THREE.Color(0.03, 0.02, 0.02) });
 
     const meltUniforms = (throatFrac: number) => ({
       uTime: { value: 0 },
@@ -406,23 +398,19 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
       vertexShader: headVertex,
       fragmentShader: meltFragment,
       uniforms: { ...meltUniforms(0.6), uSolid: { value: 1 } },
-      depthTest: false,
-      depthWrite: false,
-      ...stencilRead,
     });
     const wallMat = new THREE.ShaderMaterial({
       vertexShader: wallVertex,
       fragmentShader: wallFragment,
       uniforms: { uHead: { value: -40 }, uHeat: { value: 0 } },
-      side: THREE.BackSide,
-      depthTest: false,
-      depthWrite: false,
-      ...stencilRead,
+      // Seen from inside the shaft; DoubleSide so the walls still close
+      // the view when the eye is down the conduit at a steep angle.
+      side: THREE.DoubleSide,
     });
     const pondMat = new THREE.ShaderMaterial({
       vertexShader: pondVertex,
       fragmentShader: meltFragment,
-      uniforms: { ...meltUniforms(Math.min(0.9, throat / POND_RADIUS_M)), uLevel: { value: -40 } },
+      uniforms: { ...meltUniforms(Math.min(0.9, throat / carve.rimR)), uLevel: { value: -40 } },
       transparent: true,
       depthWrite: false,
     });
@@ -444,27 +432,23 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
       polygonOffsetUnits: -2,
     });
     return {
-      vent: vent.geometry,
       pond: pond.geometry,
       pondMinGround: pond.minGround,
-      ventMaxGround: vent.maxGround,
+      mouthY,
       flows,
       sleeve,
       head,
-      windowMat,
       headMat,
       wallMat,
       pondMat,
       flowMat,
     };
-  }, [organ, throat, hasStencil]);
+  }, [organ, throat]);
   useEffect(() => () => {
-    parts.vent.dispose();
     parts.pond.dispose();
     parts.flows.dispose();
     parts.sleeve.dispose();
     parts.head.dispose();
-    parts.windowMat.dispose();
     parts.headMat.dispose();
     parts.wallMat.dispose();
     parts.pondMat.dispose();
@@ -488,7 +472,7 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
     const heat = Math.min(1, 0.4 + 0.6 * Math.max(state.pressure, state.effusion));
 
     // Column head and the walls above it, seen down the vent.
-    const headVisible = hasStencil && level < parts.ventMaxGround;
+    const headVisible = level < parts.mouthY;
     if (conduitRef.current) conduitRef.current.visible = headVisible;
     if (headVisible && headRef.current) {
       const r = conduitRadiusAt(organ, Math.max(0, -level));
@@ -538,25 +522,21 @@ export function VolcanoLavaPool({ organ }: { radius?: number; organ: VolcanoOrga
 
   return (
     <group>
-      {/* 1. Vent window: stencil only (or a dark vent), after the terrain. */}
-      <mesh geometry={parts.vent} material={parts.windowMat} renderOrder={10} />
-      {hasStencil && (
-        <group ref={conduitRef}>
-          {/* 2. Column head, then the walls above it, through the window. */}
-          <mesh ref={headRef} geometry={parts.head} material={parts.headMat} renderOrder={11} frustumCulled={false} />
-          <mesh geometry={parts.sleeve} material={parts.wallMat} renderOrder={12} frustumCulled={false} />
-        </group>
-      )}
-      {/* 3. Summit pond, draped and depth-tested against the ground. */}
+      {/* 1. The conduit down the vent: magma head and the walls above it. */}
+      <group ref={conduitRef}>
+        <mesh ref={headRef} geometry={parts.head} material={parts.headMat} frustumCulled={false} />
+        <mesh geometry={parts.sleeve} material={parts.wallMat} frustumCulled={false} />
+      </group>
+      {/* 2. Summit pond, draped on the carved bowl and depth-tested. */}
       <mesh ref={pondRef} geometry={parts.pond} material={parts.pondMat} renderOrder={13} visible={false} frustumCulled={false} />
-      {/* 4. Lava tongues down the flanks. */}
+      {/* 3. Lava tongues down the flanks. */}
       <mesh ref={flowRef} geometry={parts.flows} material={parts.flowMat} renderOrder={14} visible={false} />
       <pointLight
         ref={lightRef}
         position={[0, 0.6, 0]}
         color="hsl(20, 100%, 58%)"
         intensity={2}
-        distance={POND_RADIUS_M * 12}
+        distance={LIGHT_REACH_M}
         decay={2}
       />
     </group>
