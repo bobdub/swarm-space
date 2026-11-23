@@ -15,6 +15,18 @@ import { networkNow } from "@/lib/time/networkClock";
 import type { Endorsement } from "./endorsements";
 import { blockMayRecordWitnesses, latestCheckpoint, Participation, selectWitnesses, verifyWitnesses, witnessRoot } from "./witnesses";
 
+/** localStorage snapshot written on tab hide: only what IndexedDB may lack. */
+interface ChainSnapshotV2 {
+  v: 2;
+  savedAt: number;
+  /** Index of the first block in `tail`. */
+  base: number;
+  tail: SwarmBlock[];
+  pendingTransactions: SwarmTransaction[];
+  difficulty: number;
+  miningReward: number;
+}
+
 export class SwarmChain {
   private chain: SwarmBlock[] = [];
   private pendingTransactions: SwarmTransaction[] = [];
@@ -23,6 +35,12 @@ export class SwarmChain {
   private _ready: Promise<void>;
   private _dirty = false;
   private _flushScheduled = false;
+  /** Hashes of the blocks in IndexedDB, by index, so a save writes only what changed. */
+  private _storedHashes: string[] = [];
+  /** How many block records IndexedDB holds (may exceed _storedHashes after a gap). */
+  private _storedLength = 0;
+  /** Saves run one at a time so the stored-hash mirror never races. */
+  private _persistQueue: Promise<void> = Promise.resolve();
   private _txAddedListeners = new Set<(tx: SwarmTransaction) => void>();
 
   constructor() {
@@ -65,42 +83,64 @@ export class SwarmChain {
     try {
       // Never overwrite a good snapshot with an empty one.
       if (this.chain.length === 0) return;
-      const state: ChainState = this._buildState();
+      // Blocks are already in IndexedDB one record each, so the snapshot
+      // only carries what may not be: pending transactions and any block
+      // not yet written. Stringifying the whole chain here blocked the
+      // page for seconds on a long chain every time the tab was hidden.
+      const base = this.firstUnstoredIndex();
+      const snapshot: ChainSnapshotV2 = {
+        v: 2,
+        savedAt: Date.now(),
+        base,
+        tail: this.chain.slice(base),
+        pendingTransactions: this.pendingTransactions,
+        difficulty: this.difficulty,
+        miningReward: this.miningReward,
+      };
       // Rotate the previous snapshot so we have one extra reload of safety.
       try {
         const prev = localStorage.getItem("__swarm_chain_snapshot");
         if (prev) localStorage.setItem("__swarm_chain_snapshot_prev", prev);
       } catch { /* best-effort */ }
-      localStorage.setItem(
-        "__swarm_chain_snapshot",
-        JSON.stringify(state)
-      );
+      localStorage.setItem("__swarm_chain_snapshot", JSON.stringify(snapshot));
       this._dirty = false;
     } catch {
       // localStorage might be full or unavailable — best effort
     }
   }
 
+  /** Index of the first block whose stored copy is missing or differs. */
+  private firstUnstoredIndex(): number {
+    const stored = this._storedHashes;
+    const n = Math.min(stored.length, this.chain.length);
+    let i = 0;
+    while (i < n && stored[i] === this.chain[i].hash) i++;
+    return i;
+  }
+
   private async loadChain(): Promise<void> {
     // Try latest snapshot, then previous rotated snapshot as a safety net.
-    let snapshot: ChainState | null = null;
-    const tryParse = (raw: string | null): ChainState | null => {
-      if (!raw) return null;
+    let legacySnapshot: ChainState | null = null;
+    let snapshotV2: ChainSnapshotV2 | null = null;
+    const tryParse = (raw: string | null): void => {
+      if (!raw || legacySnapshot || snapshotV2) return;
       try {
-        const parsed = JSON.parse(raw) as ChainState;
-        if (parsed && Array.isArray(parsed.chain) && parsed.chain.length > 0) {
-          return parsed;
+        const parsed = JSON.parse(raw) as ChainState | ChainSnapshotV2;
+        if ((parsed as ChainSnapshotV2)?.v === 2 && Array.isArray((parsed as ChainSnapshotV2).tail)) {
+          snapshotV2 = parsed as ChainSnapshotV2;
+        } else if (parsed && Array.isArray((parsed as ChainState).chain) && (parsed as ChainState).chain.length > 0) {
+          legacySnapshot = parsed as ChainState;
         }
       } catch { /* ignore */ }
-      return null;
     };
     try {
-      snapshot = tryParse(localStorage.getItem("__swarm_chain_snapshot"))
-        ?? tryParse(localStorage.getItem("__swarm_chain_snapshot_prev"));
+      tryParse(localStorage.getItem("__swarm_chain_snapshot"));
+      tryParse(localStorage.getItem("__swarm_chain_snapshot_prev"));
       // Do NOT delete the snapshot yet — keep it as durable backup.
     } catch { /* ignore */ }
 
     const state = await getChainState();
+    const snapshot = legacySnapshot as ChainState | null;
 
     // Pick whichever has more blocks (the snapshot may be newer)
     const best =
@@ -115,8 +155,27 @@ export class SwarmChain {
       this.pendingTransactions = best.pendingTransactions;
       this.difficulty = best.difficulty;
       this.miningReward = best.miningReward;
-      // If we recovered from snapshot, persist it properly to IndexedDB
-      if (best === snapshot) {
+      if (best === state && typeof state.storedLength === "number") {
+        this._storedHashes = state.chain.map((block) => block.hash);
+        this._storedLength = state.storedLength;
+      }
+      let changed = best === snapshot || typeof best.storedLength !== "number";
+      // A v2 snapshot carries what IndexedDB may not have caught yet.
+      const snap = snapshotV2 as ChainSnapshotV2 | null;
+      if (snap && best === state && snap.savedAt > (state.savedAt ?? 0)) {
+        if (snap.tail.length > 0 && snap.base <= this.chain.length
+          && (snap.base === 0 || snap.tail[0].previousHash === this.chain[snap.base - 1]?.hash)
+          && snap.base + snap.tail.length >= this.chain.length) {
+          this.chain = [...this.chain.slice(0, snap.base), ...snap.tail];
+        }
+        this.pendingTransactions = snap.pendingTransactions ?? this.pendingTransactions;
+        this.difficulty = snap.difficulty ?? this.difficulty;
+        this.miningReward = snap.miningReward ?? this.miningReward;
+        changed = true;
+      }
+      // Recovered from a snapshot, or still in the old one-record shape:
+      // write it out as per-block records once.
+      if (changed) {
         await this.persistState();
       }
     } else {
@@ -530,21 +589,38 @@ export class SwarmChain {
   }
 
   private _buildState(): ChainState {
+    const supply = this.getTotalSupply();
     return {
       chain: this.chain,
       pendingTransactions: this.pendingTransactions,
       difficulty: this.difficulty,
       miningReward: this.miningReward,
-      totalSupply: this.getTotalSupply(),
-      circulatingSupply: this.getTotalSupply(),
+      totalSupply: supply,
+      circulatingSupply: supply,
       lastBlockTime: this.getLatestBlock().timestamp,
+      savedAt: Date.now(),
     };
   }
 
-  private async persistState(): Promise<void> {
-    const state = this._buildState();
-    await saveChainState(state);
-    this._dirty = false;
+  /**
+   * Save bookkeeping plus only the blocks that changed since the last save
+   * (usually just the new tip), instead of cloning the whole chain into
+   * IndexedDB after every block.
+   */
+  private persistState(): Promise<void> {
+    const run = this._persistQueue.then(async () => {
+      const state = this._buildState();
+      const from = this.firstUnstoredIndex();
+      const changed = this.chain.slice(from);
+      const hashes = this.chain.map((block) => block.hash);
+      const previousLength = Math.max(this._storedLength, this._storedHashes.length);
+      await saveChainState(state, changed, previousLength);
+      this._storedHashes = hashes;
+      this._storedLength = hashes.length;
+      this._dirty = false;
+    });
+    this._persistQueue = run.catch(() => { /* next save retries */ });
+    return run;
   }
 
   getChain(): SwarmBlock[] {
@@ -749,14 +825,28 @@ export class SwarmChain {
     });
   }
 
+  /**
+   * Ledger state after validating a prefix of blocks, keyed by the last
+   * block's hash. Block hashes cover their transactions, so a later call
+   * whose blocks share that prefix can resume from here instead of
+   * re-walking (and re-verifying every signed tip in) the whole chain.
+   */
+  private ledgerCache: { length: number; tipHash: string; state: LedgerWalk } | null = null;
+
   private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {
-    const balances = new Map<string, number>();
-    const seen = new Set<string>();
-    const accepted: SwarmTransaction[] = [];
-    const nonces = new Set<string>();
+    let start = 0;
+    let walk: LedgerWalk;
+    const cache = this.ledgerCache;
+    if (cache && blocks.length > cache.length && blocks[cache.length - 1]?.hash === cache.tipHash) {
+      walk = cloneLedgerWalk(cache.state);
+      start = cache.length;
+    } else {
+      walk = { balances: new Map(), seen: new Set(), accepted: [], nonces: new Set(), maturing: [] };
+    }
+    const { balances, seen, accepted, nonces, maturing } = walk;
     // Rewards from blocks under the new issuance rules wait to mature before they can be spent.
-    const maturing: { index: number; to: string; amount: number }[] = [];
-    for (const block of blocks) {
+    for (let b = start; b < blocks.length; b++) {
+      const block = blocks[b];
       for (let i = maturing.length - 1; i >= 0; i--) {
         if (!isRewardMature(maturing[i].index, block.index)) continue;
         const { to, amount } = maturing[i];
@@ -787,9 +877,35 @@ export class SwarmChain {
           balances.set(address, (balances.get(address) ?? 0) + this.applyTransactionToBalance(tx, address));
         }
       }
+      // Remember the state at the last block with a hash (a draft block being
+      // mined has none yet, and never becomes a resume point).
+      if (b === blocks.length - 1 || (b === blocks.length - 2 && !blocks[b + 1]?.hash)) {
+        if (typeof block.hash === "string" && block.hash) {
+          this.ledgerCache = { length: b + 1, tipHash: block.hash, state: cloneLedgerWalk(walk) };
+        }
+      }
     }
     return true;
   }
+}
+
+/** Running state of a wallet-ledger walk over blocks. */
+interface LedgerWalk {
+  balances: Map<string, number>;
+  seen: Set<string>;
+  accepted: SwarmTransaction[];
+  nonces: Set<string>;
+  maturing: { index: number; to: string; amount: number }[];
+}
+
+function cloneLedgerWalk(w: LedgerWalk): LedgerWalk {
+  return {
+    balances: new Map(w.balances),
+    seen: new Set(w.seen),
+    accepted: w.accepted.slice(),
+    nonces: new Set(w.nonces),
+    maturing: w.maturing.map((m) => ({ ...m })),
+  };
 }
 
 let chainInstance: SwarmChain | null = null;

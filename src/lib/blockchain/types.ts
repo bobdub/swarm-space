@@ -216,6 +216,10 @@ export interface ChainState {
   totalSupply: number;
   circulatingSupply: number;
   lastBlockTime: string;
+  /** When this state was written (ms). Lets a load pick the newer of two copies. */
+  savedAt?: number;
+  /** Set on load when blocks came from per-block records: how many were stored. */
+  storedLength?: number;
 }
 
 // ── Economics Constants ────────────────────────────────────────────────
