@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { syncBrainRoom, clearBrainSync, isBrainSynced, getBrainSyncRoom } from '../brainSyncStore';
-import { ROOM_PEER_SILENCE_MS } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 
 describe('Brain sync', () => {
   beforeEach(() => clearBrainSync());
@@ -11,9 +10,5 @@ describe('Brain sync', () => {
     expect(isBrainSynced('brain-universe-shared')).toBe(true);
     clearBrainSync();
     expect(getBrainSyncRoom()).toBeNull();
-  });
-
-  it('removes silent peers after about 20 seconds', () => {
-    expect(ROOM_PEER_SILENCE_MS).toBe(20_000);
   });
 });

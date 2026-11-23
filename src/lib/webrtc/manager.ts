@@ -240,8 +240,8 @@ export class WebRTCManager {
         }
 
         case 'leave-room': {
-          // The bridge evicts a peer whose room heartbeats went quiet for a
-          // while (a mesh edge hiccup, a throttled background tab). If our
+          // The mesh reports a peer it has heard nothing from for minutes
+          // (a dead edge, a long-throttled background tab). If our
           // call with them is still carrying media, they did not leave:
           // keep talking. A real departure still closes the call, and a
           // connection that later fails goes through normal recovery.

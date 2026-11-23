@@ -1,13 +1,12 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   startSignalingBridge,
   stopSignalingBridge,
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
-  sweepSilentRoomPeers,
+  handleMeshPeerDeparted,
   isRoomPeerPresent,
-  ROOM_PEER_SILENCE_MS,
   type SignalEnvelope,
 } from '../webrtcSignalingBridge.standalone';
 
@@ -32,22 +31,26 @@ function makeMesh(id: string, connected: string[]) {
 afterEach(() => {
   announceLeaveRoom('brain');
   stopSignalingBridge();
+  vi.useRealTimers();
 });
 
 describe('Brain room membership', () => {
-  it('allows a full minute of missed room heartbeats before soft eviction', () => {
+  it('never drops a quiet peer from the room, however long the silence', () => {
+    vi.useFakeTimers();
     const a = makeMesh('A', ['B']);
     startSignalingBridge(a.mesh as never);
     announceJoinRoom('brain', 'uA', 'A');
-    const t0 = Date.now();
-    a.deliver('B', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: t0 });
-    expect(ROOM_PEER_SILENCE_MS).toBe(60_000);
-    sweepSilentRoomPeers(t0 + 59_999);
-    expect(isRoomPeerPresent('brain', 'B', t0 + 59_999)).toBe(true);
-    sweepSilentRoomPeers(t0 + 60_001);
-    expect(isRoomPeerPresent('brain', 'B', t0 + 60_001)).toBe(false);
+    const seen: SignalEnvelope[] = [];
+    const off = onSignal((e) => seen.push(e));
+    a.deliver('B', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: Date.now() });
+    // Ten minutes of room sweeps with no heartbeat from B.
+    vi.advanceTimersByTime(10 * 60_000);
+    expect(isRoomPeerPresent('brain', 'B')).toBe(true);
+    expect(seen.some((e) => e.msgType === 'leave-room' && e.from === 'B')).toBe(false);
+    off();
   });
-  it('a peer evicted for silence comes back on its next heartbeat', () => {
+
+  it('a peer the mesh reported silent comes back on its next heartbeat', () => {
     const a = makeMesh('A', ['B']);
     startSignalingBridge(a.mesh as never);
     announceJoinRoom('brain', 'uA', 'A');
@@ -57,7 +60,7 @@ describe('Brain room membership', () => {
     a.deliver('B', { msgType: 'join-room', from: 'B', roomId: 'brain', ts: t0 });
     expect(isRoomPeerPresent('brain', 'B')).toBe(true);
 
-    sweepSilentRoomPeers(Date.now() + ROOM_PEER_SILENCE_MS + 1);
+    handleMeshPeerDeparted('B', 'silent');
     const leave = seen.find((e) => e.msgType === 'leave-room');
     expect(leave?.data).toEqual({ reason: 'silent' });
     expect(isRoomPeerPresent('brain', 'B')).toBe(false);
