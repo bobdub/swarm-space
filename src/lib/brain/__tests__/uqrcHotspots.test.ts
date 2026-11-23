@@ -14,25 +14,34 @@ function maskCount(f: Field3D): number {
 describe('UQRC hotspot regressions', () => {
   afterEach(() => setEarthPoseTime(null));
 
-  it('moves a whole village of support basins across a lattice cell in linear time, composing the same template', () => {
+  it('moves a whole village of support basins across a lattice cell without re-walking every basin, composing the same template', () => {
     setEarthPoseTime(0);
     const physics = new UqrcPhysics();
     const fresh = new UqrcPhysics();
     const base = spawnOnEarth('village', getEarthPose());
     const cell = WORLD_SIZE / FIELD3D_N;
+    // Count every basin the composer visits. Before the per-cell sum, each
+    // composed cell walked every live basin, so one village crossing cost
+    // O(N²) visits (and ~140 ms for 300 builds).
+    let visited = 0;
+    class CountingMap<K, V> extends Map<K, V> {
+      *values(): MapIterator<V> { for (const v of super.values()) { visited++; yield v; } }
+    }
+    const internals = physics as unknown as { supportBasins: Map<number, unknown> };
+    internals.supportBasins = new CountingMap(internals.supportBasins);
     const items = Array.from({ length: 300 }, (_, i) => {
       const pos: [number, number, number] = [base[0] + (i % 20) * 2, base[1], base[2] + Math.floor(i / 20) * 2];
       return { h: physics.pinSupportBasin(pos, 6, 0.6), pos };
     });
-    const t0 = performance.now();
+    visited = 0;
     for (const it of items) {
       const next: [number, number, number] = [it.pos[0] + cell, it.pos[1], it.pos[2]];
       it.h = physics.moveSupportBasin(it.h, it.pos, next, 6);
       it.pos = next;
       fresh.pinSupportBasin(next, 6, 0.6);
     }
-    // Was ~140 ms (every move re-walked every other basin per cell).
-    expect(performance.now() - t0).toBeLessThan(60);
+    // Linear: no move re-walks the other basins.
+    expect(visited).toBe(0);
     const a = physics.getField().pinTemplate;
     const b = fresh.getField().pinTemplate;
     for (let ax = 0; ax < 3; ax++) {
