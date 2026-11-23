@@ -42,13 +42,21 @@ describe('eruption cycle', () => {
   it('spends most of its time quiet, and erupts briefly once per cycle', () => {
     const counts = { quiet: 0, unrest: 0, eruption: 0, waning: 0 };
     let n = 0;
+    let onsets = 0;
+    let prev = '';
     for (let t = T0; t < T0 + ERUPTION_CYCLE_S * 8; t += 5) {
-      counts[eruptionStateAt(t).phase]++;
+      const phase = eruptionStateAt(t).phase;
+      if (phase === 'eruption' && prev !== 'eruption') onsets++;
+      prev = phase;
+      counts[phase]++;
       n++;
     }
     expect(counts.quiet / n).toBeGreaterThan(0.5);
-    expect(counts.eruption / n).toBeGreaterThan(0.05);
-    expect(counts.eruption / n).toBeLessThan(0.15);
+    // One eruption per game week, lasting minutes: lava is the exception.
+    expect(ERUPTION_CYCLE_S).toBe(86400);
+    expect(onsets).toBe(8);
+    expect(counts.eruption).toBeGreaterThan(0);
+    expect(counts.eruption / n).toBeLessThan(0.01);
     // Every cycle fits: onset + eruption + drain before the next begins.
     for (let k = 0; k < 500; k++) {
       const c = eruptionCycleAt(k);
