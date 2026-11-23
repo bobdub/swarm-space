@@ -2718,9 +2718,9 @@ export class StandaloneSwarmMesh {
         this.startMiningLoop();
       }
 
-      if (source === 'manual') {
-        this.emitAlert(`Connected to ${rId.slice(0, 16)} (manual)`, 'info');
-      }
+      // No per-peer "Connected to … (manual)" alert: saved peers reconnect
+      // with the 'manual' source too, so it fired for every one at once. The
+      // connection list and the peer count already show a new link.
     });
 
     conn.on('data', (raw: unknown) => {

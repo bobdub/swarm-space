@@ -65,11 +65,13 @@ export function SwarmMeshModePanel({
       mesh.onPeersChange(setPeers),
       mesh.onLibraryChange(setLibrary),
       mesh.onToggleChange((toggles) => setIsMining(toggles.mining)),
+      // Mesh alerts ("Dialing…", "Connected to Swarm Mesh (3 peers)",
+      // "Reconnecting in 5s…", re-seeds) fire for every peer and retry, so they
+      // show as a status line in this panel instead of toasts. Only a hard
+      // failure pops a toast, in one slot that replaces itself.
       mesh.onAlert((msg, level) => {
         setAlert({ msg, level });
-        if (level === 'info') toast.success(msg);
-        else if (level === 'warn') toast.info(msg);
-        else toast.error(msg);
+        if (level === 'error') toast.error(msg, { id: 'swarm-mesh-alert' });
       }),
     ];
     setBlocked(mesh.getBlockedPeers());
@@ -121,11 +123,15 @@ export function SwarmMeshModePanel({
       </Card>
 
       {/* Connection Alert */}
-      {alert && phase === 'online' && peers.length === 0 && alert.level === 'warn' && (
+      {alert && phase === 'online' && peers.length === 0 && alert.level === 'warn' ? (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-400/80">
           {alert.msg}
         </div>
-      )}
+      ) : alert ? (
+        <p className="px-1 text-xs text-muted-foreground" aria-live="polite" data-testid="swarm-mesh-status">
+          {alert.msg}
+        </p>
+      ) : null}
 
       {/* Mining */}
       <Card className="border-primary/20">

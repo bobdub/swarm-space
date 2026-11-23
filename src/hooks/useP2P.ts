@@ -367,17 +367,20 @@ const getStoredP2PPreference = (): boolean => {
   }
 };
 
-// The one connection toast we keep: joining the mesh is worth a glance.
-// Everything else about dialing and reconnecting stays silent, and a flaky
-// link that drops and recovers does not re-announce more than once a minute.
-let lastMeshConnectedToastAt = 0;
-function announceMeshConnected(): void {
-  const now = Date.now();
-  if (now - lastMeshConnectedToastAt < 60_000) return;
-  lastMeshConnectedToastAt = now;
+// The one connection toast we keep: "Connected to the mesh", shown once per
+// session when the first real peer link opens. Signaling coming online is not
+// a connection, and later peers joining or a link dropping and recovering stay
+// silent. Turning P2P off and on again re-arms it.
+let meshConnectedAnnounced = false;
+export function noteMeshPeerCount(connectedPeers: number): void {
+  if (connectedPeers <= 0 || meshConnectedAnnounced) return;
+  meshConnectedAnnounced = true;
   import('sonner').then(({ toast }) => {
     toast.success('Connected to the mesh', { id: 'p2p-connected', duration: 3000 });
   });
+}
+export function resetMeshConnectedNotice(): void {
+  meshConnectedAnnounced = false;
 }
 
 export function useP2P() {
@@ -391,6 +394,10 @@ export function useP2P() {
   // Refs mirror state to break dependency cycles in effects
   const isEnabledRef = useRef(false);
   const isConnectingRef = useRef(false);
+  // Only an instance that actually runs the mesh may announce it.
+  useEffect(() => {
+    if (isEnabled) noteMeshPeerCount(stats.connectedPeers);
+  }, [isEnabled, stats.connectedPeers]);
   const rendezvousConfig = useMemo(() => loadRendezvousConfig(), []);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const statsListenersRef = useRef(new Set<(value: P2PStats) => void>());
@@ -712,7 +719,6 @@ export function useP2P() {
         const initiallyOnline = sm.getPhase() === 'online';
         setIsConnecting(!initiallyOnline);
         isConnectingRef.current = !initiallyOnline;
-        if (initiallyOnline) announceMeshConnected();
         setCurrentUserId(user.id);
         updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
@@ -736,7 +742,6 @@ export function useP2P() {
             connectedPeers: live.connectedPeers,
             networkContent: live.contentItems,
           }));
-          if (nextPhase === 'online' && isConnectingRef.current) announceMeshConnected();
           if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
             setIsConnecting(false);
             isConnectingRef.current = false;
@@ -800,7 +805,6 @@ export function useP2P() {
             connectedPeers: live.connectedPeers,
             networkContent: live.contentItems,
           }));
-          if (nextPhase === 'online' && isConnectingRef.current) announceMeshConnected();
           if (nextPhase === 'online' || nextPhase === 'failed' || nextPhase === 'off') {
             setIsConnecting(false);
             isConnectingRef.current = false;
@@ -937,7 +941,6 @@ export function useP2P() {
       // Store preference
       updateConnectionState({ enabled: true, lastConnectedAt: Date.now() });
 
-      announceMeshConnected();
     } catch (error) {
       console.error('[useP2P] ❌ Failed to enable P2P:', error);
       recordP2PDiagnostic({
@@ -1063,6 +1066,8 @@ export function useP2P() {
       code: 'disable-complete',
       message: 'P2P networking disabled'
     });
+
+    resetMeshConnectedNotice();
 
     // Store preference via unified state
     if (persistPreference && typeof window !== 'undefined') {
