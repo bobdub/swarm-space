@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { UqrcPhysics, PHYSICS_HZ } from '../uqrcPhysics';
 import { blockWorldPos } from '../builderBlockEngine';
-import { spawnOnEarth, getEarthPose, setEarthPoseTime, BODY_SHELL_RADIUS, endEarthFrame, beginEarthFrame } from '../earth';
+import { spawnOnEarth, getEarthPose, setEarthPoseTime, BODY_SHELL_RADIUS, endEarthFrame, beginEarthFrame, worldPosToLocalNormal, earthLocalToWorld, FOOT_CUSHION } from '../earth';
+import { supportElevationAt } from '../groundHeight';
 
 /**
  * Frame samples are taken at irregular real-frame times, so a raw second
@@ -30,8 +31,14 @@ describe('ground jitter: body stays in register with the rendered Earth', () => 
   it('Earth-local render track cuts altitude jerk vs raw world position', () => {
     const p = new UqrcPhysics();
     setEarthPoseTime(0);
+    endEarthFrame(); // drop any frame pose a previous test left pinned
     const pose0 = getEarthPose();
-    const pos = spawnOnEarth('probe', pose0);
+    // Start standing on the ground (spawnOnEarth's point, put on the
+    // support), so this measures walking jitter, not a long fall.
+    const sp = spawnOnEarth('probe', pose0);
+    const n = worldPosToLocalNormal(sp, pose0);
+    const r0 = BODY_SHELL_RADIUS + supportElevationAt(n) + FOOT_CUSHION;
+    const pos = earthLocalToWorld([n[0] * r0, n[1] * r0, n[2] * r0], pose0);
     p.addBody({ id: 'self', kind: 'self', pos: [...pos] as [number,number,number], vel: [0,0,0], mass: 1, trust: 0.5, meta: { attachedTo: 'earth-surface' } });
     p.setIntent('self', { fwd: 1, right: 0, yaw: 0 });
     const dtMs = 1000 / PHYSICS_HZ;
@@ -73,8 +80,13 @@ describe('lateral jitter: structures stay in register with the camera', () => {
   it('frame-derived block position is quieter than the tick stamp', () => {
     const p = new UqrcPhysics();
     setEarthPoseTime(0);
+    endEarthFrame();
     const pose0 = getEarthPose();
-    const pos = spawnOnEarth('probe2', pose0);
+    // Standing on the ground, walking: lateral jitter, not a fall.
+    const sp = spawnOnEarth('probe2', pose0);
+    const n = worldPosToLocalNormal(sp, pose0);
+    const r0 = BODY_SHELL_RADIUS + supportElevationAt(n) + FOOT_CUSHION;
+    const pos = earthLocalToWorld([n[0] * r0, n[1] * r0, n[2] * r0], pose0);
     p.addBody({ id: 'self', kind: 'self', pos: [...pos] as [number,number,number], vel: [0,0,0], mass: 1, trust: 0.5, meta: { attachedTo: 'earth-surface' } });
     p.setIntent('self', { fwd: 1, right: 0, yaw: 0 });
     const spec = { anchorPeerId: 'probe2', rightOffset: 2.5, forwardOffset: 5, upOffset: 1.25 };
