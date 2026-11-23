@@ -100,7 +100,7 @@ const NodeDashboard = () => {
           if (sm.getPhase() === 'off' || sm.getPhase() === 'failed') void sm.start();
           return sm.connectToPeer(peerId);
         };
-    requestManualConnect(target, { label: displayLabel, source: 'node-dashboard', dial });
+    requestManualConnect(target, { label: displayLabel.replace(/…$/, ''), source: 'node-dashboard', dial });
   };
 
   // Inline stats

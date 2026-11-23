@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useP2PContext } from '@/contexts/P2PContext';
+import { requestManualConnect } from '@/lib/p2p/manualConnect';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -9,7 +10,7 @@ import { Users, Search, Plug, Unplug, ShieldBan } from 'lucide-react';
 import { notifyModeration } from '@/lib/notifications';
 
 export function PeerConnectionManager() {
-  const { getDiscoveredPeers, getActivePeerConnections, connectToPeer, disconnectFromPeer, blockPeer } = useP2PContext();
+  const { getDiscoveredPeers, getActivePeerConnections, disconnectFromPeer, blockPeer } = useP2PContext();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -36,8 +37,8 @@ export function PeerConnectionManager() {
       });
   }, [connectedIds, discoveredPeers, searchQuery]);
 
-  const handleConnect = (peerId: string) => {
-    connectToPeer(peerId, { manual: true, source: 'top-nav-connections' });
+  const handleConnect = (peerId: string, label: string) => {
+    requestManualConnect(peerId, { label: label.slice(0, 24), source: 'top-nav-connections' });
   };
 
   const handleDisconnect = (peerId: string) => {
@@ -123,7 +124,7 @@ export function PeerConnectionManager() {
                       <Badge variant={isConnected ? 'default' : 'outline'}>
                         {isConnected ? 'Connected' : 'Discovered'}
                       </Badge>
-                      <Button size="sm" variant={isConnected ? 'outline' : 'default'} onClick={() => isConnected ? handleDisconnect(peer.peerId) : handleConnect(peer.peerId)}>
+                      <Button size="sm" variant={isConnected ? 'outline' : 'default'} onClick={() => isConnected ? handleDisconnect(peer.peerId) : handleConnect(peer.peerId, label)}>
                         {isConnected ? <Unplug className="mr-1 h-4 w-4" /> : <Plug className="mr-1 h-4 w-4" />}
                         {isConnected ? 'Disconnect' : 'Connect'}
                       </Button>

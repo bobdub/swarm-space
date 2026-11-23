@@ -4,7 +4,7 @@
  * connect, disconnect, mute, hide, and block directly from that list.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Link } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,9 +25,11 @@ import {
   Search,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useP2PContext } from "@/contexts/P2PContext";
+import { getManualConnects, isManualConnectActive, requestManualConnect, subscribeManualConnects } from "@/lib/p2p/manualConnect";
 import { Avatar } from "@/components/Avatar";
 import { getFeatureFlags } from "@/config/featureFlags";
 import {
@@ -83,10 +85,10 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
     getActivePeerConnections,
     getDiscoveredPeers,
     blockPeer,
-    connectToPeer,
     disconnectFromPeer,
   } = useP2PContext();
 
+  const manualConnects = useSyncExternalStore(subscribeManualConnects, getManualConnects);
   const flags = getFeatureFlags();
   const isSwarmMode = flags.swarmMeshMode;
 
@@ -166,8 +168,10 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
     disconnectFromPeer(peerId);
   };
 
-  const handleConnect = (peerId: string) => {
-    connectToPeer(peerId, { manual: true, source: "connections-panel" });
+  // Same persistent knock-and-retry as the wifi icon and invite links, with a
+  // toast that follows the connection instead of a silent single dial.
+  const handleConnect = (peerId: string, label: string) => {
+    requestManualConnect(peerId, { label: label.slice(0, 24), source: "connections-panel" });
   };
 
   const handleUnhideAll = () => {
@@ -253,6 +257,7 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                 "Unknown peer";
               const showHandle = Boolean(username) && username !== label;
               const isMuted = mutedNodes.has(peer.peerId);
+              const isDialing = !peer.isConnected && isManualConnectActive(manualConnects.get(peer.peerId));
               const lastSeen = new Date(peer.lastSeen);
               const profilePath = profilePathFor(username, peer.userId, peer.peerId);
 
@@ -334,12 +339,13 @@ export function ConnectedPeersPanel({ title }: { title?: string } = {}) {
                       variant={peer.isConnected ? "outline" : "default"}
                       size="sm"
                       className="h-8 w-8 p-0 sm:w-auto sm:px-3"
-                      onClick={() => peer.isConnected ? handleDisconnect(peer.peerId) : handleConnect(peer.peerId)}
+                      onClick={() => peer.isConnected ? handleDisconnect(peer.peerId) : handleConnect(peer.peerId, label === "Unknown peer" ? peer.peerId : label)}
+                      disabled={isDialing}
                       aria-label={peer.isConnected ? "Disconnect" : "Connect"}
                       title={peer.isConnected ? "Disconnect" : "Connect"}
                     >
-                      {peer.isConnected ? <Unplug className="h-3.5 w-3.5 sm:mr-1" /> : <Plug className="h-3.5 w-3.5 sm:mr-1" />}
-                      <span className="hidden sm:inline">{peer.isConnected ? "Disconnect" : "Connect"}</span>
+                      {peer.isConnected ? <Unplug className="h-3.5 w-3.5 sm:mr-1" /> : isDialing ? <Loader2 className="h-3.5 w-3.5 sm:mr-1 animate-spin" /> : <Plug className="h-3.5 w-3.5 sm:mr-1" />}
+                      <span className="hidden sm:inline">{peer.isConnected ? "Disconnect" : isDialing ? "Connecting" : "Connect"}</span>
                     </Button>
 
                     <DropdownMenu
