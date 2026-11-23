@@ -51,6 +51,7 @@ export interface Notification {
     | "badge_unlocked"
     | "wallet_deposit"
     | "moderation"
+    | "app_update"
     | "system";
   triggeredBy: string;
   triggeredByName: string;
@@ -64,6 +65,8 @@ export interface Notification {
   title?: string;
   /** Label for the `link` button, e.g. "Open wallet". */
   linkLabel?: string;
+  /** Host-verified deployment timestamp for app-update actions. */
+  appBuildAt?: number;
   read: boolean;
   createdAt: string;
 }

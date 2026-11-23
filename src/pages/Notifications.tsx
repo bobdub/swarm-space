@@ -10,6 +10,7 @@ import { Avatar } from "@/components/Avatar";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { getAppVersionWatch } from '@/lib/p2p/appVersion';
 
 /** Background notices raised by the app itself rather than another user. */
 const SYSTEM_STYLE: Partial<Record<Notification["type"], { icon: typeof Bell; tone: string; bg: string; label: string; fallbackLink?: string }>> = {
@@ -19,6 +20,7 @@ const SYSTEM_STYLE: Partial<Record<Notification["type"], { icon: typeof Bell; to
   wallet_deposit: { icon: Wallet, tone: "text-amber-400", bg: "bg-amber-400/15", label: "Open wallet", fallbackLink: "/wallet" },
   moderation: { icon: EyeOff, tone: "text-foreground/80", bg: "bg-foreground/10", label: "Manage blocked users", fallbackLink: "/settings#blocked-users" },
   system: { icon: Info, tone: "text-[hsl(174,59%,56%)]", bg: "bg-[hsla(174,59%,56%,0.15)]", label: "Open" },
+  app_update: { icon: Info, tone: 'text-primary', bg: 'bg-primary/10', label: 'Update App' },
 };
 
 const Notifications = () => {
@@ -26,6 +28,13 @@ const Notifications = () => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const watch = getAppVersionWatch();
+  const [updateState, setUpdateState] = useState(() => watch.getState());
+  useEffect(() => {
+    const off = watch.subscribe(setUpdateState);
+    setUpdateState(watch.getState());
+    return off;
+  }, [watch]);
 
   // Redirect to auth if not logged in
   useEffect(() => {
@@ -92,6 +101,7 @@ const Notifications = () => {
       case "badge_unlocked":
       case "wallet_deposit":
       case "moderation":
+      case "app_update":
       case "system": {
         const style = SYSTEM_STYLE[type]!;
         const Icon = style.icon;
@@ -148,6 +158,7 @@ const Notifications = () => {
       case "badge_unlocked":
       case "wallet_deposit":
       case "moderation":
+      case "app_update":
       case "system":
         return (
           <>
@@ -270,6 +281,11 @@ const Notifications = () => {
                           >
                             View post
                           </Link>
+                        )}
+                        {notif.type === 'app_update' && (
+                          updateState.status === 'available' && (notif.appBuildAt ?? 0) <= updateState.deployed.builtAt ? (
+                            <Button type="button" size="sm" className="h-7 gap-1 text-xs" onClick={() => watch.refreshNow()}>Update App</Button>
+                          ) : <span className="text-xs text-muted-foreground">{watch.getLocalBuild().builtAt >= (notif.appBuildAt ?? Infinity) ? 'Updated' : 'Waiting for update confirmation'}</span>
                         )}
                       </div>
                     </div>

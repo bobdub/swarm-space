@@ -13,9 +13,8 @@
  * - A peer on a newer build that this host has not deployed yet (another
  *   host, a preview, a dev server) changes nothing, so a refresh can never
  *   land on the same old build and loop.
- * - Auto-refresh happens once per target build per tab. If a stale cache
- *   brings back the old build, the notice stays manual from then on.
- * - A live call is never cut off: the notice waits for the person.
+ * - Every update waits for an explicit choice; there is no auto-refresh.
+ * - A live call and the current world remain intact until that choice.
  */
 
 import { isCallActive } from './callActivity';
@@ -40,8 +39,6 @@ export const LOCAL_BUILD: BuildStamp = (() => {
   return { id: 'unknown', builtAt: 0 };
 })();
 
-/** Seconds of notice before an automatic refresh. */
-export const UPDATE_COUNTDOWN_MS = 30_000;
 /**
  * At most one `version.json` read per device per day, whatever peers claim.
  * The time of the last read survives reloads (localStorage).
@@ -76,9 +73,8 @@ export type AppUpdateState =
   | {
       status: 'available';
       deployed: BuildStamp;
-      mode: 'auto' | 'manual';
-      /** ms timestamp of the automatic refresh, when mode is auto. */
-      deadline: number | null;
+      mode: 'manual';
+      deadline: null;
       reason: UpdateNoticeReason | null;
     };
 
@@ -106,7 +102,6 @@ export class AppVersionWatch {
   private pendingTimer: unknown = null;
   /** Builds the person said "Not now" to in this tab. */
   private dismissedUpTo = 0;
-  private timer: unknown = null;
 
   constructor(private readonly deps: AppVersionDeps) {
     try {
@@ -179,40 +174,18 @@ export class AppVersionWatch {
   }
 
   private offer(deployed: BuildStamp): void {
-    this.cancelTimer();
     let reason: UpdateNoticeReason | null = null;
     const attempt = this.readAttempt();
     if (attempt === undefined) reason = 'no-guard';
     else if (attempt !== null && attempt >= deployed.builtAt) reason = 'stale-cache';
     else if (this.deps.isCallActive()) reason = 'call';
 
-    if (reason) {
-      this.setState({ status: 'available', deployed, mode: 'manual', deadline: null, reason });
-      return;
-    }
-    const deadline = this.deps.now() + UPDATE_COUNTDOWN_MS;
-    this.setState({ status: 'available', deployed, mode: 'auto', deadline, reason: null });
-    this.timer = this.deps.setTimer(() => {
-      this.timer = null;
-      if (this.state.status !== 'available' || this.state.mode !== 'auto') return;
-      if (this.deps.isCallActive()) {
-        this.setState({ ...this.state, mode: 'manual', deadline: null, reason: 'call' });
-        return;
-      }
-      // Auto-refresh only once the loop guard is really stored; a guard that
-      // cannot be written could let a stale cache reload this tab again.
-      if (!this.recordAttempt()) {
-        this.setState({ ...this.state, mode: 'manual', deadline: null, reason: 'no-guard' });
-        return;
-      }
-      this.deps.reload();
-    }, UPDATE_COUNTDOWN_MS);
+    this.setState({ status: 'available', deployed, mode: 'manual', deadline: null, reason });
   }
 
-  /** The person pressed Refresh now: reload even if the guard cannot be stored. */
+  /** The person pressed Update App: the sole path that reloads this tab. */
   refreshNow(): void {
     if (this.state.status !== 'available') return;
-    this.cancelTimer();
     this.recordAttempt();
     this.deps.reload();
   }
@@ -232,7 +205,6 @@ export class AppVersionWatch {
   /** "Not now": hide the notice for this build in this tab. */
   dismiss(): void {
     if (this.state.status !== 'available') return;
-    this.cancelTimer();
     this.dismissedUpTo = Math.max(this.dismissedUpTo, this.state.deployed.builtAt);
     this.setState({ status: 'idle' });
   }
@@ -256,13 +228,6 @@ export class AppVersionWatch {
     const attempt = this.readAttempt();
     if (typeof attempt === 'number' && this.deps.local.builtAt >= attempt) {
       try { this.deps.storage?.removeItem(RELOAD_ATTEMPT_KEY); } catch { /* ignore */ }
-    }
-  }
-
-  private cancelTimer(): void {
-    if (this.timer !== null) {
-      this.deps.clearTimer(this.timer);
-      this.timer = null;
     }
   }
 

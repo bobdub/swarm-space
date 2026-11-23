@@ -2,6 +2,8 @@
 import { Notification } from "@/types";
 import { get, put, getAll } from "./store";
 import { getCurrentUser } from "./auth";
+import { appUpdateNoticeId } from './p2p/appUpdateNotices';
+import type { BuildStamp } from './p2p/appVersion';
 
 /**
  * Create a notification for a user
@@ -46,6 +48,19 @@ export async function getNotifications(): Promise<Notification[]> {
 export async function getUnreadCount(): Promise<number> {
   const notifications = await getNotifications();
   return notifications.filter((n) => !n.read).length;
+}
+
+/** One local inbox entry per identity/deployment, including across remounts. */
+export async function notifyAppUpdate(userId: string, build: BuildStamp): Promise<void> {
+  const id = appUpdateNoticeId(userId, build);
+  if (await get('notifications', id)) return;
+  await put('notifications', {
+    id, userId, type: 'app_update', triggeredBy: 'system', triggeredByName: 'Infinity',
+    title: 'New version available',
+    content: 'Infinity: You are holding your current version of Swarm Space. Update when you are ready.',
+    appBuildAt: build.builtAt, read: false, createdAt: new Date().toISOString(),
+  } satisfies Notification);
+  window.dispatchEvent(new CustomEvent('notifications-updated', { detail: { userId } }));
 }
 
 /**

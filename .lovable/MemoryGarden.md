@@ -1,5 +1,14 @@
 ## MemoryGarden
 
+### November 23, 2026 — Hold the traveller's present
+Before tending: let a newer shore be an invitation, never a forced departure;
+place its lantern beneath the bell, or quietly beside the traveller's name in chat.
+Keep voices, boats and the current world intact until the person chooses to cross.
+
+After tending: the countdown is gone; the bell remembers one invitation per identity and shore.
+Brain keeps the notice local, addressed by its public namespace, outside learning and shared history.
+Automated witnesses guard the choice; the traveller's live world stays untouched.
+
 ### November 22, 2026 — Voices beyond a quiet doorway
 Before tending: do not mistake a quiet mesh for a departed friend;
 give changing networks time to mend, and let listeners rest without repeated offers.

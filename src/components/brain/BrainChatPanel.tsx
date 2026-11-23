@@ -65,6 +65,7 @@ import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { networkNow } from '@/lib/time/networkClock';
 import { causalOrder } from '@/lib/chat/chatOrder';
+import { getAppVersionWatch } from '@/lib/p2p/appVersion';
 
 export interface BrainChatLine {
   id: string;
@@ -77,6 +78,8 @@ export interface BrainChatLine {
   peerId?: string;
   avatarRef?: string;
   infinityReplyTo?: string;
+  /** Local interface status, never broadcast, learned, or sealed as conversation. */
+  systemNotice?: 'app_update';
   replyTo?: { id: string; author: string; preview: string };
 }
 
@@ -453,7 +456,7 @@ export function BrainChatPanel({
     try {
       const engagedAt = engagedAtRef.current;
       if (engagedAt == null) return;
-      const engaged = allLines.filter((l) => l.ts >= engagedAt);
+      const engaged = allLines.filter((l) => !l.systemNotice && l.ts >= engagedAt);
       if (!engaged.length) {
         toast.error('Nothing to save yet — send a message first.');
         return;
@@ -968,6 +971,15 @@ export function BrainChatPanel({
                   );
                 }
                 const line = entry.line;
+                if (line.systemNotice === 'app_update') {
+                  return (
+                    <div key={line.id} role="status" className="break-words rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-xs text-foreground">
+                      <span className="font-medium text-primary">{line.author}</span>
+                      <p className="my-1 whitespace-pre-wrap">{line.text}</p>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => getAppVersionWatch().refreshNow()}>Update App</Button>
+                    </div>
+                  );
+                }
                 const isInfinity = !isClassic && line.author === ENTITY_DISPLAY_NAME;
                 const hasUserTools = !isInfinity && Boolean(line.peerId || line.authorId);
                 const isLong = line.text.length > LONG_MESSAGE_THRESHOLD;

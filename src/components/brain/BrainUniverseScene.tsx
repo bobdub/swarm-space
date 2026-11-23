@@ -111,6 +111,7 @@ import {
 } from '@/lib/world/worldPlacementsStore';
 import { NpcSwarmLayer } from '@/components/brain/npc/NpcSwarmLayer';
 import { BrainChatPanel, type BrainChatLine } from '@/components/brain/BrainChatPanel';
+import { useBrainAppUpdate } from './useBrainAppUpdate';
 import { DropPortalModal } from '@/components/brain/DropPortalModal';
 import { WallDecorateComposer } from '@/components/world/WallDecorateComposer';
 import { getCurrentUser } from '@/lib/auth';
@@ -1175,6 +1176,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   const [selfId, setSelfId] = useState<string>('');
   const [chatOpen, setChatOpen] = useState(() => window.location.pathname === '/brain/join');
   const [chatLines, setChatLines] = useState<BrainChatLine[]>([]);
+  const appUpdateLine = useBrainAppUpdate(user, roomId);
+  const visibleChatLines = useMemo(() => appUpdateLine ? [...chatLines, appUpdateLine] : chatLines, [chatLines, appUpdateLine]);
   const [portalModalOpen, setPortalModalOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const crewRole = useCrewRole();
@@ -2684,7 +2687,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {/* Chat panel */}
       {chatOpen && (
         <BrainChatPanel
-          lines={chatLines}
+          lines={visibleChatLines}
           onSend={handleSend}
           onClose={() => setChatOpen(false)}
           voicePeers={voicePeers}

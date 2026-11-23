@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AppVersionWatch,
-  UPDATE_COUNTDOWN_MS,
   VERSION_CHECK_MIN_GAP_MS,
   MAX_FUTURE_SKEW_MS,
   parseBuildStamp,
@@ -79,25 +78,24 @@ describe('app version handoff', () => {
     expect(w.getState().status).toBe('idle');
   });
 
-  it('counts down and refreshes when the host has the newer build', async () => {
+  it('holds the current version indefinitely until Update App is explicitly chosen', async () => {
     const h = harness();
     const w = h.watch();
     expect(w.notePeerBuild(NEW)).toBe(true);
     await h.advance(0);
-    const s = w.getState();
-    expect(s).toMatchObject({ status: 'available', mode: 'auto', deadline: T0 + UPDATE_COUNTDOWN_MS, deployed: NEW });
-    await h.advance(UPDATE_COUNTDOWN_MS - 1);
+    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual', deadline: null, deployed: NEW });
+    await h.advance(7 * VERSION_CHECK_MIN_GAP_MS);
     expect(h.deps.reload).not.toHaveBeenCalled();
-    await h.advance(1);
+    w.refreshNow();
     expect(h.deps.reload).toHaveBeenCalledTimes(1);
-    expect(h.storage!.map.get('swarm-app-reload-attempt')).toBe(String(NEW.builtAt));
+    expect(h.storage?.map.get('swarm-app-reload-attempt')).toBe(String(NEW.builtAt));
   });
 
   it('a fake higher stamp cannot force a refresh when the host has nothing newer', async () => {
     const h = harness({ deployed: OLD });
     const w = h.watch();
     w.notePeerBuild({ id: 'fake', builtAt: T0 + 60_000 });
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
     expect(h.deps.reload).not.toHaveBeenCalled();
     expect(w.getState().status).toBe('idle');
@@ -107,7 +105,7 @@ describe('app version handoff', () => {
     const h = harness({ deployed: '<!doctype html>' });
     const w = h.watch();
     w.notePeerBuild(NEW);
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(w.getState().status).toBe('idle');
     expect(h.deps.reload).not.toHaveBeenCalled();
   });
@@ -124,7 +122,7 @@ describe('app version handoff', () => {
     h.deployed.value = NEW;
     await h.advance(VERSION_CHECK_MIN_GAP_MS);
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    expect(w.getState()).toMatchObject({ status: 'available', mode: 'auto' });
+    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual' });
   });
 
   it('checks the host at most once a day per device, across reloads', async () => {
@@ -145,7 +143,7 @@ describe('app version handoff', () => {
     expect(second.deps.fetchDeployed).not.toHaveBeenCalled();
     await second.advance(1_000);
     expect(second.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    expect(w.getState()).toMatchObject({ status: 'available', mode: 'auto' });
+    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual' });
   });
 
   it('never loops: after one refresh for a build, the old build coming back stays manual', async () => {
@@ -154,14 +152,14 @@ describe('app version handoff', () => {
     const w1 = first.watch();
     w1.notePeerBuild(NEW);
     await first.advance(0);
-    await first.advance(UPDATE_COUNTDOWN_MS);
+    w1.refreshNow();
     expect(first.deps.reload).toHaveBeenCalledTimes(1);
 
     // Stale cache: the reloaded tab still runs OLD.
     const second = harness({ storage });
     const w2 = second.watch();
     w2.notePeerBuild(NEW);
-    await second.advance(UPDATE_COUNTDOWN_MS * 3);
+    await second.advance(30_000 * 3);
     expect(w2.getState()).toMatchObject({ status: 'available', mode: 'manual', reason: 'stale-cache', deadline: null });
     expect(second.deps.reload).not.toHaveBeenCalled();
   });
@@ -177,30 +175,30 @@ describe('app version handoff', () => {
     const h = harness({ storage: null });
     const w = h.watch();
     w.notePeerBuild(NEW);
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'no-guard' });
     expect(h.deps.reload).not.toHaveBeenCalled();
   });
 
-  it('falls back to a manual notice when the loop guard cannot be written at countdown end', async () => {
+  it('holds without auto-refresh even when tab storage later fails', async () => {
     const storage = memoryStorage();
     const h = harness({ storage });
     const w = h.watch();
     w.notePeerBuild(NEW);
     await h.advance(0);
     storage.setItem = () => { throw new Error('QuotaExceededError'); };
-    await h.advance(UPDATE_COUNTDOWN_MS);
+    await h.advance(30_000);
     expect(h.deps.reload).not.toHaveBeenCalled();
-    expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'no-guard' });
+    expect(w.getState()).toMatchObject({ mode: 'manual', deadline: null });
     w.refreshNow();
     expect(h.deps.reload).toHaveBeenCalledTimes(1);
   });
 
-  it('waits for the person during a call, including one that starts mid-countdown', async () => {
+  it('never interrupts a live call, including one that starts after the notice', async () => {
     const h = harness({ call: true });
     const w = h.watch();
     w.notePeerBuild(NEW);
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'call' });
     expect(h.deps.reload).not.toHaveBeenCalled();
 
@@ -209,20 +207,20 @@ describe('app version handoff', () => {
     w2.notePeerBuild(NEW);
     await h2.advance(1_000);
     h2.call.active = true;
-    await h2.advance(UPDATE_COUNTDOWN_MS);
-    expect(w2.getState()).toMatchObject({ mode: 'manual', reason: 'call' });
+    await h2.advance(30_000);
+    expect(w2.getState()).toMatchObject({ mode: 'manual', deadline: null });
     expect(h2.deps.reload).not.toHaveBeenCalled();
     w2.refreshNow();
     expect(h2.deps.reload).toHaveBeenCalledTimes(1);
   });
 
-  it('"Not now" cancels the countdown and hides that build for the tab, but a newer one shows again', async () => {
+  it('"Not now" hides the invitation and hides that build for the tab, but a newer one shows again', async () => {
     const h = harness();
     const w = h.watch();
     w.notePeerBuild(NEW);
     await h.advance(1_000);
     w.dismiss();
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(h.deps.reload).not.toHaveBeenCalled();
     expect(w.getState().status).toBe('idle');
 
@@ -241,7 +239,7 @@ describe('app version handoff', () => {
     const h = harness({ local: { id: 'unknown', builtAt: 0 } });
     const w = h.watch();
     expect(w.notePeerBuild(NEW)).toBe(false);
-    await h.advance(UPDATE_COUNTDOWN_MS * 2);
+    await h.advance(30_000 * 2);
     expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
   });
 });
