@@ -72,7 +72,25 @@ export const EARTH_ATMOSPHERE = 2.4 * WORLD_SCALE;       // 510 m thick
  * read `pose.sun` (see getEarthPoseAt) so the scene light, shaders, spawn
  * and weather can never disagree about which hemisphere is lit.
  */
+// Declination of the Sun seen from Earth: Earth-like, so mid latitudes get
+// both days and nights. (It was ~58°, which left everything north of ~25° N,
+// the village included, under a midnight sun.) Same azimuth and distance as
+// before; only the tilt above Earth's equator changed.
+const SUN_DECLINATION = 23 * Math.PI / 180;
+const SUN_OFFSET_AZIMUTH = Math.atan2(15, 20);
+const SUN_OFFSET_DISTANCE = Math.hypot(20, 40, 15) * WORLD_SCALE;
 export const SUN_POSITION: [number, number, number] = [
+  40 * WORLD_SCALE + Math.cos(SUN_DECLINATION) * Math.cos(SUN_OFFSET_AZIMUTH) * SUN_OFFSET_DISTANCE,
+  Math.sin(SUN_DECLINATION) * SUN_OFFSET_DISTANCE,
+  15 * WORLD_SCALE + Math.cos(SUN_DECLINATION) * Math.sin(SUN_OFFSET_AZIMUTH) * SUN_OFFSET_DISTANCE,
+];
+
+/**
+ * The Sun position that site frames (village, volcano, every anchor id) were
+ * laid out against. Frozen at the original value so tilting the Sun never
+ * moves the village, the volcano or anything anchored to them.
+ */
+const SITE_FRAME_SUN_POSITION: [number, number, number] = [
   60 * WORLD_SCALE,
   40 * WORLD_SCALE,
   30 * WORLD_SCALE,
@@ -657,7 +675,7 @@ export function getEarthLocalSiteFrame(anchorId: string): {
     invSpinQuat: [0, 0, 0, 1],
     spinAngle: 0,
     orbitPhase: EARTH_ORBIT_PHASE_0,
-    sun: [...SUN_POSITION],
+    sun: [...SITE_FRAME_SUN_POSITION],
     moon: [EARTH_POSITION[0] + MOON_ORBIT_RADIUS, EARTH_POSITION[1], EARTH_POSITION[2]],
   };
   const worldAtZero = spawnOnEarth(anchorId, zeroPose);
@@ -850,7 +868,7 @@ export function spawnOnEarth(peerId: string, pose?: EarthPose): [number, number,
   // the same patch of soil — the soil rotates *with* the spawn instead
   // of sliding underneath it as Earth spins.
   const center: Vec3 = pose ? pose.center : EARTH_POSITION;
-  const sunPos: Vec3 = pose ? pose.sun : SUN_POSITION;
+  const sunPos: Vec3 = pose ? pose.sun : SITE_FRAME_SUN_POSITION;
   const sx0 = sunPos[0] - center[0];
   const sy0 = sunPos[1] - center[1];
   const sz0 = sunPos[2] - center[2];
