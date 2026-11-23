@@ -91,13 +91,14 @@ export class SynapseGraph {
    * Spike-timing style update: `pre` was seen before `post`. The association
    * grows as in `reinforce`, the forward edge pre → post is potentiated and
    * the reverse edge post → pre is depressed. `timing` (0..1) scales both, so
-   * pairs further apart in a sequence teach less.
+   * pairs further apart in a sequence teach less. `association` overrides how
+   * much the symmetric weight grows (default `amount * timing`).
    */
-  reinforceDirected(pre: string, post: string, amount = 1, now = Date.now(), timing = 1): void {
+  reinforceDirected(pre: string, post: string, amount = 1, now = Date.now(), timing = 1, association?: number): void {
     if (!pre || !post || pre === post) return;
     const t = Math.min(1, Math.max(0, timing));
     const link = this.current(pre, post, now);
-    link.w += amount * t;
+    link.w += association ?? amount * t;
     const forward = pre < post ? 'ab' : 'ba';
     const reverse = forward === 'ab' ? 'ba' : 'ab';
     link[forward] = (link[forward] ?? 0) + amount * t;
@@ -160,8 +161,7 @@ export class SynapseGraph {
         // association still counts in full so ordered and unordered agree.
         if (input.ordered) {
           const t = stdpWindow(j - i);
-          if (t < 1) this.reinforce(topics[i], topics[j], amount * (1 - t), now);
-          this.reinforceDirected(topics[i], topics[j], amount, now, t);
+          this.reinforceDirected(topics[i], topics[j], amount, now, t, amount);
         } else this.reinforce(topics[i], topics[j], amount, now);
       }
     }
@@ -239,7 +239,11 @@ export class SynapseGraph {
     return g;
   }
 
-  /** A fresh copy of the a–b link decayed to `now` (zero if absent). */
+  /**
+   * A fresh copy of the a–b link decayed to `now` (zero if absent). A link
+   * already stamped later than `now` (an older memory being backfilled) keeps
+   * its own time base, so it is never aged twice.
+   */
   private current(a: string, b: string, now: number): SynapseLink {
     const lo = a < b ? a : b;
     const hi = a < b ? b : a;
@@ -247,7 +251,7 @@ export class SynapseGraph {
     if (!prev) return { a: lo, b: hi, w: 0, at: now };
     const age = now - prev.at;
     return {
-      a: lo, b: hi, w: decayed(prev.w, age), at: now,
+      a: lo, b: hi, w: decayed(prev.w, age), at: Math.max(now, prev.at),
       ab: prev.ab ? decayed(prev.ab, age) : undefined,
       ba: prev.ba ? decayed(prev.ba, age) : undefined,
     };

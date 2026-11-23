@@ -101,6 +101,31 @@ describe('homeostatic synaptic scaling', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('does not age newer links when backfilling an older memory', () => {
+    const g = new SynapseGraph();
+    g.reinforce(T('hub'), T('fresh'), 16, SYNAPSE_HALF_LIFE_MS);
+    g.reinforce(T('hub'), T('old'), 1, 0); // backfill pushes hub over capacity
+    const fresh = g.weight(T('hub'), T('fresh'), SYNAPSE_HALF_LIFE_MS);
+    expect(fresh).toBeCloseTo(16 * (16 / 17), 6);
+  });
+
+  it('keeps nonadjacent ordered pairs on a full node like unordered ones', () => {
+    const build = () => {
+      const g = new SynapseGraph();
+      for (let i = 0; i < 24; i++) g.reinforce(T('a'), T(`n${i}`), 0.6, 0);
+      return g;
+    };
+    const u = build();
+    u.observe({ topics: ['a', 'middle', 'z'] }, 0);
+    const o = build();
+    o.observe({ topics: ['a', 'middle', 'z'], ordered: true }, 0);
+    expect(u.weight(T('a'), T('z'), 0)).toBe(1);
+    expect(o.weight(T('a'), T('z'), 0)).toBe(1);
+    expect(o.directedWeight(T('a'), T('z'), 0)).toBeCloseTo(0.5);
+  });
+});
+
 describe('persistence', () => {
   it('round-trips direction and loads snapshots from before it', () => {
     const g = new SynapseGraph();
