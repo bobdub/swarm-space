@@ -15,7 +15,7 @@
  * community pool funds (that phase is held for separate approval).
  */
 import { ConnectionClock, tierFor, tierAtLeast, type AgentTier } from './connectionClock';
-import { getSynapseGraph, saveSynapseGraph, topicsOf } from './synapseGraph';
+import { getSynapseGraph, saveSynapseGraph, topicSequence, topicsOf } from './synapseGraph';
 import {
   CONVERSATION_LIVE_MS, initiativeSeed, quotesAny, recentHumanLines, shouldInitiate, type ChatLineLike,
 } from './initiative';
@@ -76,7 +76,7 @@ async function linkMemory(): Promise<void> {
   if (!pieces.length) return;
   const graph = getSynapseGraph();
   // Only pieces stored with the author's consent stamp; legacy pieces are skipped.
-  for (const p of pieces) if (p.consented === true) graph.observe({ topics: topicsOf(p.text), peer: p.authorHash }, p.ts);
+  for (const p of pieces) if (p.consented === true) graph.observe({ topics: topicSequence(p.text), peer: p.authorHash, ordered: true }, p.ts);
   try { localStorage.setItem(LINK_CURSOR_KEY, String(pieces[pieces.length - 1].ts)); } catch { /* ignore */ }
   saveSynapseGraph();
 }
