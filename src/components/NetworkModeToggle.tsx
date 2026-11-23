@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Zap, Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { APP_VERSION } from '@/lib/app/releaseVersion';
 import { subscribeToConnectionState, type NetworkMode } from '@/lib/p2p/connectionState';
 import { onActiveCellChange, type UserCell } from '@/lib/p2p/userCell';
 
@@ -60,9 +61,9 @@ export function NetworkModeToggle({ variant = 'compact', className }: NetworkMod
       ) : (
         <>
           <Zap className="h-3 w-3" />
-          SWARM
-        </>
+          SWARM        </>
       )}
+      <span className="font-mono normal-case tracking-normal opacity-60" title="App version">v{APP_VERSION}</span>
     </div>
   );
 }

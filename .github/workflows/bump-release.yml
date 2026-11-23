@@ -1,0 +1,38 @@
+name: Bump release version
+
+# Every push to main (each merged PR) adds 1 to release.json. The app shows
+# it as v0.001, v0.002, ... on the Node Dashboard. Pushes made with
+# GITHUB_TOKEN do not start workflows, so the bump commit cannot loop.
+# There is no concurrency group (a queued run would be replaced and its bump
+# lost); instead each run re-reads origin/main and retries if it lost a race,
+# so every push adds exactly one.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.head_commit.message, '[skip release]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Add 1 to release.json and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          for i in 1 2 3 4 5 6 7 8; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            next=$(node -e "const r=require('./release.json').release; process.stdout.write(String((Number.isSafeInteger(r)?r:0)+1))")
+            printf '{ "release": %s }\n' "$next" > release.json
+            git commit -qam "Release $(node -e "process.stdout.write((${next}/1000).toFixed(3))") [skip release]"
+            if git push -q origin HEAD:main; then exit 0; fi
+            sleep $((RANDOM % 5 + i))
+          done
+          exit 1
