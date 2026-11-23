@@ -20,23 +20,94 @@ const PROFILE_TOKEN_STORE = "profileTokens";
 const REWARD_POOL_STORE = "rewardPool";
 
 // Chain State
-export async function getChainState(): Promise<ChainState | null> {
-  const db = await openDB();
+//
+// Blocks live in their own `block-<index>` records. The `chain-state` record
+// holds only the chain's length and bookkeeping, so saving after each new
+// block costs one small write instead of a structured clone of the whole
+// chain (tens of MB on a long chain, every block, on the main thread).
+// Older installs stored the full `chain` array inside `chain-state`; that
+// shape is still read, and the next save moves it to per-block records.
+
+const BLOCK_KEY_PREFIX = "block-";
+
+interface StoredChainState extends Omit<ChainState, "chain"> {
+  id: "chain-state";
+  /** Legacy (full chain inline). */
+  chain?: SwarmBlock[];
+  /** Current shape: how many `block-<index>` records make up the chain. */
+  chainLength?: number;
+}
+
+function blockKeyRange(): IDBKeyRange {
+  return IDBKeyRange.bound(BLOCK_KEY_PREFIX, `${BLOCK_KEY_PREFIX}\uffff`);
+}
+
+/** Read every stored block record, keyed by index. */
+async function loadStoredBlocks(db: IDBDatabase): Promise<Map<number, SwarmBlock>> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BLOCKCHAIN_STORE, "readonly");
-    const request = tx.objectStore(BLOCKCHAIN_STORE).get("chain-state");
-    request.onsuccess = () => resolve(request.result || null);
+    const request = tx.objectStore(BLOCKCHAIN_STORE).getAll(blockKeyRange());
+    request.onsuccess = () => {
+      const byIndex = new Map<number, SwarmBlock>();
+      for (const record of (request.result ?? []) as Array<SwarmBlock & { id?: string }>) {
+        if (typeof record?.index !== "number") continue;
+        const { id: _id, ...block } = record;
+        byIndex.set(record.index, block as SwarmBlock);
+      }
+      resolve(byIndex);
+    };
     request.onerror = () => reject(request.error);
   });
 }
 
-export async function saveChainState(state: ChainState): Promise<void> {
+export async function getChainState(): Promise<ChainState | null> {
   const db = await openDB();
+  const stored = await new Promise<StoredChainState | null>((resolve, reject) => {
+    const tx = db.transaction(BLOCKCHAIN_STORE, "readonly");
+    const request = tx.objectStore(BLOCKCHAIN_STORE).get("chain-state");
+    request.onsuccess = () => resolve((request.result as StoredChainState) || null);
+    request.onerror = () => reject(request.error);
+  });
+  if (!stored) return null;
+  const { id: _id, chainLength, chain: inline, ...rest } = stored;
+  if (Array.isArray(inline)) return { ...rest, chain: inline };
+  const length = typeof chainLength === "number" ? chainLength : 0;
+  const byIndex = await loadStoredBlocks(db);
+  const chain: SwarmBlock[] = [];
+  // Stop at the first gap: anything after it can't be linked and is
+  // re-fetched from peers.
+  for (let i = 0; i < length; i++) {
+    const block = byIndex.get(i);
+    if (!block) break;
+    chain.push(block);
+  }
+  return { ...rest, chain, storedLength: length };
+}
+
+/**
+ * Persist chain bookkeeping plus the blocks that changed. `blocks` are the
+ * blocks to (re)write, `length` is the chain's new length; stored blocks at
+ * or beyond `length` (a shorter adopted fork) are removed in the same
+ * transaction so the store never mixes two chains.
+ */
+export async function saveChainState(
+  state: ChainState,
+  blocks: SwarmBlock[] = state.chain,
+  previousLength = 0,
+): Promise<void> {
+  const db = await openDB();
+  const { chain, storedLength: _storedLength, ...rest } = state;
+  const length = chain.length;
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BLOCKCHAIN_STORE, "readwrite");
-    const request = tx.objectStore(BLOCKCHAIN_STORE).put({ ...state, id: "chain-state" });
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    const store = tx.objectStore(BLOCKCHAIN_STORE);
+    for (const block of blocks) store.put({ ...block, id: `${BLOCK_KEY_PREFIX}${block.index}` });
+    for (let i = length; i < previousLength; i++) store.delete(`${BLOCK_KEY_PREFIX}${i}`);
+    const record: StoredChainState = { ...rest, id: "chain-state", chainLength: length };
+    store.put(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
   });
 }
 
@@ -44,7 +115,7 @@ export async function saveBlock(block: SwarmBlock): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(BLOCKCHAIN_STORE, "readwrite");
-    const request = tx.objectStore(BLOCKCHAIN_STORE).put({ ...block, id: `block-${block.index}` });
+    const request = tx.objectStore(BLOCKCHAIN_STORE).put({ ...block, id: `${BLOCK_KEY_PREFIX}${block.index}` });
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });

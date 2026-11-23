@@ -14,14 +14,16 @@
  *   - No Math.random in visuals.
  */
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { subscribe as subscribeRegistry } from '@/lib/brain/npc/npcRegistry';
 import type { Npc } from '@/lib/brain/npc/npcTypes';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { onNpcDecision } from '@/lib/brain/npc/npc.bus';
 import { bootNpcWorld } from '@/lib/brain/npc/bootNpcWorld';
-import { retainNpcScene } from '@/lib/brain/npc/npcSceneGate';
+import { retainNpcScene, reportNpcViewerDistance } from '@/lib/brain/npc/npcSceneGate';
+import { getEarthLocalSiteFrame, worldPosToLocalNormal } from '@/lib/brain/earth';
+import { arcMetres } from '@/lib/brain/sea/seaLife';
 import { subscribeDroppedTools, toolsOwnedByNpc } from '@/lib/world/droppedToolsStore';
 import { toolKindOf, type NpcToolKind } from '@/lib/brain/npc/npcTools';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
@@ -181,6 +183,20 @@ export function NpcSwarmLayer({ anchorPeerId }: { anchorPeerId: string }) {
     const unsub = subscribeRegistry(setRoster);
     return () => { unsub(); releaseScene(); };
   }, [anchorPeerId]);
+
+  // Once a second, tell the heartbeat how far the viewer is from the
+  // village, so it sleeps while they explore elsewhere on the planet.
+  const { camera } = useThree();
+  const lastProbe = useRef(0);
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    if (t - lastProbe.current < 1) return;
+    lastProbe.current = t;
+    try {
+      const viewN = worldPosToLocalNormal([camera.position.x, camera.position.y, camera.position.z]);
+      reportNpcViewerDistance(arcMetres(viewN, getEarthLocalSiteFrame(anchorPeerId).normal));
+    } catch { /* keep the last answer */ }
+  });
 
   return (
     <group>
