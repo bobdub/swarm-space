@@ -12,6 +12,7 @@ import {
   getLocalMeshPeerId,
   isBridgeActive,
   isRoomPeerPresent,
+  registerCallLivenessProbe,
   registerMediaPeerConnection,
 } from '@/lib/streaming/webrtcSignalingBridge.standalone';
 import { DEFAULT_ICE_SERVERS } from '@/lib/p2p/iceServers';
@@ -153,6 +154,13 @@ export class WebRTCManager {
       }
       return false;
     });
+    // The room drops a member only when they are silent AND we have no
+    // working call with them, so a quiet peer on a live call always stays.
+    // 'disconnected' counts as live: it is usually a blip under grace.
+    registerCallLivenessProbe((peerId) => {
+      const state = this.connections.get(peerId)?.connectionState;
+      return state === 'connected' || state === 'disconnected';
+    });
     // A refresh or tab close is a disconnect, never a resume: drop every
     // call connection so peers see us leave instead of a frozen avatar.
     if (typeof window !== 'undefined') {
@@ -245,6 +253,7 @@ export class WebRTCManager {
           // call with them is still carrying media, they did not leave:
           // keep talking. A real departure still closes the call, and a
           // connection that later fails goes through normal recovery.
+          // reason 'gone' (silent with no live call) closes it like a leave.
           const reason = (envelope.data as { reason?: unknown } | undefined)?.reason;
           const livePc = this.connections.get(meshPeerId);
           if (reason === 'silent') {
@@ -1951,6 +1960,7 @@ export class WebRTCManager {
     this.disconnectTimers.forEach(t => clearTimeout(t));
     this.reconnectTimers.forEach(t => clearTimeout(t));
     registerCallActivityProbe(null);
+    registerCallLivenessProbe(null);
   }
 }
 
