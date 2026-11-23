@@ -17,6 +17,7 @@ import { OBSERVATION_PALETTES, detectDefaultChannel } from '@/lib/brain/observat
 import { COSMO_COMPOUNDS, hexToRgb01 } from '@/lib/brain/cosmoChemistry';
 import { volcanoLavaRadius } from '@/lib/brain/volcanoEffects';
 import { getMantlePressure } from '@/lib/brain/lavaMantle';
+import { ventGlowAt } from '@/lib/brain/eruptionCycle';
 import { swellPhases, tideFrameAt } from '@/lib/brain/sea/seaSurface';
 import { makeSeaMaterial } from '@/components/brain/sea/seaMaterial';
 import { seaStateFor } from '@/lib/brain/sea/vessel';
@@ -328,7 +329,10 @@ export function EarthBody() {
       lavaPosition.y += pose.center[1];
       lavaPosition.z += pose.center[2];
       (matRef.current.uniforms.uLavaPos.value as THREE.Vector3).copy(lavaPosition);
-      matRef.current.uniforms.uLavaPower.value = 6 + Math.max(0, Math.min(1, getMantlePressure())) * 14;
+      // Vent glow follows the shared eruption cycle (faint while the magma
+      // rests deep in the conduit); shared mantle pressure shades it.
+      matRef.current.uniforms.uLavaPower.value = (1 + 19 * ventGlowAt(tNow))
+        * (0.85 + 0.3 * Math.max(0, Math.min(1, getMantlePressure(tNow))));
     }
     if (moonMatRef.current) {
       (moonMatRef.current.uniforms.uSunPos.value as THREE.Vector3).set(pose.sun[0], pose.sun[1], pose.sun[2]);

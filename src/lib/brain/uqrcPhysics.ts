@@ -70,7 +70,7 @@ import {
   type ProbeHistorySample,
 } from './lightspeed';
 import { EARTH_CORE_RADIUS } from './earthCore';
-import { FOOT_CUSHION } from './earth';
+import { FOOT_CUSHION, getEarthPoseTime } from './earth';
 import { groundWalkScaleAt, isSwimmingAt, supportElevationAt } from './groundHeight';
 import { confineToDecks, hasDeckWalls } from './sea/deckSupport';
 
@@ -821,7 +821,7 @@ export class UqrcPhysics {
     try {
       const pose: EarthPose = getEarthPose();
       const prevPose: EarthPose = this.lastPose ?? pose;
-      this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, Date.now() / 1000));
+      this.refreshStructuralPins(() => updateLavaMantlePin(this.field, pose, getEarthPoseTime()));
 
       // 1. Field evolves
       // 1. Field evolves on its own (documented) clock, 𝒪_UQRC at FIELD_HZ.
