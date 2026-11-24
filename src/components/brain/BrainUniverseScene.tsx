@@ -1,7 +1,9 @@
 import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
+import { BrainCanvas } from './BrainCanvas';
+import { setScreenViewerOpen } from '@/lib/brain/screenViewerOpen';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
@@ -1405,8 +1407,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     user ? getWebRTCManager(user.id, user.username).isCameraOn() : false,
   );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  // True while a screen share is open full size; pauses scene rendering.
-  const [screenExpanded, setScreenExpanded] = useState(false);
   const canvasDpr = useAdaptiveDpr();
   // A share started earlier keeps running while Brain-synced on other pages,
   // so coming back picks the live capture up again.
@@ -2630,12 +2630,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       </div>
 
       {/* 3-D scene */}
-      {ready && <Canvas
-        // Rendering pauses while a screen share is open full size: the
-        // viewer covers the whole page, so drawing the scene is wasted GPU
-        // work. Physics, boats and position broadcasts run on their own
-        // timers, so the world keeps moving and peers keep seeing us.
-        frameloop={screenExpanded ? 'never' : 'always'}
+      {ready && <BrainCanvas
+        // Pauses itself while a screen share is open full size.
         dpr={canvasDpr}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
@@ -2714,7 +2710,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
         </Suspense>
         <RenderGovernorProbe />
-      </Canvas>}
+      </BrainCanvas>}
 
       {/* Video grid — pops down beneath the camera button */}
       {ready && (
@@ -2726,7 +2722,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           cameraOn={cameraOn}
           localScreenStream={screenStream}
           nameByPeerId={voiceNameByPeerId}
-          onExpandedChange={setScreenExpanded}
+          onExpandedChange={setScreenViewerOpen}
         />
       )}
 
