@@ -1981,7 +1981,16 @@ export class WebRTCManager {
   }
 
   getLocalStream(): MediaStream | null { return this.localStream; }
-  getParticipants(): VideoParticipant[] { return Array.from(this.participants.values()); }
+  /**
+   * A snapshot of each participant. Participants are updated in place as
+   * tracks arrive, so handing out the live objects made a caller's previous
+   * list change along with them: comparing old and new saw no difference,
+   * and a screen share (or camera) that arrived mid-call was never drawn
+   * until the Brain remounted, e.g. after a visit to Explore.
+   */
+  getParticipants(): VideoParticipant[] {
+    return Array.from(this.participants.values(), (p) => ({ ...p }));
+  }
   getRooms(): VideoRoom[] { return Array.from(this.rooms.values()); }
 
   /**

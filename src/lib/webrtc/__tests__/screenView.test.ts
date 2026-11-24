@@ -29,9 +29,11 @@ vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
   isBridgeActive: () => true,
   isRoomPeerPresent: () => peerPresent,
   registerMediaPeerConnection: vi.fn(),
+  registerCallLivenessProbe: vi.fn(),
 }));
 
 import { WebRTCManager, screenEncodingFor, strongestScreenView } from '../manager';
+import { sameParticipants } from '../participantsEqual';
 
 class FakePC {
   config: RTCConfiguration;
@@ -191,6 +193,21 @@ describe('screen share quality per viewer', () => {
     expect(viewSignals.length).toBe(n + 1);
     expect(viewSignals.at(-1)?.view).toBe('preview');
     back();
+    await m.leaveRoom();
+  });
+});
+
+describe('a screen share arriving mid-call', () => {
+  it('shows up as a change to an earlier participant list', async () => {
+    const { m, pc } = await connectedManager('peer-S');
+    const before = m.getParticipants();
+    const track = { id: 'scr', kind: 'video', readyState: 'live', muted: false } as MediaStreamTrack;
+    const stream = Object.assign(new EventTarget(), { id: 'scr-stream', getVideoTracks: () => [track], getTracks: () => [track] });
+    pc.ontrack?.({ track, streams: [stream] } as unknown as RTCTrackEvent);
+    const after = m.getParticipants();
+    expect(before.find((p) => p.peerId === 'peer-S')?.screenStream ?? null).toBeNull();
+    expect(after.find((p) => p.peerId === 'peer-S')?.screenStream).toBe(stream);
+    expect(sameParticipants(before, after)).toBe(false);
     await m.leaveRoom();
   });
 });
