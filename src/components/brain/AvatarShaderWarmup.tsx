@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useThree } from '@react-three/fiber';
 import { Billboard } from '@react-three/drei';
 import type * as THREE from 'three';
@@ -19,37 +19,30 @@ const NAMEPLATE_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 
  *
  * The copies are never drawn (the group is hidden); `compileAsync` prepares
  * their materials against the scene's real lights, without blocking where
- * the browser supports parallel shader compilation. Then the copies unmount.
+ * the browser supports parallel shader compilation. The copies stay mounted
+ * for the life of the scene: three.js frees a shader program once no
+ * material uses it, so unmounting them would throw the warm programs away
+ * before the first cat or raven arrived.
  */
-export function AvatarShaderWarmup(): JSX.Element | null {
+export function AvatarShaderWarmup(): JSX.Element {
   const { gl, scene, camera } = useThree();
   const groupRef = useRef<THREE.Group>(null);
-  const [done, setDone] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       const group = groupRef.current;
       if (!group || cancelled) return;
-      let warm: Promise<unknown>;
       try {
-        warm = typeof gl.compileAsync === 'function'
-          ? gl.compileAsync(group, camera, scene)
-          : Promise.resolve(gl.compile(group, camera, scene));
-      } catch {
-        warm = Promise.resolve();
-      }
-      // Nameplate glyphs are generated off the frame by troika; give them a beat.
-      void warm.catch(() => undefined).then(() => new Promise((r) => window.setTimeout(r, 1_000))).then(() => {
-        if (!cancelled) setDone(true);
-      });
+        if (typeof gl.compileAsync === 'function') void gl.compileAsync(group, camera, scene).catch(() => undefined);
+        else gl.compile(group, camera, scene);
+      } catch { /* warming is best-effort */ }
     }, WARMUP_DELAY_MS);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [gl, scene, camera]);
 
-  if (done) return null;
   return (
-    <group ref={groupRef} visible={false}>
+    <group ref={groupRef} visible={false} matrixAutoUpdate={false}>
       {AVATAR_REGISTRY.map((avatar) => (
         <group key={avatar.id}>{avatar.render({ scale: 1, color: 'hsl(180, 70%, 60%)' })}</group>
       ))}
