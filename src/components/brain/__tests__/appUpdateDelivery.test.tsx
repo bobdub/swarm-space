@@ -47,7 +47,6 @@ beforeEach(() => {
   mocks.watch = new AppVersionWatch({
     local: OLD, now: () => 3000, fetchDeployed: async () => deployed,
     reload, isCallActive: () => true, storage: null,
-    setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: h => clearTimeout(h as ReturnType<typeof setTimeout>),
   });
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });

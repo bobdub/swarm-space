@@ -3,13 +3,17 @@
  *
  * There is no service worker, so a tab keeps running the build it loaded
  * until it is refreshed. Chain rule changes need every peer on the new
- * build, so peers swap build stamps when a data channel opens. A peer
- * that hears of a newer build asks its OWN host (`version.json`, written
+ * build, so peers swap build stamps when a data channel opens. A stamp
+ * carries the release number (one peer says 0.010, the other 0.012); stamps
+ * from before the counter fall back to build time. A peer that hears of a
+ * newer version asks its OWN host (`version.json`, written
  * at build time) what is deployed, and only a deployed build newer than
  * its own leads to a refresh notice:
  *
- * - A fake or foreign stamp from a peer can never force a refresh; at most
- *   it triggers one `version.json` read a day.
+ * - Each version is checked once per tab: the first claim newer than any
+ *   already checked triggers one `version.json` read, and repeats of that
+ *   version (reconnects, other peers) are ignored. There are no timers.
+ * - A fake or foreign stamp from a peer can never force a refresh.
  * - A peer on a newer build that this host has not deployed yet (another
  *   host, a preview, a dev server) changes nothing, so a refresh can never
  *   land on the same old build and loop.
@@ -24,6 +28,19 @@ export interface BuildStamp {
   id: string;
   /** Build time in ms since epoch; this is what orders builds. */
   builtAt: number;
+  /** Release counter (v0.012 = 12), bumped on every merge to main. */
+  release?: number;
+}
+
+/**
+ * True when `a` is a later version than `b`. Peers compare release numbers
+ * (0.010 vs 0.012); a stamp without one (builds from before the counter)
+ * falls back to build time.
+ */
+export function isNewerBuild(a: BuildStamp, b: BuildStamp | null): boolean {
+  if (!b) return true;
+  if (a.release && b.release) return a.release > b.release;
+  return a.builtAt > b.builtAt;
 }
 
 declare const __APP_BUILD__: BuildStamp | undefined;
@@ -39,17 +56,12 @@ export const LOCAL_BUILD: BuildStamp = (() => {
   return { id: 'unknown', builtAt: 0 };
 })();
 
-/**
- * At most one `version.json` read per device per day, whatever peers claim.
- * The time of the last read survives reloads (localStorage).
- */
-export const VERSION_CHECK_MIN_GAP_MS = 24 * 60 * 60_000;
 /** Stamps further than this into the future are refused as spoofed. */
 export const MAX_FUTURE_SKEW_MS = 10 * 60_000;
 
 const RELOAD_ATTEMPT_KEY = 'swarm-app-reload-attempt';
-const LAST_CHECK_KEY = 'swarm-app-version-last-check';
 const MAX_ID_LENGTH = 64;
+const MAX_RELEASE = 10_000_000;
 
 export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -57,6 +69,10 @@ export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null 
   if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LENGTH) return null;
   if (typeof builtAt !== 'number' || !Number.isSafeInteger(builtAt) || builtAt <= 0) return null;
   if (builtAt > nowMs + MAX_FUTURE_SKEW_MS) return null;
+  const { release } = raw as { release?: unknown };
+  if (typeof release === 'number' && Number.isSafeInteger(release) && release > 0 && release <= MAX_RELEASE) {
+    return { id, builtAt, release };
+  }
   return { id, builtAt };
 }
 
@@ -85,10 +101,6 @@ export interface AppVersionDeps {
   reload: () => void;
   isCallActive: () => boolean;
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
-  /** Device-wide store for the last host check time (localStorage). */
-  persist?: Pick<Storage, 'getItem' | 'setItem'> | null;
-  setTimer: (fn: () => void, ms: number) => unknown;
-  clearTimer: (handle: unknown) => void;
 }
 
 type Listener = (state: AppUpdateState) => void;
@@ -97,18 +109,14 @@ export class AppVersionWatch {
   private state: AppUpdateState = { status: 'idle' };
   private listeners = new Set<Listener>();
   private checking = false;
-  private lastCheckAt = Number.NEGATIVE_INFINITY;
-  /** A claim that arrived while throttled waits for the next allowed check. */
-  private pendingTimer: unknown = null;
+  /** Newest version a host read has already answered. */
+  private checked: BuildStamp | null = null;
+  /** Newest version claimed so far; the next host read answers it. */
+  private newestClaim: BuildStamp | null = null;
   /** Builds the person said "Not now" to in this tab. */
-  private dismissedUpTo = 0;
+  private dismissed: BuildStamp | null = null;
 
   constructor(private readonly deps: AppVersionDeps) {
-    try {
-      const saved = Number(deps.persist?.getItem(LAST_CHECK_KEY));
-      // A saved time in the future (clock change) is ignored.
-      if (Number.isFinite(saved) && saved > 0 && saved <= deps.now()) this.lastCheckAt = saved;
-    } catch { /* no device storage: per-tab throttle only */ }
     this.clearSucceededAttempt();
   }
 
@@ -135,19 +143,13 @@ export class AppVersionWatch {
     if (local.builtAt <= 0) return false;
     const t = now();
     const claim = parseBuildStamp(raw, t);
-    if (!claim || claim.builtAt <= local.builtAt) return false;
-    if (this.state.status === 'available' && claim.builtAt <= this.state.deployed.builtAt) return false;
-    const wait = this.lastCheckAt + VERSION_CHECK_MIN_GAP_MS - t;
-    if (this.checking || wait > 0) {
-      // Throttled: one host read per gap, however many peers (or fakes) speak.
-      if (this.pendingTimer === null) {
-        this.pendingTimer = this.deps.setTimer(() => {
-          this.pendingTimer = null;
-          void this.checkHost();
-        }, Math.max(wait, 1_000));
-      }
-      return false;
-    }
+    if (!claim || !isNewerBuild(claim, local)) return false;
+    if (this.state.status === 'available' && !isNewerBuild(claim, this.state.deployed)) return false;
+    // Once per version: a version already checked is never read again.
+    if (!isNewerBuild(claim, this.newestClaim)) return false;
+    this.newestClaim = claim;
+    // A read in flight answers an older claim; this one follows it.
+    if (this.checking) return false;
     void this.checkHost();
     return true;
   }
@@ -155,8 +157,7 @@ export class AppVersionWatch {
   private async checkHost(): Promise<void> {
     if (this.checking) return;
     this.checking = true;
-    this.lastCheckAt = this.deps.now();
-    try { this.deps.persist?.setItem(LAST_CHECK_KEY, String(this.lastCheckAt)); } catch { /* ignore */ }
+    this.checked = this.newestClaim;
     let deployed: BuildStamp | null = null;
     try {
       deployed = parseBuildStamp(await this.deps.fetchDeployed(), this.deps.now());
@@ -165,11 +166,14 @@ export class AppVersionWatch {
     } finally {
       this.checking = false;
     }
+    // A newer version was claimed while this read was in flight.
+    if (this.newestClaim && this.newestClaim !== this.checked) void this.checkHost();
     // Nothing newer on this host (a peer on another host, a preview, a
     // build still rolling out, or a made-up stamp): stay put.
-    if (!deployed || deployed.builtAt <= this.deps.local.builtAt) return;
-    if (deployed.builtAt <= this.dismissedUpTo) return;
-    if (this.state.status === 'available' && deployed.builtAt <= this.state.deployed.builtAt) return;
+    // The host confirms: only a deployed version truly ahead of ours counts.
+    if (!deployed || !isNewerBuild(deployed, this.deps.local)) return;
+    if (this.dismissed && !isNewerBuild(deployed, this.dismissed)) return;
+    if (this.state.status === 'available' && !isNewerBuild(deployed, this.state.deployed)) return;
     this.offer(deployed);
   }
 
@@ -205,7 +209,7 @@ export class AppVersionWatch {
   /** "Not now": hide the notice for this build in this tab. */
   dismiss(): void {
     if (this.state.status !== 'available') return;
-    this.dismissedUpTo = Math.max(this.dismissedUpTo, this.state.deployed.builtAt);
+    if (isNewerBuild(this.state.deployed, this.dismissed)) this.dismissed = this.state.deployed;
     this.setState({ status: 'idle' });
   }
 
@@ -251,10 +255,6 @@ function browserStorage(): AppVersionDeps['storage'] {
   }
 }
 
-function deviceStorage(): AppVersionDeps['persist'] {
-  try { return window.localStorage; } catch { return null; }
-}
-
 async function fetchDeployedBuild(): Promise<unknown> {
   const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/';
   const url = `${base.endsWith('/') ? base : `${base}/`}version.json?t=${Date.now()}`;
@@ -274,9 +274,6 @@ export function getAppVersionWatch(): AppVersionWatch {
       reload: () => window.location.reload(),
       isCallActive,
       storage: typeof window === 'undefined' ? null : browserStorage(),
-      persist: typeof window === 'undefined' ? null : deviceStorage(),
-      setTimer: (fn, ms) => setTimeout(fn, ms),
-      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
     });
   }
   return shared;

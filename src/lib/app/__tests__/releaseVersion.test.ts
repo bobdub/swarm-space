@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatReleaseVersion } from '../releaseVersion';
+import { formatReleaseVersion, versionGap } from '../releaseVersion';
 
 describe('formatReleaseVersion', () => {
   it('shows the counter in thousandths', () => {
@@ -13,5 +13,11 @@ describe('formatReleaseVersion', () => {
   it('falls back for bad input', () => {
     expect(formatReleaseVersion(-1)).toBe('0.000');
     expect(formatReleaseVersion(1.5)).toBe('0.000');
+  });
+
+  it('names both versions in the update notice', () => {
+    expect(versionGap({ id: 'x', builtAt: 1, release: 12 }, 10)).toBe('You are on v0.010; v0.012 is live. ');
+    expect(versionGap({ id: 'x', builtAt: 1, release: 12 }, 0)).toBe('Swarm Space v0.012 is live. ');
+    expect(versionGap({ id: 'x', builtAt: 1 }, 10)).toBe('');
   });
 });
