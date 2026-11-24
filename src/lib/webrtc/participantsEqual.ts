@@ -2,7 +2,7 @@ import type { VideoParticipant } from './types';
 
 /**
  * True when two participant lists hold the same people in the same state.
- * `getParticipants()` builds a fresh array on every call, and callers
+ * `getParticipants()` builds fresh snapshots on every call, and callers
  * refresh on every call event and on a poll; keeping the previous array
  * when nothing changed stops those refreshes from re-rendering the Brain.
  */
