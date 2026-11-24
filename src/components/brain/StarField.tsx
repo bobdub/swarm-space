@@ -12,7 +12,7 @@ const vertexShader = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     // Stars are distant light sources, not metre-sized particles that vanish
     // under perspective. Keep a stable, softly rounded pixel footprint.
-    gl_PointSize = clamp(size * uSizeScale, 1.2, 3.0);
+    gl_PointSize = clamp(size * uSizeScale, 1.0, 2.6);
   }
 `;
 
@@ -21,7 +21,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uTint;
   void main() {
     float radius = length(gl_PointCoord - vec2(0.5));
-    float alpha = (1.0 - smoothstep(0.15, 0.5, radius)) * uOpacity;
+    // Dimmed so the constellation stars (Constellations.tsx) stand out.
+    float alpha = (1.0 - smoothstep(0.15, 0.5, radius)) * uOpacity * 0.6;
     if (alpha <= 0.001) discard;
     gl_FragColor = vec4(uTint, alpha);
   }
