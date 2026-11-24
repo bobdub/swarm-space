@@ -1156,6 +1156,27 @@ export class NeuralStateEngine {
     console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}`);
   }
 
+  private idlePersistPending = false;
+
+  /**
+   * Save brain state when the browser is idle. Callers on hot paths (a
+   * merged peer digest, a learned post) use this: the save serializes the
+   * whole digest, expressions and basins into localStorage synchronously,
+   * which cost a visible hitch when it ran inside a packet handler.
+   */
+  persistWhenIdle(): void {
+    if (this.idlePersistPending) return;
+    if (Date.now() - this.lastPersistAt < NeuralStateEngine.PERSIST_THROTTLE_MS) return;
+    this.idlePersistPending = true;
+    const run = () => {
+      this.idlePersistPending = false;
+      this.persistToStorage();
+    };
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (typeof ric === 'function') ric(run, { timeout: 5_000 });
+    else setTimeout(run, 1_000);
+  }
+
   /** Save brain state to localStorage (throttled) */
   persistToStorage(): void {
     const n = Date.now();

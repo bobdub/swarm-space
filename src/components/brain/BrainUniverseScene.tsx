@@ -177,6 +177,7 @@ import {
   subscribeAvatarChange,
 } from '@/lib/virtualHub/avatars';
 import { BrainEntryModal } from '@/components/brain/BrainEntryModal';
+import { AvatarShaderWarmup } from '@/components/brain/AvatarShaderWarmup';
 import { isGuestUser, brainDisplayName } from '@/lib/preview/guestAccess';
 import { useBrainVoice } from '@/hooks/useBrainVoice';
 import { encodeSelfPosition, localDistance, resolvePeerWorldPosition } from '@/lib/brain/peerPosition';
@@ -2706,6 +2707,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         <PhysicsCameraRig selfId={selfId} fallbackId={guestCandidateId} />
         {selfId && <BodyLayer selfId={selfId} onPortalEnter={handlePortalEnter} portals={portals} />}
         {selfId && <RemoteAvatarLayer peers={visibleVoicePeers} />}
+        <AvatarShaderWarmup />
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
         </Suspense>
         <RenderGovernorProbe />

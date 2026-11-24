@@ -340,6 +340,18 @@ export function shouldEvictQuietPeer(idleMs: number, thresholdMs: number, linkLi
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
+/** Run `fn` when the browser is idle, or after `timeout` ms at the latest. */
+function whenIdle(fn: () => void, timeout: number): void {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+  if (typeof ric === 'function') ric(() => fn(), { timeout });
+  else setTimeout(fn, 0);
+}
+
+/**
+ * When the heavier parts of the join handshake go out after a channel opens:
+ * presence, clock pings, profile and build stamp go at once; these follow.
+ */
+const JOIN_STAGGER_MS = { library: 250, neural: 800, sync: 1_500 } as const;
 /** Posts per content-push message when answering a content request. */
 const CONTENT_PUSH_BATCH = 40;
 /** Bursts of IndexedDB writes share one change event within this window. */
@@ -2697,22 +2709,8 @@ export class StandaloneSwarmMesh {
       // peer drops dead content instead of offering it back to us.
       this.sendLifecycleState(conn);
 
-      // Exchange content inventories
-      this.sendContentInventory(conn);
-
-      // Soft-retry drain: any manifests parked while offline now have a peer.
-      this.drainPendingAssetQueue();
-
-      // Send our profile to the peer
+      // Send our profile to the peer (their name and avatar label).
       this.sendProfileExchange(conn);
-
-      // Exchange libraries for mesh growth
-      if (this.toggles.libraryExchange) {
-        this.sendLibraryExchange(conn);
-        // Rebroadcast updated library to ALL other peers so they discover this new peer
-        // This creates the triangle: A↔B, A↔C → B learns about C → B↔C
-        this.rebroadcastLibrary(rId);
-      }
 
       setTimeout(() => {
         this.expandOnlineMesh('peer-open');
@@ -2720,20 +2718,44 @@ export class StandaloneSwarmMesh {
       this.scheduleMeshExpansion('peer-open-followup', [rId], 1_500);
       this.scheduleMeshExpansion('peer-open-followup', [], 5_000);
 
+      // The heavier exchanges are staggered. Fired together on open, the
+      // library save and rebroadcast, the neural digest merge, the chain
+      // catch-up and the content inventory all landed on both sides in the
+      // same few frames, and everyone already in the Brain felt it.
+      const stillOpen = () => this.connections.get(rId) === conn && conn.open && this.phase !== 'off';
+      setTimeout(() => {
+        if (!stillOpen()) return;
+        // Exchange libraries for mesh growth
+        if (this.toggles.libraryExchange) {
+          this.sendLibraryExchange(conn);
+          // Rebroadcast updated library to ALL other peers so they discover this new peer
+          // This creates the triangle: A↔B, A↔C → B learns about C → B↔C
+          this.rebroadcastLibrary(rId);
+        }
+      }, JOIN_STAGGER_MS.library);
+
       // ── Exchange neural state digest for collective memory rebirth ──
-      this.sendNeuralDigest(conn);
+      setTimeout(() => {
+        if (stillOpen()) this.sendNeuralDigest(conn);
+      }, JOIN_STAGGER_MS.neural);
 
-      // ── Request blockchain chain sync for full coin/ledger access ──
-      try {
-        // Catch-up: tell the peer which of its blocks we already have, so it
-        // only sends what came after (older peers ignore `since`).
-        conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: getChainMark(rId) }));
-      } catch { /* ignore */ }
-
-      // ── Request Creator Token market snapshots so peers see each other's markets ──
-      try {
-        conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId }));
-      } catch { /* ignore */ }
+      setTimeout(() => {
+        if (!stillOpen()) return;
+        // Exchange content inventories
+        this.sendContentInventory(conn);
+        // Soft-retry drain: any manifests parked while offline now have a peer.
+        this.drainPendingAssetQueue();
+        // ── Request blockchain chain sync for full coin/ledger access ──
+        try {
+          // Catch-up: tell the peer which of its blocks we already have, so it
+          // only sends what came after (older peers ignore `since`).
+          conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: getChainMark(rId) }));
+        } catch { /* ignore */ }
+        // ── Request Creator Token market snapshots so peers see each other's markets ──
+        try {
+          conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId }));
+        } catch { /* ignore */ }
+      }, JOIN_STAGGER_MS.sync);
 
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
@@ -3979,11 +4001,15 @@ export class StandaloneSwarmMesh {
     const digest = msg.digest as Record<string, unknown> | undefined;
     if (!digest) return;
     try {
+      // Merge when the page is idle and save later still: a joiner's digest
+      // arrives during the join burst, and neither needs to happen this frame.
       import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
-        const engine = getSharedNeuralEngine();
-        engine.importDigest(digest as any);
-        engine.persistToStorage();
-        console.log(`[SwarmMesh] 🧠 Merged neural digest from ${_from.slice(0, 16)}…`);
+        whenIdle(() => {
+          const engine = getSharedNeuralEngine();
+          engine.importDigest(digest as any);
+          engine.persistWhenIdle();
+          console.log(`[SwarmMesh] 🧠 Merged neural digest from ${_from.slice(0, 16)}…`);
+        }, 2_000);
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   }
@@ -4074,10 +4100,13 @@ export class StandaloneSwarmMesh {
         // Remember their tip only once we've taken in everything up to it,
         // so next time they send just what's newer.
         if (harvest) saveChainMark(_from, msg.tip as ChainMark | undefined);
-        // Markets are derivable from chain history — rebuild anything missing.
-        import('../blockchain/marketSync')
-          .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
-          .catch(() => { /* ignore */ });
+        // Markets are derivable from chain history — rebuild anything missing,
+        // once the page is idle (it walks every block).
+        whenIdle(() => {
+          import('../blockchain/marketSync')
+            .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
+            .catch(() => { /* ignore */ });
+        }, 3_000);
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
   }

@@ -78,8 +78,9 @@ function feedSharedEngine(text: string, post?: Post, recentForOverlap?: string):
       recentForOverlap,
     };
     engine.ingestContentEvent(contentEvent);
-    // Persist brain state so it survives reload
-    engine.persistToStorage();
+    // Persist brain state so it survives reload (when idle: this runs for
+    // each synced post, often in a burst while a peer joins).
+    engine.persistWhenIdle();
   } catch (err) {
     console.warn('[EntityVoice] Failed to feed shared engine:', err);
   }
