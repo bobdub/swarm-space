@@ -40,13 +40,13 @@ const Privacy = () => {
               Swarm Space is <strong className="text-foreground">your responsibility</strong>. There is no "forgot password" email, no support team with a master key, and no server backup. This is by design — it means nobody except you can access your data. But it also means:
             </p>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><strong className="text-foreground">Your Recovery Key</strong> — a short code (like <code className="text-[hsl(174,59%,56%)]">SWRM-XXXX-XXXX</code>) that locates your backup on the mesh. Lose it and we cannot find your backup.</li>
-              <li><strong className="text-foreground">Your Recovery Phrase</strong> — a poem, sentence, or phrase you chose. This "salts" your encryption. Without it, even with the key, your data stays locked.</li>
-              <li><strong className="text-foreground">Your Password</strong> — used for day-to-day login. Combined with the phrase, it's part of the encryption that protects your identity.</li>
+              <li><strong className="text-foreground">Your Local Password</strong> — used for day-to-day login. It unlocks your identity on this device only and never leaves your browser.</li>
+              <li><strong className="text-foreground">Your Recovery Passphrase</strong> — opens your recovery vault, the sealed copy of your identity that peers on the mesh hold for you. Until you set one, your account password seals the vault.</li>
+              <li><strong className="text-foreground">Your Recovery Link</strong> — a link like <code className="text-[hsl(174,59%,56%)]">/recover?id=…</code> that tells a new device which vault to ask the mesh for. It holds no secrets on its own.</li>
             </ul>
             <div className="rounded-xl border border-[hsla(38,92%,50%,0.25)] bg-[hsla(38,92%,50%,0.06)] p-4">
               <p className="text-sm text-foreground/80 leading-relaxed">
-                <strong className="text-[hsl(38,92%,50%)]">💡 Think of it like this:</strong> Your recovery key is a locker number. Your phrase is the combination. Your password opens the box inside. You need all three.
+                <strong className="text-[hsl(38,92%,50%)]">💡 Think of it like this:</strong> Your password is the key to your front door. Your recovery vault is a locked safe your friends keep for you. They can hold it, but only your passphrase opens it.
               </p>
             </div>
           </section>
@@ -59,9 +59,9 @@ const Privacy = () => {
               <h2 className="text-xl font-bold text-foreground">Staying Safe Online</h2>
             </div>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><strong className="text-foreground">Download your recovery key</strong> and store it somewhere safe — a notes app, a piece of paper, a USB drive. Not on the same device you browse on.</li>
-              <li><strong className="text-foreground">Remember your phrase.</strong> Write it down privately. Don't use "password123" — use something personal and memorable.</li>
-              <li><strong className="text-foreground">Don't share your key or phrase</strong> with anyone. No one from Swarm Space will ever ask for them.</li>
+              <li><strong className="text-foreground">Seal your recovery vault</strong> in Settings → Security → Sovereign Identity, ideally with a separate Recovery Passphrase, and keep your recovery link somewhere safe.</li>
+              <li><strong className="text-foreground">Remember your passphrase.</strong> Write it down privately. Don't use "password123" — use something personal and memorable.</li>
+              <li><strong className="text-foreground">Don't share your passphrase or password</strong> with anyone. No one from Swarm Space will ever ask for them.</li>
               <li><strong className="text-foreground">Use a strong password</strong> — at least 8 characters, ideally more. Unique to this app.</li>
               <li><strong className="text-foreground">Keep your browser updated.</strong> Security fixes in your browser protect your local data.</li>
             </ul>
@@ -97,7 +97,7 @@ const Privacy = () => {
                 <ul className="list-disc pl-5 mt-2 space-y-1 text-xs text-foreground/60">
                   <li>Malware on your device (keyloggers, screen capture)</li>
                   <li>Weak passwords you choose</li>
-                  <li>Sharing your recovery key/phrase with others</li>
+                  <li>Sharing your recovery passphrase or password with others</li>
                   <li>Browser vulnerabilities (keep your browser updated)</li>
                   <li>Physical access to your unlocked device</li>
                   <li>Extensions with full page access (vault encryption makes scraping harder but not impossible for determined malware)</li>
@@ -148,24 +148,32 @@ const Privacy = () => {
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[hsla(174,59%,56%,0.12)]">
                 <Key className="h-5 w-5 text-[hsl(174,59%,56%)]" />
               </div>
-              <h2 className="text-xl font-bold text-foreground">Recovery Key System (v2)</h2>
+              <h2 className="text-xl font-bold text-foreground">Sovereign Recovery Vault</h2>
             </div>
             <p className="text-sm text-foreground/70 leading-relaxed">
-              Account recovery uses a <strong className="text-foreground">three-factor system</strong> where each component serves a distinct purpose:
+              Account recovery uses <strong className="text-foreground">two keyholes, never the same lock</strong>:
             </p>
             <div className="space-y-3">
               {[
                 {
-                  title: "Recovery Key → Lookup Address",
-                  desc: "An HMAC-derived tag (SWRM-XXXX format) that locates your encrypted backup chunks on the mesh. Contains no encrypted data — it's a locker number, not the combination.",
+                  title: "Local Password → This Device Only",
+                  desc: "Wraps your identity key on this device. It never leaves the browser and is never sent to a peer.",
                 },
                 {
-                  title: "Recovery Phrase → Encryption Salt",
-                  desc: "A user-chosen phrase that salts the PBKDF2 key derivation. Without the phrase, the encryption key cannot be derived, even with the correct password.",
+                  title: "Outer Shell → Peer-Held Vault",
+                  desc: "Your identity is sealed into an envelope with AES-256-GCM, using a key derived from your Recovery Passphrase (or your account password until you set one) via PBKDF2-SHA-256 with 250,000 iterations and a random salt. Peers store only this ciphertext.",
                 },
                 {
-                  title: "Password → Decryption Key",
-                  desc: "Combined with userId and phrase via PBKDF2 (250,000 iterations) to produce the AES-256-GCM key that decrypts the identity payload.",
+                  title: "Signed, Versioned Shells",
+                  desc: "Each shell is signed by your identity key and carries a version number. Peers keep only the highest valid version, so a new shell replaces stale copies everywhere and nobody else can publish one for you.",
+                },
+                {
+                  title: "Recovering on a New Device",
+                  desc: "Open your recovery link, and the device asks connected peers for your latest vault, then opens it locally with your passphrase. Nothing you type there is sent to a peer.",
+                },
+                {
+                  title: "Account Merge",
+                  desc: "Two accounts can be merged over a direct mesh link. A short one-time code is checked with an HMAC on each side and never crosses the wire.",
                 },
               ].map((item) => (
                 <div key={item.title} className="rounded-xl border border-border/40 bg-muted/20 p-4">
@@ -194,8 +202,8 @@ const Privacy = () => {
                   desc: "Every post and chunk carries a digital signature proving it was authored by the claimed identity. Forgery is computationally infeasible.",
                 },
                 {
-                  title: "PBKDF2 Key Wrapping (250K iterations)",
-                  desc: "Private keys are wrapped using password + userId + phrase via 250,000 PBKDF2 iterations, protecting against brute-force attacks.",
+                  title: "PBKDF2 Key Wrapping",
+                  desc: "On your device, private keys are wrapped with a key derived from your password via PBKDF2 (200,000 iterations). Recovery vaults use 250,000 iterations. Both slow down brute-force attacks.",
                 },
                 {
                   title: "HMAC Integrity",
@@ -217,7 +225,7 @@ const Privacy = () => {
           <section className="space-y-4">
             <h2 className="text-xl font-bold text-foreground">What Stays on Your Device</h2>
             <ul className="list-disc pl-5 space-y-2 text-sm text-foreground/70 leading-relaxed">
-              <li><strong className="text-foreground">Identity Keys:</strong> Ed25519 signing key and ECDH encryption keypair — generated locally, never leave your device unless you export a backup.</li>
+              <li><strong className="text-foreground">Identity Keys:</strong> Ed25519 signing key and ECDH encryption keypair — generated locally, never leave your device in readable form. Your recovery vault carries them only as passphrase-sealed ciphertext.</li>
               <li><strong className="text-foreground">Posts & Content:</strong> All posts, comments, reactions, and files stored in encrypted IndexedDB with HMAC integrity checks.</li>
               <li><strong className="text-foreground">Account Credentials:</strong> Password derives a wrapping key via PBKDF2. The password itself is never stored.</li>
               <li><strong className="text-foreground">Blockchain History:</strong> Transaction records and credit balances maintained in a local chain — no external ledger.</li>
@@ -235,7 +243,7 @@ const Privacy = () => {
           </section>
 
           <p className="text-xs text-muted-foreground pt-4 border-t border-border/40">
-            This security & privacy document reflects the architecture as of March 2026. As the network evolves, this document will be updated accordingly.
+            This security & privacy document reflects the architecture as of November 2026. As the network evolves, this document will be updated accordingly.
           </p>
         </Card>
       </main>
