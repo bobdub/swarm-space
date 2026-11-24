@@ -1,3 +1,4 @@
+import { runCooperatively } from '../p2p/cooperativeWork';
 // Creator Token market replication across the live SWARM mesh.
 //
 // Markets (profileTokens / creatorVaults / profileTokenHoldings) are local
@@ -151,19 +152,30 @@ export async function mergeMarketSnapshot(
  * Fallback source of truth: rebuild missing market records from
  * `profile_token_deploy` transactions already present in the chain.
  */
-export async function rebuildMarketsFromChain(): Promise<number> {
+let rebuildPending: Promise<number> | null = null;
+export function rebuildMarketsFromChain(): Promise<number> {
+  if (rebuildPending) return rebuildPending;
+  rebuildPending = rebuildMarkets().finally(() => { rebuildPending = null; });
+  return rebuildPending;
+}
+
+async function rebuildMarkets(): Promise<number> {
   const { getSwarmChain } = await import("./chain");
   const chain = getSwarmChain();
 
   const txs: SwarmTransaction[] = [];
+  await runCooperatively((function* () {
   for (const block of chain.getChain()) {
     for (const tx of block.transactions ?? []) {
       if (tx?.type === "profile_token_deploy") txs.push(tx);
+      yield;
     }
   }
   for (const tx of chain.getPendingTransactions()) {
     if (tx?.type === "profile_token_deploy") txs.push(tx);
+    yield;
   }
+  })());
   if (txs.length === 0) return 0;
 
   const [localTokens, localVaults] = await Promise.all([

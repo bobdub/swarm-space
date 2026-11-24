@@ -1,5 +1,10 @@
 ## MemoryGarden
 
+### November 24, 2026 — Small footsteps, uninterrupted voices
+Before tending: let neighbours bring their memories in small handfuls;
+keep the world and voices breathing between each step, never pause the crossing.
+Measure with quiet automated witnesses while travellers tend their live horizon.
+
 ### November 23, 2026 — Hold the traveller's present
 Before tending: let a newer shore be an invitation, never a forced departure;
 place its lantern beneath the bell, or quietly beside the traveller's name in chat.

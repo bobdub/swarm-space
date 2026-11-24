@@ -1,3 +1,5 @@
+import { setLiveLibrary } from './liveLibrary';
+import { runCooperatively, stringifyCooperatively, stringifySteps } from './cooperativeWork';
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
 import {
   isChunkUnsupported,
@@ -340,20 +342,12 @@ export function shouldEvictQuietPeer(idleMs: number, thresholdMs: number, linkLi
 const MINING_COLD_THRESHOLD = 45_000; // 3 × MINING_INTERVAL — no blocks = "cold"
 const LIBRARY_RECONNECT_INTERVAL = 30_000;
 const MINING_INTERVAL = 15_000;
-/** Run `fn` when the browser is idle, or after `timeout` ms at the latest. */
-function whenIdle(fn: () => void, timeout: number): void {
-  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-  if (typeof ric === 'function') ric(() => fn(), { timeout });
-  else setTimeout(fn, 0);
-}
-
 /**
- * When the heavier parts of the join handshake go out after a channel opens:
- * presence, clock pings, profile and build stamp go at once; these follow.
+ * Library changes are visible immediately; disk writes coalesce outside the join handler.
  */
-const JOIN_STAGGER_MS = { library: 250, neural: 800, sync: 1_500 } as const;
+const LIBRARY_SAVE_DEBOUNCE_MS = 250;
 /** Posts per content-push message when answering a content request. */
-const CONTENT_PUSH_BATCH = 40;
+const CONTENT_PUSH_BATCH = 8;
 /** Bursts of IndexedDB writes share one change event within this window. */
 const NOTICE_COALESCE_MS = 150;
 const CASCADE_SETTLE_TIME = 8_000;
@@ -910,6 +904,7 @@ export class StandaloneSwarmMesh {
     this.miningStats = this.loadMiningStats();
     this.loadLibrary();
     this.loadBlockedPeers();
+    setLiveLibrary(this.nodeId, () => Array.from(this.library.values(), entry => ({ ...entry })));
     this.setupVisibilityHandler();
     this.watchUnsupportedPosts();
 
@@ -927,7 +922,7 @@ export class StandaloneSwarmMesh {
   private setupVisibilityHandler(): void {
     if (typeof document === 'undefined') return;
     this.visibilityHandler = () => {
-      if (document.visibilityState !== 'visible') return;
+      if (document.visibilityState !== 'visible') { this.flushLibrary(); return; }
       if (!this.flags.enabled) return;
       if (this.phase === 'online' || this.phase === 'connecting' || this.phase === 'reconnecting') return;
       console.log('[SwarmMesh] 👁️ Tab visible — auto-reconnecting');
@@ -935,6 +930,7 @@ export class StandaloneSwarmMesh {
     };
     document.addEventListener('visibilitychange', this.visibilityHandler);
     if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => this.flushLibrary());
       // The network came back: retry now rather than at the next backoff tick.
       window.addEventListener('online', () => this.retryFromFailed('network online'));
     }
@@ -1478,12 +1474,30 @@ export class StandaloneSwarmMesh {
     } catch { /* ignore */ }
   }
 
+  private librarySaveTimer: ReturnType<typeof setTimeout> | null = null;
+  private libraryRevision = 0;
+
   private saveLibrary(): void {
     this.sanitizeLibrary();
-    try {
-      localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values())));
-    } catch { /* ignore */ }
+    this.libraryRevision++;
+    if (this.librarySaveTimer !== null) clearTimeout(this.librarySaveTimer);
+    this.librarySaveTimer = setTimeout(() => {
+      this.librarySaveTimer = null;
+      const revision = this.libraryRevision;
+      const snapshot = Array.from(this.library.values(), entry => ({ ...entry }));
+      void stringifyCooperatively(snapshot, () => revision === this.libraryRevision).then(json => {
+        if (json !== undefined && revision === this.libraryRevision) localStorage.setItem(KEYS.CONNECTION_LIBRARY, json);
+      }).catch(() => { /* retain in-memory contacts on quota failure */ });
+    }, LIBRARY_SAVE_DEBOUNCE_MS);
     this.emitLibrary();
+  }
+
+  /** A real page exit gets one final durable copy, never a join-time disk burst. */
+  private flushLibrary(): void {
+    if (this.librarySaveTimer !== null) clearTimeout(this.librarySaveTimer);
+    this.librarySaveTimer = null;
+    this.libraryRevision++;
+    try { localStorage.setItem(KEYS.CONNECTION_LIBRARY, JSON.stringify(Array.from(this.library.values()))); } catch { /* ignore */ }
   }
 
   /** Keep the library durable for future/manual connections while removing invalid entries. */
@@ -2718,44 +2732,27 @@ export class StandaloneSwarmMesh {
       this.scheduleMeshExpansion('peer-open-followup', [rId], 1_500);
       this.scheduleMeshExpansion('peer-open-followup', [], 5_000);
 
-      // The heavier exchanges are staggered. Fired together on open, the
-      // library save and rebroadcast, the neural digest merge, the chain
-      // catch-up and the content inventory all landed on both sides in the
-      // same few frames, and everyone already in the Brain felt it.
+      // One shared cooperative budget, not delayed monolithic join bursts.
       const stillOpen = () => this.connections.get(rId) === conn && conn.open && this.phase !== 'off';
-      setTimeout(() => {
-        if (!stillOpen()) return;
-        // Exchange libraries for mesh growth
-        if (this.toggles.libraryExchange) {
-          this.sendLibraryExchange(conn);
-          // Rebroadcast updated library to ALL other peers so they discover this new peer
-          // This creates the triangle: A↔B, A↔C → B learns about C → B↔C
-          this.rebroadcastLibrary(rId);
+      const mesh = this;
+      function* join(): Generator<void, void, unknown> {
+        if (mesh.toggles.libraryExchange) {
+          mesh.sendLibraryExchange(conn);
+          yield;
+          mesh.rebroadcastLibrary(rId);
         }
-      }, JOIN_STAGGER_MS.library);
-
-      // ── Exchange neural state digest for collective memory rebirth ──
-      setTimeout(() => {
-        if (stillOpen()) this.sendNeuralDigest(conn);
-      }, JOIN_STAGGER_MS.neural);
-
-      setTimeout(() => {
-        if (!stillOpen()) return;
-        // Exchange content inventories
-        this.sendContentInventory(conn);
-        // Soft-retry drain: any manifests parked while offline now have a peer.
-        this.drainPendingAssetQueue();
-        // ── Request blockchain chain sync for full coin/ledger access ──
-        try {
-          // Catch-up: tell the peer which of its blocks we already have, so it
-          // only sends what came after (older peers ignore `since`).
-          conn.send(JSON.stringify({ type: 'chain-sync-request', from: this.peerId, since: getChainMark(rId) }));
-        } catch { /* ignore */ }
-        // ── Request Creator Token market snapshots so peers see each other's markets ──
-        try {
-          conn.send(JSON.stringify({ type: 'market-sync-request', from: this.peerId }));
-        } catch { /* ignore */ }
-      }, JOIN_STAGGER_MS.sync);
+        yield;
+        mesh.sendNeuralDigest(conn);
+        yield;
+        mesh.sendContentInventory(conn);
+        yield;
+        mesh.drainPendingAssetQueue();
+        yield;
+        try { conn.send(JSON.stringify({ type: 'chain-sync-request', from: mesh.peerId, since: getChainMark(rId) })); } catch { /* ignore */ }
+        yield;
+        try { conn.send(JSON.stringify({ type: 'market-sync-request', from: mesh.peerId })); } catch { /* ignore */ }
+      }
+      void runCooperatively(join(), stillOpen).catch(() => { /* channel closed */ });
 
       // ── Auto-resume mining when first peer connects ──
       if (this.toggles.mining && this.miningTimer === null && this.phase === 'online') {
@@ -3080,6 +3077,10 @@ export class StandaloneSwarmMesh {
   }
 
   private handleLibraryExchange(fromPeerId: string, msg: Record<string, unknown>): void {
+    for (const _step of this.handleLibraryExchangeSteps(fromPeerId, msg)) { /* compatibility for direct callers */ }
+  }
+
+  private *handleLibraryExchangeSteps(fromPeerId: string, msg: Record<string, unknown>): Generator<void, void, unknown> {
     if (!this.toggles.libraryExchange || fromPeerId === this.peerId || this.blockedPeers.has(fromPeerId)) return;
     const remote = msg.peers as Array<{ peerId: string; active?: boolean; userId?: string; nodeId?: string; alias?: string; lastSeenAt?: number; trustScore?: number; username?: string; displayName?: string; avatarRef?: string; walletAddress?: string; namespaceId?: string; discriminator?: string }> | undefined;
     if (!Array.isArray(remote)) return;
@@ -3114,6 +3115,7 @@ export class StandaloneSwarmMesh {
     const dialCandidates = new Map<string, { peerId: string; lastSeenAt: number; trustScore: number }>();
 
     for (const rp of remote) {
+      yield;
       if (!rp || typeof rp.peerId !== 'string' || !rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
       // Live connections of the sender count as seen now. Relayed saved
@@ -3249,16 +3251,12 @@ export class StandaloneSwarmMesh {
 
     if (shareable.length === 0) return;
 
+    const payload = JSON.stringify({ type: 'library-exchange', peers: shareable, from: this.peerId, networkGenesis: getNetworkGenesisTimestamp() });
     let sent = 0;
     for (const [peerId, conn] of this.connections) {
       if (peerId === excludePeerId || !conn.open) continue;
       try {
-        conn.send(JSON.stringify({
-          type: 'library-exchange',
-          peers: shareable,
-          from: this.peerId,
-          networkGenesis: getNetworkGenesisTimestamp(),
-        }));
+        conn.send(payload);
         this.librarySentConnections.add(conn);
         sent++;
       } catch { /* ignore */ }
@@ -3579,8 +3577,20 @@ export class StandaloneSwarmMesh {
   }
 
   private sendContentInventory(conn: import('peerjs').DataConnection): void {
-    const ids = Array.from(this.contentStore.keys());
-    try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: this.peerId })); } catch { /* ignore */ }
+    const mesh = this;
+    function* inventory(): Generator<void, void, unknown> {
+      let ids: string[] = [];
+      for (const id of mesh.contentStore.keys()) {
+        ids.push(id);
+        if (ids.length >= CONTENT_PUSH_BATCH) {
+          try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: mesh.peerId })); } catch { return; }
+          ids = [];
+        }
+        yield;
+      }
+      if (ids.length) try { conn.send(JSON.stringify({ type: 'content-inventory', ids, from: mesh.peerId })); } catch { /* ignore */ }
+    }
+    void runCooperatively(inventory(), () => mesh.connections.get(conn.peer) === conn && conn.open).catch(() => {});
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -3611,9 +3621,9 @@ export class StandaloneSwarmMesh {
       }
 
       switch (msg.type) {
-        case 'content-inventory': this.handleInventory(from, msg); break;
+        case 'content-inventory': void runCooperatively(this.handleInventorySteps(from, msg)).catch(() => {}); break;
         case 'content-request': this.handleRequest(from, msg); break;
-        case 'content-push': this.handlePush(from, msg); break;
+        case 'content-push': void runCooperatively(this.handlePushSteps(from, msg)).catch(() => {}); break;
         case 'file-manifest': void this.handleFileManifest(from, msg); break;
         case 'manifest-request': void this.handleManifestRequest(from, msg); break;
         case 'manifest-response': this.resolveAssetRequest(msg); break;
@@ -3621,7 +3631,7 @@ export class StandaloneSwarmMesh {
         case 'chunk-response': this.resolveAssetRequest(msg); break;
         case 'file-data': void this.handleFileData(msg); break;
         case 'seeding-available': this.handleSeedingAvailable(from, msg); break;
-        case 'library-exchange': this.handleLibraryExchange(from, msg); break;
+        case 'library-exchange': void runCooperatively(this.handleLibraryExchangeSteps(from, msg)).catch(() => {}); break;
         case 'profile-exchange': this.handleProfileExchange(from, msg); break;
         case 'heartbeat': this.handleHeartbeat(from); break;
         case 'goodbye': this.handlePeerGoodbye(from); break;
@@ -3654,15 +3664,31 @@ export class StandaloneSwarmMesh {
   }
 
   private handleInventory(from: string, msg: Record<string, unknown>): void {
+    for (const _step of this.handleInventorySteps(from, msg)) { /* compatibility for direct callers */ }
+  }
+
+  private *handleInventorySteps(from: string, msg: Record<string, unknown>): Generator<void, void, unknown> {
     const ids = msg.ids as string[] | undefined;
     if (!Array.isArray(ids)) return;
-    const needed = ids.filter(id => !this.contentStore.has(id) && !isPostUnsupported(id));
+    const needed: string[] = [];
+    for (const id of ids) {
+      if (typeof id === 'string' && !this.contentStore.has(id) && !isPostUnsupported(id)) needed.push(id);
+      if (needed.length >= CONTENT_PUSH_BATCH) {
+        const conn = this.connections.get(from);
+        if (conn?.open) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed.splice(0), from: this.peerId })); } catch { return; }
+      }
+      yield;
+    }
     if (!needed.length) return;
     const conn = this.connections.get(from);
     if (conn) try { conn.send(JSON.stringify({ type: 'content-request', ids: needed, from: this.peerId })); } catch { /* ignore */ }
   }
 
   private handleRequest(from: string, msg: Record<string, unknown>): void {
+    void runCooperatively(this.handleRequestSteps(from, msg)).catch(() => {});
+  }
+
+  private *handleRequestSteps(from: string, msg: Record<string, unknown>): Generator<void, void, unknown> {
     const ids = msg.ids as string[] | undefined;
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
@@ -3671,7 +3697,8 @@ export class StandaloneSwarmMesh {
       const i = this.contentStore.get(id);
       return i && !(i.type === 'post' && isPostUnsupported(i.id)) ? i : undefined;
     };
-    const wanted = ids.filter((id) => live(id));
+    const wanted: string[] = [];
+    for (const id of ids) { if (live(id)) wanted.push(id); yield; }
     if (!wanted.length) return;
     // A new peer asks for everything we hold. One message with every post
     // meant serializing and chunking megabytes in a single task, which froze
@@ -3680,15 +3707,15 @@ export class StandaloneSwarmMesh {
     // Each batch is read when it goes out, so a post deleted or no longer
     // supported in the meantime is not sent.
     const batches: string[][] = [];
-    for (let i = 0; i < wanted.length; i += CONTENT_PUSH_BATCH) batches.push(wanted.slice(i, i + CONTENT_PUSH_BATCH));
+    for (let i = 0; i < wanted.length; i += CONTENT_PUSH_BATCH) { batches.push(wanted.slice(i, i + CONTENT_PUSH_BATCH)); yield; }
     this.sendPaced(from, conn, batches.map((batch) => () => {
       const items = batch.map(live).filter((i): i is ContentItem => !!i);
-      return items.length ? JSON.stringify({ type: 'content-push', items, from: this.peerId }) : null;
+      return items.length ? { type: 'content-push', items, from: this.peerId } : null;
     }));
   }
 
   /** Per peer: replies waiting to go out, one message per task. */
-  private pacedQueues = new Map<string, { conn: import('peerjs').DataConnection; messages: Array<() => string | null> }>();
+  private pacedQueues = new Map<string, { conn: import('peerjs').DataConnection; messages: Array<() => unknown> }>();
 
   /**
    * Send messages to one peer, one per task, so a large reply never holds the
@@ -3697,36 +3724,45 @@ export class StandaloneSwarmMesh {
    * are reassembled per peer). Stops if the channel closes or is replaced.
    * A message builder that returns null is skipped.
    */
-  private sendPaced(peerId: string, conn: import('peerjs').DataConnection, messages: Array<() => string | null>): void {
+  private sendPaced(peerId: string, conn: import('peerjs').DataConnection, messages: Array<() => unknown>): void {
     if (!messages.length) return;
     const queued = this.pacedQueues.get(peerId);
     if (queued && queued.conn === conn) { queued.messages.push(...messages); return; }
     const queue = { conn, messages: [...messages] };
     this.pacedQueues.set(peerId, queue);
-    const next = () => {
-      if (this.pacedQueues.get(peerId) !== queue) return;
-      const build = queue.messages.shift();
-      if (!build || this.connections.get(peerId) !== conn || !conn.open) { this.pacedQueues.delete(peerId); return; }
-      try {
-        const msg = build();
-        if (msg !== null) {
+    const mesh = this;
+    function* send(): Generator<unknown, void, unknown> {
+      while (queue.messages.length) {
+        const build = queue.messages.shift();
+        if (!build) return;
+        const packet = build();
+        if (packet !== null) {
+          const msg = typeof packet === 'string' ? packet : yield* stringifySteps(packet);
+          // Recheck after serialization, which spans multiple browser turns.
+          if (mesh.connections.get(peerId) !== conn || !conn.open) return;
           conn.send(msg);
-          const p = this.peerData.get(peerId);
+          const p = mesh.peerData.get(peerId);
           if (p) p.messagesSent++;
         }
-      } catch { this.pacedQueues.delete(peerId); return; }
-      if (queue.messages.length) setTimeout(next, 0);
-      else this.pacedQueues.delete(peerId);
-    };
-    next();
+        yield;
+      }
+    }
+    void runCooperatively(send(), () => this.pacedQueues.get(peerId) === queue && this.connections.get(peerId) === conn && conn.open)
+      .catch(() => { /* channel closed */ })
+      .finally(() => { if (this.pacedQueues.get(peerId) === queue) this.pacedQueues.delete(peerId); });
   }
 
   private handlePush(fromPeerId: string, msg: Record<string, unknown>): void {
+    for (const _step of this.handlePushSteps(fromPeerId, msg)) { /* compatibility for direct callers */ }
+  }
+
+  private *handlePushSteps(fromPeerId: string, msg: Record<string, unknown>): Generator<void, void, unknown> {
     const items = msg.items as ContentItem[] | undefined;
     if (!Array.isArray(items)) return;
     let n = 0;
     const refused: Array<{ id?: string; author?: string }> = [];
     for (const item of items) {
+      yield;
       if (!item.id) continue;
       // Stop Support: this node neither stores nor relays the post.
       if (item.type === 'post' && isPostUnsupported(item.id)) continue;
@@ -3991,7 +4027,7 @@ export class StandaloneSwarmMesh {
       import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
         const engine = getSharedNeuralEngine();
         const digest = engine.exportDigest();
-        conn.send(JSON.stringify({ type: 'neural-state-digest', digest, from: this.peerId }));
+        void stringifyCooperatively({ type: 'neural-state-digest', digest, from: this.peerId }, () => this.connections.get(conn.peer) === conn && conn.open).then(json => { if (json !== undefined && conn.open) conn.send(json); }).catch(() => {});
         console.log(`[SwarmMesh] 🧠 Sent neural digest (${digest.neurons.length} neurons, vocab=${Object.keys(digest.vocab ?? {}).length})`);
       }).catch(() => { /* ignore */ });
     } catch { /* ignore */ }
@@ -4001,16 +4037,11 @@ export class StandaloneSwarmMesh {
     const digest = msg.digest as Record<string, unknown> | undefined;
     if (!digest) return;
     try {
-      // Merge when the page is idle and save later still: a joiner's digest
-      // arrives during the join burst, and neither needs to happen this frame.
       import('./sharedNeuralEngine').then(({ getSharedNeuralEngine }) => {
-        whenIdle(() => {
-          const engine = getSharedNeuralEngine();
-          engine.importDigest(digest as any);
-          engine.persistWhenIdle();
-          console.log(`[SwarmMesh] 🧠 Merged neural digest from ${_from.slice(0, 16)}…`);
-        }, 2_000);
-      }).catch(() => { /* ignore */ });
+        const engine = getSharedNeuralEngine();
+        return runCooperatively(engine.importDigestSteps(digest as unknown as import('./neuralStateEngine').NeuralStateDigest))
+          .then(() => engine.persistWhenIdle());
+      }).catch(() => { /* invalid digest */ });
     } catch { /* ignore */ }
   }
 
@@ -4033,7 +4064,7 @@ export class StandaloneSwarmMesh {
         const pages = planCatchup(blocks, since, legacy ? Infinity : undefined);
         // One page per task: a joiner with no chain mark gets the whole chain,
         // and serializing it all at once stalled this page.
-        this.sendPaced(from, conn, pages.map((page) => () => JSON.stringify({
+        this.sendPaced(from, conn, pages.map((page) => () => ({
           type: 'chain-sync-response',
           // `chain` keeps its name so older peers still read the blocks.
           chain: page.blocks,
@@ -4054,7 +4085,16 @@ export class StandaloneSwarmMesh {
     } catch { /* ignore */ }
   }
 
-  private handleChainSyncResponse(_from: string, msg: Record<string, unknown>): void {
+  private chainSyncWork = new Map<string, Promise<void>>();
+
+  private handleChainSyncResponse(from: string, msg: Record<string, unknown>): void {
+    const previous = this.chainSyncWork.get(from) ?? Promise.resolve();
+    const next = previous.then(() => this.processChainSyncResponse(from, msg)).catch(() => {});
+    this.chainSyncWork.set(from, next);
+    void next.finally(() => { if (this.chainSyncWork.get(from) === next) this.chainSyncWork.delete(from); });
+  }
+
+  private async processChainSyncResponse(_from: string, msg: Record<string, unknown>): Promise<void> {
     const receivedChain = msg.chain as unknown[] | undefined;
     if (!Array.isArray(receivedChain)) return;
     // Older peers send one full chain with no paging fields.
@@ -4064,16 +4104,18 @@ export class StandaloneSwarmMesh {
     const isLastPage = page >= pages - 1;
     if (receivedChain.length === 0 && !isLastPage) return;
     try {
-      import('../blockchain/chain').then(({ getSwarmChain }) => {
+      const { getSwarmChain } = await import('../blockchain/chain');
         const chain = getSwarmChain();
         const localChain = chain.getChain();
         const harvest = totalLength > localChain.length;
         if (harvest && receivedChain.length > 0) {
           console.log(`[SwarmMesh] ⛓️ Received ${receivedChain.length} block(s) from ${_from.slice(0, 16)}… (their chain ${totalLength} vs ours ${localChain.length}) — adopting`);
           // Add missing transactions from received chain
+          await runCooperatively((function* () {
           for (const block of receivedChain as any[]) {
             if (block.transactions) {
               for (const tx of block.transactions) {
+                yield;
                 // New coins come only from block rewards: never take a peer's self-issued mint.
                 if (isSelfIssuedSwarmMint(tx)) continue;
                 try { chain.addTransaction(tx); } catch { /* dup or invalid */ }
@@ -4085,6 +4127,7 @@ export class StandaloneSwarmMesh {
               }
             }
           }
+          })());
         }
         // Shared chain: collect the pages, then offer the whole picture to
         // fork choice once the last one is in.
@@ -4092,22 +4135,21 @@ export class StandaloneSwarmMesh {
         if (page === 0 || !this.chainSyncPages.has(_from)) {
           this.chainSyncPages.set(_from, { fromIndex, blocks: [] });
         }
-        this.chainSyncPages.get(_from)!.blocks.push(...(receivedChain as Record<string, unknown>[]));
+        const pendingPage = this.chainSyncPages.get(_from);
+        if (!pendingPage) return;
+        await runCooperatively((function* () {
+          for (const block of receivedChain as Record<string, unknown>[]) { pendingPage.blocks.push(block); yield; }
+        })());
         if (!isLastPage) return;
         const collected = this.chainSyncPages.get(_from);
         this.chainSyncPages.delete(_from);
-        if (collected && collected.blocks.length > 0) void this.adoptFromSync(_from, collected.fromIndex, collected.blocks);
+        if (collected && collected.blocks.length > 0) await this.adoptFromSync(_from, collected.fromIndex, collected.blocks);
         // Remember their tip only once we've taken in everything up to it,
         // so next time they send just what's newer.
         if (harvest) saveChainMark(_from, msg.tip as ChainMark | undefined);
         // Markets are derivable from chain history — rebuild anything missing,
         // once the page is idle (it walks every block).
-        whenIdle(() => {
-          import('../blockchain/marketSync')
-            .then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain())
-            .catch(() => { /* ignore */ });
-        }, 3_000);
-      }).catch(() => { /* ignore */ });
+        void import('../blockchain/marketSync').then(({ rebuildMarketsFromChain }) => rebuildMarketsFromChain()).catch(() => {});
     } catch { /* ignore */ }
   }
 

@@ -1,3 +1,4 @@
+import { runCooperatively, stringifySteps } from './cooperativeWork';
 import { InstinctHierarchy, LayerSignals } from './instinctHierarchy';
 import { DualLearningFusion, FusionSnapshot, ContentEvent } from './dualLearningFusion';
 import { getSharedFieldEngine } from '../uqrc/fieldEngine';
@@ -1082,8 +1083,14 @@ export class NeuralStateEngine {
   importDigest(digest: NeuralStateDigest): void {
     if (!digest || !digest.neurons) return;
 
+    for (const _step of this.importDigestSteps(digest)) { /* synchronous restore compatibility */ }
+  }
+
+  *importDigestSteps(digest: NeuralStateDigest): Generator<void, void, unknown> {
+    if (!digest || !Array.isArray(digest.neurons)) return;
     // Merge neurons — keep higher trust/energy/memory/coins per peer
     for (const incoming of digest.neurons) {
+      yield;
       const existing = this.neurons.get(incoming.peerId);
       if (!existing) {
         // New peer we've never seen — adopt fully
@@ -1122,7 +1129,8 @@ export class NeuralStateEngine {
     }
 
     // Merge bell curves — use combined Welford (approximate)
-    for (const bc of digest.bellCurves) {
+    for (const bc of digest.bellCurves ?? []) {
+      yield;
       const local = this.bellCurves.get(bc.kind);
       if (!local) {
         this.bellCurves.set(bc.kind, { ...bc });
@@ -1147,56 +1155,60 @@ export class NeuralStateEngine {
 
     // Merge vocabulary and patterns
     if (digest.vocab) {
-      this.dualLearning.languageLearner.mergeVocab(digest.vocab);
+      for (const token in digest.vocab) {
+        if (Object.prototype.hasOwnProperty.call(digest.vocab, token)) this.dualLearning.languageLearner.mergeVocab({ [token]: digest.vocab[token] });
+        yield;
+      }
     }
     if (digest.patterns) {
-      this.dualLearning.patternLearner.mergePatterns(digest.patterns);
+      for (const key in digest.patterns) {
+        if (Object.prototype.hasOwnProperty.call(digest.patterns, key)) this.dualLearning.patternLearner.mergePatterns({ [key]: digest.patterns[key] });
+        yield;
+      }
     }
 
     console.log(`[NeuralEngine] 🧠 Imported digest from peer — ${digest.neurons.length} neurons, ${digest.bellCurves.length} curves, vocab=${Object.keys(digest.vocab ?? {}).length}`);
   }
 
   private idlePersistPending = false;
+  private persistDirty = false;
 
-  /**
-   * Save brain state when the browser is idle. Callers on hot paths (a
-   * merged peer digest, a learned post) use this: the save serializes the
-   * whole digest, expressions and basins into localStorage synchronously,
-   * which cost a visible hitch when it ran inside a packet handler.
-   */
+  /** Coalesce requests, serialize each snapshot cooperatively, retain a trailing save. */
   persistWhenIdle(): void {
+    this.persistDirty = true;
     if (this.idlePersistPending) return;
-    if (Date.now() - this.lastPersistAt < NeuralStateEngine.PERSIST_THROTTLE_MS) return;
     this.idlePersistPending = true;
-    const run = () => {
-      this.idlePersistPending = false;
-      this.persistToStorage();
-    };
-    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-    if (typeof ric === 'function') ric(run, { timeout: 5_000 });
-    else setTimeout(run, 1_000);
+    const delay = Math.max(0, NeuralStateEngine.PERSIST_THROTTLE_MS - (Date.now() - this.lastPersistAt));
+    setTimeout(() => {
+      this.persistDirty = false;
+      const engine = this;
+      function* save(): Generator<unknown, void, unknown> {
+        const snapshots: Array<[string, () => unknown]> = [
+          [NeuralStateEngine.STORAGE_KEY, () => engine.exportDigest()],
+          ['infinity-local-expressions', () => engine.dualLearning.languageLearner.getExpressions()],
+          ['infinity-semantic-basins', () => engine.dualLearning.languageLearner.semantic.serialize()],
+          [CORE_MEMORY_STORAGE_KEY, () => engine.dualLearning.coreMemories.serialize()],
+        ];
+        for (const [key, sample] of snapshots) {
+          yield;
+          const json = yield* stringifySteps(sample());
+          localStorage.setItem(key, json);
+          yield;
+        }
+        if (engine.dualLearning.coreMemories.pending().length) void engravePendingIntoCoins(engine.dualLearning.coreMemories);
+      }
+      void runCooperatively(save()).catch((err) => {
+        console.warn('[NeuralEngine] Failed to persist brain state:', err);
+      }).finally(() => {
+        this.lastPersistAt = Date.now();
+        this.idlePersistPending = false;
+        if (this.persistDirty) this.persistWhenIdle();
+      });
+    }, delay);
   }
 
-  /** Save brain state to localStorage (throttled) */
-  persistToStorage(): void {
-    const n = Date.now();
-    if (n - this.lastPersistAt < NeuralStateEngine.PERSIST_THROTTLE_MS) return;
-    this.lastPersistAt = n;
-
-    try {
-      const digest = this.exportDigest();
-      localStorage.setItem(NeuralStateEngine.STORAGE_KEY, JSON.stringify(digest));
-      // Expressions stay on-device, separate from the mesh digest.
-      localStorage.setItem('infinity-local-expressions', JSON.stringify(this.dualLearning.languageLearner.getExpressions()));
-      localStorage.setItem('infinity-semantic-basins', JSON.stringify(this.dualLearning.languageLearner.semantic.serialize()));
-      // Phase 4: reflections still waiting for a pool coin retry here; the
-      // index stays on-device, outside the digest.
-      if (this.dualLearning.coreMemories.pending().length) void engravePendingIntoCoins(this.dualLearning.coreMemories);
-      localStorage.setItem(CORE_MEMORY_STORAGE_KEY, JSON.stringify(this.dualLearning.coreMemories.serialize()));
-    } catch (err) {
-      console.warn('[NeuralEngine] Failed to persist brain state:', err);
-    }
-  }
+  /** Historical callers now use the same nonblocking save path. */
+  persistToStorage(): void { this.persistWhenIdle(); }
 
   /** Restore brain state from localStorage (call in constructor or on boot) */
   restoreFromStorage(): void {

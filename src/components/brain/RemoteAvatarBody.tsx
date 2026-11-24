@@ -5,7 +5,7 @@ import { createTierGate } from '@/lib/brain/renderGovernor';
 /** Beyond this distance (m) a remote avatar runs on the ambiance tier. */
 const DISTANT_AVATAR_M = 40;
 /** Delay before a new avatar's nameplate mounts. */
-const NAMEPLATE_DELAY_MS = 400;
+
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
 import {
@@ -16,7 +16,7 @@ import {
 } from '@/lib/brain/earth';
 import { avatarLocalTarget, avatarTrackingAlpha } from '@/lib/brain/avatarTracking';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
-import { Billboard } from '@react-three/drei';
+import { Html } from '@react-three/drei';
 import { Text } from './SafeText';
 import { subscribeSwingFx } from '@/lib/world/swingFxBus';
 
@@ -210,12 +210,11 @@ export function RemoteAvatarBody({
   // the dirt and the head sits ~1.7 m above it, like a person on land.
   const FEET_DROP = -HUMAN_HEIGHT / 2;
 
-  // The nameplate mounts a moment after the body, so a peer's arrival
-  // doesn't put the mesh and the text layout on the same frame.
+  // Body gets its first paint before its lightweight nameplate attaches.
   const [labelReady, setLabelReady] = useState(false);
   useEffect(() => {
-    const id = window.setTimeout(() => setLabelReady(true), NAMEPLATE_DELAY_MS);
-    return () => window.clearTimeout(id);
+    const id = requestAnimationFrame(() => setLabelReady(true));
+    return () => cancelAnimationFrame(id);
   }, []);
 
   return (
@@ -224,25 +223,12 @@ export function RemoteAvatarBody({
         {def.render({ scale: 1, color })}
       </group>
       {label && !intentDriven && labelReady && (
-        // Nameplate: billboarded so it always faces the camera, small and
-        // outlined rather than slab-backed so a crowd never turns into a
-        // wall of panels. Hidden for the local player (you know who you are).
-        <Billboard position={[0, FEET_DROP + 2.05, 0]} follow>
-          <Text
-            fontSize={0.2}
-            color="hsl(210, 40%, 96%)"
-            anchorX="center"
-            anchorY="middle"
-            maxWidth={3}
-            outlineWidth={0.018}
-            outlineColor="hsl(245, 70%, 8%)"
-            outlineOpacity={0.85}
-          >
-            {label.length > 18 ? `${label.slice(0, 17)}…` : label}
-          </Text>
-        </Billboard>
+        // DOM billboard: no per-peer Troika glyph atlas or text shader at join.
+        <Html position={[0, FEET_DROP + 2.05, 0]} center distanceFactor={12} zIndexRange={[10, 0]} style={{ pointerEvents: 'none' }}>
+          <span className="block max-w-36 truncate whitespace-nowrap rounded-sm bg-background/80 px-1 py-0.5 text-xs text-foreground">{label.length > 18 ? `${label.slice(0, 17)}…` : label}</span>
+        </Html>
       )}
-      {isStale && (
+      {isStale && labelReady && (
         <Text
           position={[0, FEET_DROP + 2.4, 0]}
           fontSize={0.18}

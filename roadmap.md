@@ -1,3 +1,5 @@
+- [ ] Slice peer-join background work cooperatively without pausing sync; batch library/neural saves and soften avatar nameplate mounting.
+- [ ] Run focused join/storage/render regressions; leave live Brain testing with the user.
 - [x] Add identity-scoped Guest Name to Brain avatar selection without avatar/name leakage.
 - [x] Present signup on guest Profile and restrict Wallet, mining and posting.
 - [x] Verify guest naming, avatar changes and signup/access boundaries (14 checks; desktop/mobile browser flow).

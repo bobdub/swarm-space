@@ -55,7 +55,7 @@ describe('universal reciprocal library handshake', () => {
   beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); vi.setSystemTime(NOW); });
   afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
-  it('exchanges recent libraries on ordinary data opens, persists the guest result and survives reload', () => {
+  it('exchanges recent libraries on ordinary data opens, persists the guest result and survives reload', async () => {
     const a = node('a', [contact('peer-friend-a', 9 * DAY), contact('peer-old', 10 * DAY + 1)]);
     localStorage.setItem('me', JSON.stringify({ _guest: true, guestName: 'Guest Mike' }));
     const b = node('b', [contact('peer-friend-b', DAY)]);
@@ -64,7 +64,7 @@ describe('universal reciprocal library handshake', () => {
     ab.fire('open'); ba.fire('open');
     // The library goes out a beat after open, not in the same frame.
     expect(packets(ab)).toHaveLength(0); expect(packets(ba)).toHaveLength(0);
-    vi.advanceTimersByTime(250);
+    await vi.advanceTimersByTimeAsync(250);
     expect(packets(ab)).toHaveLength(1); expect(packets(ba)).toHaveLength(1);
     const fromA = packets(ab)[0]; const fromB = packets(ba)[0];
     a.h.handleLibraryExchange('peer-b', fromB);
@@ -72,6 +72,7 @@ describe('universal reciprocal library handshake', () => {
     expect(a.mesh.getLibrary().some(p => p.peerId === 'peer-friend-b')).toBe(true);
     expect(b.mesh.getLibrary().some(p => p.peerId === 'peer-friend-a')).toBe(true);
     expect(b.mesh.getLibrary().some(p => p.peerId === 'peer-old')).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(new StandaloneSwarmMesh().getLibrary().map(p => p.peerId)).toEqual(expect.arrayContaining(['peer-a', 'peer-friend-a', 'peer-friend-b']));
     expect(packets(ab)).toHaveLength(1); expect(packets(ba)).toHaveLength(1);
   });

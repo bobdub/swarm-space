@@ -7,6 +7,7 @@
  */
 
 import { getStableNodeId, getCurrentNodeId } from './peerjs-adapter';
+import { readLiveLibrary } from './liveLibrary';
 
 const LEGACY_STORAGE_KEY = 'p2p:knownPeers';
 const LIBRARY_STORAGE_KEY = 'swarm-mesh-connection-library';
@@ -90,6 +91,8 @@ migrateIfNeeded();
 
 function readLibrary(): LibraryEntry[] {
   try {
+    const live = readLiveLibrary();
+    if (live) return live;
     const raw = localStorage.getItem(LIBRARY_STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }

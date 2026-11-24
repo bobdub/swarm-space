@@ -196,7 +196,7 @@ export async function fillTorrentFromCoin(
     try {
       const slice = bytes.subarray(offset, offset + chunkSizes[i]);
       const iv = b642bytes(chunkIvs[i]);
-      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, slice);
+      const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, new Uint8Array(slice));
       const cipherB64 = ab2b64(cipher);
       if ((await chunkRef(cipherB64, i)) !== refs[i]) {
         result.mismatched++;

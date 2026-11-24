@@ -62,12 +62,13 @@ describe('isolated A–B–C contact library synchronization', () => {
     expect(changes).not.toHaveBeenCalled();
   });
 
-  it('persists a same-timestamp profile update and keeps it through older packets and reload', () => {
+  it('persists a same-timestamp profile update and keeps it through older packets and reload', async () => {
     const a = createMesh('a', [contact('peer-c', { displayName: 'Old C' })]);
     a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c', displayName: 'Old C' }] });
     a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c', displayName: 'New C', avatarRef: 'new-avatar' }] });
     a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c' }] });
     expect(a.mesh.getLibrary().find(peer => peer.peerId === 'peer-c')).toMatchObject({ displayName: 'New C', avatarRef: 'new-avatar', source: 'manual' });
+    await vi.advanceTimersByTimeAsync(1_000);
     const restored = new StandaloneSwarmMesh();
     expect(restored.getLibrary().find(peer => peer.peerId === 'peer-c')).toMatchObject({ displayName: 'New C', avatarRef: 'new-avatar' });
   });
@@ -138,7 +139,7 @@ describe('isolated A–B–C contact library synchronization', () => {
     expect(JSON.parse(send.mock.calls[1][0]).userId).toBeUndefined();
   });
 
-  it('retains direct canonical identity through save, reload and active library exchange', () => {
+  it('retains direct canonical identity through save, reload and active library exchange', async () => {
     const a = createMesh('a', [contact('peer-c')]);
     a.harness.connections.set('peer-c', { open: true, send: vi.fn() });
     const changes = vi.fn();
@@ -147,6 +148,7 @@ describe('isolated A–B–C contact library synchronization', () => {
     a.harness.handleProfileExchange('peer-c', { userId: 'member-c', displayName: 'C' });
     expect(a.mesh.getLibrary()[0].userId).toBe('member-c');
     expect(changes).toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(new StandaloneSwarmMesh().getLibrary()[0].userId).toBe('member-c');
     expect(a.harness.getActiveExchangePeers()[0].userId).toBe('member-c');
     a.harness.handleLibraryExchange('peer-b', { peers: [{ peerId: 'peer-c', userId: 'wrong-id' }] });

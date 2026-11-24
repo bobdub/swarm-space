@@ -135,7 +135,7 @@ export async function verifyContentSignature<T>(
     };
     const signatureBytes = Uint8Array.from(atob(signature.signature), c => c.charCodeAt(0));
     for (const payload of [canonicalJsonBytes(fields), new TextEncoder().encode(JSON.stringify(fields))]) {
-      if (await crypto.subtle.verify('Ed25519', publicKey, signatureBytes, payload)) {
+      if (await crypto.subtle.verify('Ed25519', publicKey, signatureBytes, new Uint8Array(payload))) {
         return true;
       }
     }
