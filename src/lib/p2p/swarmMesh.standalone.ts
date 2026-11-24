@@ -1,4 +1,5 @@
 import { setLiveLibrary } from './liveLibrary';
+import { forgetBlockedNode, isAuthorBlocked, listBlockedNodeContent, recordBlockedNode, resumeNodeContent, stopSupportingNodeContent } from '../content/blockedNodeContent';
 import { runCooperatively, stringifyCooperatively, stringifySteps } from './cooperativeWork';
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
 import {
@@ -125,6 +126,14 @@ export type SwarmPhase =
   | 'online'
   | 'reconnecting'
   | 'failed';
+
+
+/** The author of a mesh content item: its post data's author, else the envelope's. */
+function itemAuthor(item: { author?: unknown; data?: unknown }): string | undefined {
+  const data = (item.data ?? {}) as { author?: unknown };
+  if (typeof data.author === 'string' && data.author) return data.author;
+  return typeof item.author === 'string' ? item.author : undefined;
+}
 
 export interface SwarmFlags {
   enabled: boolean;
@@ -1634,6 +1643,10 @@ export class StandaloneSwarmMesh {
     try {
       const raw = localStorage.getItem(KEYS.BLOCKED_PEERS);
       if (raw) for (const id of JSON.parse(raw) as string[]) this.blockedPeers.add(id);
+      // Blocks made before content blocking existed: remember the node so
+      // gossip that names its account stops its content too.
+      const known = new Set(listBlockedNodeContent().map((r) => r.peerId));
+      for (const id of this.blockedPeers) if (!known.has(id)) recordBlockedNode(id);
     } catch { /* ignore */ }
   }
 
@@ -1641,24 +1654,68 @@ export class StandaloneSwarmMesh {
     try { localStorage.setItem(KEYS.BLOCKED_PEERS, JSON.stringify(Array.from(this.blockedPeers))); } catch { /* ignore */ }
   }
 
-  blockPeer(remotePeerId: string): void {
-    this.blockedPeers.add(remotePeerId);
-    this.saveBlockedPeers();
-    this.library.delete(remotePeerId);
-    this.saveLibrary(true);
-    const conn = this.connections.get(remotePeerId);
-    if (conn) {
-      try { conn.close(); } catch { /* ignore */ }
-      this.connections.delete(remotePeerId);
-      this.peerData.delete(remotePeerId);
-      this.emitPeers();
+  /**
+   * Block a node: refuse its connection (now and on every future dial or
+   * knock) and stop supporting its content. Accepts a peer id, or an account
+   * id, which blocks every saved node that posts as that account.
+   */
+  blockPeer(id: string, options: { silent?: boolean } = {}): void {
+    const target = id.trim();
+    if (!target) return;
+    const peerIds = new Set<string>();
+    const userIds = new Set<string>();
+    if (target.startsWith('peer-')) {
+      peerIds.add(target);
+      const uid = this.library.get(target)?.userId;
+      if (uid) userIds.add(uid);
+    } else {
+      // An account id (e.g. from Brain chat): block the nodes it posts from.
+      userIds.add(target);
+      for (const entry of this.library.values()) if (entry.userId === target) peerIds.add(entry.peerId);
+      if (peerIds.size === 0) peerIds.add(target);
     }
-    this.emitAlert(`Blocked ${remotePeerId.slice(0, 16)}`, 'info');
+    for (const peerId of peerIds) {
+      this.blockedPeers.add(peerId);
+      this.library.delete(peerId);
+      this.pendingDials.delete(peerId);
+      for (const seeders of this.fileSeeders.values()) seeders.delete(peerId);
+      const conn = this.connections.get(peerId);
+      if (conn) {
+        try { conn.close(); } catch { /* ignore */ }
+        this.connections.delete(peerId);
+        this.peerData.delete(peerId);
+        this.emitPeers();
+      }
+      recordBlockedNode(peerId, [...userIds]);
+      void stopSupportingNodeContent(peerId, [...userIds]);
+    }
+    this.saveBlockedPeers();
+    this.saveLibrary(true);
+    this.dropBlockedAuthorContent();
+    if (!options.silent) this.emitAlert(`Blocked ${target.slice(0, 16)}`, 'info');
   }
 
-  unblockPeer(remotePeerId: string): void {
-    this.blockedPeers.delete(remotePeerId);
+  unblockPeer(id: string): void {
+    const target = id.trim();
+    const peerIds = [target];
+    if (!target.startsWith('peer-')) {
+      // Unblocking an account id lifts every node blocked for it.
+      for (const record of listBlockedNodeContent()) if (record.userIds.includes(target)) peerIds.push(record.peerId);
+    }
+    for (const peerId of peerIds) {
+      this.blockedPeers.delete(peerId);
+      if (forgetBlockedNode(peerId)) void resumeNodeContent(peerId);
+    }
     this.saveBlockedPeers();
+  }
+
+  /** Drop live copies authored by a blocked node so they are never relayed. */
+  private dropBlockedAuthorContent(): void {
+    let changed = false;
+    for (const [id, item] of this.contentStore) {
+      if (isAuthorBlocked(itemAuthor(item))) { this.contentStore.delete(id); changed = true; }
+    }
+    if (changed) this.emitContentChange();
   }
 
   isBlocked(id: string): boolean { return this.blockedPeers.has(id); }
@@ -3127,6 +3184,11 @@ export class StandaloneSwarmMesh {
 
     for (const rp of remote) {
       yield;
+      if (rp && typeof rp.peerId === 'string' && this.blockedPeers.has(rp.peerId) && typeof rp.userId === 'string' && rp.userId) {
+        // Gossip names the account a blocked node posts as: stop carrying it too.
+        const learned = recordBlockedNode(rp.peerId, [rp.userId]);
+        if (learned.length) { void stopSupportingNodeContent(rp.peerId, learned); this.dropBlockedAuthorContent(); }
+      }
       if (!rp || typeof rp.peerId !== 'string' || !rp.peerId || rp.peerId === this.peerId || this.blockedPeers.has(rp.peerId)) continue;
 
       // Live connections of the sender count as seen now. Relayed saved
@@ -3706,7 +3768,7 @@ export class StandaloneSwarmMesh {
     if (!conn) return;
     const live = (id: string): ContentItem | undefined => {
       const i = this.contentStore.get(id);
-      return i && !(i.type === 'post' && isPostUnsupported(i.id)) ? i : undefined;
+      return i && !(i.type === 'post' && isPostUnsupported(i.id)) && !isAuthorBlocked(itemAuthor(i)) ? i : undefined;
     };
     const wanted: string[] = [];
     for (const id of ids) { if (live(id)) wanted.push(id); yield; }
@@ -3777,6 +3839,8 @@ export class StandaloneSwarmMesh {
       if (!item.id) continue;
       // Stop Support: this node neither stores nor relays the post.
       if (item.type === 'post' && isPostUnsupported(item.id)) continue;
+      // Blocked node: none of its content is taken in, from anyone.
+      if (isAuthorBlocked(itemAuthor(item))) continue;
       // Anti-resurrection: never take back deleted content; tell the sender why.
       const lc = this.lifecycle;
       if (lc && (item.type === 'post' || item.type === 'comment')) {
@@ -5216,7 +5280,7 @@ export class StandaloneSwarmMesh {
           const posts = req.result as Array<{ id: string; author?: string; createdAt?: string; [key: string]: unknown }>;
           let n = 0;
           for (const post of posts) {
-            if (!post.id || this.contentStore.has(post.id) || isPostUnsupported(post.id)) continue;
+            if (!post.id || this.contentStore.has(post.id) || isPostUnsupported(post.id) || isAuthorBlocked(post.author)) continue;
             this.contentStore.set(post.id, {
               id: post.id, type: 'post', data: post,
               author: post.author ?? 'unknown',

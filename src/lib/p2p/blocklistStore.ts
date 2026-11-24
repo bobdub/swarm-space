@@ -138,3 +138,20 @@ export function removeBlocklistEntry(
     return entry.direction !== direction;
   });
 }
+
+/** Ids blocked in every direction: these are node blocks (connection and content). */
+export function deriveNodeBlockIds(entries: BlocklistEntry[]): string[] {
+  return Array.from(new Set(
+    entries.filter((e) => e.direction === 'all').map((e) => e.peerId.trim()).filter((id) => id.length > 0),
+  ));
+}
+
+/** Which node blocks a blocklist change adds and lifts. */
+export function diffNodeBlocks(previous: BlocklistEntry[], next: BlocklistEntry[]): { added: string[]; removed: string[] } {
+  const before = new Set(deriveNodeBlockIds(previous));
+  const after = new Set(deriveNodeBlockIds(next));
+  return {
+    added: [...after].filter((id) => !before.has(id)),
+    removed: [...before].filter((id) => !after.has(id)),
+  };
+}
