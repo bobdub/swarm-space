@@ -11,6 +11,7 @@ import { deletePost } from "@/lib/posts";
 import { Avatar } from "@/components/Avatar";
 import {
   classifyPost,
+  extractBlogBody,
   extractBlogTitle,
   extractFirstUrl,
   type BlogClassification,
@@ -84,9 +85,7 @@ export function BlogPostCard({ post }: BlogPostCardProps) {
   // Excerpt: strip the title line and take the next ~280 chars
   const excerpt = useMemo(() => {
     if (isWalledHidden) return null;
-    const lines = post.content.split("\n");
-    const bodyStart = lines.findIndex((l, i) => i > 0 && l.trim().length > 0);
-    const rawBody = bodyStart >= 0 ? lines.slice(bodyStart).join(" ").trim() : "";
+    const rawBody = extractBlogBody(post.content).split("\n").join(" ").trim();
     const body = stripYoutubeLinks(rawBody);
     return body.length > 280 ? `${body.slice(0, 277)}…` : body;
   }, [post.content, isWalledHidden]);

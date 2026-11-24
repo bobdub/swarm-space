@@ -15,6 +15,7 @@ import { get } from "@/lib/store";
 import { updatePost, deletePost } from "@/lib/posts";
 import {
   classifyPost,
+  extractBlogBody,
   extractBlogTitle,
 } from "@/lib/blogging/awareness";
 import { canViewWalledPost } from "@/lib/blockchain/walledPost";
@@ -29,6 +30,9 @@ import { BlogVideoHero } from "@/components/blogging/BlogVideoHero";
 import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
 import { FileUpload } from "@/components/FileUpload";
 import type { Manifest } from "@/lib/fileEncryption";
+import { LinkifiedText } from "@/components/blogging/LinkifiedText";
+import { BlogLinkCard } from "@/components/blogging/BlogLinkCard";
+import { containsUrl, urlOnlyLine } from "@/lib/blogging/links";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
@@ -148,10 +152,8 @@ export default function BlogDetail() {
 
   const contentBody = useMemo(() => {
     if (!post || isWalledHidden) return "";
-    const lines = post.content.split("\n");
-    const firstNonEmpty = lines.findIndex((line) => line.trim().length > 0);
-    if (firstNonEmpty <= -1) return post.content;
-    return lines.filter((_, idx) => idx !== firstNonEmpty).join("\n").trim() || post.content;
+    // Title line (first line without a link) is removed; links stay in the body.
+    return extractBlogBody(post.content) || post.content;
   }, [post, isWalledHidden]);
 
   const paragraphs = useMemo(() => {
@@ -524,7 +526,17 @@ export default function BlogDetail() {
                     return (
                       <div key={index}>
                         {lines.map((line, lineIdx) => {
-                          const isDropCapLine = isFirstParagraph && lineIdx === 0 && line.length > 20;
+                          const lineUrl = urlOnlyLine(line);
+                          if (lineUrl) {
+                            return (
+                              <div key={lineIdx} className="my-4">
+                                <BlogLinkCard href={lineUrl} />
+                              </div>
+                            );
+                          }
+
+                          const isDropCapLine =
+                            isFirstParagraph && lineIdx === 0 && line.length > 20 && !containsUrl(line.slice(0, 12));
 
                           if (isDropCapLine) {
                             const firstChar = line[0];
@@ -537,7 +549,7 @@ export default function BlogDetail() {
                                 <span className="float-left mr-3 mt-1 font-display text-6xl font-bold leading-[0.8] text-primary md:text-7xl">
                                   {firstChar}
                                 </span>
-                                {rest}
+                                <LinkifiedText text={rest} />
                               </p>
                             );
                           }
@@ -547,7 +559,7 @@ export default function BlogDetail() {
                               key={lineIdx}
                               className="text-lg leading-[2] tracking-wide text-foreground/85 md:text-xl"
                             >
-                              {line}
+                              <LinkifiedText text={line} />
                             </p>
                           );
                         })}

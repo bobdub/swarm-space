@@ -12,6 +12,8 @@
  * Books (>250k chars) must be torrent-wrapped before serving.
  */
 
+import { containsUrl } from "./links";
+
 import type { Post } from "@/types";
 
 // ── Classification types ─────────────────────────────────────────
@@ -144,15 +146,40 @@ export function filterBlogPosts(posts: Post[]): Post[] {
  * Extract a display title from the post content.
  * Uses the first non-empty line, trimmed to 120 chars.
  */
-export function extractBlogTitle(content: string): string {
+/**
+ * Index of the line used as the blog title: the first non-empty line that
+ * holds no link. Lines with links stay in the body so they remain
+ * clickable there (the banner never shows links). -1 when there is none.
+ */
+export function findBlogTitleLineIndex(content: string): number {
   const lines = content.split("\n");
-  for (const line of lines) {
+  return lines.findIndex((line) => {
     const trimmed = line.trim();
-    if (trimmed.length > 0) {
-      return trimmed.length > 120 ? `${trimmed.slice(0, 117)}…` : trimmed;
-    }
-  }
-  return "Untitled";
+    return trimmed.length > 0 && !containsUrl(trimmed);
+  });
+}
+
+/**
+ * The blog body. The title line is removed only when it is the post's first
+ * line; when a link comes first, the post has no separate title line, so the
+ * body keeps everything (the banner just borrows the first text line).
+ */
+export function extractBlogBody(content: string): string {
+  const titleIndex = findBlogTitleLineIndex(content);
+  const firstNonEmpty = content.split("\n").findIndex((line) => line.trim().length > 0);
+  if (titleIndex < 0 || titleIndex !== firstNonEmpty) return content.trim();
+  return content
+    .split("\n")
+    .filter((_, idx) => idx !== titleIndex)
+    .join("\n")
+    .trim();
+}
+
+export function extractBlogTitle(content: string): string {
+  const titleIndex = findBlogTitleLineIndex(content);
+  if (titleIndex < 0) return "Untitled";
+  const trimmed = content.split("\n")[titleIndex].trim();
+  return trimmed.length > 120 ? `${trimmed.slice(0, 117)}…` : trimmed;
 }
 
 /**
