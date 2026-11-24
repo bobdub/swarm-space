@@ -390,6 +390,11 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
   // Brain, so it starts fully engaged rather than swinging out on entry.
   const thirdBlend = useRef(getCameraView() === 'third' ? 1 : 0);
   const pitchTarget = useRef(0);
+  // True only while easing toward a fresh mode target (top view, seat,
+  // spectator). Once reached, or once the player looks around, the glide
+  // releases so a free look up at the sky stays put instead of being
+  // dragged back to the horizon every frame.
+  const pitchGliding = useRef(false);
   // Seated eye offset, eased so sitting/standing glides.
   const seatLift = useRef(0);
   const prevSeatNonce = useRef(0);
@@ -451,24 +456,36 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       prevTopView.current = topView;
       // Ease toward a steep downward tilt on entering top view, level on exit.
       pitchTarget.current = topView ? -1.0 : 0;
+      pitchGliding.current = true;
     }
     // Sitting down at pub furniture nudges the view onto the tabletop.
     const seat = getSeatPose();
     if (seat.nonce !== prevSeatNonce.current) {
       prevSeatNonce.current = seat.nonce;
-      if (!topView) pitchTarget.current = seat.pitch ?? 0;
+      if (!topView) {
+        pitchTarget.current = seat.pitch ?? 0;
+        pitchGliding.current = true;
+      }
     }
     seatLift.current += (seat.lift - seatLift.current) * 0.12;
     const overhead = isOverheadView();
     if (overhead !== prevSpec.current) {
       prevSpec.current = overhead;
       pitchTarget.current = overhead ? -1.1 : (seat.pitch ?? 0);
+      pitchGliding.current = true;
     }
     specBlend.current += ((overhead ? 1 : 0) - specBlend.current) * 0.1;
     if (specBlend.current < 0.001) specBlend.current = 0;
-    // Glide pitch toward the mode target, then let drag deltas adjust it.
-    if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
-      pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
+    // Glide pitch toward a freshly set mode target, then hand control
+    // back to the player. Any look input cancels the glide immediately.
+    if (lookInput.pitch !== 0) pitchGliding.current = false;
+    if (pitchGliding.current) {
+      if (Math.abs(pitchRef.current - pitchTarget.current) > 0.002) {
+        pitchRef.current += (pitchTarget.current - pitchRef.current) * 0.12;
+      } else {
+        pitchRef.current = pitchTarget.current;
+        pitchGliding.current = false;
+      }
     }
     boomBlend.current += ((topView ? 1 : 0) - boomBlend.current) * 0.1;
     if (boomBlend.current < 0.001) boomBlend.current = 0;
@@ -481,10 +498,13 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
       yawRef.current -= lookInput.yaw;
       pitchRef.current -= lookInput.pitch;
       // Top view widens the downward clamp so the user can look straight
-      // down at the build grid.
-      const lim = (Math.PI / 180) * (topView ? 89 : 70);
-      if (pitchRef.current > lim) pitchRef.current = lim;
-      if (pitchRef.current < -lim) pitchRef.current = -lim;
+      // down at the build grid. Upward the clamp stays generous so players
+      // can tilt high enough to take in the constellations overhead.
+      const deg = Math.PI / 180;
+      const upLim = 85 * deg;
+      const downLim = (topView ? 89 : 70) * deg;
+      if (pitchRef.current > upLim) pitchRef.current = upLim;
+      if (pitchRef.current < -downLim) pitchRef.current = -downLim;
       lookInput.yaw = 0;
       lookInput.pitch = 0;
     }
