@@ -68,7 +68,8 @@ function useDonorLeaderboard(): { board: DonorLeaderboard; names: Record<string,
     const refresh = async () => {
       try {
         const board = await loadDonorLeaderboard();
-        const entries = await Promise.all(board.donors.map(async (d) => [d.userId, await donorName(d.userId)] as const));
+        const entries = await Promise.all(board.donors.map(async (d) =>
+          [d.userId, d.name ?? await donorName(d.userId)] as const));
         if (alive) setState({ board, names: Object.fromEntries(entries) });
       } catch { /* keep the last board */ }
     };

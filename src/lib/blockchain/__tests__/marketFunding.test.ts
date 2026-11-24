@@ -23,6 +23,7 @@ vi.mock("../coinWrap", () => ({ createEmptyPoolCoin: () => ({ coinId: "test" }) 
 import { donateToRewardPool } from "../creditWrapping";
 import { rewardTransactionProcessing } from "../miningRewards";
 import { poolDeltaFromTx } from "../storage";
+import { loadDonorLeaderboard } from "../infinity/donorLeaderboard";
 
 beforeEach(() => { state.txs = []; state.pool = null; });
 describe("Market Vault donations", () => {
@@ -32,6 +33,13 @@ describe("Market Vault donations", () => {
     expect(state.txs.some(tx => tx.type === "token_burn")).toBe(false);
     expect(state.txs.find(tx => tx.type === "pool_donate")).toMatchObject({ to: "community-pool", amount: 10 });
     expect(state.pool?.balance).toBe(10);
+  });
+
+  it("puts a Support the Vault donor on the donor leaderboard", async () => {
+    await donateToRewardPool("member", 10);
+    const board = await loadDonorLeaderboard();
+    expect(board.donors).toMatchObject([{ userId: "member", amounts: { SWARM: 10 }, donations: 1 }]);
+    expect(board.totals).toEqual({ SWARM: 10 });
   });
 });
 describe("community funding rules", () => {

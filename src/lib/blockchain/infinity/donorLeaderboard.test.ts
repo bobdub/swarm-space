@@ -50,3 +50,37 @@ describe("buildDonorLeaderboard", () => {
     expect(formatDonationAmounts({ MINTME: 2, SWARM: 1500 })).toBe(`${(1500).toLocaleString()} SWARM · 2 MINTME`);
   });
 });
+
+describe("hand-recorded donations", () => {
+  it("adds ETH, BTC and gift-card donors and merges ones with a Swarm account", () => {
+    const board = buildDonorLeaderboard(
+      [tx({ from: "alice", amount: 10, meta: { assetId: "chain:SWARM", ticker: "SWARM" } })],
+      [
+        { donor: "Ada", amount: 0.05, currency: "eth", method: "ETH transfer", date: "2026-11-20" },
+        { donor: "Satoshi fan", amount: 0.0012, currency: "BTC", date: "2026-11-21" },
+        { donor: "Alice", userId: "alice", amount: 25, currency: "USD", method: "gift card", date: "2026-11-22" },
+        { donor: "ada", amount: 0.01, currency: "ETH", date: "2026-11-23" },
+      ],
+    );
+    expect(board.donors.map((d) => d.userId)).toEqual(["alice", "manual:ada", "manual:satoshi fan"]);
+    expect(board.donors[0]).toMatchObject({ name: "Alice", amounts: { SWARM: 10, USD: 25 }, donations: 2 });
+    expect(board.donors[1]).toMatchObject({ name: "Ada", amounts: { ETH: 0.06 }, donations: 2, lastAt: "2026-11-23T00:00:00.000Z" });
+    expect(board.totals).toEqual({ SWARM: 10, ETH: 0.06, BTC: 0.0012, USD: 25 });
+    expect(board.donationCount).toBe(5);
+  });
+
+  it("ignores entries with no name, currency or positive amount", () => {
+    const board = buildDonorLeaderboard([], [
+      { donor: "", amount: 5, currency: "USD", date: "2026-11-20" },
+      { donor: "Bob", amount: 0, currency: "USD", date: "2026-11-20" },
+      { donor: "Bob", amount: 5, currency: " ", date: "2026-11-20" },
+      { donor: "Bob", amount: Number.NaN, currency: "USD", date: "2026-11-20" },
+    ]);
+    expect(board.donors).toEqual([]);
+    expect(board.donationCount).toBe(0);
+  });
+
+  it("shows fiat with its symbol and small crypto amounts in full", () => {
+    expect(formatDonationAmounts({ USD: 25, BTC: 0.00012, SWARM: 3 })).toBe("3 SWARM · 0.00012 BTC · $25");
+  });
+});
