@@ -1,22 +1,13 @@
 # Known Issues
 
-## NPCs not embodied in world (BUGGED — DEFERRED)
+## ~~NPCs not embodied in world~~ (RESOLVED — Phase 7)
 
-NPC roster boots, scheduler ticks, `npcEngine.reanchorNpc` runs after the
-live peerId resolves — but no NPC bodies render in the scene.
-
-Markers were removed (false positives), so the world now correctly shows
-"nothing" instead of misleading resource spheres.
-
-Suspected: `BuilderBlockEngine` does not pick up the re-anchored block
-group, OR the body group is anchored to a frame the camera never visits.
-
-Re-open after Lab + Forge phases ship. Until then, the dev overlay (`?debug=npc`)
-shows a `NPC: BUGGED — embodiment disabled` banner so we stop chasing it
-from the visual layer.
-
-Relevant files: `src/components/brain/npc/NpcSwarmLayer.tsx`,
-`src/lib/world/wetWork.ts`.
+NPC embodiment shipped. `src/components/brain/npc/NpcSwarmLayer.tsx`
+subscribes to `npcRegistry` and renders each NPC as a real builder-block body
+(`BuilderBlockView`); motion comes from the NPC scheduler updating the
+registry and body blocks. It is mounted in `BrainUniverseScene` as part of
+the village (`<NpcSwarmLayer anchorPeerId={SHARED_VILLAGE_ANCHOR_ID} />`).
+The `NPC: BUGGED — embodiment disabled` debug banner no longer exists.
 
 ---
 

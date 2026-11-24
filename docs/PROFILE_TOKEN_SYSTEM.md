@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Profile Token System is a user-owned token economy built on the SWARM blockchain, allowing creators to deploy personal tokens that unlock gradually as they contribute to the platform. These tokens serve as a reputation and reward mechanism that can be locked into NFT posts, creating a unique content monetization model.
+The Profile Token System is a user-owned token economy built on the SWARM blockchain, allowing creators to deploy personal tokens that unlock gradually as they contribute to the platform. In the app these are called **Creator Tokens** (Wallet → **Creator** tab). Each token gets its own Creator Vault and market, and creators can charge for walled (paywalled) posts in their token.
 
 ---
 
@@ -10,13 +10,13 @@ The Profile Token System is a user-owned token economy built on the SWARM blockc
 
 ### 1. Token Deployment
 
-**Deployment Cost:** 100 SWARM credits
+**Deployment Cost:** 25 credits + 5 SWARM at the baseline (`CREATOR_TOKEN_DEPLOY_COST`, `CREATOR_TOKEN_SWARM_DEPLOY_COST` in `src/lib/blockchain/types.ts`). The live price comes from `getDeployPricing()` (`deployPricing.ts`): the baseline applies at a community pool of 100 SWARM or less, and both amounts scale linearly as the pool grows past that.
 
-**Initial Supply:** 1,000 tokens  
+**Initial Supply:** 4,000 tokens (40% of max, `CREATOR_TOKEN_INITIAL_UNLOCK_FRACTION = 0.4`)  
 **Maximum Supply:** 10,000 tokens
 
 **Requirements:**
-- Sufficient credit balance (100 credits minimum)
+- Sufficient credits and SWARM for the live deployment price
 - Unique ticker symbol (3-5 uppercase letters)
 - Token name and optional metadata (description, image)
 
@@ -35,23 +35,26 @@ deployProfileToken({
 
 **Blockchain Transaction:**
 - Type: `profile_token_deploy`
-- Fee: 100 SWARM
-- Initial allocation: 1,000 tokens to creator's wallet
+- Fee: the live credit price is deducted, and the SWARM fee is locked into the token's Creator Vault (40 / 40 / 15 / 5 split: buyback, stability, creator, community)
+- Initial allocation: `CREATOR_TOKEN_INITIAL_CREATOR_SEED` = 100 tokens minted to the creator's wallet as the vault's first sale
 
 ---
 
 ### 2. Gradual Supply Unlocking
 
-**Unlock Mechanism:**
-- 10 tokens unlocked per 1 credit earned
-- Automatic calculation based on credits earned since deployment
+**Unlock Mechanism** (`src/lib/blockchain/profileTokenUnlock.ts`, `UNLOCK_RATE_VERSION = "2026-07-v2"`):
+- 40% of max supply is unlocked at deployment
+- The remaining 60% unlocks at 0.1 tokens per credit earned (100 tokens per 1,000 credits)
+- Automatic calculation based on credits earned since the unlock baseline
 - Maximum cap: 10,000 tokens
 
 **Unlock Formula:**
 ```typescript
-tokensUnlocked = creditsEarnedSinceDeployment × 10
-currentSupply = min(initialSupply + tokensUnlocked, maxSupply)
+tokensUnlocked = floor((currentCredits - unlockBaseline) × 0.1)
+currentSupply = min(supply + tokensUnlocked, maxSupply)
 ```
+
+**Rate migration:** the first time a token is checked under `2026-07-v2`, its `unlockBaseline` is reset to the current credit balance, so tokens deployed under the older rate start earning from that moment instead of back-filling.
 
 **Credit Earning Opportunities:**
 - Post creation: +1 credit
@@ -83,8 +86,9 @@ getTokenUnlockProgress(userId) → {
 **Redeployment Rules:**
 - Tokens can be renamed/redeployed ONLY if never used to lock an NFT post
 - Once a token is used to lock content, it becomes permanent
-- Redeployment does NOT incur additional deployment fee
-- Supply resets to initial 1,000 tokens on redeploy
+- Redeployment charges the current deployment price again
+- Supply resets to the initial 4,000 tokens on redeploy
+- A permanently closed token cannot be redeployed
 
 **Usage Tracking:**
 ```typescript
@@ -105,7 +109,16 @@ if (existing && await hasProfileTokenBeenUsed(userId, tokenId)) {
 
 ---
 
-### 4. NFT Post Creation with Token Locking
+### 4. Walled Posts (live) and Legacy NFT Post Locking
+
+**Walled posts (live path):** the post composer at `/create` has a **Lock Post** toggle that puts content behind an encrypted paywall (`src/lib/blockchain/walledPost.ts`):
+- Lock: a 5 SWARM processing fee, payable in SWARM, a sub-chain coin (2:1) or a creator token (10:1)
+- Unlock: viewers pay the creator-set price in the creator's token
+- Extract: the owner extracts payments, after which the post becomes community-unlocked
+
+**Hype:** post hype is credit-based (`hymePost` in `src/lib/credits.ts`): 5 credits by default, 20% burned, the rest paid to the post's author as credits. It does not mint profile tokens.
+
+**Legacy NFT post locking:** the library below (`src/lib/blockchain/nftPost.ts`) still exists, but its `NFTPostCreator` component is not mounted anywhere in the app, so users cannot create these posts today. Kept for reference.
 
 **Lock Mechanism:**
 - Users lock 1-100 of their profile tokens into NFT posts
@@ -118,10 +131,6 @@ if (existing && await hasProfileTokenBeenUsed(userId, tokenId)) {
 - Title and content fields
 - Optional media attachments
 
-**Reward System:**
-- When users "hype" an NFT post: +1 profile token reward to hyper
-- Hype cost: 5 SWARM credits (20% burned)
-- Creates engagement loop between creators and supporters
 
 **NFT Post Structure:**
 ```typescript
@@ -207,15 +216,18 @@ ProfileTokenHolding {
 
 ### Input Validation
 - Ticker format: `/^[A-Z]{3,5}$/`
-- Amount ranges: 1-100 for NFT locks
+- Amount ranges: 1-100 for legacy NFT locks
 - Credit balance checks before operations
 - Ownership verification for all actions
 
 ### Balance Checks
 ```typescript
-// Deployment
-if (balance < PROFILE_TOKEN_DEPLOYMENT_COST) {
+// Deployment (live price from getDeployPricing())
+if (balance < pricing.creatorTokenCredits) {
   throw new Error("Insufficient credits");
+}
+if (swarmBalance < pricing.creatorTokenSwarm) {
+  throw new Error("Insufficient SWARM");
 }
 
 // NFT Creation
@@ -234,34 +246,25 @@ if (holdings.amount < tokensToLock) {
 ## User Flows
 
 ### Creator Flow: Token Deployment
-1. Navigate to Wallet → Profile Token tab
-2. Click "Deploy Profile Token"
-3. Enter name, ticker, description, image
-4. System validates 100 credit balance
-5. Transaction broadcast to blockchain
-6. 1,000 tokens added to creator's holdings
+1. Navigate to Wallet → **Creator** tab
+2. Click **Deploy Token**
+3. Enter name, ticker (3-5 letters) and optional description
+4. System validates credits and SWARM against the live price (baseline 25 credits + 5 SWARM)
+5. SWARM fee locked into the Creator Vault; credits deducted
+6. 4,000 tokens unlocked as supply; 100 tokens added to the creator's holdings
 7. Unlock state initialized with current credits
 
-### Creator Flow: Creating NFT Posts
-1. Verify profile token deployment and balance
-2. Navigate to NFT Post Creator
-3. Enter title, content, tokens to lock (1-100)
-4. System validates token ownership
-5. NFT minted on blockchain
-6. Tokens burned from creator's supply
-7. Post visible in feeds and profile
-
-### User Flow: Earning Profile Tokens
-1. User "hypes" NFT post (costs 5 credits)
-2. System rewards +1 profile token to user
-3. Token added to user's holdings
-4. User can now create their own NFT posts with earned tokens
+### Creator Flow: Walling a Post
+1. Open `/create` and write the post
+2. Turn on **Lock Post** and set the unlock price in your creator token
+3. Choose the asset that pays the 5 SWARM processing fee
+4. Post is locked before broadcast, so peers receive it already walled
 
 ### Automatic Unlock Flow
 1. User earns credits through platform activity
-2. On wallet load (every 5 seconds):
-   - System calculates credits earned since deployment
-   - Unlocks 10 tokens per credit earned
+2. On each unlock check:
+   - System calculates credits earned since the unlock baseline
+   - Unlocks 0.1 tokens per credit earned
    - Updates supply and holdings
    - Logs unlock event
 3. User sees increased supply in wallet
@@ -361,15 +364,15 @@ if (holdings.amount < tokensToLock) {
 ## Economic Model
 
 ### Token Scarcity Mechanics
-1. **Initial Scarcity**: Only 1,000 tokens available at deployment
-2. **Earned Scarcity**: Unlock gated by platform contribution
-3. **Burn Mechanism**: NFT post locks permanently reduce supply
-4. **Hype Rewards**: New token distribution through engagement
+1. **Initial Supply**: 4,000 tokens (40%) available at deployment
+2. **Earned Scarcity**: The remaining 60% unlocks at 0.1 tokens per credit
+3. **Vault Backing**: Deployment fees and sales flow into the Creator Vault (40 / 40 / 15 / 5)
+4. **Paywall Demand**: Walled posts are unlocked by paying in the creator's token
 
 ### Deflationary Pressure
 - 20% of SWARM hype payments burned
 - 0.3 SWARM daily burn per user (quantum metrics)
-- Profile tokens burned on NFT lock (not recoverable)
+- Profile tokens burned on legacy NFT lock (no UI path today)
 
 ### Value Accrual
 - Token value tied to creator reputation
@@ -455,8 +458,8 @@ LIMIT 10;
 
 ### Common Issues
 
-**"Insufficient credits" on deployment**
-- Verify user has 100+ credits
+**"Insufficient credits" / "Insufficient SWARM" on deployment**
+- Verify the user has the live price (baseline 25 credits + 5 SWARM; scales with the community pool)
 - Check `creditBalances` store
 - Review transaction history
 
@@ -468,7 +471,7 @@ LIMIT 10;
 **Supply not increasing**
 - Check `tokenUnlockStates` exists for token
 - Verify credits earned since deployment
-- Ensure wallet is being refreshed (5s interval)
+- Tokens deployed before `2026-07-v2` reset their baseline on first check, so unlocks restart from that point
 
 **Holdings not showing**
 - Check `profileTokenHoldings` store

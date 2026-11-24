@@ -25,12 +25,12 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 
 ## 🌟 Core Capabilities
 
-- **Encrypted Identities & Three-Factor Recovery** — ECDH P-256 keypairs, AES-256-GCM encryption, and a hardened recovery system requiring three factors: a human-readable recovery key (`SWRM-XXXX`), a personal passphrase (salt), and your account password. No single factor alone reveals anything.
+- **Encrypted Identities & Sovereign Recovery Vault** — ECDH P-256 keypairs, AES-256-GCM encryption, and a recovery vault: your local password wraps the key on your device, while an outer-shell passphrase seals a signed, versioned envelope that mesh peers hold for you but cannot read.
 - **Encrypted Sync Pipeline** — Posts, comments, and files are encrypted client-side, chunked, and broadcast to all connected peers via a wired broadcast protocol. Peer identity is resolved from the mesh node (not localStorage), ensuring correct chunk attribution.
 - **Content Pipeline** — Upload files, chunk and encrypt them client-side (64 KB chunks, unique IVs, SHA-256 addressing), and attach manifests to posts. Torrented files show live seeder counts.
 - **Posts, Projects & Tasks** — Capture updates on the feed, organise work into projects, manage kanban boards and milestones. Local posts queued offline sync automatically when the mesh reconnects.
 - **Virtual Hub & Builder Bar** — Every project owns a walkable 3D room; members can drag walls, doors, windows, roofs, and floor tiles from a Sims-style Builder Bar with magnetic edge-snapping. Pieces persist on the project and sync to peers.
-- **Credits, Mining & Token Economy** — Earn genesis credits, mine SWRM tokens, tip peers, deploy profile tokens, wrap credits on-chain, and trade across chains. The on-device blockchain records everything as signed NFT transactions.
+- **Credits, Mining & Token Economy** — Earn genesis credits, mine SWARM, tip peers, deploy creator tokens, engrave content onto mined coins, run private cell chains, and swap across chains. The on-device blockchain records everything as signed NFT transactions.
 - **Streaming & Video Rooms** — Live streaming with WebRTC, room discovery, recording, and invite flows — all peer-to-peer.
 - **Verification & Achievements** — Human verification via entropy games, achievement badges, and medal systems that reward genuine participation.
 - **Moderation & Content Safety** — Automated scoring, alert dashboards, blocklists with persistence, and community-driven content moderation.
@@ -51,7 +51,7 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 
 - **PeerJS** — WebRTC signaling and data channels for real-time encrypted content exchange
 - **Gun.js** — Mesh recovery and decentralized state synchronization
-- **WebTorrent** — Distributed file swarming with adaptive chunking, seeder tracking, and stress monitoring
+- **WebTorrent-style swarming** — File chunking and seeding over the mesh's own WebRTC data channels (no external DHT or trackers), with seeder tracking and stress monitoring
 - **Rendezvous Beacons** — Bootstrap discovery for new nodes joining the network
 
 ### Connection Intelligence
@@ -74,15 +74,16 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 - **Transport** — End-to-end encrypted P2P transfers; Ed25519 presence tickets. Signaling metadata (offers, answers, ICE candidates) is envelope-encrypted with ephemeral ECDH key exchange so PeerJS relay servers see only ciphertext.
 - **Storage** — Everything persists in IndexedDB with encrypted-at-rest guarantees
 
-### Three-Factor Recovery (v2)
+### Sovereign Recovery Vault
 
-Recovery requires all three factors — intercepting any single one is useless:
+Two keyholes, never the same lock (`src/lib/backup/recoveryVault.ts`, `src/lib/backup/vaultCustody.ts`):
 
-1. **Recovery Key** (`SWRM-XXXX-...`) — HMAC-derived lookup tag stored on the mesh
-2. **Recovery Phrase** — User-chosen passphrase that salts the PBKDF2 derivation (250,000 iterations)
-3. **Account Password** — Decrypts the AES-256-GCM encrypted identity payload
+1. **Local account password** — wraps the identity key on this device only. It never leaves the browser.
+2. **Outer shell** — sealed with either the account password (the default at signup) or a separate **Recovery Passphrase**. Peers hold only AES-256-GCM ciphertext (PBKDF2-SHA-256, 250,000 iterations, random salt).
 
-Legacy accounts using the older passphrase system can migrate to the hardened protocol through Settings → Security.
+Shell versions are monotonic and signed by the identity key, so a newer shell replaces stale copies everywhere and only the owner can publish one. To recover, open your recovery link (`/recover?id=…&v=…&peer=…`) on a new device; it asks connected peers for your highest signed envelope and opens it locally with your passphrase. Manage the vault under **Settings → Security → Sovereign Identity**.
+
+Two devices can also be merged with the **Sovereign Account Merge** handshake (`src/lib/p2p/mergeProtocol.ts`): a short code that never crosses the wire, proved on each side with an HMAC.
 
 ### Hardening & Residual Risk
 

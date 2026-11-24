@@ -49,11 +49,11 @@ Earn **SWARM tokens** (credits) by contributing to the network:
 - **+1 credit** per achievement unlocked
 - **Mining rewards** for network participation
 
-### 🎨 Profile Tokens & NFTs
-- **Deploy your own profile token** (max 10,000 supply)
-- **Create NFT posts** locked with your tokens
-- **Earn rewards** when others "hype" your NFT content
-- **Trade tokens** with other users (coming soon)
+### 🎨 Creator Tokens & NFTs
+- **Deploy your own creator token** (max 10,000 supply, 40% unlocked at launch)
+- **Wall a post** behind an encrypted paywall that viewers unlock with your token
+- **Earn credits** when others "hype" your posts
+- **Open a Market** for your token, backed by your Creator Vault
 
 ### 🏆 Achievements & Badges
 Unlock badges by:
@@ -67,10 +67,10 @@ View your achievements as collectible NFTs in your wallet!
 ### 💼 Wallet Dashboard
 Your personal blockchain hub:
 - **View SWARM balance** and transaction history
-- **Manage profile tokens** and NFT holdings
-- **Track rewards** from mining and contributions
-- **Wrap credits** into SWARM tokens via the rewards pool
-- **Donate to the pool** to help the network grow
+- **Manage creator tokens** and NFT holdings
+- **Track rewards** from mining and labour
+- **Engrave coins** with your content and see labour payouts
+- **Donate SWARM to the Market Vault** to deepen liquidity
 - **Self-stabilizing chain** — the network now resolves chain disagreements
   by picking the version that fits the swarm's living field, not just the
   longest one. You'll see fewer wallet "jumps" when peers reconnect.
@@ -99,12 +99,13 @@ Your personal blockchain hub:
    - Everything stays on your device
 
 2. **Explore the Feed**
-   - Browse recent posts from the network
-   - Switch between "All", "Following", and "Local" tabs
+   - Open **Explore** to browse posts synced from the network
+   - Switch between the **Most Recent**, **Trending**, **People**, and **Projects** tabs
+   - Want only your own posts? Turn on **My Content Only** in the Node Dashboard's SWARM panel
    - React and comment on content you like
 
 3. **Make Your First Post**
-   - Click "Create Post" from your profile
+   - Open **Create** (`/create`)
    - Write your thoughts, add images or files
    - Post and earn your first credit!
 
@@ -129,8 +130,9 @@ Your personal blockchain hub:
 
 **Post Regularly**: Each post earns +1 credit
 ```
-Create → Post → Earn Credit → Auto-converts to SWARM
+Create → Post → Earn Credit
 ```
+Credits and SWARM are separate balances: new SWARM only enters the chain as block rewards from mining.
 
 **Engage with Community**: Comments earn +0.2 credits (max 2/day)
 
@@ -140,47 +142,50 @@ Create → Post → Earn Credit → Auto-converts to SWARM
 
 **Unlock Achievements**: Each achievement badge earns +1 credit
 
-### Deploying Your Profile Token
+### Wallet Tabs at a Glance
 
-1. Go to **Wallet** (navigation menu or top bar)
-2. Find the **"Profile Token"** section
-3. Click **"Deploy Profile Token"**
-4. Enter token name and symbol
-5. Pay deployment cost (1,000 SWARM)
-6. Your token is created!
-   - Initial supply: 1,000 tokens
-   - Unlocks gradually as you earn credits (10 tokens per credit)
+| Tab | What it's for |
+|-----|---------------|
+| **Assets** | Balances for SWARM, coins, and tokens on the selected chain |
+| **Ledger** | One history of credits, SWARM, and every other asset |
+| **Labor** | Coin engraving, sealed coins, and labour payouts from harvesting, building, and NPC work |
+| **NFTs** | Creator token holdings and your NFT collection |
+| **Mining** | Mining status for the active chain |
+| **Swap** | Cross-chain swaps (sub-chain ↔ sub-chain 1:1, to SWARM 2:1) |
+| **Creator** | Deploy or manage your creator token and its vaults |
+| **Chain** | Deploy your own coin (sub-chain) |
+| **Market** | Coin market and the **Support the Vault** donation card |
+
+### Deploying Your Creator Token
+
+1. Go to **Wallet** → **Creator** tab
+2. Click **"Deploy Token"**
+3. Enter a token name, a 3–5 letter ticker, and an optional description
+4. Pay the deployment cost: **25 credits + 5 SWARM** at the baseline (a community pool of 100 SWARM). The price scales up linearly as the pool grows, and the dialog shows the live price.
+5. Your token is created!
+   - 40% of max supply (4,000 tokens) is unlocked at deployment
+   - The 5 SWARM fee seeds your Creator Vault as the first sale and mints 100 tokens into your wallet
+   - The remaining 60% unlocks as you earn credits: 0.1 tokens per credit (100 tokens per 1,000 credits)
    - Max supply: 10,000 tokens
 
-### Creating an NFT Post
+### Walling a Post (Paywall)
 
-1. In your **Wallet**, find **"NFT Post Creator"**
-2. Upload an image or enter post content
-3. Choose how many profile tokens to lock (1-100)
-4. Create your NFT post
-5. It appears in feeds—others can "hype" it
-6. When hyped, you gain +1 profile token as reward
+1. Open **Create** (`/create`)
+2. Write your post and turn on **Lock Post** ("Place content behind an encrypted paywall")
+3. Set the unlock price, charged in your creator token
+4. Pay the 5 SWARM processing fee (you can pay with SWARM, a coin, or a token; non-SWARM assets are charged at their ratio to SWARM)
+5. Viewers pay your unlock price to read it
 
-### Wrapping Credits to SWARM
+### Hyping Posts
 
-Credits earned from posting/commenting must be **wrapped** to become spendable SWARM:
+Hyping a post costs credits (5 by default). 20% is burned and the rest goes to the post's author as credits.
 
-1. Go to **Wallet** → **"Credit Wrapping"** tab
-2. See your unwrapped credit balance
-3. Click **"Wrap Credits"**
-4. Credits convert to SWARM from the rewards pool
-   - First-come, first-served from pool
-   - If pool is low, you may need to wait or donate
+### Supporting the Market Vault
 
-### Donating to Rewards Pool
-
-Help the network by donating SWARM to the rewards pool:
-
-1. **Wallet** → **"Mining & Rewards"** tab
-2. Enter donation amount
-3. Click **"Donate to Pool"**
-4. Your donation syncs across the mesh
-5. Other users can wrap credits using your donation
+1. **Wallet** → **Market** tab
+2. Find the **Support the Vault** card
+3. Enter a SWARM amount and donate
+4. Deeper vault liquidity means tighter spreads for everyone on the mesh
 
 ---
 
@@ -255,7 +260,7 @@ Non-members see the built world but can't enter Build Mode.
 ### Maximize Your Earnings
 - **Post daily** to earn consistent credits
 - **Engage authentically**—comment on posts you care about
-- **Deploy a profile token** to participate in NFT economy
+- **Deploy a creator token** to open your own market
 - **Keep the app running** to mine SWARM passively
 
 ### Build a Strong Profile
@@ -265,10 +270,10 @@ Non-members see the built world but can't enter Build Mode.
 - **Follow users** whose content you enjoy
 
 ### Protect Your Account
-- **Backup your keys**: Settings → Account Recovery
-- **Export your identity** and save it somewhere safe
-- **Never share** your recovery phrase
-- **Your keys = Your identity**—lose them, lose access
+- **Seal your recovery vault**: Settings → Security → Sovereign Identity
+- **Set a separate Recovery Passphrase** so your vault isn't opened by your local password
+- **Never share** your recovery passphrase
+- **Your keys = Your identity**—lose them and your passphrase, lose access
 
 ### Collaborate Effectively
 - **Create projects** to organize team work
@@ -278,7 +283,7 @@ Non-members see the built world but can't enter Build Mode.
 
 ### Grow the Network
 - **Stay connected** when possible to relay data
-- **Donate to rewards pool** to help others wrap credits
+- **Donate to the Market Vault** to deepen liquidity
 - **Share Swarm Space** with friends
 - **Be active**—the network thrives on participation
 
@@ -298,24 +303,19 @@ Non-members see the built world but can't enter Build Mode.
 - Posts sync automatically when peers connect
 
 ### "Wallet shows 0 SWARM but I have credits"
-- **Credits ≠ SWARM**: You must **wrap** credits to convert them
-- Go to Wallet → Credit Wrapping
-- Check if rewards pool has balance
+- **Credits ≠ SWARM**: they are separate balances, and there is no credit-to-SWARM wrap button
+- SWARM comes from mining block rewards (you keep 95%, 5% goes to the community pool)
+- Check the **Mining** tab: mining needs an active SWARM Mesh connection with peers
 
-### "Profile token deployment failed"
-- Ensure you have 1,000 SWARM for deployment cost
-- Make sure token name is unique
+### "Creator token deployment failed"
+- Ensure you have enough credits and SWARM for the live price shown in the dialog (baseline 25 credits + 5 SWARM)
+- A token can only be redeployed if it has never been used
 - Try refreshing and redeploying
 
-### "Can't wrap credits"
-- Rewards pool may be empty
-- Wait for mining rewards to fill the pool
-- Or donate SWARM to the pool yourself
-
 ### "Lost my identity/keys"
-- If you exported your recovery phrase: Import it in Settings
-- If you didn't: Unfortunately, the identity is unrecoverable
-- **Always backup your keys!**
+- If you sealed a recovery vault: open your recovery link (`/recover?id=…`) on the new device, connect to a peer holding your vault, and enter your recovery passphrase
+- If you did neither: Unfortunately, the identity is unrecoverable
+- **Always seal your vault!**
 
 ---
 
@@ -323,7 +323,7 @@ Non-members see the built world but can't enter Build Mode.
 
 ### For Creators
 - Share your art, writing, music
-- Monetize with NFT posts
+- Monetize with walled posts and your creator token
 - Build a following without platform fees
 - Own your content forever
 
@@ -403,7 +403,7 @@ This is more than a platform—it's a movement toward **digital sovereignty**.
 1. **Create your first post** and earn your first credit
 2. **Explore trending content** and meet the community  
 3. **Start a project** and organize your ideas
-4. **Deploy your profile token** and enter the token economy
+4. **Deploy your creator token** and enter the token economy
 5. **Help the network** by staying connected and participating
 
 **Welcome to Swarm Space—where you are the network.**

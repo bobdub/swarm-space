@@ -6,7 +6,7 @@ SWARM (Swarm-Space) is a custom proof-of-work blockchain built for decentralized
 
 **Chain Name:** Swarm-Space  
 **Native Token:** SWARM  
-**Consensus:** Proof of Work (PoW)  
+**Consensus:** SHA-256 Proof of Work on 30 s beats, with v2 signed headers, golden-ratio mining spots, signed endorsements/checkpoints, and UQRC-scored fork choice (see [Current Consensus & Execution](#current-consensus--execution-2026))  
 **Distribution:** P2P Mesh Network  
 **Storage:** Local-first IndexedDB  
 **Genesis Block:** Dynamic (per user node)
@@ -223,6 +223,20 @@ const SWARM_CONFIG = {
 };
 ```
 
+### Current Consensus & Execution (2026)
+
+The `SWARM_CONFIG` values above are still live (`src/lib/blockchain/types.ts`): SHA-256 PoW at difficulty 4, a 50 SWARM reward halving every 210,000 blocks, 21M max supply. The classic loop described below is the core, but the chain now layers several rules on top:
+
+- **30-second beats** — one counted block per `CADENCE_SPACING_MS = 30_000` (`chainCatchup.ts`).
+- **v2 signed block headers** (`blockHeader.ts`) — version, epoch, tick, producer, clock session and difficulty are hashed with the block, and the producer signs the finished hash with the identity key from their vault. Required from the new-rules cutoff.
+- **Golden-ratio manifold scheduling** (`manifold.ts`) — each miner gets a spot on a Fibonacci lattice within the first 80% of a beat and starts work when the beat reaches it, so miners don't all race at the beat's first moment. Spots shift by one step each beat. They decide when an honest miner starts, not what is valid.
+- **Bitcoin-style issuance** (`issuance.ts`) — the single `mining_reward` in each block is the only way new SWARM enters the chain; 95% goes to the miner and 5% (`POOL_REWARD_SHARE`) to the community pool, and rewards mature after 20 blocks.
+- **Endorsements, witnesses and checkpoints** (`endorsements.ts`, `witnesses.ts`) — peers sign at most one block per height; a block whose child records agreements from a majority of eligible voters becomes a checkpoint that peers never abandon.
+- **Fork choice** — `p2pSync.ts` calls `resolveFork()` from `chainHealthBridge.ts` (curvature-scored, see [UQRC Field Coupling](#uqrc-field-coupling-implemented-2026-04)) instead of a pure longest-chain rule, and `chainCatchup.ts` sends returning peers only the blocks they lack.
+- **Multi-chain** (`multiChainManager.ts`, `coinDeployment.ts`) — users can deploy their own coin (sub-chain) and switch the active chain; mining targets only the active chain.
+- **Private cell chains** (`src/lib/blockchain/cellChain/`) — every User Cell is its own chain with its own coin, mined only by members on the cell's signed roster under the shared chain's rules (same PoW difficulty, 30 s beats, v2 headers, reward size and halving, 95/5 split, 20-block maturity). Mining a cell never creates SWARM.
+- **MintMe worker mining** (`src/lib/blockchain/mintmeMiner/`) — a separate, opt-in miner (switched on from the Node Dashboard) that hashes MintMe's Lyra2v2-Webchain in a client worker using a bundled C→WASM engine (`public/wasm/lyra2v2.wasm`, fetched only after the hydrated mining service starts it) over a stratum bridge, for community MintMe custody and payouts. It does not produce SWARM blocks.
+
 ### Mining Process
 
 **1. Start Mining:**
@@ -321,13 +335,9 @@ totalSupply = Σ(mining_rewards) + Σ(token_mints) - Σ(token_burns)
 circulatingSupply = totalSupply - lockedTokens - burnedTokens
 ```
 
-### Credit-Token Equivalence
+### Credits vs. SWARM
 
-**1 Credit = 1 SWARM Token**
-
-All credit operations are mirrored on the blockchain:
-- Earning credits → Token mint
-- Spending credits → Token transfer
+Credits and SWARM are separate balances. Credits are earned for activity (posts, comments, achievements) and spent on things like hype and creator-token deployment. New SWARM only enters the chain through block `mining_reward`s (`issuance.ts`); self-issued `token_mint`s are not accepted from other devices. The legacy credit-wrap queue in `creditWrapping.ts` (100 credits → 1 SWARM) has no UI entry point.
 - Burning credits → Token burn
 
 ### Deflationary Mechanisms
@@ -496,12 +506,12 @@ const nft = await getNFTMetadata(tokenId);
 See [`PROFILE_TOKEN_SYSTEM.md`](./PROFILE_TOKEN_SYSTEM.md) for comprehensive documentation.
 
 **Quick Reference:**
-- Deployment cost: 100 SWARM
-- Initial supply: 1,000 tokens
+- Deployment cost: 25 credits + 5 SWARM at baseline (scales with the community pool; see `deployPricing.ts`)
+- Initial supply: 4,000 tokens (40% of max)
 - Max supply: 10,000 tokens
-- Unlock rate: 10 tokens per credit earned
-- Redeployment: Allowed only if never used
-- NFT lock range: 1-100 tokens per post
+- Unlock rate: 0.1 tokens per credit earned (100 per 1,000 credits)
+- Redeployment: Allowed only if never used (charges the deployment price again)
+- Monetization: walled posts priced in the creator token
 
 ---
 
@@ -1088,8 +1098,8 @@ events to the UQRC field on the **reward axis (μ=2)**:
 **Wiring:**
 - `chain.ts` → calls `recordBlockAccepted()` after successful append.
 - `p2pSync.ts` → calls `resolveFork()` instead of length comparison.
-- `hybridOrchestrator.ts` → forwards adopted peer blocks/chains to local
-  state (previously `undefined` callbacks dropped the events).
+- (`hybridOrchestrator.ts` used to forward adopted peer blocks here; it was
+  retired with the hybrid P2P layer in 2026-04.)
 - `main.tsx` → calls `bootstrapChainBridge(getSwarmChain().getLatestBlock())`
   at boot to pin the existing tip.
 
