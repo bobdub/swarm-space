@@ -1,9 +1,7 @@
 import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFrame, useThree } from '@react-three/fiber';
-import { BrainCanvas } from './BrainCanvas';
-import { setScreenViewerOpen } from '@/lib/brain/screenViewerOpen';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { ArrowLeft, MessageSquare, Compass } from 'lucide-react';
 import { Mic, MicOff, Volume2, VolumeX, Video, VideoOff, MonitorUp, MonitorOff } from 'lucide-react';
@@ -2630,8 +2628,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       </div>
 
       {/* 3-D scene */}
-      {ready && <BrainCanvas
-        // Pauses itself while a screen share is open full size.
+      {ready && <Canvas
+        // The world keeps running behind a full-size screen share. Pausing
+        // and resuming it on every open and close stalled the browser.
         dpr={canvasDpr}
         camera={{ position: initialCameraPosition, fov: 60, near: 0.1, far: 50000 }}
         gl={{ antialias: true, alpha: false }}
@@ -2710,7 +2709,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         {selfId && <SelfAvatarBody selfId={selfId} username={user ? brainDisplayName(user) : 'You'} />}
         </Suspense>
         <RenderGovernorProbe />
-      </BrainCanvas>}
+      </Canvas>}
 
       {/* Video grid — pops down beneath the camera button */}
       {ready && (
@@ -2722,7 +2721,6 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           cameraOn={cameraOn}
           localScreenStream={screenStream}
           nameByPeerId={voiceNameByPeerId}
-          onExpandedChange={setScreenViewerOpen}
         />
       )}
 

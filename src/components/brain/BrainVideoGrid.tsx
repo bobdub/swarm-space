@@ -14,8 +14,6 @@ interface BrainVideoGridProps {
   localScreenStream?: MediaStream | null;
   /** Names resolved from Brain presence, keyed by peer id. */
   nameByPeerId?: Record<string, string>;
-  /** Called when a screen opens or closes full size. */
-  onExpandedChange?: (open: boolean) => void;
 }
 
 interface Tile {
@@ -144,7 +142,6 @@ export function BrainVideoGrid({
   cameraOn,
   localScreenStream = null,
   nameByPeerId,
-  onExpandedChange,
 }: BrainVideoGridProps) {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
@@ -219,12 +216,6 @@ export function BrainVideoGrid({
     if (expandedKey && !tiles.some((t) => t.key === expandedKey)) setExpandedKey(null);
   }, [expandedKey, tiles]);
 
-  const isOpen = expanded !== null;
-  useEffect(() => {
-    onExpandedChange?.(isOpen);
-  }, [isOpen, onExpandedChange]);
-  // Closing on unmount too, so the scene never stays paused.
-  useEffect(() => () => onExpandedChange?.(false), [onExpandedChange]);
 
   if (tiles.length === 0) return null;
 
