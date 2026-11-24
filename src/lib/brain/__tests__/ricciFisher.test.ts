@@ -107,3 +107,24 @@ describe('Ollivier-Ricci curvature', () => {
     expect(buildBypass(g, T('k0'), T('k1'), 0)).toBe(0);
   });
 });
+
+describe('review fixes', () => {
+  it('keeps no Fisher information for nodes trimmed away', () => {
+    const g = new SynapseGraph();
+    for (let i = 0; i < 1000; i++) g.observe({ topics: ['hub', `t${i}`], amount: i < 30 ? 5 : 0.1, natural: true }, 0);
+    const snap = g.toJSON();
+    const nodes = new Set(snap.links.flatMap((l) => [l.a, l.b]));
+    expect(g.size.nodes).toBeLessThan(30);
+    for (let i = 0; i < 1000; i++) {
+      if (!nodes.has(T(`t${i}`))) expect(g.information(T(`t${i}`), 0)).toBe(0);
+    }
+  });
+
+  it('scans topic bottlenecks even when peer links are stronger', () => {
+    const g = barbell();
+    for (let i = 0; i < 100; i++) g.reinforce(nodeId('peer', `p${i}`), nodeId('coin', `c${i}`), 5, 0);
+    const r = ricciScan(g, 0);
+    expect(r.scanned).toBeGreaterThan(0);
+    expect(r.bottlenecks).toHaveLength(1);
+  });
+});

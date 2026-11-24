@@ -223,6 +223,9 @@ export class SynapseGraph {
   }
 
   private addInformation(id: string, amount: number, now: number): void {
+    // A node trimmed away during this observation keeps no information, so
+    // the Fisher map never outgrows the graph.
+    if (!this.adjacency.has(id)) return;
     const e = this.fisher.get(id);
     const prev = e ? decayed(e.f, now - e.at) : 0;
     this.fisher.set(id, { f: prev + amount, at: Math.max(now, e?.at ?? now) });

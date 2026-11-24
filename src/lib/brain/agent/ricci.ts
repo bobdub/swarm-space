@@ -133,7 +133,9 @@ export function ricciScan(
   const cache: Neighbourhoods = new Map();
   const result: RicciScanResult = { scanned: 0, bottlenecks: [], bypasses: 0, outOfTime: false };
   // Measure first, then build, so new bypasses do not skew this scan.
-  const candidates = graph.strongest(budget * 2, now)
+  // Filter to topic links before limiting, so heavy peer or coin activity
+  // can never crowd every topic link out of the scan.
+  const candidates = graph.strongest(Number.MAX_SAFE_INTEGER, now)
     .filter((l) => nodeKind(l.a) === 'topic' && nodeKind(l.b) === 'topic')
     .slice(0, budget);
   for (const l of candidates) {
