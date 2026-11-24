@@ -1,5 +1,6 @@
 import { getAll, get, put } from "../store";
 import { isPostUnsupported } from "../content/unsupportedPostsStore";
+import { isAuthorBlocked } from "../content/blockedNodeContent";
 import { getCurrentUser } from "../auth";
 import {
   getAchievementProgressRecord,
@@ -228,7 +229,7 @@ export class PostSyncManager {
 
       // Filter out local-only posts — they should never leave this node
       // ...and posts this node stopped supporting are never relayed.
-      const posts = allPosts.filter(p => !p._localOnly && !isPostUnsupported(p.id));
+      const posts = allPosts.filter(p => !p._localOnly && !isPostUnsupported(p.id) && !isAuthorBlocked(p.author));
 
       console.log(`[PostSync] 📤 Preparing to send ${posts.length} posts and ${projects.length} projects to peer ${peerId}`);
 
@@ -573,6 +574,8 @@ export class PostSyncManager {
     for (const rawPost of posts) {
       try {
         const post = applyBlogIdentity(rawPost);
+        // A blocked node's posts are never stored, so never seeded or relayed.
+        if (isAuthorBlocked(post.author)) continue;
 
         // Anti-resurrection + fadeout: refuse deleted posts and posts whose
         // author has faded here (unless favorited).

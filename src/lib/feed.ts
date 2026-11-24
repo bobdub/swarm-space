@@ -7,6 +7,7 @@ import { getEntangledUserIds } from "./entanglements";
 import { filterPostsByProjectMembership } from "./projects";
 import { isOwnPost, resolveLocalIdentity, type LocalIdentity } from "./content/ownContent";
 import { isPostUnsupported } from "./content/unsupportedPostsStore";
+import { isAuthorBlocked } from "./content/blockedNodeContent";
 
 export type FeedFilter = "all" | "following" | "local";
 
@@ -67,6 +68,7 @@ export function isPostVisibleForContentFilter(
   myContentOnly: boolean,
 ): boolean {
   if (isPostUnsupported(post.id)) return false;
+  if (isAuthorBlocked(post.author)) return false;
   if (myContentOnly && !isOwnPost(post, identity)) return false;
   return true;
 }

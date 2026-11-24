@@ -42,6 +42,7 @@ import {
   removeBlocklistEntry,
   type BlocklistEntry,
   type BlocklistDirection,
+  diffNodeBlocks,
 } from '@/lib/p2p/blocklistStore';
 import {
   getBlockPersistenceSnapshot,
@@ -383,6 +384,23 @@ export function resetMeshConnectedNotice(): void {
   meshConnectedAnnounced = false;
 }
 
+/**
+ * The SWARM mesh keeps its own block set; a full block from anywhere in the
+ * app (Brain chat, connections manager) must reach it so the node's
+ * connection is refused and its content is no longer supported.
+ */
+function applyNodeBlocksToMesh(previous: BlocklistEntry[], next: BlocklistEntry[], silent = false): void {
+  const { added, removed } = diffNodeBlocks(previous, next);
+  if (!added.length && !removed.length) return;
+  try {
+    const mesh = getSwarmMeshStandalone();
+    for (const id of added) if (!mesh.isBlocked(id)) mesh.blockPeer(id, { silent });
+    for (const id of removed) mesh.unblockPeer(id);
+  } catch (err) {
+    console.warn('[useP2P] Failed to apply node blocks to the mesh', err);
+  }
+}
+
 export function useP2P() {
   // Single source of auth truth — see src/hooks/useAuthReady.ts. Guarantees
   // every effect below sees the resolved user on the same render tick.
@@ -508,6 +526,7 @@ export function useP2P() {
         if (p2pManager) {
           p2pManager.setBlockedPeers(deriveBlockedPeerIds(entries));
         }
+        applyNodeBlocksToMesh([], entries, true);
       })
       .catch((error) => {
         console.warn('[useP2P] Failed to load persistent blocklist', error);
@@ -524,6 +543,7 @@ export function useP2P() {
       if (p2pManager) {
         p2pManager.setBlockedPeers(deriveBlockedPeerIds(next));
       }
+      applyNodeBlocksToMesh(previous, next);
       return next;
     });
   }, []);

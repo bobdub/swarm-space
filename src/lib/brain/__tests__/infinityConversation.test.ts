@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { NeuralStateEngine } from '../../p2p/neuralStateEngine';
 import { replyToInfinity, MAX_CONVERSATION_PROMPT } from '../infinityConversation';
 import { seedInfinityCanon } from '../infinityCorpus';
@@ -41,7 +41,7 @@ describe('Infinity profile conversation', () => {
     expect(seedInfinityCanon(learner, 'network-entity')).toBe(false);
     expect(learner.getExpressions()).toEqual(before);
   });
-  it('exchanges summaries without moving whole expressions, and retains imported vocabulary offline', () => {
+  it('exchanges summaries without moving whole expressions, and retains imported vocabulary offline', async () => {
     const a = new NeuralStateEngine();
     const b = new NeuralStateEngine();
     a.getDualLearning().languageLearner.ingestText('Botanicalknowledgexyz gardens bloom beautifully.', 1, 95);
@@ -49,9 +49,22 @@ describe('Infinity profile conversation', () => {
     expect(b.getDualLearning().languageLearner.exportVocab()).toHaveProperty('botanicalknowledgexyz');
     expect(b.getDualLearning().languageLearner.getExpressions()).toEqual([]);
     b.persistToStorage();
+    // The save is sliced across ticks, so it lands shortly after, not inline.
+    await vi.waitFor(() => {
+      const restored = new NeuralStateEngine();
+      restored.restoreFromStorage();
+      expect(restored.getDualLearning().languageLearner.exportVocab()).toHaveProperty('botanicalknowledgexyz');
+      expect(restored.getDualLearning().languageLearner.getExpressions()).toEqual([]);
+    });
+  });
+  it('flushes an owed save at once on page exit', () => {
+    localStorage.clear();
+    const a = new NeuralStateEngine();
+    a.getDualLearning().languageLearner.ingestText('Exitwordqrs gardens bloom beautifully.', 1, 95);
+    a.persistToStorage();
+    a.flushToStorage();
     const restored = new NeuralStateEngine();
     restored.restoreFromStorage();
-    expect(restored.getDualLearning().languageLearner.exportVocab()).toHaveProperty('botanicalknowledgexyz');
-    expect(restored.getDualLearning().languageLearner.getExpressions()).toEqual([]);
+    expect(restored.getDualLearning().languageLearner.exportVocab()).toHaveProperty('exitwordqrs');
   });
 });

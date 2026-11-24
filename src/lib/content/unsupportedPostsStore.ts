@@ -38,8 +38,10 @@ export interface UnsupportedPostEntry {
   manifestIds: string[];
   /** Chunk refs of those manifests, captured when support stopped. */
   chunkRefs: string[];
-  /** Where the user stopped support. */
-  source: 'feed' | 'brain';
+  /** Where the user stopped support; 'block' when blocking its node did. */
+  source: 'feed' | 'brain' | 'block';
+  /** Set for 'block' entries: the blocked node whose content this is. */
+  blockedNode?: string;
   unsupportedAt: number;
 }
 
@@ -81,7 +83,8 @@ function normalize(raw: unknown): UnsupportedPostEntry | null {
     preview: typeof r.preview === 'string' ? r.preview.slice(0, 280) : undefined,
     manifestIds: strList(r.manifestIds),
     chunkRefs: strList(r.chunkRefs),
-    source: r.source === 'brain' ? 'brain' : 'feed',
+    source: r.source === 'brain' ? 'brain' : r.source === 'block' ? 'block' : 'feed',
+    blockedNode: r.source === 'block' && typeof r.blockedNode === 'string' ? r.blockedNode : undefined,
     unsupportedAt: typeof r.unsupportedAt === 'number' ? r.unsupportedAt : Date.now(),
   };
 }
@@ -245,7 +248,8 @@ export function getUnsupportedPost(postId: string): UnsupportedPostEntry | undef
 
 export interface StopSupportInput {
   postId: string;
-  source: 'feed' | 'brain';
+  source: 'feed' | 'brain' | 'block';
+  blockedNode?: string;
   author?: string;
   authorName?: string;
   content?: string;
@@ -295,6 +299,7 @@ export async function stopSupportingPost(input: StopSupportInput): Promise<Unsup
     manifestIds: ids,
     chunkRefs: [],
     source: input.source,
+    blockedNode: input.source === 'block' ? input.blockedNode : undefined,
     unsupportedAt: Date.now(),
   };
   // Apply to memory first so the post vanishes this frame.

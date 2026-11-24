@@ -68,21 +68,27 @@ export function UnsupportedContentPanel() {
                 <p className="text-xs text-muted-foreground">
                   {entry.authorName || (entry.author ? `${entry.author.slice(0, 10)}…` : 'Unknown builder')}
                   {' · '}
-                  {entry.kind === 'placement' ? 'Brain wall' : entry.source === 'brain' ? 'post from a Brain wall' : 'from the feed'}
+                  {entry.kind === 'placement' ? 'Brain wall' : entry.source === 'block' ? 'from a blocked node' : entry.source === 'brain' ? 'post from a Brain wall' : 'from the feed'}
                   {' · '}
                   {formatDistanceToNow(new Date(entry.unsupportedAt), { addSuffix: true })}
                   {entry.manifestIds.length > 0 && ` · ${entry.manifestIds.length} file${entry.manifestIds.length === 1 ? '' : 's'}`}
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy === entry.postId}
-                onClick={() => void resume(entry.postId)}
-              >
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                {busy === entry.postId ? 'Resuming…' : 'Resume Support'}
-              </Button>
+              {entry.source === 'block' ? (
+                // Unblocking the node gives these back; resuming one alone
+                // would still be filtered while the node stays blocked.
+                <span className="shrink-0 self-center text-xs text-muted-foreground">Unblock to resume</span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy === entry.postId}
+                  onClick={() => void resume(entry.postId)}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {busy === entry.postId ? 'Resuming…' : 'Resume Support'}
+                </Button>
+              )}
             </div>
           ))
         )}
