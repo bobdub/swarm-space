@@ -2,30 +2,36 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { blockWorldBasis } from '@/lib/brain/blockFrame';
-import { DARTS_BOARD_ROLL, DONOR_BOARD_YAW } from './SurfaceBar';
+import { DARTS_BOARD_ROLL, DONOR_BOARD_YAW, DONOR_RIGHT } from './SurfaceBar';
 
 // Wall-hung bar pieces must face the bar's centre. The render frame's local
 // +X is the site frame's left, so a piece placed at +rightOffset sits on
 // local −X; getting that backwards turns the face into the stone.
-function facingIntoRoom(rightOffset: number, localFace: THREE.Vector3, tag: string): number {
+let n = 0;
+/** How squarely a piece at `at` faces the point `target` (both [right, forward] offsets). */
+function facing(at: [number, number], target: [number, number], localFace: THREE.Vector3): number {
   const engine = getBuilderBlockEngine();
-  const centre = engine.placeBlock({ id: `${tag}-centre`, kind: 'facing-test', anchorPeerId: 'facing-peer', upOffset: 2 });
-  const piece = engine.placeBlock({ id: `${tag}-piece`, kind: 'facing-test', anchorPeerId: 'facing-peer', rightOffset, upOffset: 2 });
+  const tag = `facing-${n++}`;
+  const look = engine.placeBlock({ id: `${tag}-target`, kind: 'facing-test', anchorPeerId: 'facing-peer', rightOffset: target[0], forwardOffset: target[1], upOffset: 2 });
+  const piece = engine.placeBlock({ id: `${tag}-piece`, kind: 'facing-test', anchorPeerId: 'facing-peer', rightOffset: at[0], forwardOffset: at[1], upOffset: 2 });
   const { worldPos, m } = blockWorldBasis(piece);
-  const c = blockWorldBasis(centre).worldPos;
+  const c = blockWorldBasis(look).worldPos;
   const face = localFace.clone().applyMatrix4(new THREE.Matrix4().extractRotation(m));
-  const toCentre = new THREE.Vector3(c[0] - worldPos[0], c[1] - worldPos[1], c[2] - worldPos[2]).normalize();
-  return face.dot(toCentre);
+  const toTarget = new THREE.Vector3(c[0] - worldPos[0], c[1] - worldPos[1], c[2] - worldPos[2]).normalize();
+  return face.dot(toTarget);
 }
 
 describe('bar wall pieces face the room', () => {
-  it('donor leaderboard on the east wall shows its face, not its back', () => {
+  it('donor leaderboard on the back wall faces out into the room', () => {
     const face = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(0, DONOR_BOARD_YAW, 0));
-    expect(facingIntoRoom(4.8, face, 'donor')).toBeGreaterThan(0.95);
+    // Straight out from the back wall (north, +forward) toward the front.
+    expect(facing([DONOR_RIGHT, 9.6], [DONOR_RIGHT, 0], face)).toBeGreaterThan(0.95);
+    // And it is in view from the doorway in the middle of the front wall.
+    expect(facing([DONOR_RIGHT, 9.6], [0, -9.6], face)).toBeGreaterThan(0.7);
   });
 
   it('dartboard on the west wall shows its rings, not its backing', () => {
     const face = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(0, 0, DARTS_BOARD_ROLL));
-    expect(facingIntoRoom(-4.8, face, 'darts')).toBeGreaterThan(0.95);
+    expect(facing([-4.8, 0], [0, 0], face)).toBeGreaterThan(0.95);
   });
 });

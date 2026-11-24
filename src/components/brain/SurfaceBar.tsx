@@ -75,14 +75,20 @@ const CARD_TABLE_R = 0.9;
 const CARD_TABLE_H = 0.95;
 
 // Signage: the Green Cat & Red Dragon sign over the counter and outside by
-// the door, and the donor leaderboard on the east wall.
+// the door, and the donor leaderboard on the back wall behind the card table.
 const SIGN_W = 3.6;
 const SIGN_H = SIGN_W / BAR_SIGN_ASPECT;
 const OUT_SIGN_W = 4.2;
 const DONOR_W = 3.4;
 const DONOR_H = 2.8;
-/** Turns the board's face (local +Z) toward local +X, i.e. into the room. */
-export const DONOR_BOARD_YAW = Math.PI / 2;
+/**
+ * The donor board hangs on the back (north) wall in the far west corner,
+ * behind the card table, so it faces you as you walk in the door. It sits
+ * just clear of the back wall's west sconce, which lights it.
+ */
+export const DONOR_RIGHT = -HALF_W + 2.75;
+/** Turns the board's face (local +Z) to −forward, south into the room. */
+export const DONOR_BOARD_YAW = Math.PI;
 
 // One pub table + 2 stools in the middle of the room.
 const TABLE_R = 0.7;
@@ -330,7 +336,7 @@ export const SurfaceBar = memo(function SurfaceBar({
   // The same sign outside, on the front (south) wall beside the doorway.
   const outSignBlockId = `${id}:sign-out:${anchorPeerId}`;
   const outSignBodyId = `bar-sign:${outSignBlockId}`;
-  // Donor leaderboard on the east wall, facing the room.
+  // Donor leaderboard on the back wall behind the card table, facing the door.
   const donorBlockId = `${id}:donors:${anchorPeerId}`;
   const donorBodyId = `bar-donors:${donorBlockId}`;
 
@@ -442,8 +448,8 @@ export const SurfaceBar = memo(function SurfaceBar({
       id: donorBlockId,
       kind: 'bar-donors',
       anchorPeerId,
-      rightOffset: rightOffset + HALF_W - WALL_T / 2 - 0.08,
-      forwardOffset,
+      rightOffset: rightOffset + DONOR_RIGHT,
+      forwardOffset: forwardOffset + HALF_D - WALL_T / 2 - 0.08,
       upOffset: 2.0,
       mass: 4,
       basin: 0,
@@ -776,11 +782,7 @@ export const SurfaceBar = memo(function SurfaceBar({
       </BuilderBlockView>
       <BuilderBlockView bodyId={donorBodyId}>
         {() => (
-          // Inside face of the east wall, turned to face west into the room.
-          // The render frame's local +X is the site frame's LEFT (x = up ×
-          // forward = −right), so this wall sits on local −X and the room
-          // centre lies along local +X. Facing −X pointed the one-sided
-          // board at the stone, leaving only its blank backing plank visible.
+          // Inside face of the back wall, turned to face south toward the door.
           <group rotation={[0, DONOR_BOARD_YAW, 0]}>
             <DonorLeaderboardBoard width={DONOR_W} height={DONOR_H} />
           </group>
