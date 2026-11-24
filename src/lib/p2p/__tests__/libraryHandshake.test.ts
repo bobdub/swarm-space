@@ -62,6 +62,9 @@ describe('universal reciprocal library handshake', () => {
     const ab = connection('peer-b'); const ba = connection('peer-a');
     a.h.handleConnection(ab, 'manual'); b.h.handleConnection(ba, 'exchange');
     ab.fire('open'); ba.fire('open');
+    // The library goes out a beat after open, not in the same frame.
+    expect(packets(ab)).toHaveLength(0); expect(packets(ba)).toHaveLength(0);
+    vi.advanceTimersByTime(250);
     expect(packets(ab)).toHaveLength(1); expect(packets(ba)).toHaveLength(1);
     const fromA = packets(ab)[0]; const fromB = packets(ba)[0];
     a.h.handleLibraryExchange('peer-b', fromB);

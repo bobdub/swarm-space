@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { createTierGate } from '@/lib/brain/renderGovernor';
 
 /** Beyond this distance (m) a remote avatar runs on the ambiance tier. */
 const DISTANT_AVATAR_M = 40;
+/** Delay before a new avatar's nameplate mounts. */
+const NAMEPLATE_DELAY_MS = 400;
 import * as THREE from 'three';
 import { getAvatarById } from '@/lib/virtualHub/avatars';
 import {
@@ -208,12 +210,20 @@ export function RemoteAvatarBody({
   // the dirt and the head sits ~1.7 m above it, like a person on land.
   const FEET_DROP = -HUMAN_HEIGHT / 2;
 
+  // The nameplate mounts a moment after the body, so a peer's arrival
+  // doesn't put the mesh and the text layout on the same frame.
+  const [labelReady, setLabelReady] = useState(false);
+  useEffect(() => {
+    const id = window.setTimeout(() => setLabelReady(true), NAMEPLATE_DELAY_MS);
+    return () => window.clearTimeout(id);
+  }, []);
+
   return (
     <group ref={groupRef}>
       <group ref={bodyRef} position={[0, FEET_DROP, 0]}>
         {def.render({ scale: 1, color })}
       </group>
-      {label && !intentDriven && (
+      {label && !intentDriven && labelReady && (
         // Nameplate: billboarded so it always faces the camera, small and
         // outlined rather than slab-backed so a crowd never turns into a
         // wall of panels. Hidden for the local player (you know who you are).
