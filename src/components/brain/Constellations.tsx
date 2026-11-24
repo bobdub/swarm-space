@@ -8,7 +8,7 @@ import { buildConstellationBuffers, twinkleTime } from '@/lib/brain/constellatio
 /** Same shell as the background stars (galaxy.ts puts them at 70–90 units). */
 const SKY_RADIUS = 75 * WORLD_SCALE;
 /** Figure lines are guides, kept well below the stars' own brightness. */
-const LINE_OPACITY = 0.32;
+const LINE_OPACITY = 0.45;
 
 const starVertexShader = /* glsl */ `
   attribute float mag;
@@ -19,9 +19,10 @@ const starVertexShader = /* glsl */ `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     // Shared-clock twinkle: uTime is the pose clock folded into one period,
     // so every peer's stars brighten and dim together.
-    float twinkle = 0.85 + 0.15 * sin(uTime * 1.7 + phase) * sin(uTime * 0.6 + phase * 2.3);
+    float twinkle = 0.9 + 0.1 * sin(uTime * 1.7 + phase) * sin(uTime * 0.6 + phase * 2.3);
     vMag = mag * twinkle;
-    gl_PointSize = mix(4.0, 8.0, mag) * twinkle;
+    // Well above the background stars' 1–2.6 px so the figures stand out.
+    gl_PointSize = mix(6.5, 12.0, mag) * twinkle;
   }
 `;
 
@@ -31,8 +32,9 @@ const starFragmentShader = /* glsl */ `
   varying float vMag;
   void main() {
     float radius = length(gl_PointCoord - vec2(0.5));
-    float core = (1.0 - smoothstep(0.0, 0.22, radius)) + 0.35 * (1.0 - smoothstep(0.22, 0.5, radius));
-    float alpha = core * uOpacity * (0.55 + 0.45 * vMag);
+    // Bright core plus a soft glow halo.
+    float core = (1.0 - smoothstep(0.0, 0.18, radius)) + 0.5 * (1.0 - smoothstep(0.18, 0.5, radius));
+    float alpha = min(1.0, core * uOpacity * (0.8 + 0.2 * vMag));
     if (alpha <= 0.001) discard;
     gl_FragColor = vec4(uTint, alpha);
   }
@@ -52,7 +54,7 @@ export function Constellations() {
   const starUniforms = useMemo(() => ({
     uOpacity: { value: 0 },
     uTime: { value: 0 },
-    uTint: { value: new THREE.Color('hsl(45, 90%, 92%)') },
+    uTint: { value: new THREE.Color('hsl(45, 100%, 95%)') },
   }), []);
   const lineMaterial = useMemo(() => new THREE.LineBasicMaterial({
     color: new THREE.Color('hsl(205, 70%, 78%)'),
@@ -70,7 +72,7 @@ export function Constellations() {
     ).starOpacity;
     group.visible = starOpacity > 0.002;
     if (!group.visible) return;
-    starUniforms.uOpacity.value = Math.min(1, starOpacity * 1.15);
+    starUniforms.uOpacity.value = Math.min(1, starOpacity * 1.3);
     starUniforms.uTime.value = twinkleTime(getEarthPoseTime());
     // Lines come out only once the sky is properly dark.
     lineMaterial.opacity = LINE_OPACITY * starOpacity * starOpacity;
@@ -118,6 +120,7 @@ export function Constellations() {
           fragmentShader={starFragmentShader}
           uniforms={starUniforms}
           transparent
+          blending={THREE.AdditiveBlending}
           depthWrite={false}
         />
       </points>
