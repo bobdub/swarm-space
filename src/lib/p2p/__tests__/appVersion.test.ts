@@ -1,14 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AppVersionWatch,
-  VERSION_CHECK_MIN_GAP_MS,
-  FRESH_CLAIM_MIN_GAP_MS,
   MAX_FUTURE_SKEW_MS,
   parseBuildStamp,
   type AppVersionDeps,
   type BuildStamp,
 } from '../appVersion';
 
+const DAY = 24 * 3_600_000;
 const T0 = new Date('2026-11-21T20:00:00Z').getTime();
 const OLD: BuildStamp = { id: 'aaa111', builtAt: T0 - 3_600_000 };
 const NEW: BuildStamp = { id: 'bbb222', builtAt: T0 - 60_000 };
@@ -25,8 +24,6 @@ function memoryStorage() {
 
 function harness(opts: { local?: BuildStamp; deployed?: unknown; call?: boolean; storage?: ReturnType<typeof memoryStorage> | null } = {}) {
   let clock = T0;
-  const timers: Array<{ at: number; fn: () => void; id: number }> = [];
-  let nextId = 1;
   const call = { active: opts.call ?? false };
   const deployed = { value: 'deployed' in opts ? opts.deployed : NEW };
   const storage = opts.storage === undefined ? memoryStorage() : opts.storage;
@@ -37,19 +34,9 @@ function harness(opts: { local?: BuildStamp; deployed?: unknown; call?: boolean;
     reload: vi.fn(),
     isCallActive: () => call.active,
     storage,
-    setTimer: (fn, ms) => { const id = nextId++; timers.push({ at: clock + ms, fn, id }); return id; },
-    clearTimer: (h) => { const i = timers.findIndex(t => t.id === h); if (i >= 0) timers.splice(i, 1); },
   };
   const advance = async (ms: number) => {
     clock += ms;
-    for (;;) {
-      timers.sort((a, b) => a.at - b.at);
-      const due = timers[0];
-      if (!due || due.at > clock) break;
-      timers.shift();
-      due.fn();
-      await flush();
-    }
     await flush();
   };
   return { deps, call, deployed, storage, advance, watch: () => new AppVersionWatch(deps) };
@@ -92,7 +79,7 @@ describe('app version handoff', () => {
     expect(w.notePeerBuild(NEW)).toBe(true);
     await h.advance(0);
     expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual', deadline: null, deployed: NEW });
-    await h.advance(7 * VERSION_CHECK_MIN_GAP_MS);
+    await h.advance(7 * DAY);
     expect(h.deps.reload).not.toHaveBeenCalled();
     w.refreshNow();
     expect(h.deps.reload).toHaveBeenCalledTimes(1);
@@ -118,40 +105,26 @@ describe('app version handoff', () => {
     expect(h.deps.reload).not.toHaveBeenCalled();
   });
 
-  it('throttles host reads to one per gap however many peers claim, then checks the waiting claim', async () => {
+  it('asks the host once per version however many peers claim it', async () => {
     const h = harness({ deployed: OLD });
     const w = h.watch();
-    w.notePeerBuild(NEW);
+    expect(w.notePeerBuild(NEW)).toBe(true);
     await h.advance(0);
-    for (let i = 0; i < 20; i++) w.notePeerBuild({ id: `p${i}`, builtAt: NEW.builtAt + i });
-    await h.advance(1_000);
+    for (let i = 0; i < 20; i++) w.notePeerBuild(NEW);
+    await h.advance(DAY);
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    // The real build lands on the host; the waiting claim gets its check after the gap.
-    h.deployed.value = NEW;
-    await h.advance(VERSION_CHECK_MIN_GAP_MS);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual' });
   });
 
-  it('checks the host at most once a day per device, across reloads', async () => {
-    const persist = memoryStorage();
-    const first = harness({ deployed: OLD });
-    first.deps.persist = persist;
-    first.watch().notePeerBuild(NEW);
-    await first.advance(0);
-    expect(first.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-
-    // A reload an hour later still respects the day; the claim waits for it.
-    const second = harness();
-    second.deps.persist = persist;
-    await second.advance(3_600_000);
-    const w = second.watch();
-    expect(w.notePeerBuild(NEW)).toBe(false);
-    await second.advance(VERSION_CHECK_MIN_GAP_MS - 3_600_000 - 1);
-    expect(second.deps.fetchDeployed).not.toHaveBeenCalled();
-    await second.advance(1_000);
-    expect(second.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual' });
+  it('a newer version claimed while a read is in flight gets its own read after it', async () => {
+    const h = harness({ deployed: OLD });
+    const w = h.watch();
+    const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 30_000 };
+    w.notePeerBuild(NEW);
+    expect(w.notePeerBuild(NEWER)).toBe(false);
+    h.deployed.value = NEWER;
+    await h.advance(0);
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
   });
 
   it('never loops: after one refresh for a build, the old build coming back stays manual', async () => {
@@ -233,13 +206,13 @@ describe('app version handoff', () => {
     expect(w.getState().status).toBe('idle');
 
     w.notePeerBuild(NEW);
-    await h.advance(VERSION_CHECK_MIN_GAP_MS);
+    await h.advance(DAY);
     expect(w.getState().status).toBe('idle');
 
     const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 1_000 };
     h.deployed.value = NEWER;
     w.notePeerBuild(NEWER);
-    await h.advance(VERSION_CHECK_MIN_GAP_MS);
+    await h.advance(0);
     expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
   });
 
@@ -251,81 +224,19 @@ describe('app version handoff', () => {
     expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
   });
 
-  it('a release newer than today\'s earlier check is checked on reconnect, not a day later', async () => {
-    // Earlier today a peer announced NEW; this tab checked and saw it.
-    const persist = memoryStorage();
-    const morning = harness({ deployed: NEW });
-    morning.deps.persist = persist;
-    const w0 = morning.watch();
-    w0.notePeerBuild(NEW);
-    await morning.advance(0);
-    expect(morning.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-
-    // Two hours later another release ships; a refreshed peer reconnects.
-    const NEWER: BuildStamp = { id: 'ccc333', builtAt: T0 + 60_000, release: 13 };
-    const evening = harness({ deployed: NEWER, local: NEW });
-    evening.deps.persist = persist;
-    await evening.advance(2 * 3_600_000);
-    const w = evening.watch();
-    expect(w.notePeerBuild(NEWER)).toBe(true);
-    await evening.advance(0);
-    expect(evening.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('a fresh claim right after a check waits about a minute, not a day', async () => {
-    const h = harness({ deployed: OLD });
+  it('a new release is checked on reconnect right after an earlier release was checked', async () => {
+    const h = harness({ deployed: NEW });
     const w = h.watch();
     w.notePeerBuild(NEW);
     await h.advance(0);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    // A newer release lands; its peer reconnects 10s later.
-    const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 30_000 };
-    h.deployed.value = NEWER;
-    expect(w.notePeerBuild(NEWER)).toBe(false);
-    await h.advance(FRESH_CLAIM_MIN_GAP_MS);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('a waiting daily recheck is pulled forward when a fresher claim arrives', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(0);
-    w.notePeerBuild(NEW); // same claim: waits a day
+    w.dismiss();
+    // Minutes later another release ships; a refreshed peer reconnects.
     await h.advance(5 * 60_000);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 30_000 };
+    const NEWER: BuildStamp = { id: 'ccc333', builtAt: T0 + 60_000, release: 13 };
     h.deployed.value = NEWER;
-    w.notePeerBuild(NEWER);
-    await h.advance(1_000);
+    expect(w.notePeerBuild(NEWER)).toBe(true);
+    await h.advance(0);
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
     expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('made-up ever-newer stamps cost at most one host read a minute', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    for (let i = 0; i < 600; i++) {
-      w.notePeerBuild({ id: `fake${i}`, builtAt: T0 + i });
-      await h.advance(1_000);
-    }
-    expect((h.deps.fetchDeployed as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(11);
-    expect(w.getState().status).toBe('idle');
-  });
-
-  it('a fresh-claim read cancels a waiting daily recheck', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(0);
-    w.notePeerBuild(NEW); // same claim: waits a day
-    await h.advance(FRESH_CLAIM_MIN_GAP_MS);
-    expect(w.notePeerBuild({ id: 'ccc333', builtAt: NEW.builtAt + 30_000 })).toBe(true);
-    await h.advance(0);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    await h.advance(VERSION_CHECK_MIN_GAP_MS);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
   });
 });
