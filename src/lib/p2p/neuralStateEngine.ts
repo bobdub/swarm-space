@@ -1210,6 +1210,23 @@ export class NeuralStateEngine {
   /** Historical callers now use the same nonblocking save path. */
   persistToStorage(): void { this.persistWhenIdle(); }
 
+  /**
+   * Page exit: write one final copy now, only when a sliced save is still
+   * owed, so learning from the last few seconds is never lost on close.
+   */
+  flushToStorage(): void {
+    if (!this.persistDirty && !this.idlePersistPending) return;
+    this.persistDirty = false;
+    try {
+      localStorage.setItem(NeuralStateEngine.STORAGE_KEY, JSON.stringify(this.exportDigest()));
+      localStorage.setItem('infinity-local-expressions', JSON.stringify(this.dualLearning.languageLearner.getExpressions()));
+      localStorage.setItem('infinity-semantic-basins', JSON.stringify(this.dualLearning.languageLearner.semantic.serialize()));
+      localStorage.setItem(CORE_MEMORY_STORAGE_KEY, JSON.stringify(this.dualLearning.coreMemories.serialize()));
+    } catch (err) {
+      console.warn('[NeuralEngine] Failed to flush brain state:', err);
+    }
+  }
+
   /** Restore brain state from localStorage (call in constructor or on boot) */
   restoreFromStorage(): void {
     try {

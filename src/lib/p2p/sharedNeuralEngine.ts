@@ -13,6 +13,13 @@ export function getSharedNeuralEngine(): NeuralStateEngine {
   if (!_engine) {
     _engine = new NeuralStateEngine();
     _engine.restoreFromStorage();
+    if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+      const engine = _engine;
+      window.addEventListener('pagehide', () => engine.flushToStorage());
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState !== 'visible') engine.flushToStorage();
+      });
+    }
   }
   return _engine;
 }

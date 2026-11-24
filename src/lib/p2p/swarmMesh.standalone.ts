@@ -1477,7 +1477,17 @@ export class StandaloneSwarmMesh {
   private librarySaveTimer: ReturnType<typeof setTimeout> | null = null;
   private libraryRevision = 0;
 
-  private saveLibrary(): void {
+  /**
+   * `durable` writes now: a newly saved friend or a promotion must survive an
+   * immediate reload. Routine last-seen touches stay debounced and sliced.
+   */
+  private saveLibrary(durable = false): void {
+    if (durable) {
+      this.sanitizeLibrary();
+      this.flushLibrary();
+      this.emitLibrary();
+      return;
+    }
     this.sanitizeLibrary();
     this.libraryRevision++;
     if (this.librarySaveTimer !== null) clearTimeout(this.librarySaveTimer);
@@ -1537,6 +1547,7 @@ export class StandaloneSwarmMesh {
 
     const existing = this.library.get(remotePeerId);
     if (existing) {
+      const before = `${existing.source}|${existing.autoConnect}|${existing.nodeId}`;
       existing.lastSeenAt = now();
       existing.nodeId = nodeId;
       if (source === 'manual') {
@@ -1546,7 +1557,7 @@ export class StandaloneSwarmMesh {
         existing.source = 'library';
       }
       // Preserve profile data from prior profile-exchange
-      this.saveLibrary();
+      this.saveLibrary(before !== `${existing.source}|${existing.autoConnect}|${existing.nodeId}`);
       return;
     }
 
@@ -1559,13 +1570,13 @@ export class StandaloneSwarmMesh {
       autoConnect: true,
       source,
     });
-    this.saveLibrary();
+    this.saveLibrary(true);
     console.log(`[SwarmMesh] 📚 Added ${remotePeerId} to library (${source})`);
   }
 
   removeFromLibrary(remotePeerId: string): void {
     this.library.delete(remotePeerId);
-    this.saveLibrary();
+    this.saveLibrary(true);
     const conn = this.connections.get(remotePeerId);
     if (conn) {
       try { conn.close(); } catch { /* ignore */ }
@@ -1588,12 +1599,12 @@ export class StandaloneSwarmMesh {
         addedAt: now(), lastSeenAt: 0, autoConnect: true, source: 'manual',
       });
     }
-    this.saveLibrary();
+    this.saveLibrary(true);
   }
 
   forgetKnownPeer(peerId: string): void {
     this.library.delete(peerId);
-    this.saveLibrary();
+    this.saveLibrary(true);
   }
 
   getLibrary(): LibraryPeer[] {
@@ -1634,7 +1645,7 @@ export class StandaloneSwarmMesh {
     this.blockedPeers.add(remotePeerId);
     this.saveBlockedPeers();
     this.library.delete(remotePeerId);
-    this.saveLibrary();
+    this.saveLibrary(true);
     const conn = this.connections.get(remotePeerId);
     if (conn) {
       try { conn.close(); } catch { /* ignore */ }
