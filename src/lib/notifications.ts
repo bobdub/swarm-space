@@ -4,6 +4,7 @@ import { get, put, getAll } from "./store";
 import { getCurrentUser } from "./auth";
 import { appUpdateNoticeId } from './p2p/appUpdateNotices';
 import type { BuildStamp } from './p2p/appVersion';
+import { formatReleaseVersion } from './app/releaseVersion';
 
 /**
  * Create a notification for a user
@@ -57,7 +58,7 @@ export async function notifyAppUpdate(userId: string, build: BuildStamp): Promis
   await put('notifications', {
     id, userId, type: 'app_update', triggeredBy: 'system', triggeredByName: 'Infinity',
     title: 'New version available',
-    content: 'Infinity: You are holding your current version of Swarm Space. Update when you are ready.',
+    content: `Infinity: ${build.release ? `Swarm Space v${formatReleaseVersion(build.release)} is live. ` : ''}You are holding your current version of Swarm Space. Update when you are ready.`,
     appBuildAt: build.builtAt, read: false, createdAt: new Date().toISOString(),
   } satisfies Notification);
   window.dispatchEvent(new CustomEvent('notifications-updated', { detail: { userId } }));

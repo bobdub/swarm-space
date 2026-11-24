@@ -3,6 +3,7 @@ import type { UserMeta } from '@/lib/auth';
 import { getAppVersionWatch } from '@/lib/p2p/appVersion';
 import { appUpdateNamespace, appUpdateNoticeId, enterBrainUpdateContext } from '@/lib/p2p/appUpdateNotices';
 import type { BrainChatLine } from './BrainChatPanel';
+import { formatReleaseVersion } from '@/lib/app/releaseVersion';
 
 export function useBrainAppUpdate(user: UserMeta | null, roomId: string): BrainChatLine | null {
   useLayoutEffect(() => enterBrainUpdateContext(), []);
@@ -34,7 +35,7 @@ export function useBrainAppUpdate(user: UserMeta | null, roomId: string): BrainC
     return {
       id: `${appUpdateNoticeId(user.id, state.deployed)}:${roomId}`,
       author: 'System · Infinity',
-      text: `Notice for ${identity.namespace}: A newer Swarm Space version is available. You are holding your current version. Update when you are ready.`,
+      text: `Notice for ${identity.namespace}: A newer Swarm Space version${state.deployed.release ? ` (v${formatReleaseVersion(state.deployed.release)})` : ''} is available. You are holding your current version. Update when you are ready.`,
       ts: Date.now(), systemNotice: 'app_update',
     };
   }, [user?.id, user?.username, state, identity, roomId]);

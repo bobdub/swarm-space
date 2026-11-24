@@ -8,8 +8,9 @@
  * at build time) what is deployed, and only a deployed build newer than
  * its own leads to a refresh notice:
  *
- * - A fake or foreign stamp from a peer can never force a refresh; at most
- *   it triggers one `version.json` read a day.
+ * - A fake or foreign stamp from a peer can never force a refresh. A claim
+ *   newer than any claim already checked earns a fresh `version.json` read
+ *   (at most one a minute); a claim already checked is re-read once a day.
  * - A peer on a newer build that this host has not deployed yet (another
  *   host, a preview, a dev server) changes nothing, so a refresh can never
  *   land on the same old build and loop.
@@ -24,6 +25,8 @@ export interface BuildStamp {
   id: string;
   /** Build time in ms since epoch; this is what orders builds. */
   builtAt: number;
+  /** Human release counter (v0.001 = 1); for display only, never ordering. */
+  release?: number;
 }
 
 declare const __APP_BUILD__: BuildStamp | undefined;
@@ -40,16 +43,24 @@ export const LOCAL_BUILD: BuildStamp = (() => {
 })();
 
 /**
- * At most one `version.json` read per device per day, whatever peers claim.
- * The time of the last read survives reloads (localStorage).
+ * A claim no newer than one already checked is re-read at most once a day
+ * per device. The time of the last read survives reloads (localStorage).
  */
 export const VERSION_CHECK_MIN_GAP_MS = 24 * 60 * 60_000;
+/**
+ * A claim newer than every claim checked so far (a fresh release) is checked
+ * right away, but never more than one read per this gap, so a peer making up
+ * ever-newer stamps costs at most one small no-store read a minute.
+ */
+export const FRESH_CLAIM_MIN_GAP_MS = 60_000;
 /** Stamps further than this into the future are refused as spoofed. */
 export const MAX_FUTURE_SKEW_MS = 10 * 60_000;
 
 const RELOAD_ATTEMPT_KEY = 'swarm-app-reload-attempt';
 const LAST_CHECK_KEY = 'swarm-app-version-last-check';
+const LAST_CLAIM_KEY = 'swarm-app-version-last-claim';
 const MAX_ID_LENGTH = 64;
+const MAX_RELEASE = 10_000_000;
 
 export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -57,6 +68,10 @@ export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null 
   if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LENGTH) return null;
   if (typeof builtAt !== 'number' || !Number.isSafeInteger(builtAt) || builtAt <= 0) return null;
   if (builtAt > nowMs + MAX_FUTURE_SKEW_MS) return null;
+  const { release } = raw as { release?: unknown };
+  if (typeof release === 'number' && Number.isSafeInteger(release) && release > 0 && release <= MAX_RELEASE) {
+    return { id, builtAt, release };
+  }
   return { id, builtAt };
 }
 
@@ -98,8 +113,13 @@ export class AppVersionWatch {
   private listeners = new Set<Listener>();
   private checking = false;
   private lastCheckAt = Number.NEGATIVE_INFINITY;
+  /** Newest peer claim (builtAt) that a host read has already answered. */
+  private lastClaimChecked = 0;
+  /** Newest claim seen; the next host read answers it. */
+  private newestClaim = 0;
   /** A claim that arrived while throttled waits for the next allowed check. */
   private pendingTimer: unknown = null;
+  private pendingDueAt = Number.POSITIVE_INFINITY;
   /** Builds the person said "Not now" to in this tab. */
   private dismissedUpTo = 0;
 
@@ -108,6 +128,8 @@ export class AppVersionWatch {
       const saved = Number(deps.persist?.getItem(LAST_CHECK_KEY));
       // A saved time in the future (clock change) is ignored.
       if (Number.isFinite(saved) && saved > 0 && saved <= deps.now()) this.lastCheckAt = saved;
+      const claim = Number(deps.persist?.getItem(LAST_CLAIM_KEY));
+      if (Number.isSafeInteger(claim) && claim > 0) this.lastClaimChecked = claim;
     } catch { /* no device storage: per-tab throttle only */ }
     this.clearSucceededAttempt();
   }
@@ -137,26 +159,45 @@ export class AppVersionWatch {
     const claim = parseBuildStamp(raw, t);
     if (!claim || claim.builtAt <= local.builtAt) return false;
     if (this.state.status === 'available' && claim.builtAt <= this.state.deployed.builtAt) return false;
-    const wait = this.lastCheckAt + VERSION_CHECK_MIN_GAP_MS - t;
+    this.newestClaim = Math.max(this.newestClaim, claim.builtAt);
+    // A release newer than anything already checked must not wait out the
+    // daily gap: a check earlier today (for an older release, or one that
+    // found nothing yet) says nothing about this one.
+    const fresh = claim.builtAt > this.lastClaimChecked;
+    const gap = fresh ? FRESH_CLAIM_MIN_GAP_MS : VERSION_CHECK_MIN_GAP_MS;
+    const wait = this.lastCheckAt + gap - t;
     if (this.checking || wait > 0) {
       // Throttled: one host read per gap, however many peers (or fakes) speak.
-      if (this.pendingTimer === null) {
-        this.pendingTimer = this.deps.setTimer(() => {
-          this.pendingTimer = null;
-          void this.checkHost();
-        }, Math.max(wait, 1_000));
-      }
+      this.schedule(t + Math.max(wait, 1_000));
       return false;
     }
     void this.checkHost();
     return true;
   }
 
+  /** Keep one waiting check, moved earlier if a fresher claim allows it. */
+  private schedule(dueAt: number): void {
+    if (this.pendingTimer !== null) {
+      if (dueAt >= this.pendingDueAt) return;
+      this.deps.clearTimer(this.pendingTimer);
+    }
+    this.pendingDueAt = dueAt;
+    this.pendingTimer = this.deps.setTimer(() => {
+      this.pendingTimer = null;
+      this.pendingDueAt = Number.POSITIVE_INFINITY;
+      void this.checkHost();
+    }, Math.max(dueAt - this.deps.now(), 0));
+  }
+
   private async checkHost(): Promise<void> {
     if (this.checking) return;
     this.checking = true;
     this.lastCheckAt = this.deps.now();
-    try { this.deps.persist?.setItem(LAST_CHECK_KEY, String(this.lastCheckAt)); } catch { /* ignore */ }
+    this.lastClaimChecked = Math.max(this.lastClaimChecked, this.newestClaim);
+    try {
+      this.deps.persist?.setItem(LAST_CHECK_KEY, String(this.lastCheckAt));
+      this.deps.persist?.setItem(LAST_CLAIM_KEY, String(this.lastClaimChecked));
+    } catch { /* ignore */ }
     let deployed: BuildStamp | null = null;
     try {
       deployed = parseBuildStamp(await this.deps.fetchDeployed(), this.deps.now());
