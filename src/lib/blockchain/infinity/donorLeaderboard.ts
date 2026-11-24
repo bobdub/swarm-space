@@ -117,14 +117,15 @@ export function buildDonorLeaderboard(
 }
 
 /** Read the local copy of the shared ledger (mined blocks + pending mesh txs). */
-export async function loadDonorLeaderboard(): Promise<DonorLeaderboard> {
+export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledgerSize: number }> {
   const { getSwarmChain } = await import("../chain");
   const chain = getSwarmChain();
   await chain.whenReady();
-  return buildDonorLeaderboard([
+  const txs = [
     ...chain.getChain().flatMap((b) => b.transactions ?? []),
     ...chain.getPendingTransactions(),
-  ], MANUAL_DONATIONS);
+  ];
+  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS), ledgerSize: txs.length };
 }
 
 const FIAT_SYMBOLS: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };

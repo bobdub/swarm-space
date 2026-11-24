@@ -53,25 +53,52 @@ export function BarSignArt({ width, glow = 0.25 }: { width: number; glow?: numbe
 const REFRESH_EVENTS = ['blockchain-transaction', 'wallet-tip-updated', 'reward-pool-update', 'swarm-block-mined'];
 const EMPTY: DonorLeaderboard = { donors: [], totals: {}, donationCount: 0 };
 
+const NAME_TIMEOUT_MS = 3000;
+
 async function donorName(userId: string): Promise<string> {
+  const fallback = `@${userId.slice(0, 8)}`;
   const me = getCurrentUser();
-  if (me?.id === userId) return me.displayName || me.username || userId.slice(0, 8);
-  const user = await get<User>('users', userId).catch(() => undefined);
-  if (user) return user.displayName || user.username;
-  return `@${userId.slice(0, 8)}`;
+  if (me?.id === userId) return me.displayName || me.username || fallback;
+  // A profile lookup must never hold the board back: give up after a moment.
+  const user = await Promise.race([
+    get<User>('users', userId).catch(() => undefined),
+    new Promise<undefined>((resolve) => window.setTimeout(resolve, NAME_TIMEOUT_MS)),
+  ]);
+  return user?.displayName || user?.username || fallback;
 }
 
-function useDonorLeaderboard(): { board: DonorLeaderboard; names: Record<string, string> } {
-  const [state, setState] = useState<{ board: DonorLeaderboard; names: Record<string, string> }>({ board: EMPTY, names: {} });
+/** What the board knows: the ranked donors, plus how the last read went. */
+export interface BoardState {
+  board: DonorLeaderboard;
+  names: Record<string, string>;
+  status: 'loading' | 'ready' | 'error';
+  /** Ledger entries read on the last successful load. */
+  ledgerSize: number;
+  /** When the board last read the ledger (ISO), or null before the first read. */
+  readAt: string | null;
+}
+
+function useDonorLeaderboard(): BoardState {
+  const [state, setState] = useState<BoardState>({ board: EMPTY, names: {}, status: 'loading', ledgerSize: 0, readAt: null });
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
       try {
-        const board = await loadDonorLeaderboard();
+        const { ledgerSize, ...board } = await loadDonorLeaderboard();
+        const readAt = new Date().toISOString();
+        if (!alive) return;
+        // Show the donors straight away with whatever names are known, then
+        // fill in profile names as they arrive.
+        const known = Object.fromEntries(board.donors.flatMap((d) => (d.name ? [[d.userId, d.name]] : [])));
+        setState((prev) => ({ board, names: { ...prev.names, ...known }, status: 'ready', ledgerSize, readAt }));
+        console.info(`[DonorBoard] ${board.donors.length} donor(s), ${board.donationCount} donation(s) from ${ledgerSize} ledger entries`);
         const entries = await Promise.all(board.donors.map(async (d) =>
           [d.userId, d.name ?? await donorName(d.userId)] as const));
-        if (alive) setState({ board, names: Object.fromEntries(entries) });
-      } catch { /* keep the last board */ }
+        if (alive) setState((prev) => (prev.board === board ? { ...prev, names: Object.fromEntries(entries) } : prev));
+      } catch (err) {
+        console.warn('[DonorBoard] Could not read the ledger:', err);
+        if (alive) setState((prev) => (prev.status === 'ready' ? prev : { ...prev, status: 'error' }));
+      }
     };
     void refresh();
     const onUpdate = () => void refresh();
@@ -96,7 +123,7 @@ function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string 
   return `${t}…`;
 }
 
-function drawBoard(canvas: HTMLCanvasElement, board: DonorLeaderboard, names: Record<string, string>) {
+function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize, readAt }: BoardState) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const W = canvas.width;
@@ -132,7 +159,11 @@ function drawBoard(canvas: HTMLCanvasElement, board: DonorLeaderboard, names: Re
   const rows = board.donors.slice(0, MAX_ROWS);
   const rowH = 62;
   let y = 260;
-  if (rows.length === 0) {
+  if (rows.length === 0 && status !== 'ready') {
+    ctx.fillStyle = '#e8dcc0';
+    ctx.font = '38px Georgia, serif';
+    ctx.fillText(status === 'loading' ? 'Reading the ledger…' : 'Could not read the ledger.', W / 2, y + 120);
+  } else if (rows.length === 0) {
     ctx.fillStyle = '#e8dcc0';
     ctx.font = '38px Georgia, serif';
     ctx.fillText('No donations yet. Be the first patron!', W / 2, y + 120);
@@ -172,11 +203,19 @@ function drawBoard(canvas: HTMLCanvasElement, board: DonorLeaderboard, names: Re
   ctx.fillStyle = '#ffd35a';
   ctx.font = 'bold 58px Georgia, serif';
   ctx.fillText(fit(ctx, formatDonationAmounts(board.totals), W - 200), W / 2, footY + 48);
+
+  // Small print: how much ledger the board read, so an empty board can be told apart from an unread one.
+  if (readAt) {
+    const time = new Date(readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    ctx.fillStyle = 'rgba(184,168,136,0.7)';
+    ctx.font = '22px Georgia, serif';
+    ctx.fillText(`Read ${ledgerSize.toLocaleString()} ledger entries · ${time}`, W / 2, footY - 74);
+  }
 }
 
 /** Wall-mounted board listing every donor, their amount, and the total raised. */
 export function DonorLeaderboardBoard({ width, height }: { width: number; height: number }) {
-  const { board, names } = useDonorLeaderboard();
+  const state = useDonorLeaderboard();
   const { canvas, texture } = useMemo(() => {
     const c = document.createElement('canvas');
     c.width = CANVAS_W;
@@ -188,9 +227,9 @@ export function DonorLeaderboardBoard({ width, height }: { width: number; height
   }, [width, height]);
   useEffect(() => () => texture.dispose(), [texture]);
   useEffect(() => {
-    drawBoard(canvas, board, names);
+    drawBoard(canvas, state);
     texture.needsUpdate = true;
-  }, [canvas, texture, board, names]);
+  }, [canvas, texture, state]);
   return (
     <group>
       {/* Backing plank so the board has depth against the stone. */}
