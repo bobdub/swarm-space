@@ -15,6 +15,7 @@ import { get } from "@/lib/store";
 import { updatePost, deletePost } from "@/lib/posts";
 import {
   classifyPost,
+  extractBlogBody,
   extractBlogTitle,
 } from "@/lib/blogging/awareness";
 import { canViewWalledPost } from "@/lib/blockchain/walledPost";
@@ -30,9 +31,8 @@ import { BlogMediaHero } from "@/components/blogging/BlogMediaHero";
 import { FileUpload } from "@/components/FileUpload";
 import type { Manifest } from "@/lib/fileEncryption";
 import { LinkifiedText } from "@/components/blogging/LinkifiedText";
-import { SwarmLink } from "@/components/routing/SwarmLink";
 import { BlogLinkCard } from "@/components/blogging/BlogLinkCard";
-import { containsUrl, prettyUrlLabel, urlOnlyLine } from "@/lib/blogging/links";
+import { containsUrl, urlOnlyLine } from "@/lib/blogging/links";
 
 export default function BlogDetail() {
   const { postId } = useParams<{ postId: string }>();
@@ -144,9 +144,6 @@ export default function BlogDetail() {
   const isWalledHidden = isWalled && !canView;
 
   const title = useMemo(() => (post ? extractBlogTitle(post.content) : ""), [post]);
-  // A link on the title line stays a plain clickable link (no player in the banner).
-  const titleUrl = useMemo(() => urlOnlyLine(title), [title]);
-  const titleHasUrl = useMemo(() => containsUrl(title), [title]);
 
   const youtubeId = useMemo(
     () => (post && !isWalledHidden ? firstYoutubeVideoId(post.content ?? "") : null),
@@ -155,13 +152,8 @@ export default function BlogDetail() {
 
   const contentBody = useMemo(() => {
     if (!post || isWalledHidden) return "";
-    const lines = post.content.split("\n");
-    const firstNonEmpty = lines.findIndex((line) => line.trim().length > 0);
-    if (firstNonEmpty <= -1) return post.content;
-    // A link-only first line is shown in the title but also kept in the body,
-    // so readers get a link card there too.
-    if (urlOnlyLine(lines[firstNonEmpty])) return post.content.trim();
-    return lines.filter((_, idx) => idx !== firstNonEmpty).join("\n").trim() || post.content;
+    // Title line (first line without a link) is removed; links stay in the body.
+    return extractBlogBody(post.content) || post.content;
   }, [post, isWalledHidden]);
 
   const paragraphs = useMemo(() => {
@@ -394,26 +386,9 @@ export default function BlogDetail() {
                 )}
               </div>
 
-              {titleUrl ? (
-                <h1 className="font-display text-2xl font-bold normal-case leading-tight tracking-normal text-foreground md:text-3xl">
-                  <SwarmLink
-                    href={titleUrl}
-                    className="break-all text-[hsl(174,59%,76%)] underline decoration-[hsla(174,59%,56%,0.4)] underline-offset-[6px] hover:decoration-[hsl(174,59%,76%)]"
-                  >
-                    {prettyUrlLabel(titleUrl)}
-                  </SwarmLink>
-                </h1>
-              ) : (
-                <h1
-                  className={
-                    titleHasUrl
-                      ? "font-display text-3xl font-bold leading-tight tracking-tight text-foreground md:text-4xl"
-                      : "font-display text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl"
-                  }
-                >
-                  {titleHasUrl ? <LinkifiedText text={title} /> : title}
-                </h1>
-              )}
+              <h1 className="font-display text-4xl font-bold leading-tight tracking-tight text-foreground md:text-5xl lg:text-6xl">
+                {title}
+              </h1>
 
               {/* Decorative rule */}
               <div className="flex items-center gap-4">
