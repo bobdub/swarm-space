@@ -7,7 +7,7 @@ import { brainDisplayName } from '@/lib/preview/guestAccess';
 import { isBrainScenePath, setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { causalNow } from '@/lib/time/networkClock';
-import { chirpForRemoteLine } from '@/lib/brain/chatChirp';
+import { armChatChirpAudio, chirpForRemoteLine } from '@/lib/brain/chatChirp';
 
 /**
  * Global host for the network chat panel opened from the main menu.
@@ -40,6 +40,7 @@ function NetworkChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const chatPeers = useNetworkChatPeers(true, BRAIN_ROOM_ID);
 
   useEffect(() => {
+    armChatChirpAudio();
     return onChatLine((remote) => {
       // Infinity replies are gated by the Brain scene's room-consent flow.
       if (remote.infinityReplyTo) return;
