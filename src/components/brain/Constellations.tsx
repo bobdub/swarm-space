@@ -21,8 +21,9 @@ const starVertexShader = /* glsl */ `
     // so every peer's stars brighten and dim together.
     float twinkle = 0.9 + 0.1 * sin(uTime * 1.7 + phase) * sin(uTime * 0.6 + phase * 2.3);
     vMag = mag * twinkle;
-    // Well above the background stars' 1–2.6 px so the figures stand out.
-    gl_PointSize = mix(6.5, 12.0, mag) * twinkle;
+    // A little above the background stars' 1–2.6 px: still points of
+    // light, just the brightest ones in the sky.
+    gl_PointSize = mix(4.0, 6.5, mag) * twinkle;
   }
 `;
 
@@ -32,11 +33,13 @@ const starFragmentShader = /* glsl */ `
   varying float vMag;
   void main() {
     float radius = length(gl_PointCoord - vec2(0.5));
-    // Bright core plus a soft glow halo.
-    float core = (1.0 - smoothstep(0.0, 0.18, radius)) + 0.5 * (1.0 - smoothstep(0.18, 0.5, radius));
-    float alpha = min(1.0, core * uOpacity * (0.8 + 0.2 * vMag));
+    // Crisp white-hot core with a thin edge, like the background stars but
+    // brighter.
+    float core = 1.0 - smoothstep(0.3, 0.5, radius);
+    float alpha = min(1.0, core * uOpacity * (0.85 + 0.15 * vMag));
     if (alpha <= 0.001) discard;
-    gl_FragColor = vec4(uTint, alpha);
+    vec3 colour = mix(uTint, vec3(1.0), 1.0 - smoothstep(0.0, 0.25, radius));
+    gl_FragColor = vec4(colour, alpha);
   }
 `;
 
@@ -54,7 +57,7 @@ export function Constellations() {
   const starUniforms = useMemo(() => ({
     uOpacity: { value: 0 },
     uTime: { value: 0 },
-    uTint: { value: new THREE.Color('hsl(45, 100%, 95%)') },
+    uTint: { value: new THREE.Color('hsl(215, 80%, 94%)') },
   }), []);
   const lineMaterial = useMemo(() => new THREE.LineBasicMaterial({
     color: new THREE.Color('hsl(205, 70%, 78%)'),
