@@ -3,8 +3,10 @@
  *
  * There is no service worker, so a tab keeps running the build it loaded
  * until it is refreshed. Chain rule changes need every peer on the new
- * build, so peers swap build stamps when a data channel opens. A peer
- * that hears of a newer build asks its OWN host (`version.json`, written
+ * build, so peers swap build stamps when a data channel opens. A stamp
+ * carries the release number (one peer says 0.010, the other 0.012); stamps
+ * from before the counter fall back to build time. A peer that hears of a
+ * newer version asks its OWN host (`version.json`, written
  * at build time) what is deployed, and only a deployed build newer than
  * its own leads to a refresh notice:
  *
@@ -26,8 +28,19 @@ export interface BuildStamp {
   id: string;
   /** Build time in ms since epoch; this is what orders builds. */
   builtAt: number;
-  /** Human release counter (v0.001 = 1); for display only, never ordering. */
+  /** Release counter (v0.012 = 12), bumped on every merge to main. */
   release?: number;
+}
+
+/**
+ * True when `a` is a later version than `b`. Peers compare release numbers
+ * (0.010 vs 0.012); a stamp without one (builds from before the counter)
+ * falls back to build time.
+ */
+export function isNewerBuild(a: BuildStamp, b: BuildStamp | null): boolean {
+  if (!b) return true;
+  if (a.release && b.release) return a.release > b.release;
+  return a.builtAt > b.builtAt;
 }
 
 declare const __APP_BUILD__: BuildStamp | undefined;
@@ -96,12 +109,12 @@ export class AppVersionWatch {
   private state: AppUpdateState = { status: 'idle' };
   private listeners = new Set<Listener>();
   private checking = false;
-  /** Newest version (builtAt) a host read has already answered. */
-  private checkedUpTo = 0;
+  /** Newest version a host read has already answered. */
+  private checked: BuildStamp | null = null;
   /** Newest version claimed so far; the next host read answers it. */
-  private newestClaim = 0;
+  private newestClaim: BuildStamp | null = null;
   /** Builds the person said "Not now" to in this tab. */
-  private dismissedUpTo = 0;
+  private dismissed: BuildStamp | null = null;
 
   constructor(private readonly deps: AppVersionDeps) {
     this.clearSucceededAttempt();
@@ -130,11 +143,11 @@ export class AppVersionWatch {
     if (local.builtAt <= 0) return false;
     const t = now();
     const claim = parseBuildStamp(raw, t);
-    if (!claim || claim.builtAt <= local.builtAt) return false;
-    if (this.state.status === 'available' && claim.builtAt <= this.state.deployed.builtAt) return false;
+    if (!claim || !isNewerBuild(claim, local)) return false;
+    if (this.state.status === 'available' && !isNewerBuild(claim, this.state.deployed)) return false;
     // Once per version: a version already checked is never read again.
-    if (claim.builtAt <= this.newestClaim) return false;
-    this.newestClaim = claim.builtAt;
+    if (!isNewerBuild(claim, this.newestClaim)) return false;
+    this.newestClaim = claim;
     // A read in flight answers an older claim; this one follows it.
     if (this.checking) return false;
     void this.checkHost();
@@ -144,7 +157,7 @@ export class AppVersionWatch {
   private async checkHost(): Promise<void> {
     if (this.checking) return;
     this.checking = true;
-    this.checkedUpTo = this.newestClaim;
+    this.checked = this.newestClaim;
     let deployed: BuildStamp | null = null;
     try {
       deployed = parseBuildStamp(await this.deps.fetchDeployed(), this.deps.now());
@@ -154,12 +167,13 @@ export class AppVersionWatch {
       this.checking = false;
     }
     // A newer version was claimed while this read was in flight.
-    if (this.newestClaim > this.checkedUpTo) void this.checkHost();
+    if (this.newestClaim && this.newestClaim !== this.checked) void this.checkHost();
     // Nothing newer on this host (a peer on another host, a preview, a
     // build still rolling out, or a made-up stamp): stay put.
-    if (!deployed || deployed.builtAt <= this.deps.local.builtAt) return;
-    if (deployed.builtAt <= this.dismissedUpTo) return;
-    if (this.state.status === 'available' && deployed.builtAt <= this.state.deployed.builtAt) return;
+    // The host confirms: only a deployed version truly ahead of ours counts.
+    if (!deployed || !isNewerBuild(deployed, this.deps.local)) return;
+    if (this.dismissed && !isNewerBuild(deployed, this.dismissed)) return;
+    if (this.state.status === 'available' && !isNewerBuild(deployed, this.state.deployed)) return;
     this.offer(deployed);
   }
 
@@ -195,7 +209,7 @@ export class AppVersionWatch {
   /** "Not now": hide the notice for this build in this tab. */
   dismiss(): void {
     if (this.state.status !== 'available') return;
-    this.dismissedUpTo = Math.max(this.dismissedUpTo, this.state.deployed.builtAt);
+    if (isNewerBuild(this.state.deployed, this.dismissed)) this.dismissed = this.state.deployed;
     this.setState({ status: 'idle' });
   }
 

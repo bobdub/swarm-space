@@ -3,6 +3,7 @@ import {
   AppVersionWatch,
   MAX_FUTURE_SKEW_MS,
   parseBuildStamp,
+  isNewerBuild,
   type AppVersionDeps,
   type BuildStamp,
 } from '../appVersion';
@@ -238,5 +239,41 @@ describe('app version handoff', () => {
     await h.advance(0);
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
     expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
+  });
+
+  it('compares release numbers: 0.010 learns of 0.012, the host confirms, the notice shows', async () => {
+    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 3_600_000, release: 10 };
+    const V12: BuildStamp = { id: 'v12', builtAt: T0 - 60_000, release: 12 };
+    const h = harness({ local: V10, deployed: V12 });
+    const w = h.watch();
+    expect(w.notePeerBuild(V12)).toBe(true);
+    await h.advance(0);
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: { release: 12 } });
+  });
+
+  it('the peer on 0.012 is never told to update by a peer on 0.010', async () => {
+    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 60_000, release: 10 };
+    const V12: BuildStamp = { id: 'v12', builtAt: T0 - 3_600_000, release: 12 };
+    const h = harness({ local: V12, deployed: V12 });
+    const w = h.watch();
+    // Even with a later build time, a lower release is behind.
+    expect(w.notePeerBuild(V10)).toBe(false);
+    await h.advance(0);
+    expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
+  });
+
+  it('no notice when the host is not truly ahead of this tab', async () => {
+    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 3_600_000, release: 10 };
+    const h = harness({ local: V10, deployed: { ...V10, builtAt: T0 - 1_000 } });
+    const w = h.watch();
+    expect(w.notePeerBuild({ id: 'v12', builtAt: T0 - 60_000, release: 12 })).toBe(true);
+    await h.advance(0);
+    expect(w.getState().status).toBe('idle');
+  });
+
+  it('falls back to build time when either stamp has no release number', () => {
+    expect(isNewerBuild({ id: 'a', builtAt: 2, release: 1 }, { id: 'b', builtAt: 1 })).toBe(true);
+    expect(isNewerBuild({ id: 'a', builtAt: 1 }, { id: 'b', builtAt: 2, release: 1 })).toBe(false);
+    expect(isNewerBuild({ id: 'a', builtAt: 1, release: 12 }, { id: 'b', builtAt: 2, release: 10 })).toBe(true);
   });
 });
