@@ -10,6 +10,7 @@
  *   15–30 min  initiate    — may start one message in the shared chat
  *   30 min–2 h reflect     — reflects on its own messages and memory coins
  *   2 h+       deep        — closes strong paths in the graph (brain mapping)
+ *                             and bypasses Ricci bottlenecks (bounded scan)
  *
  * Every task is local, bounded and runs in idle time. Nothing here moves
  * community pool funds (that phase is held for separate approval).
@@ -20,6 +21,7 @@ import {
   CONVERSATION_LIVE_MS, initiativeSeed, quotesAny, recentHumanLines, shouldInitiate, type ChatLineLike,
 } from './initiative';
 import { ANSWER_WINDOW_MS, MAX_OWN_MESSAGES, deepMap, reflect, type OwnMessage } from './reflection';
+import { ricciScan } from './ricci';
 
 export const AGENT_TICK_MS = 60_000;
 const LINK_INTERVAL_MS = 2 * 60_000;
@@ -76,7 +78,7 @@ async function linkMemory(): Promise<void> {
   if (!pieces.length) return;
   const graph = getSynapseGraph();
   // Only pieces stored with the author's consent stamp; legacy pieces are skipped.
-  for (const p of pieces) if (p.consented === true) graph.observe({ topics: topicSequence(p.text), peer: p.authorHash, ordered: true }, p.ts);
+  for (const p of pieces) if (p.consented === true) graph.observe({ topics: topicSequence(p.text), peer: p.authorHash, ordered: true, natural: true }, p.ts);
   try { localStorage.setItem(LINK_CURSOR_KEY, String(pieces[pieces.length - 1].ts)); } catch { /* ignore */ }
   saveSynapseGraph();
 }
@@ -168,7 +170,11 @@ async function reflectTask(): Promise<void> {
 
 async function deepTask(): Promise<void> {
   const now = Date.now();
-  deepMap(getSynapseGraph(), now);
+  const graph = getSynapseGraph();
+  deepMap(graph, now);
+  // Curvature scan is bounded (links and milliseconds) and runs only here,
+  // on the 2 h+ deep heartbeat, never on the learning path.
+  ricciScan(graph, now);
   saveSynapseGraph();
   publish({ lastDeepAt: now });
 }

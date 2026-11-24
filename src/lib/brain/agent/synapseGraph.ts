@@ -15,6 +15,11 @@
  *    When a burst pushes a node past it, all of that node's links shrink by
  *    the same factor, keeping their proportions, so a busy topic cannot
  *    saturate and new links still register against it.
+ *  - Natural-gradient steps (diagonal Fisher information): each node keeps a
+ *    decaying record of how much learning signal it has already received.
+ *    Learning from memory divides each step by the square root of that
+ *    information, so endlessly repeated chatter teaches less per repeat and
+ *    rare, low-frequency associations are not washed out by it.
  *
  * The graph never leaves the device and never enters the mesh digest. It is
  * bounded: weak links are pruned and the least used nodes are evicted.
@@ -30,7 +35,9 @@ export type SynapseNodeKind = 'topic' | 'coin' | 'peer';
  * All three decay together from `at`.
  */
 export interface SynapseLink { a: string; b: string; w: number; at: number; ab?: number; ba?: number }
-export interface SynapseSnapshot { v: 1; links: SynapseLink[] }
+/** Per-node Fisher information as [node, information, stamped at]. */
+export type FisherEntry = [string, number, number];
+export interface SynapseSnapshot { v: 1; links: SynapseLink[]; fisher?: FisherEntry[] }
 
 export const SYNAPSE_HALF_LIFE_MS = 3 * 24 * 60 * 60_000;
 export const SYNAPSE_MIN_WEIGHT = 0.05;
@@ -42,6 +49,11 @@ export const SYNAPSE_STORAGE_KEY = 'infinity-synapse-graph';
 export const SYNAPSE_NODE_CAPACITY = 16;
 /** Share of a reverse edge removed when the forward edge fires (adjacent topics). */
 export const STDP_DEPRESSION = 0.3;
+/**
+ * Information at which a node's steps are scaled by 1/√2. Below it learning
+ * is close to plain Hebbian; far above it each repeat teaches ~√(REF/F).
+ */
+export const FISHER_REFERENCE = 8;
 
 export const nodeId = (kind: SynapseNodeKind, key: string): string => `${kind}:${key}`;
 export const nodeKind = (id: string): SynapseNodeKind => id.slice(0, id.indexOf(':')) as SynapseNodeKind;
@@ -73,6 +85,7 @@ export function decayed(w: number, ageMs: number, halfLife = SYNAPSE_HALF_LIFE_M
 
 export class SynapseGraph {
   private links = new Map<string, SynapseLink>();
+  private fisher = new Map<string, { f: number; at: number }>();
   private adjacency = new Map<string, Set<string>>();
 
   get size(): { nodes: number; links: number } {
@@ -152,22 +165,67 @@ export class SynapseGraph {
    * Link everything that appeared together in one learned item: topics with
    * each other, and each topic with the author's basin and any coin.
    */
-  observe(input: { topics: string[]; peer?: string; coin?: string; amount?: number; ordered?: boolean }, now = Date.now()): void {
+  observe(
+    input: { topics: string[]; peer?: string; coin?: string; amount?: number; ordered?: boolean; natural?: boolean },
+    now = Date.now(),
+  ): void {
     const amount = input.amount ?? 1;
     const topics = [...new Set(input.topics)].slice(0, TOPICS_PER_ITEM).map((t) => nodeId('topic', t));
+    const anchors = [input.peer && nodeId('peer', input.peer), input.coin && nodeId('coin', input.coin)].filter(Boolean) as string[];
+    // Natural steps are preconditioned by the information each node held
+    // before this item, so the order of pairs inside one item does not matter.
+    const step = (a: string, b: string) => (input.natural ? amount * this.precondition(a, b, now) : amount);
+    const steps = new Map<string, number>();
+    const stepFor = (a: string, b: string) => {
+      const key = pairKey(a, b);
+      if (!steps.has(key)) steps.set(key, step(a, b));
+      return steps.get(key)!;
+    };
+    for (let i = 0; i < topics.length; i++) for (let j = i + 1; j < topics.length; j++) stepFor(topics[i], topics[j]);
+    for (const anchor of anchors) for (const t of topics) stepFor(anchor, t);
+
     for (let i = 0; i < topics.length; i++) {
       for (let j = i + 1; j < topics.length; j++) {
+        const s = stepFor(topics[i], topics[j]);
         // Ordered topics (first-appearance order) also teach direction. The
         // association still counts in full so ordered and unordered agree.
-        if (input.ordered) {
-          const t = stdpWindow(j - i);
-          this.reinforceDirected(topics[i], topics[j], amount, now, t, amount);
-        } else this.reinforce(topics[i], topics[j], amount, now);
+        if (input.ordered) this.reinforceDirected(topics[i], topics[j], s, now, stdpWindow(j - i), s);
+        else this.reinforce(topics[i], topics[j], s, now);
       }
     }
-    const anchors = [input.peer && nodeId('peer', input.peer), input.coin && nodeId('coin', input.coin)].filter(Boolean) as string[];
-    for (const anchor of anchors) for (const t of topics) this.reinforce(anchor, t, amount, now);
+    for (const anchor of anchors) for (const t of topics) this.reinforce(anchor, t, stepFor(anchor, t), now);
+    if (input.natural) {
+      // The learning signal (one unit per pair) is what accrues as information.
+      const touched = new Map<string, number>();
+      for (const key of steps.keys()) {
+        for (const id of key.split('|')) touched.set(id, (touched.get(id) ?? 0) + amount * amount);
+      }
+      for (const [id, g2] of touched) this.addInformation(id, g2, now);
+    }
     this.evictNodes(now);
+  }
+
+  /** Decayed Fisher information a node has accumulated (0 if none). */
+  information(id: string, now = Date.now()): number {
+    const e = this.fisher.get(id);
+    return e ? decayed(e.f, now - e.at) : 0;
+  }
+
+  /**
+   * Natural-gradient scale for a step on the a–b link: the inverse square
+   * root of the pair's mean Fisher information, relative to the reference.
+   * 1 for fresh nodes, shrinking toward 0 for nodes that hear the same
+   * thing over and over.
+   */
+  precondition(a: string, b: string, now = Date.now()): number {
+    const f = (this.information(a, now) + this.information(b, now)) / 2;
+    return 1 / Math.sqrt(1 + f / FISHER_REFERENCE);
+  }
+
+  private addInformation(id: string, amount: number, now: number): void {
+    const e = this.fisher.get(id);
+    const prev = e ? decayed(e.f, now - e.at) : 0;
+    this.fisher.set(id, { f: prev + amount, at: Math.max(now, e?.at ?? now) });
   }
 
   /** Neighbours of a node, strongest first. */
@@ -216,10 +274,15 @@ export class SynapseGraph {
   forget(id: string): void {
     for (const other of [...(this.adjacency.get(id) ?? [])]) this.drop(pairKey(id, other));
     this.adjacency.delete(id);
+    this.fisher.delete(id);
   }
 
   toJSON(): SynapseSnapshot {
-    return { v: 1, links: [...this.links.values()] };
+    const snap: SynapseSnapshot = { v: 1, links: [...this.links.values()] };
+    const fisher: FisherEntry[] = [];
+    for (const [id, e] of this.fisher) if (this.adjacency.has(id)) fisher.push([id, e.f, e.at]);
+    if (fisher.length) snap.fisher = fisher;
+    return snap;
   }
 
   static fromJSON(raw: unknown): SynapseGraph {
@@ -235,6 +298,14 @@ export class SynapseGraph {
       g.links.set(pairKey(l.a, l.b), tidy({ a: sorted ? l.a : l.b, b: sorted ? l.b : l.a, w: l.w, at: l.at, ab, ba }));
       g.attach(l.a, l.b);
       g.attach(l.b, l.a);
+    }
+    const fisher = (raw as SynapseSnapshot).fisher;
+    if (Array.isArray(fisher)) {
+      for (const e of fisher) {
+        if (!Array.isArray(e) || typeof e[0] !== 'string' || !g.adjacency.has(e[0])) continue;
+        const f = finitePositive(e[1]);
+        if (f !== undefined && Number.isFinite(e[2])) g.fisher.set(e[0], { f, at: e[2] });
+      }
     }
     return g;
   }
@@ -270,9 +341,10 @@ export class SynapseGraph {
 
   /**
    * Homeostatic synaptic scaling. If a node's total association, or its total
-   * directed input, is over capacity, every one of its links (or incoming
-   * edges) is multiplied by the same factor, so relative strengths survive.
-   * Only scales down: quiet nodes are left to decay as before.
+   * directed input, is over capacity, its links (or incoming edges) shrink
+   * until it is back at capacity. Without Fisher information they all shrink
+   * by the same factor, so relative strengths survive exactly. Only scales
+   * down: quiet nodes are left to decay as before.
    */
   private scaleNode(id: string, now: number): void {
     const others = [...(this.adjacency.get(id) ?? [])];
@@ -282,12 +354,20 @@ export class SynapseGraph {
       total += this.weight(id, o, now);
       input += this.directedWeight(o, id, now);
     }
-    const kw = total > SYNAPSE_NODE_CAPACITY ? SYNAPSE_NODE_CAPACITY / total : 1;
+    const over = total > SYNAPSE_NODE_CAPACITY;
     const kin = input > SYNAPSE_NODE_CAPACITY ? SYNAPSE_NODE_CAPACITY / input : 1;
-    if (kw === 1 && kin === 1) return;
-    for (const o of others) {
+    if (!over && kin === 1) return;
+    // Fisher-aware shrink: link i is multiplied by k^rᵢ, where rᵢ = (1 + F/REF)²
+    // grows with the information F its far end already holds. With none, every
+    // rᵢ is 1 and this is plain proportional scaling; otherwise links to
+    // much-repeated neighbours give up more and rare ones are spared.
+    const weights = others.map((o) => this.weight(id, o, now));
+    const exps = others.map((o) => (1 + this.information(o, now) / FISHER_REFERENCE) ** 2);
+    const k = over ? solveShrink(weights, exps, SYNAPSE_NODE_CAPACITY) : 1;
+    for (let i = 0; i < others.length; i++) {
+      const o = others[i];
       const link = this.current(id, o, now);
-      link.w *= kw;
+      link.w *= Math.pow(k, exps[i]);
       const into = id === link.b ? 'ab' : 'ba';
       if (link[into]) link[into] = link[into]! * kin;
       this.links.set(pairKey(id, o), tidy(link));
@@ -307,7 +387,7 @@ export class SynapseGraph {
     for (const [x, y] of [[l.a, l.b], [l.b, l.a]]) {
       const set = this.adjacency.get(x);
       set?.delete(y);
-      if (set && set.size === 0) this.adjacency.delete(x);
+      if (set && set.size === 0) { this.adjacency.delete(x); this.fisher.delete(x); }
     }
   }
 
@@ -327,6 +407,20 @@ export class SynapseGraph {
     strength.sort((x, y) => x.s - y.s);
     for (const { id } of strength.slice(0, this.adjacency.size - MAX_SYNAPSE_NODES)) this.forget(id);
   }
+}
+
+/** Find k in (0, 1) with Σ wᵢ·k^rᵢ = target (bisection; exact when all rᵢ = 1). */
+function solveShrink(w: number[], r: number[], target: number): number {
+  if (r.every((x) => x === 1)) return target / w.reduce((a, b) => a + b, 0);
+  let lo = 0;
+  let hi = 1;
+  for (let it = 0; it < 50; it++) {
+    const mid = (lo + hi) / 2;
+    let sum = 0;
+    for (let i = 0; i < w.length; i++) sum += w[i] * Math.pow(mid, r[i]);
+    if (sum > target) hi = mid; else lo = mid;
+  }
+  return lo;
 }
 
 const finitePositive = (x: unknown): number | undefined =>
