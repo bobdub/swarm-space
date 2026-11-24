@@ -314,4 +314,18 @@ describe('app version handoff', () => {
     expect((h.deps.fetchDeployed as ReturnType<typeof vi.fn>).mock.calls.length).toBeLessThanOrEqual(11);
     expect(w.getState().status).toBe('idle');
   });
+
+  it('a fresh-claim read cancels a waiting daily recheck', async () => {
+    const h = harness({ deployed: OLD });
+    const w = h.watch();
+    w.notePeerBuild(NEW);
+    await h.advance(0);
+    w.notePeerBuild(NEW); // same claim: waits a day
+    await h.advance(FRESH_CLAIM_MIN_GAP_MS);
+    expect(w.notePeerBuild({ id: 'ccc333', builtAt: NEW.builtAt + 30_000 })).toBe(true);
+    await h.advance(0);
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
+    await h.advance(VERSION_CHECK_MIN_GAP_MS);
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
+  });
 });

@@ -191,6 +191,13 @@ export class AppVersionWatch {
 
   private async checkHost(): Promise<void> {
     if (this.checking) return;
+    // This read answers any waiting claim too; a stale timer must not
+    // fire a second read that skips the gap.
+    if (this.pendingTimer !== null) {
+      this.deps.clearTimer(this.pendingTimer);
+      this.pendingTimer = null;
+      this.pendingDueAt = Number.POSITIVE_INFINITY;
+    }
     this.checking = true;
     this.lastCheckAt = this.deps.now();
     this.lastClaimChecked = Math.max(this.lastClaimChecked, this.newestClaim);
