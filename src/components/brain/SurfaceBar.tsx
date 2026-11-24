@@ -69,6 +69,8 @@ const STOOL_FORWARD = COUNTER_FORWARD - COUNTER_DEPTH / 2 - 0.7;
 // Games nook — dartboard on the west wall, card table in front of it.
 const DARTS_H = 1.73;          // regulation bull height
 const DARTS_R = 0.34;
+/** Rolls the dartboard's face axis (local +Y) to local −X, into the room. */
+export const DARTS_BOARD_ROLL = Math.PI / 2;
 const CARD_TABLE_R = 0.9;
 const CARD_TABLE_H = 0.95;
 
@@ -79,6 +81,8 @@ const SIGN_H = SIGN_W / BAR_SIGN_ASPECT;
 const OUT_SIGN_W = 4.2;
 const DONOR_W = 3.4;
 const DONOR_H = 2.8;
+/** Turns the board's face (local +Z) toward local +X, i.e. into the room. */
+export const DONOR_BOARD_YAW = Math.PI / 2;
 
 // One pub table + 2 stools in the middle of the room.
 const TABLE_R = 0.7;
@@ -600,10 +604,11 @@ export const SurfaceBar = memo(function SurfaceBar({
             }
             if (f.kind === 'darts-board') {
               const r = (f.meta.radius as number) ?? DARTS_R;
-              // Cylinder axis runs along local +Y; rotating -90° about Z
-              // points that axis INTO the room (world +right from the west
-              // wall), so the playing face and its rings sit proud of the
-              // backing board instead of buried inside the wall.
+              // Cylinder axis runs along local +Y; rolling +90° about Z
+              // points that axis along local −X, which is INTO the room from
+              // the west wall (local +X is the site frame's left, so the west
+              // wall sits on +X). The playing face and its rings then sit
+              // proud of the backing board instead of facing the stone.
               return (
                 <group>
                 {atDarts && (
@@ -618,7 +623,7 @@ export const SurfaceBar = memo(function SurfaceBar({
                     <PubLeaveHold />
                   </Html>
                 )}
-                <group rotation={[0, 0, -Math.PI / 2]}>
+                <group rotation={[0, 0, DARTS_BOARD_ROLL]}>
                   {/* Backing board */}
                   <mesh castShadow>
                     <cylinderGeometry args={[r + 0.08, r + 0.08, 0.06, 28]} />
@@ -772,7 +777,11 @@ export const SurfaceBar = memo(function SurfaceBar({
       <BuilderBlockView bodyId={donorBodyId}>
         {() => (
           // Inside face of the east wall, turned to face west into the room.
-          <group rotation={[0, -Math.PI / 2, 0]}>
+          // The render frame's local +X is the site frame's LEFT (x = up ×
+          // forward = −right), so this wall sits on local −X and the room
+          // centre lies along local +X. Facing −X pointed the one-sided
+          // board at the stone, leaving only its blank backing plank visible.
+          <group rotation={[0, DONOR_BOARD_YAW, 0]}>
             <DonorLeaderboardBoard width={DONOR_W} height={DONOR_H} />
           </group>
         )}
