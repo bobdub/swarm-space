@@ -59,40 +59,42 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 ---
 
-### Layer 1b: Account Recovery (Three-Factor)
+### Layer 1b: Sovereign Recovery Vault
 
-**Algorithm**: PBKDF2 (250K iterations) + AES-256-GCM + HMAC-SHA256
+**Algorithm**: PBKDF2-SHA-256 (250K iterations, random salt) + AES-256-GCM, envelope signed with the identity key (ECDSA P-256)
 
-**Purpose**: Enable cross-device account recovery without storing secrets on the mesh
+**Purpose**: Cross-device account recovery where peers hold your backup but can never read it
 
-**Three Factors**:
-1. **Recovery Key** (`SWRM-XXXX-XXXX`) — HMAC-derived lookup tag. Locates encrypted chunks on the mesh. Contains NO encrypted data.
-2. **Recovery Phrase** — User-chosen phrase (poem, sentence). Acts as additional salt in PBKDF2 key derivation.
-3. **Account Password** — Combined with userId and phrase to derive the AES-256-GCM decryption key.
+**Two keyholes, never the same lock**:
+1. **Local account password** — wraps the identity key on this device only (`meta:wrappedKey:<id>`). It never leaves the browser.
+2. **Outer shell** — seals a vault envelope that peers may hold. The shell is sealed with either the account password (the genesis default, which follows local password changes) or a separate **Recovery Passphrase**. The chosen mode is recorded in the signed envelope.
 
-**Flow — Backup**:
-1. Generate random 16-byte salt
-2. Derive `tagKey` via `HMAC-SHA256(userId + salt)` for mesh chunk tagging
-3. Derive `encKey` via `PBKDF2(password + userId + phrase, 250K iter)` for AES-256-GCM
-4. Encrypt identity payload → split into 512-byte chunks → tag with HMAC(tagKey, index)
-5. Encode salt + userId hash prefix as recovery key: `SWRM-{base32(salt)}-{base32(hashPrefix)}`
-6. Recovery key contains only the lookup address — no encrypted data
+**Flow — Seal**:
+1. Derive the shell key: `PBKDF2(passphrase, salt, 250K, SHA-256)` → AES-256-GCM key
+2. Encrypt the payload (identity private key + profile); the GCM additional data binds `userId` + `version`
+3. Sign the envelope with the identity key; `version` is monotonic (v1, v2, …)
+4. Broadcast on the `recovery-vault` mesh channel; peers that store it reply with an `ack`
 
-**Flow — Recovery**:
-1. Parse recovery key → extract salt → recompute tagKey
-2. Query mesh peers for chunks matching HMAC tags
-3. Derive encKey from `PBKDF2(password + userId + phrase, 250K iter)`
-4. Decrypt chunks → restore identity
-5. If decryption fails → wrong password or phrase → access denied
+**Peer custody rules** (`vaultCustody.ts`):
+- A peer stores an envelope only if `verifyRecoveryVault` passes (the signer's key hashes to the vault's `userId`) and the version is strictly higher than the one it holds
+- Custody is capped at 256 held vaults per device, and envelopes over 16 KB are refused
+- Anyone may query by `userId`: the answer is ciphertext only the passphrase opens
+
+**Flow — Recovery** (`/recover?id=<userId>&v=<version>&peer=<custodianPeerId>`):
+1. Boot a guest transport and dial the custodian peer named in the link
+2. Ask connected peers for the highest signed envelope for `id`
+3. Open the shell locally with the passphrase; nothing typed is sent to a peer
+4. Rehydrate the identity under a new local password
 
 **Security Properties**:
-- ✅ Intercepting recovery key: Useless without phrase + password
-- ✅ Intercepting mesh chunks: AES-256-GCM ciphertext, requires 250K-iteration brute-force
-- ✅ Key alone: Only a lookup address — reveals nothing about identity
-- ✅ Phrase alone: Cannot derive tags or encryption key without password + userId
-- ✅ Backward compatible: Legacy 200-char passphrase accounts continue working
+- ✅ Peer compromise: peers hold only AES-256-GCM ciphertext
+- ✅ Stale or forged envelopes: only the owner can sign a new version, and higher versions replace older ones everywhere
+- ✅ Version replay: GCM additional data binds `userId` + `version`
+- ❌ Weak passphrase: offline brute force is slowed (250K iterations) but not prevented
 
-**Implementation**: `src/lib/backup/recoveryKey.ts`, `src/lib/backup/passphraseBackup.ts`
+**Account Merge**: `src/lib/p2p/mergeProtocol.ts` merges two accounts over a direct mesh link (channel `account-merge`). The one-time code never crosses the wire; each side proves knowledge of it with an HMAC over the session, its identity and a fresh nonce. Three wrong codes or three minutes end the session.
+
+**Implementation**: `src/lib/backup/recoveryVault.ts`, `src/lib/backup/vaultCustody.ts`, `src/lib/backup/vaultCustodyMesh.ts`, `src/pages/Recover.tsx`, `src/components/settings/SovereignSecurityPanel.tsx`
 
 ---
 
@@ -160,7 +162,7 @@ _Version 3.0 | Last Updated: 2026-03-28_
 - ✅ Content tampering: Signature mismatch detected
 - ✅ Impersonation: Attacker cannot forge signature without private key
 - ✅ Replay attacks: Nonces + timestamps in signed payloads
-- ❌ Key loss: Requires social recovery (Shamir's Secret Sharing)
+- ❌ Key loss: Rendezvous keys are device-local; account identity is recovered through the Sovereign Recovery Vault (Layer 1b)
 
 **Implementation**: `src/lib/p2p/rendezvousIdentity.ts`, `src/lib/p2p/presenceTicket.ts`
 
@@ -267,29 +269,13 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 ## Identity Recovery
 
-### Shamir's Secret Sharing
+### Sovereign Recovery Vault (live)
 
-**Algorithm**: Shamir's Secret Sharing over GF(256)
+Identity recovery runs through the Sovereign Recovery Vault described in [Layer 1b](#layer-1b-sovereign-recovery-vault): a signed, monotonic AES-256-GCM envelope held by mesh peers and opened locally with the outer-shell passphrase, plus the HMAC-based Sovereign Account Merge.
 
-**Purpose**: Recover Ed25519 rendezvous identity if device is lost
+### Shamir's Secret Sharing (not wired into the UI)
 
-**Flow**:
-1. User splits Ed25519 private key into N shares
-2. Set threshold T (e.g., 3-of-5)
-3. Each share looks like: `IDR1-<base64-blob>`
-4. Distribute shares to trusted stewards (friends, family, secure storage)
-5. On recovery:
-   - Collect T shares
-   - Recombine to reconstruct private key
-   - Import identity into new device
-
-**Threats Mitigated**:
-- ✅ Device loss: Identity recoverable with T shares
-- ✅ Single point of failure: No single share can recover identity
-- ✅ Steward compromise: Attacker needs T shares
-- ❌ Share tampering: Checksum validation catches corruption
-
-**Implementation**: `src/lib/crypto/identityRecovery.ts`, `src/components/p2p/settings/IdentityRecoveryPanel.tsx`
+A Shamir's Secret Sharing library over GF(256) (`IDR1-<base64>` shares) still exists in `src/lib/crypto/identityRecovery.ts`, with a panel in `src/components/p2p/settings/IdentityRecoveryPanel.tsx`, but no page mounts that panel. It is not a live recovery method.
 
 ---
 
@@ -347,7 +333,9 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 ## Alternate Transports Threat Model
 
-### WebTorrent DHT
+### WebTorrent DHT (retired)
+_The Integrated/WebTorrent DHT transport was retired in April 2026 and is off by default; file swarming now runs over the mesh's own DataChannels. Kept for reference._
+
 **Attack Surface**: BroadcastChannel metadata exposure
 
 **Mitigation**:
@@ -530,7 +518,7 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 ### Immediate (Phase 5)
 - ✅ Ed25519 signatures on posts/manifests
-- ✅ Shamir's Secret Sharing recovery
+- ✅ Sovereign Recovery Vault (signed, peer-held recovery envelopes)
 - 🚧 Connection approval flow
 - 🚧 Peer blocklist persistence
 
@@ -552,7 +540,7 @@ _Version 3.0 | Last Updated: 2026-03-28_
 
 1. **Strong Password**: Use 16+ character passphrase for account encryption
 2. **Backup Identity**: Export account backup and store securely
-3. **Shamir Recovery**: Split rendezvous key into 3-of-5 shares, distribute to trusted stewards
+3. **Seal a Recovery Vault**: Settings → Security → Sovereign Identity, ideally with a separate Recovery Passphrase, and keep your recovery link
 4. **Verify Peers**: Manually verify fingerprints for high-trust connections (future)
 5. **Update Regularly**: Keep browser/app updated for security patches
 

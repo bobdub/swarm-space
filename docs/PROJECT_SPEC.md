@@ -1,6 +1,6 @@
 # Imagination Network – Technical Specifications
 
-_Version 2.0 | Last Updated: 2025-11-14_
+_Version 2.1 | Last Updated: 2026-11-24_
 
 ## Overview
 
@@ -18,7 +18,7 @@ _Version 2.0 | Last Updated: 2025-11-14_
 - **Routing**: React Router 6
 
 ### Storage & Crypto
-- **Local Storage**: IndexedDB (v6 schema)
+- **Local Storage**: IndexedDB (`imagination-db`, schema v28) plus small standalone databases (world placements, tool mints, labour ledger, NPC and field persistence, etc.)
 - **Cryptography**: Web Crypto API
   - Ed25519 for signing (rendezvous identity)
   - ECDH for key exchange
@@ -26,10 +26,10 @@ _Version 2.0 | Last Updated: 2025-11-14_
   - SHA-256 for content addressing
 
 ### P2P Networking
-- **Transport**: PeerJS (WebRTC) + Integrated Mode (experimental)
-- **Signaling**: PeerJS Cloud (default) + self-hostable PeerJS server
+- **Transport**: PeerJS (WebRTC DataChannels) — SWARM Mesh (`swarmMesh.standalone.ts`)
+- **Signaling**: PeerJS Cloud (default) + self-hostable PeerJS server; Gun.js relay for secondary signaling and call recovery
 - **Discovery**: Rendezvous mesh + peer exchange
-- **Experimental**: WebTorrent DHT, GUN.js overlay
+- **File swarming**: WebTorrent-style chunking and seeding over the mesh's own DataChannels (`torrentSwarm.standalone.ts`), with no external DHT or trackers
 
 ---
 
@@ -65,9 +65,11 @@ _Version 2.0 | Last Updated: 2025-11-14_
 ### 4. Credits Economy
 - **Local Credits**: Non-monetary tokens for activity tracking
 - **Earning**:
-  - +10 credits per post
-  - +2 credits per engagement (planned)
-  - +1 credit per MB hosted (planned)
+  - +1 credit per post
+  - +0.2 credits per comment (max 2 per day)
+  - +1 credit per achievement
+  - +100 genesis credits for new accounts
+  (see `CREDIT_REWARDS` in `src/lib/credits.ts`)
 - **Spending**:
   - Hype posts (5 credits: 80% to author, 20% burned)
   - Tips between users
@@ -92,7 +94,7 @@ _Version 2.0 | Last Updated: 2025-11-14_
   - Files: Per-file AES-256-GCM keys
   - Projects: Shared project keys (Phase 4)
 - **Content Authenticity**: Ed25519 signatures on posts + manifests
-- **Identity Recovery**: Shamir's Secret Sharing (3-of-5 quorum default)
+- **Identity Recovery**: Sovereign Recovery Vault — a signed, versioned AES-256-GCM envelope (PBKDF2-SHA-256, 250k iterations) held by mesh peers, plus the HMAC-based Sovereign Account Merge handshake (see [SECURITY_MODEL.md](./SECURITY_MODEL.md#identity-recovery))
 - **Privacy Principles**:
   - No plaintext data on servers
   - Keys stay on device
@@ -161,37 +163,35 @@ _Version 2.0 | Last Updated: 2025-11-14_
 
 ---
 
-## IndexedDB Schema (v6)
+## IndexedDB Schema (v28)
 
-### Stores
-- **users**: User profiles, encrypted identity keys
-- **posts**: Signed posts with manifest references
-- **projects**: Collaborative workspace metadata
-- **tasks**: Task definitions with assignments
-- **milestones**: Calendar events
-- **fileChunks**: Encrypted chunk data (ref → ciphertext + IV)
-- **fileManifests**: Signed file metadata + chunk refs
-- **comments**: Post comments with threading
-- **reactions**: Emoji reactions on posts
-- **connections**: Peer connections (follow graph)
-- **credits**: Credit balance + transaction history
-- **notifications**: User notifications queue
+`src/lib/store.ts` opens `imagination-db` at `DB_VERSION = 28`. Main stores:
+
+- **Social & content**: `users`, `posts`, `postMetrics`, `postFavorites`, `comments`, `projects`, `tasks`, `milestones`, `notifications`, `entanglements`, `connections`, `contentTombstones`, `authorPresence`
+- **Files**: `chunks` (encrypted chunk data), `manifests` (signed file metadata + chunk refs), `replicas`
+- **Credits & achievements**: `creditBalances`, `creditTransactions`, `achievementDefinitions`, `achievementProgress`, `verificationStates`, `verificationProofs`
+- **Blockchain & tokens**: `blockchain`, `swarmCoins`, `syncVaults`, `nfts`, `tokenBalances`, `profileTokens`, `profileTokenHoldings`, `tokenUnlockStates`, `creatorVaults`, `deployedCoins`, `coinListings`, `participantListings`, `walledPosts`, `miningSessions`, `rewardPool`, `bridges`, `wrapRequests`
+- **Node & sync**: `meta`, `nodeMetricAggregates`, `qcmSamples`, `personalServerSecrets`, `personalServerSync`
+
+Some subsystems keep their own small databases instead (for example world placements, pending builds, tool mints, the labour ledger, NPC persistence, and UQRC field persistence).
 
 ---
 
 ## P2P Transport Modes
 
-### PeerJS Mode (Default)
+### SWARM Mesh (Default)
 - Uses PeerJS Cloud signaling
 - WebRTC data channels for mesh
 - Automatic NAT traversal with STUN/TURN
 - Zero-config for end users
 
-### Integrated Mode (Experimental)
-- **WebTorrent DHT**: Distributed peer discovery
-- **GUN.js Overlay**: Gossip-based signaling mesh
-- **WebRTC**: Direct data channels (final hop)
-- Resilient to signaling server failures
+### User Cells (Opt-in)
+- Private meshes created from the Node Dashboard
+- Lazy-load the archived Builder Mode engine only while a cell is active
+- Each cell runs its own private cell chain
+
+### Retired: Integrated Mode
+The hybrid "Integrated Mode" (WebTorrent DHT + GUN.js overlay) was retired in April 2026 (see [HYBRID_P2P_ARCHITECTURE.md](./HYBRID_P2P_ARCHITECTURE.md)). Legacy adapter files (`src/lib/p2p/transports/integratedAdapter.ts`, `webtorrentAdapter.ts`) remain behind the `VITE_FEATURE_INTEGRATED` / `VITE_FEATURE_WEBTORRENT` flags, which are off by default, and the `webtorrent` package is stubbed out of the build, so no DHT runs.
 
 ---
 
