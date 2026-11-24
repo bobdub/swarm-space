@@ -183,7 +183,7 @@ import { encodeSelfPosition, localDistance, resolvePeerWorldPosition } from '@/l
 import { isBrainEntryComplete, setBrainMic, useBrainMicChoice } from '@/lib/brain/brainMicChoice';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { isPeerMuted, useMutedPeers } from '@/lib/brain/mutedPeersStore';
-import { chirpForRemoteLine } from '@/lib/brain/chatChirp';
+import { armChatChirpAudio, chirpForRemoteLine } from '@/lib/brain/chatChirp';
 import { isBrainSynced, syncBrainRoom } from '@/lib/brain/brainSyncStore';
 import type { BrainVariant } from '@/lib/brain/variants';
 import {
@@ -2042,6 +2042,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
   // ── Subscribe to remote chat lines ────────────────────────────────
   useEffect(() => {
     if (!ready) return;
+    armChatChirpAudio();
     const eng = getSharedFieldEngine();
     const unsub = onChatLine((remote) => {
       if (remote.infinityReplyTo) {

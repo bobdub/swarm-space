@@ -24,6 +24,7 @@ vi.mock('@/lib/webrtc/sharedAudioContext', () => ({
 }));
 
 import {
+  armChatChirpAudio,
   CHIRP_MIN_GAP_MS,
   chirpAllowed,
   chirpForRemoteLine,
@@ -57,9 +58,9 @@ describe('Brain chat chirp', () => {
     expect(chirpForRemoteLine({ id: 'c' }, 10_000 + CHIRP_MIN_GAP_MS)).toBe(true);
   });
 
-  it('plays two whistles through the shared context', () => {
+  it('plays three whistles through the shared context', () => {
     chirpForRemoteLine({ id: 'a' }, 0);
-    expect(fakeCtx.createOscillator).toHaveBeenCalledTimes(2);
+    expect(fakeCtx.createOscillator).toHaveBeenCalledTimes(3);
   });
 
   it('stays silent for duplicates, muted people and when turned off', () => {
@@ -82,5 +83,17 @@ describe('Brain chat chirp', () => {
     fakeCtx.state = 'closed' as AudioContextState;
     expect(chirpForRemoteLine({ id: 'a' }, 0)).toBe(false);
     expect(fakeCtx.createOscillator).not.toHaveBeenCalled();
+  });
+
+  it('wakes suspended audio on the next tap so later chirps can play', async () => {
+    fakeCtx.state = 'suspended' as AudioContextState;
+    fakeCtx.resume.mockClear();
+    fakeCtx.resume.mockImplementation(() => { fakeCtx.state = 'running'; return Promise.resolve(); });
+    armChatChirpAudio();
+    window.dispatchEvent(new Event('pointerdown'));
+    expect(fakeCtx.resume).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(chirpForRemoteLine({ id: 'z' }, 0)).toBe(true);
+    expect(fakeCtx.createOscillator).toHaveBeenCalledTimes(3);
   });
 });
