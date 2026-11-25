@@ -6,6 +6,7 @@ import {
   canvasToMap, getNorthFrame, mapToCanvas, projectToMap, unprojectFromMap, worldToLocalNormal, type NorthFrame,
 } from '@/lib/brain/mapProjection';
 import { MAP_SURFACE_FILL, sampleMapSurface } from '@/lib/brain/mapSurface';
+import { getMapLandmarks, type LandmarkKind, type MapLandmark } from '@/lib/brain/mapLandmarks';
 import { getWeather, isWeatherFallback } from '@/lib/world/weather';
 import { fahrenheitToCelsius } from '@/lib/world/temperature';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
@@ -29,7 +30,8 @@ const MAP_RANGE_M = 600; // half-width of the projection in metres
  * projection (`mapProjection.ts`), so the ground stays put while Earth
  * spins. Land and sea come from the same ground height the world is
  * built from (`mapSurface.ts`). Peers are violet, portals amber, boats
- * are hull arrows and the jetty is a brown line.
+ * are hull arrows and the jetty is a brown line. Landmarks (home, volcano,
+ * bar, fire pits, hives, nests, mountains) come from `mapLandmarks.ts`.
  */
 export function MiniMapHUD({ selfId, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,6 +100,10 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
       }
     };
 
+    // Landmarks change slowly (a fire lit, a hive moved): re-read once a second.
+    let landmarks: MapLandmark[] = [];
+    let landmarksAt = 0;
+
     let raf = 0;
     const draw = () => {
       try {
@@ -137,6 +143,19 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
           if (Math.abs(e) > MAP_RANGE_M * slack || Math.abs(nn) > MAP_RANGE_M * slack) return null;
           return mapToCanvas(e, nn, MAP_SIZE, MAP_RANGE_M);
         };
+
+        // Landmarks: small ones first so home, the bar and the volcano sit on top.
+        const now = Date.now();
+        if (now - landmarksAt > 1000) {
+          landmarks = getMapLandmarks(now);
+          landmarksAt = now;
+        }
+        const ordered = [...landmarks].sort((a, b) => LANDMARK_STYLE[a.kind].z - LANDMARK_STYLE[b.kind].z);
+        for (const lm of ordered) {
+          const p = toMap(lm.n, 1.05);
+          if (!p) continue;
+          drawLandmark(ctx, lm, p[0], p[1]);
+        }
 
         // Remote bodies: violet peers, amber portals.
         for (const b of physics.getBodies()) {
@@ -190,14 +209,19 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         ctx.arc(MAP_SIZE / 2, MAP_SIZE / 2, 5, 0, Math.PI * 2);
         ctx.fill(); ctx.stroke();
 
-        // North is always up.
+        // North is always up: a small arrow and N in the top-right corner,
+        // clear of the middle where landmark labels sit.
+        const nx = MAP_SIZE - 14;
+        ctx.fillStyle = 'hsla(265, 70%, 8%, 0.75)';
+        ctx.fillRect(nx - 10, 3, 20, 28);
+        ctx.fillStyle = 'hsl(0, 85%, 65%)';
+        ctx.beginPath();
+        ctx.moveTo(nx, 6); ctx.lineTo(nx + 5, 13); ctx.lineTo(nx - 5, 13); ctx.closePath();
+        ctx.fill();
         ctx.font = 'bold 12px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillStyle = 'hsla(265, 70%, 8%, 0.75)';
-        ctx.fillRect(MAP_SIZE / 2 - 9, 3, 18, 16);
-        ctx.fillStyle = 'hsl(0, 85%, 65%)';
-        ctx.fillText('N', MAP_SIZE / 2, 5);
+        ctx.fillText('N', nx, 16);
 
         // Border
         ctx.strokeStyle = 'hsla(180, 80%, 60%, 0.5)';
@@ -245,11 +269,63 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         style={{ width: isMobile ? 'min(220px, calc(100vw - 3rem))' : MAP_SIZE, height: 'auto', aspectRatio: '1 / 1' }}
       />
       <p className="mt-2 max-w-[220px] md:max-w-[280px] text-[10px] text-foreground/50">
-        North is up · centre = you · violet = peers · amber = portals · gold = your boat · white = others' boats
+        North is up · centre = you · 🏠 home · 🌋 volcano · 🍺 bar · 🔥 fire pit (dim = cold) · 🐝 hive · 🥚 nest · ▲ mountain · violet = peers · amber = portals · gold = your boat · white = others' boats
       </p>
     </div>
   );
 }
+const LANDMARK_STYLE: Record<LandmarkKind, { glyph: string; size: number; z: number; showLabel: boolean }> = {
+  mountain: { glyph: '▲', size: 10, z: 0, showLabel: false },
+  nest: { glyph: '🥚', size: 11, z: 1, showLabel: false },
+  hive: { glyph: '🐝', size: 11, z: 1, showLabel: false },
+  firePit: { glyph: '🔥', size: 12, z: 2, showLabel: false },
+  bar: { glyph: '🍺', size: 13, z: 3, showLabel: true },
+  volcano: { glyph: '🌋', size: 15, z: 4, showLabel: true },
+  home: { glyph: '🏠', size: 15, z: 5, showLabel: true },
+};
+
+/** One landmark icon on a dark disc so it reads on land and sea alike. */
+function drawLandmark(ctx: CanvasRenderingContext2D, lm: MapLandmark, x: number, y: number): void {
+  const st = LANDMARK_STYLE[lm.kind];
+  ctx.save();
+  if (lm.kind === 'firePit' && !lm.lit) ctx.globalAlpha = 0.45;
+  if (lm.kind === 'mountain') {
+    ctx.fillStyle = 'hsl(30, 8%, 72%)';
+    ctx.strokeStyle = 'hsla(265, 70%, 8%, 0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+  } else {
+    const r = st.size * 0.62;
+    ctx.fillStyle = lm.kind === 'home' ? 'hsla(180, 90%, 30%, 0.9)' : 'hsla(265, 70%, 8%, 0.72)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    if (lm.kind === 'home') {
+      ctx.strokeStyle = 'hsl(180, 90%, 65%)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    ctx.font = `${st.size}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(st.glyph, x, y + 1);
+  }
+  if (st.showLabel) {
+    ctx.globalAlpha = 1;
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'hsla(265, 70%, 8%, 0.85)';
+    ctx.strokeText(lm.label, x + st.size * 0.7, y);
+    ctx.fillStyle = 'hsl(0, 0%, 96%)';
+    ctx.fillText(lm.label, x + st.size * 0.7, y);
+  }
+  ctx.restore();
+}
+
 interface LocalWeather { icon: string; label: string; tempF: number; tempC: number; rainChance: number }
 
 /** Local conditions read from the live weather field at the player's position. */
