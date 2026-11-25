@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getEarthPose, getSurfaceFrame, EARTH_RADIUS, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import { getEarthPose, EARTH_RADIUS, quatRotate, type Vec3 } from '@/lib/brain/earth';
+import {
+  canvasToMap, getNorthFrame, mapToCanvas, projectToMap, unprojectFromMap, worldToLocalNormal, type NorthFrame,
+} from '@/lib/brain/mapProjection';
+import { MAP_SURFACE_FILL, sampleMapSurface } from '@/lib/brain/mapSurface';
 import { getWeather, isWeatherFallback } from '@/lib/world/weather';
 import { fahrenheitToCelsius } from '@/lib/world/temperature';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
-import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { getFleet } from '@/lib/brain/sea/fleet';
@@ -21,10 +24,12 @@ const MAP_SIZE = 280;
 const MAP_RANGE_M = 600; // half-width of the projection in metres
 
 /**
- * 2-D azimuthal mini-map centred on the local self body. Land/ocean tint
- * comes from the canonical surfaceClass LUT so the map matches the
- * world. Remote avatars (read live from physics) appear as cyan dots,
- * portals as amber, the volcano as orange, the shared village at origin.
+ * North-up mini-map centred on the local self body. Everything is drawn
+ * in Earth-local space through the shared azimuthal-equidistant
+ * projection (`mapProjection.ts`), so the ground stays put while Earth
+ * spins. Land and sea come from the same ground height the world is
+ * built from (`mapSurface.ts`). Peers are violet, portals amber, boats
+ * are hull arrows and the jetty is a brown line.
  */
 export function MiniMapHUD({ selfId, onClose }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,80 +72,81 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
     const ctx = cv.getContext('2d');
     if (!ctx) return;
 
+    // Land and sea live on their own offscreen layer, repainted only when
+    // you have moved about one cell. Markers are drawn over it every frame.
+    const terrain = document.createElement('canvas');
+    terrain.width = MAP_SIZE;
+    terrain.height = MAP_SIZE;
+    const tctx = terrain.getContext('2d');
+    let terrainAt: Vec3 | null = null;
+    let frameRef: NorthFrame | null = null;
+    const CELL_PX = 4;
+    const REPAINT_ARC = ((MAP_RANGE_M * 2) / (MAP_SIZE / CELL_PX)) / EARTH_RADIUS;
+
+    const paintTerrain = (frame: NorthFrame) => {
+      if (!tctx) return;
+      const volcano = getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID);
+      for (let y = 0; y < MAP_SIZE; y += CELL_PX) {
+        for (let x = 0; x < MAP_SIZE; x += CELL_PX) {
+          const [e, n] = canvasToMap(x + CELL_PX / 2, y + CELL_PX / 2, MAP_SIZE, MAP_RANGE_M);
+          const local = unprojectFromMap(frame, e, n);
+          tctx.fillStyle = MAP_SURFACE_FILL[sampleMapSurface(local, volcano)];
+          tctx.fillRect(x, y, CELL_PX, CELL_PX);
+        }
+      }
+    };
+
     let raf = 0;
     const draw = () => {
       try {
         const body = physics.getBody(selfId);
+        if (!body) throw new Error('no self body yet');
         const pose = getEarthPose();
-        const center = body?.pos ?? pose.center;
-        const frame = getSurfaceFrame(center, pose);
-        ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
+        const self = worldToLocalNormal(body.pos as Vec3, pose);
+        const frame = getNorthFrame(self, frameRef);
+        frameRef = frame;
 
-        // Surface tint — sample a coarse grid using the LUT.
-        const STEP = 14;
-        for (let y = 0; y < MAP_SIZE; y += STEP) {
-          for (let x = 0; x < MAP_SIZE; x += STEP) {
-            const tx = ((x - MAP_SIZE / 2) / (MAP_SIZE / 2)) * MAP_RANGE_M;
-            const tz = ((y - MAP_SIZE / 2) / (MAP_SIZE / 2)) * MAP_RANGE_M;
-            const wx = center[0] + frame.right[0] * tx + frame.forward[0] * tz;
-            const wy = center[1] + frame.right[1] * tx + frame.forward[1] * tz;
-            const wz = center[2] + frame.right[2] * tx + frame.forward[2] * tz;
-            const dx = wx - pose.center[0];
-            const dy = wy - pose.center[1];
-            const dz = wz - pose.center[2];
-            const len = Math.hypot(dx, dy, dz) || 1;
-            const localN: [number, number, number] = [dx / len, dy / len, dz / len];
-            const cls = sampleSurfaceClass(localN, getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID));
-            const fill =
-              cls === 'ocean' ? 'hsl(210, 60%, 22%)'
-              : cls === 'shore' ? 'hsl(45, 50%, 55%)'
-              : cls === 'ice' ? 'hsl(200, 30%, 80%)'
-              : cls === 'volcLand' ? 'hsl(15, 60%, 35%)'
-              : 'hsl(120, 30%, 32%)';
-            ctx.fillStyle = fill;
-            ctx.fillRect(x, y, STEP, STEP);
-          }
+        // Repaint land/sea once you've moved about a cell.
+        const moved = terrainAt
+          ? Math.acos(Math.max(-1, Math.min(1, self[0] * terrainAt[0] + self[1] * terrainAt[1] + self[2] * terrainAt[2])))
+          : Infinity;
+        if (moved >= REPAINT_ARC) {
+          paintTerrain(frame);
+          terrainAt = self;
         }
 
-        // Origin marker (player center)
-        ctx.fillStyle = 'hsl(180, 90%, 65%)';
-        ctx.beginPath();
-        ctx.arc(MAP_SIZE / 2, MAP_SIZE / 2, 5, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
+        // The cached layer was painted around `terrainAt`; shift it so it
+        // stays fixed to the ground until the next repaint.
+        if (terrainAt) {
+          const [oe, on] = projectToMap(frame, terrainAt);
+          const [ox, oy] = mapToCanvas(oe, on, MAP_SIZE, MAP_RANGE_M);
+          ctx.drawImage(terrain, ox - MAP_SIZE / 2, oy - MAP_SIZE / 2);
+        }
 
-        // Remote bodies — cyan dots, projected into the local tangent plane.
+        const toMap = (n: Vec3, slack = 1): [number, number] | null => {
+          const [e, nn] = projectToMap(frame, n);
+          if (Math.abs(e) > MAP_RANGE_M * slack || Math.abs(nn) > MAP_RANGE_M * slack) return null;
+          return mapToCanvas(e, nn, MAP_SIZE, MAP_RANGE_M);
+        };
+
+        // Remote bodies: violet peers, amber portals.
         for (const b of physics.getBodies()) {
           if (b.id === selfId) continue;
           if (b.kind !== 'avatar' && b.kind !== 'portal') continue;
-          const dx = b.pos[0] - center[0];
-          const dy = b.pos[1] - center[1];
-          const dz = b.pos[2] - center[2];
-          const tx = dx * frame.right[0] + dy * frame.right[1] + dz * frame.right[2];
-          const tz = dx * frame.forward[0] + dy * frame.forward[1] + dz * frame.forward[2];
-          if (Math.abs(tx) > MAP_RANGE_M || Math.abs(tz) > MAP_RANGE_M) continue;
-          const px = MAP_SIZE / 2 + (tx / MAP_RANGE_M) * (MAP_SIZE / 2);
-          const py = MAP_SIZE / 2 + (tz / MAP_RANGE_M) * (MAP_SIZE / 2);
+          const p = toMap(worldToLocalNormal(b.pos as Vec3, pose));
+          if (!p) continue;
           ctx.fillStyle = b.kind === 'portal' ? 'hsl(38, 90%, 60%)' : 'hsl(265, 80%, 70%)';
           ctx.beginPath();
-          ctx.arc(px, py, 4, 0, Math.PI * 2);
+          ctx.arc(p[0], p[1], 4, 0, Math.PI * 2);
           ctx.fill();
         }
 
-        // The jetty and the boats: the hull points along her heading.
-        const toMap = (n: Vec3): [number, number] | null => {
-          const w = quatRotate(pose.spinQuat, n);
-          const dx = pose.center[0] + w[0] * EARTH_RADIUS - center[0];
-          const dy = pose.center[1] + w[1] * EARTH_RADIUS - center[1];
-          const dz = pose.center[2] + w[2] * EARTH_RADIUS - center[2];
-          const tx = dx * frame.right[0] + dy * frame.right[1] + dz * frame.right[2];
-          const tz = dx * frame.forward[0] + dy * frame.forward[1] + dz * frame.forward[2];
-          if (Math.abs(tx) > MAP_RANGE_M * 1.2 || Math.abs(tz) > MAP_RANGE_M * 1.2) return null;
-          return [MAP_SIZE / 2 + (tx / MAP_RANGE_M) * (MAP_SIZE / 2), MAP_SIZE / 2 + (tz / MAP_RANGE_M) * (MAP_SIZE / 2)];
-        };
+        // The jetty and the boats (already Earth-local): the hull points along her heading.
         const site = getVillageDockSite();
         if (site) {
-          const a = toMap(site.jettyStart);
-          const b = toMap(travel(site.jettyStart, site.jettyDir, site.jettyLength));
+          const a = toMap(site.jettyStart, 1.2);
+          const b = toMap(travel(site.jettyStart, site.jettyDir, site.jettyLength), 1.2);
           if (a && b) {
             ctx.strokeStyle = 'hsl(30, 45%, 50%)';
             ctx.lineWidth = 3;
@@ -151,8 +157,8 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         for (const boat of getFleet().list()) {
           if (!boat.visible) continue;
           const { n, heading } = boat.vessel.motion;
-          const c = toMap(n);
-          const bow = toMap(travel(n, heading, 40));
+          const c = toMap(n, 1.2);
+          const bow = toMap(travel(n, heading, 40), 1.4);
           if (!c || !bow) continue;
           const ang = Math.atan2(bow[1] - c[1], bow[0] - c[0]);
           const mine = boat.kind === 'mine' || boat.key === crewKey;
@@ -168,6 +174,23 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
           ctx.restore();
         }
 
+        // You, at the centre.
+        ctx.fillStyle = 'hsl(180, 90%, 65%)';
+        ctx.strokeStyle = 'hsla(265, 70%, 8%, 0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(MAP_SIZE / 2, MAP_SIZE / 2, 5, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+
+        // North is always up.
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = 'hsla(265, 70%, 8%, 0.75)';
+        ctx.fillRect(MAP_SIZE / 2 - 9, 3, 18, 16);
+        ctx.fillStyle = 'hsl(0, 85%, 65%)';
+        ctx.fillText('N', MAP_SIZE / 2, 5);
+
         // Border
         ctx.strokeStyle = 'hsla(180, 80%, 60%, 0.5)';
         ctx.lineWidth = 2;
@@ -176,7 +199,6 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
-    void EARTH_RADIUS;
     return () => cancelAnimationFrame(raf);
   }, [selfId, physics]);
 
@@ -215,7 +237,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         style={{ width: isMobile ? 'min(220px, calc(100vw - 3rem))' : MAP_SIZE, height: 'auto', aspectRatio: '1 / 1' }}
       />
       <p className="mt-2 max-w-[220px] md:max-w-[280px] text-[10px] text-foreground/50">
-        Violet = peers · amber = portals · gold = your boat · white = others' boats · centre = you
+        North is up · centre = you · violet = peers · amber = portals · gold = your boat · white = others' boats
       </p>
     </div>
   );
