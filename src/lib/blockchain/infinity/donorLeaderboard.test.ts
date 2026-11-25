@@ -43,7 +43,7 @@ describe("buildDonorLeaderboard", () => {
       tx({ from: "eve", amount: 4, meta: { assetId: "token:fox", ticker: "FOX" } }),
       tx({ from: "eve", amount: 1, meta: { ticker: "SWARM" } }),
     ]);
-    expect(board.totals).toEqual({ MINTME: 3, "token:eve-coin": 9, FOX: 4 });
+    expect(board.totals).toEqual({ MINTME: 3, "eve-coin": 9, FOX: 4 });
   });
 
   it("keys imported-token gifts by chain and contract, not by symbol", () => {
@@ -54,7 +54,15 @@ describe("buildDonorLeaderboard", () => {
       tx({ from: "eve", amount: 2, meta: tokenTip(c, `MINTME:${c}`) }),
       tx({ from: "eve", amount: 2, meta: tokenTip(`eth:${c}`, `ETHEREUM:${c}`) }),
     ]);
-    expect(board.totals).toEqual({ "MTCG (Ethereum 0x6343…1a82)": 4, "MTCG (MintMe 0x6343…1a82)": 2 });
+    expect(board.totals).toEqual({ "MTCG (Ethereum 0x6343…1a82)": 4, "MTCG (0x6343…1a82)": 2 });
+  });
+
+  it("counts Ethereum vault donations apart from the same contract on MintMe", () => {
+    const c = "0x634340447220bcaaa09a5505d71ca62b644a1a82";
+    const gift = (currency: string, amount: number) => tx({ type: "custom_token_transfer", to: "community-pool", from: "eve", amount,
+      meta: { currency, marketVault: true, direction: "donation", ticker: "MTCG" } });
+    const board = buildDonorLeaderboard([gift(`ETHEREUM:${c}`, 3), gift(`MINTME:${c}`, 1), gift(`ETHEREUM:${c}`, 2)]);
+    expect(board.totals).toEqual({ "MTCG (Ethereum 0x6343…1a82)": 5, "MTCG (0x6343…1a82)": 1 });
   });
 
   it("formats SWARM first", () => {
@@ -93,5 +101,73 @@ describe("hand-recorded donations", () => {
 
   it("shows fiat with its symbol and small crypto amounts in full", () => {
     expect(formatDonationAmounts({ USD: 25, BTC: 0.00012, SWARM: 3 })).toBe("3 SWARM · 0.00012 BTC · $25");
+  });
+});
+
+describe("Support the Vault donations in Credits and synced tokens", () => {
+  const vaultGift = (p: Partial<SwarmTransaction>) => tx({
+    type: "custom_token_transfer", to: "community-pool", amount: 50,
+    meta: { currency: "CREDITS", marketVault: true, direction: "donation" }, ...p,
+  });
+
+  it("counts Credits and token donations per contract, but not vault trades", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "alice", amount: 50 }),
+      vaultGift({ from: "bob", amount: 3, meta: { currency: "MINTME:0x1234567890abcdef1234567890abcdef12345678", marketVault: true, direction: "donation", ticker: "DREAMS" } }),
+      vaultGift({ from: "carol", amount: 7, meta: { currency: "MINTME:0x1234567890abcdef1234567890abcdef12345678", marketVault: true, direction: "donation" } }),
+      // A sale to the vault is a trade, not a gift.
+      vaultGift({ from: "dave", amount: 9, meta: { currency: "CREDITS", marketVault: true, direction: "vault-buy" } }),
+      // Credits paid out of the vault are not a donation either.
+      vaultGift({ from: "community-pool", to: "erin", amount: 4, meta: { currency: "CREDITS", marketVault: true, direction: "vault-sell" } }),
+    ]);
+    // Both gifts are the same contract, so they add up under its symbol.
+    expect(board.totals).toEqual({ Credits: 50, DREAMS: 10 });
+    expect(board.donors.map((d) => d.userId).sort()).toEqual(["alice", "bob", "carol"]);
+  });
+
+  it("never lets a token's label pass itself off as SWARM or Credits", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "mallory", amount: 5, meta: { currency: "MINTME:0xabcdefabcdefabcdefabcdefabcdefabcdef1234", marketVault: true, direction: "donation", ticker: "swarm" } }),
+    ]);
+    expect(board.totals).toEqual({ "0xabcd…1234": 5 });
+  });
+
+  const CONTRACT_A = "MINTME:0xaaaa567890abcdef1234567890abcdef1234aaaa";
+  const CONTRACT_B = "MINTME:0xbbbb567890abcdef1234567890abcdef1234bbbb";
+
+  it("never shows a token as dollars, euros or pounds", () => {
+    const board = buildDonorLeaderboard(
+      [
+        vaultGift({ from: "mallory", amount: 40, meta: { currency: CONTRACT_A, marketVault: true, direction: "donation", ticker: "USD" } }),
+        vaultGift({ from: "mallory", amount: 2, meta: { currency: CONTRACT_B, marketVault: true, direction: "donation", ticker: "eur" } }),
+      ],
+      [{ donor: "Ada", amount: 25, currency: "USD", date: "2026-11-01" }],
+    );
+    expect(board.totals).toEqual({ USD: 25, "0xaaaa…aaaa": 40, "0xbbbb…bbbb": 2 });
+    expect(formatDonationAmounts(board.totals)).not.toContain("$40");
+  });
+
+  it("keeps two tokens that share a symbol apart", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "alice", amount: 3, meta: { currency: CONTRACT_A, marketVault: true, direction: "donation", ticker: "DREAMS" } }),
+      vaultGift({ from: "bob", amount: 5, meta: { currency: CONTRACT_B, marketVault: true, direction: "donation", ticker: "DREAMS" } }),
+    ]);
+    expect(board.totals).toEqual({ "DREAMS (0xaaaa…aaaa)": 3, "DREAMS (0xbbbb…bbbb)": 5 });
+  });
+
+  it("does not let a token merge with a hand-recorded coin of the same name", () => {
+    const board = buildDonorLeaderboard(
+      [vaultGift({ from: "alice", amount: 3, meta: { currency: CONTRACT_A, marketVault: true, direction: "donation", ticker: "ETH" } })],
+      [{ donor: "Ada", amount: 0.05, currency: "ETH", date: "2026-11-01" }],
+    );
+    expect(board.totals).toEqual({ ETH: 0.05, "ETH (0xaaaa…aaaa)": 3 });
+  });
+
+  it("counts a contract once whatever case its address is written in", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "alice", amount: 1, meta: { currency: CONTRACT_A, marketVault: true, direction: "donation", ticker: "DREAMS" } }),
+      vaultGift({ from: "alice", amount: 2, meta: { currency: CONTRACT_A.toUpperCase().replace("0X", "0x"), marketVault: true, direction: "donation" } }),
+    ]);
+    expect(board.totals).toEqual({ DREAMS: 3 });
   });
 });

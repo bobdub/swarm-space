@@ -23,6 +23,16 @@ import { ensureGuestIdentity, isGuestActive, stopGuestMode } from '@/lib/preview
 import { requestContentHost, startContentLookupResponder } from '@/lib/p2p/contentLookup';
 import { cachePreviewPost, getCachedPreviewPost } from '@/lib/preview/previewCache';
 import { NetworkPulse } from '@/components/preview/NetworkPulse';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { loadConnectionState } from '@/lib/p2p/connectionState';
+
+/** Ask every open Swarm Mesh peer for one post by id (no-op outside swarm mode). */
+function requestPostFromMesh(postId: string): void {
+  try {
+    if (loadConnectionState().mode !== 'swarm') return;
+    getSwarmMeshStandalone().requestContent([postId]);
+  } catch { /* mesh not ready */ }
+}
 
 type PreviewPhase =
   | 'guest-booting'
@@ -41,6 +51,8 @@ export default function Preview() {
   const [phase, setPhase] = useState<PreviewPhase>('guest-booting');
   const [hostHandle, setHostHandle] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const p2pRef = useRef(p2p);
+  p2pRef.current = p2p;
   const isGuest = isGuestActive() || (user as unknown as { _guest?: boolean } | null)?._guest === true;
   const isRealUser = !!user && !isGuest;
 
@@ -59,12 +71,17 @@ export default function Preview() {
       // Kick the mesh — for guests the freshly-minted `me` will satisfy
       // the auth gate in useP2P; for authed users this is a no-op if
       // already enabled.
-      try { await p2p.enable(); } catch { /* ignore */ }
+      try { await p2pRef.current.enable(); } catch { /* ignore */ }
       setPhase('dialing-origin');
     })();
-  }, [isPreviewMode, previewSession, user, p2p]);
+  }, [isPreviewMode, previewSession, user]);
 
   // ── Dial origin → fallback to peer search → render ──
+  // `p2p` is a fresh object on every P2P state change (stats, diagnostics,
+  // peers), so it must not be an effect dependency here: each change used to
+  // tear down the poll and the 8s fallback, re-dial, and start over, which
+  // left the page on "Connecting to sharer's node…" for good. Read it through
+  // a ref instead so the timers run once per phase.
   useEffect(() => {
     if (!isPreviewMode || !previewSession) return;
     if (phase !== 'dialing-origin') return;
@@ -85,16 +102,17 @@ export default function Preview() {
 
     // Attempt direct dial to the original peer.
     try {
-      p2p.connectToPeer(previewSession.creatorPeerId, {
+      p2pRef.current.connectToPeer(previewSession.creatorPeerId, {
         manual: true,
         source: 'preview-mode-dial',
       });
     } catch { /* ignore */ }
 
     const tryLocalStore = async (): Promise<boolean> => {
-      if (!postId) return false;
-      const local = await get<Post>('posts', postId);
+      if (!postId || cancelled) return false;
+      const local = await get<Post>('posts', postId).catch(() => undefined);
       if (local && !cancelled) {
+        cancelled = true;
         setPost(local);
         cachePreviewPost(local);
         setPhase('rendered');
@@ -103,41 +121,69 @@ export default function Preview() {
       return false;
     };
 
-    // Poll local store — post-sync writes here once a peer delivers it.
-    const pollHandle = window.setInterval(() => { void tryLocalStore(); }, 1000);
+    // Ask the sharer (and any other open peer) for this post by id, then
+    // check the local store — post sync writes there once a peer delivers it.
+    const tick = () => {
+      if (cancelled) return;
+      if (postId) requestPostFromMesh(postId);
+      void tryLocalStore();
+    };
+    tick();
+    const pollHandle = window.setInterval(tick, 2000);
+    const onPostsUpdated = () => { void tryLocalStore(); };
+    window.addEventListener('p2p-posts-updated', onPostsUpdated);
 
-    // After 8s, fall back to broader peer search.
+    // After 8s, fall back to broader peer search (the mesh request keeps
+    // running there too, so a late connection to the sharer still renders).
     const fallbackHandle = window.setTimeout(async () => {
       if (cancelled) return;
       if (await tryLocalStore()) return;
-      setPhase('searching-peers');
+      if (!cancelled) setPhase('searching-peers');
     }, 8000);
 
     return () => {
       cancelled = true;
       clearInterval(pollHandle);
       clearTimeout(fallbackHandle);
+      window.removeEventListener('p2p-posts-updated', onPostsUpdated);
     };
-  }, [phase, isPreviewMode, previewSession, p2p]);
+  }, [phase, isPreviewMode, previewSession]);
 
   // ── Searching phase: ask same-origin tabs/peers who has the content ──
   useEffect(() => {
-    if (phase !== 'searching-peers') return;
+    if (phase !== 'searching-peers' && phase !== 'no-host') return;
     const postId = previewSession?.postId;
     if (!postId) {
-      setPhase('no-host');
+      if (phase !== 'no-host') setPhase('no-host');
       return;
     }
 
     let cancelled = false;
     let attempts = 0;
 
+    const renderLocal = async (): Promise<boolean> => {
+      if (cancelled) return false;
+      const local = await get<Post>('posts', postId).catch(() => undefined);
+      if (!local || cancelled) return false;
+      cancelled = true;
+      setPost(local);
+      cachePreviewPost(local);
+      setPhase('rendered');
+      return true;
+    };
+
     const search = async () => {
+      if (cancelled) return;
       attempts += 1;
+      // Keep asking open mesh peers by id. No timed redial of the sharer:
+      // the first dial saved them as a library peer, and the mesh's own
+      // rejoin path redials with backoff and honours Auto-connect.
+      requestPostFromMesh(postId);
       const acks = await requestContentHost(postId, { timeoutMs: 4000 });
       if (cancelled) return;
       const winner = acks[0];
       if (winner) {
+        cancelled = true;
         setPost(winner.post);
         setHostHandle(winner.handle);
         cachePreviewPost(winner.post, { peerId: winner.peerId ?? undefined, handle: winner.handle ?? undefined });
@@ -146,21 +192,21 @@ export default function Preview() {
       }
       // Also check local store — a background peer sync may have landed
       // it while we were waiting.
-      const local = await get<Post>('posts', postId);
-      if (local && !cancelled) {
-        setPost(local);
-        cachePreviewPost(local);
-        setPhase('rendered');
-        return;
-      }
-      if (attempts >= 5) {
+      if (await renderLocal()) return;
+      if (attempts >= 5 && phase === 'searching-peers') {
         setPhase('no-host');
       }
     };
 
     void search();
-    const interval = window.setInterval(() => { void search(); }, 6000);
-    return () => { cancelled = true; clearInterval(interval); };
+    const interval = window.setInterval(() => { void search(); }, phase === 'no-host' ? 15000 : 6000);
+    const onPostsUpdated = () => { void renderLocal(); };
+    window.addEventListener('p2p-posts-updated', onPostsUpdated);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener('p2p-posts-updated', onPostsUpdated);
+    };
   }, [phase, previewSession]);
 
   // ── Profile-feed rendering (post-less share links) ──
@@ -186,10 +232,8 @@ export default function Preview() {
 
   const handleRetry = () => {
     if (!previewSession) return;
+    // Entering dialing-origin dials the sharer again.
     setPhase('dialing-origin');
-    try {
-      p2p.connectToPeer(previewSession.creatorPeerId, { manual: true, source: 'preview-mode-retry' });
-    } catch { /* ignore */ }
   };
 
   const statusLabel = useMemo(() => {

@@ -30,6 +30,8 @@ export const MAX_REMEMBERED = 200;
 export const REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Only gossip local chain entries this fresh (chain-sync merges of history are not re-announced). */
 export const LOCAL_TX_FRESH_MS = 10 * 60 * 1000;
+/** How often still-unmined local donations are offered again to every connected peer. */
+export const UNMINED_REOFFER_MS = 2 * 60 * 1000;
 /** Chain transaction types that carry credit/reward balance changes, plus member vault donations. */
 export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate"]);
 
@@ -134,6 +136,12 @@ export class CreditGossip {
     if (this.deps.subscribeLocalChainTx) {
       this.unsubs.push(this.deps.subscribeLocalChainTx((tx) => this.publishLocalChainTx(tx)));
     }
+    if (this.deps.unminedLocalChainTxs) {
+      // A peer may refuse a donation it can't check yet (say its ledger hasn't
+      // caught up with the donor's balance). Keep offering until it is mined.
+      const timer = setInterval(() => { void this.offerUnmined(); }, UNMINED_REOFFER_MS);
+      this.unsubs.push(() => clearInterval(timer));
+    }
     this.syncPeers();
     return () => this.stop();
   }
@@ -186,7 +194,13 @@ export class CreditGossip {
     if (payload.type === "chain-tx") {
       let accepted = false;
       try { accepted = await this.deps.acceptChainTx(payload.tx); } catch { accepted = false; }
-      if (!accepted) return;
+      if (!accepted) {
+        // Forget a refused entry so the next offer is checked again: what this
+        // ledger could not verify now (an unsynced balance) may check out later.
+        this.remembered.delete(id);
+        this.save();
+        return;
+      }
     } else {
       await this.deliverCredit(payload.transaction);
     }
@@ -238,7 +252,7 @@ export class CreditGossip {
     let unmined: SwarmTransaction[] = [];
     try { unmined = (await this.deps.unminedLocalChainTxs?.()) ?? []; } catch { unmined = []; }
     for (const tx of unmined) {
-      if (!isGossipedChainTx(tx) || this.remembered.has(`chain:${tx.id}`)) continue;
+      if (!isGossipedChainTx(tx)) continue;
       this.sendToPeers(CHAIN_TX_CHANNEL, { type: "chain-tx", tx, hops: 0 }, peerIds);
     }
   }

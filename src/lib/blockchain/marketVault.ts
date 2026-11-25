@@ -188,9 +188,11 @@ export async function donateTokenToVault(userId: string, contract: string, amoun
     if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount above zero.");
     const { getCurrentUser } = await import("../auth");
     if (getCurrentUser()?.id !== userId) throw new Error("Sign in to donate from your wallet.");
-    const { getAvailableTokenBalance } = await import("./deposits/customTokens");
+    const { getAvailableTokenBalance, listCustomTokens } = await import("./deposits/customTokens");
     if (amount > getAvailableTokenBalance(userId, c) + 1e-9) throw new Error("More than your available (synced) balance.");
-    await addTokenTransfer(userId, POOL, Math.round(amount * 1e8) / 1e8, c, "donation", { operationId: crypto.randomUUID() });
+    // Name the token so the donor leaderboard can show its symbol on every peer.
+    const ticker = listCustomTokens(userId).find((t) => t.address.toLowerCase() === c)?.symbol;
+    await addTokenTransfer(userId, POOL, Math.round(amount * 1e8) / 1e8, c, "donation", { operationId: crypto.randomUUID(), ...(ticker ? { ticker } : {}) });
   });
 }
 
