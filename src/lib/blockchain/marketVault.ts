@@ -100,6 +100,19 @@ async function addTokenTransfer(from: string, to: string, amount: number, contra
   });
 }
 
+/** Donate a synced native-wallet token (for example Dreams) to the Market Vault; nothing is paid back. */
+export async function donateTokenToVault(userId: string, contract: string, amount: number) {
+  return withCreatorMarketOperation("swarm-market-vault", async () => {
+    const c = contract.toLowerCase();
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount above zero.");
+    const { getCurrentUser } = await import("../auth");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in to donate from your wallet.");
+    const { getAvailableTokenBalance } = await import("./deposits/customTokens");
+    if (amount > getAvailableTokenBalance(userId, c) + 1e-9) throw new Error("More than your available (synced) balance.");
+    await addTokenTransfer(userId, POOL, Math.round(amount * 1e8) / 1e8, c, "donation", { operationId: crypto.randomUUID() });
+  });
+}
+
 /** Swap a synced native-wallet token into the vault for already-mined SWARM. */
 export async function swapTokenForSwarm(userId: string, contract: string, amount: number) {
   return withCreatorMarketOperation("swarm-market-vault", async () => {
