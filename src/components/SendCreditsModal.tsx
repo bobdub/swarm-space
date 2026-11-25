@@ -32,6 +32,8 @@ export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, 
   const [assets, setAssets] = useState<TipAsset[]>([]);
   const [assetId, setAssetId] = useState(initialAssetId ?? "credits");
   const [passphrase, setPassphrase] = useState("");
+  // The passphrase is only needed when the signing key is not already unlocked on this device.
+  const [signingLocked, setSigningLocked] = useState(false);
   const [weight, setWeight] = useState<TipWeight>("hollow");
   const selectedAsset = assets.find(a => a.id === assetId);
   const isCredits = assetId === "credits";
@@ -44,6 +46,7 @@ export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, 
 
   useEffect(() => {
     if (isOpen) {
+      void getCachedPrivateKey().then(key => setSigningLocked(!key)).catch(() => setSigningLocked(true));
       void loadBalance().catch(() => toast({ title: "Could not load wallet assets", variant: "destructive" }));
     }
     if (!isOpen) {
@@ -110,8 +113,12 @@ export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, 
     try {
       const note = message.trim() ? message.trim() : undefined;
       if (!isCredits && !await getCachedPrivateKey()) {
-        if (!passphrase) throw new Error("Enter your account passphrase to sign this payment");
+        if (!passphrase) {
+          setSigningLocked(true);
+          throw new Error("Enter your account passphrase to sign this payment");
+        }
         await loginUser(passphrase);
+        setSigningLocked(false);
       }
       setPassphrase("");
 
@@ -278,8 +285,9 @@ export function SendCreditsModal({ toUserId, toUsername, toDisplayName, isOpen, 
           </div>
 
           <div className="flex gap-3 pt-2">
-            {!isCredits && !selectedAsset?.unavailable && <div className="w-full space-y-2">
+            {!isCredits && !selectedAsset?.unavailable && signingLocked && <div className="w-full space-y-2">
               <Label htmlFor="tip-passphrase">Account passphrase</Label>
+              <p className="text-xs text-foreground/60">Your signing key is locked on this device. Enter your passphrase once to unlock it.</p>
               <Input id="tip-passphrase" type="password" autoComplete="current-password"
                 value={passphrase} onChange={event => setPassphrase(event.target.value)} disabled={loading} />
             </div>}
