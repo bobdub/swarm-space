@@ -4,7 +4,8 @@ import { getSwarmChain } from "../chain";
 import { getAllLiveChains, getChainBalance } from "../multiChainManager";
 import { getUserProfileTokenHoldings } from "../profileTokenBalance";
 import { getAppWalletBalances } from "./appWallet";
-import { getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
+import { getAvailableTokenBalance, getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
+import { customTipAssetId, customTipUnits, CUSTOM_TIP_ASSET_PREFIX } from "../deposits/customTokenTips";
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
@@ -48,10 +49,12 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
       unavailable: ticker === "MINTME" ? undefined : `${ticker} delivery is unavailable until its transfer bridge is connected. No funds will be deducted.` });
   }
   for (const token of listCustomTokens(userId)) {
-    const balance = getRecordedTokenBalance(userId, token.address);
-    if (balance > 0) assets.push({ id: `custom:${token.address}`, ticker: token.symbol,
-      name: "Custom MintMe token", kind: "external", balance,
-      unavailable: `${token.symbol} mesh transfers await verified settlement. No funds will be deducted.` });
+    // Deposits still waiting to be shared with a peer are not spendable in the mesh yet.
+    const recorded = getRecordedTokenBalance(userId, token.address);
+    const balance = getAvailableTokenBalance(userId, token.address);
+    if (recorded > 0) assets.push({ id: customTipAssetId(token.address), ticker: token.symbol,
+      name: "Custom MintMe token", kind: "external", balance, decimals: token.decimals,
+      ...(balance > 0 ? {} : { unavailable: `Your ${token.symbol} deposit becomes spendable once it has been shared with a connected peer. No funds will be deducted.` }) });
   }
   return assets;
 }
@@ -119,6 +122,10 @@ export async function sendWalletTip(params: {
       signature: "", publicKey: user.publicKey,
       meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
         ...(asset.id === NATIVE_MINTME_ASSET_ID ? { currency: "MINTME", amountUnits: mintMeUnits(params.amount).toString() } : {}),
+        ...(asset.id.startsWith(CUSTOM_TIP_ASSET_PREFIX) && asset.decimals !== undefined ? {
+          currency: `MINTME:${asset.id.slice(CUSTOM_TIP_ASSET_PREFIX.length)}`, decimals: asset.decimals,
+          amountUnits: customTipUnits(params.amount, asset.decimals).toString(),
+        } : {}),
         intent: params.intent ?? "tip", message: message ?? null,
         ...(weight ? { tipFormat: TIP_FORMAT_VERSION, weight } : {}),
         fromAddress: await nativeWalletAddress(user.id), toAddress: await nativeWalletAddress(recipient.id) },

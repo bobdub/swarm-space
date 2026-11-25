@@ -11,6 +11,8 @@ export interface TipAsset {
   tokenId?: string;
   creatorUserId?: string;
   unavailable?: string;
+  /** Imported MintMe tokens only: the token's decimals. */
+  decimals?: number;
   /** SWARM only: weights the sender may tip with. Just ["hollow"] when no engraved coins are held. */
   weights?: TipWeight[];
 }
