@@ -4853,6 +4853,28 @@ export class StandaloneSwarmMesh {
     return this.getConnectedPeers();
   }
 
+  /**
+   * Ask open peers for specific content ids. Used by the share-link preview:
+   * a guest names the one post it is waiting for instead of depending only
+   * on the full inventory exchange at channel open. Replies arrive as the
+   * usual content-push. Returns how many peers were asked.
+   */
+  requestContent(ids: string[], peerId?: string): number {
+    const wanted = ids.filter((id) => typeof id === 'string' && id.length > 0 && !isPostUnsupported(id));
+    if (!wanted.length) return 0;
+    const payload = JSON.stringify({ type: 'content-request', ids: wanted, from: this.peerId });
+    const targets = peerId
+      ? [peerId.startsWith('peer-') ? peerId : `peer-${peerId}`]
+      : Array.from(this.connections.keys());
+    let asked = 0;
+    for (const target of targets) {
+      const conn = this.connections.get(target);
+      if (!conn?.open) continue;
+      try { conn.send(payload); asked++; } catch { /* channel closing */ }
+    }
+    return asked;
+  }
+
   getPeerDetails(): SwarmPeer[] {
     return Array.from(this.peerData.values());
   }
