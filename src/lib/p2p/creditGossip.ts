@@ -6,7 +6,10 @@
  *     silently dropped if the mesh wasn't online at that instant;
  *   • SWARM mining rewards (token_mint) and credit ledger entries
  *     (credit_sync) only reached other peers when a chain sync on reconnect
- *     happened to carry a longer chain.
+ *     happened to carry a longer chain;
+ *   • a Market Vault donation (pool_donate) never left the donor's device
+ *     unless that device itself mined it into a block, so the shared donor
+ *     leaderboard on every other peer never saw it.
  *
  * Now every update is:
  *   1. pushed to all connected peers immediately,
@@ -27,8 +30,19 @@ export const MAX_REMEMBERED = 200;
 export const REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Only gossip local chain entries this fresh (chain-sync merges of history are not re-announced). */
 export const LOCAL_TX_FRESH_MS = 10 * 60 * 1000;
-/** Chain transaction types that carry credit/reward balance changes. */
-export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync"]);
+/** Chain transaction types that carry credit/reward balance changes, plus member vault donations. */
+export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate"]);
+
+/**
+ * A chain entry peers should hear about. A `pool_donate` from "system" is the
+ * old local mining-tax top-up: the block reward now carries the pool's share,
+ * so relaying it would credit the pool twice on every peer.
+ */
+export function isGossipedChainTx(tx: Pick<SwarmTransaction, "type" | "from"> | null | undefined): boolean {
+  if (!tx || !GOSSIPED_CHAIN_TX_TYPES.has(tx.type)) return false;
+  if (tx.type === "pool_donate" && (!tx.from || tx.from === "system")) return false;
+  return true;
+}
 
 const STORAGE_KEY = "swarm-credit-gossip-v1";
 
@@ -67,6 +81,12 @@ export interface CreditGossipDeps {
   acceptChainTx(tx: SwarmTransaction): boolean | Promise<boolean>;
   /** Subscribe to transactions appended to the local ledger. */
   subscribeLocalChainTx?(listener: (tx: SwarmTransaction) => void): () => void;
+  /**
+   * Local ledger entries still waiting for a block, offered to each newly
+   * connected peer whatever their age, so any miner can include them. Only
+   * entries that pass `isGossipedChainTx` are sent.
+   */
+  unminedLocalChainTxs?(): SwarmTransaction[];
   now?(): number;
   storage?: Pick<Storage, "getItem" | "setItem"> | null;
 }
@@ -89,7 +109,7 @@ function isCreditPayload(value: unknown): value is CreditTransferPayload {
 function isChainPayload(value: unknown): value is ChainTxPayload {
   const v = value as ChainTxPayload | null;
   return !!v && v.type === "chain-tx" && !!v.tx && typeof v.tx.id === "string"
-    && typeof v.tx.type === "string" && GOSSIPED_CHAIN_TX_TYPES.has(v.tx.type);
+    && typeof v.tx.type === "string" && isGossipedChainTx(v.tx);
 }
 
 export class CreditGossip {
@@ -129,7 +149,7 @@ export class CreditGossip {
 
   /** Announce a ledger entry created on this device. */
   publishLocalChainTx(tx: SwarmTransaction): void {
-    if (!GOSSIPED_CHAIN_TX_TYPES.has(tx.type)) return;
+    if (!isGossipedChainTx(tx)) return;
     const ts = Date.parse(tx.timestamp);
     if (Number.isFinite(ts) && this.now() - ts > LOCAL_TX_FRESH_MS) return;
     this.publish(CHAIN_TX_CHANNEL, { type: "chain-tx", tx, hops: 0 });
@@ -203,6 +223,14 @@ export class CreditGossip {
     this.prune();
     for (const entry of this.remembered.values()) {
       this.sendToPeers(entry.channel, entry.payload, fresh);
+    }
+    // Entries still waiting for a block go out however old they are: until
+    // one is mined, the peers that could mine it may never have seen it.
+    let unmined: SwarmTransaction[] = [];
+    try { unmined = this.deps.unminedLocalChainTxs?.() ?? []; } catch { unmined = []; }
+    for (const tx of unmined) {
+      if (!isGossipedChainTx(tx) || this.remembered.has(`chain:${tx.id}`)) continue;
+      this.sendToPeers(CHAIN_TX_CHANNEL, { type: "chain-tx", tx, hops: 0 }, fresh);
     }
   }
 
@@ -281,12 +309,18 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
           if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
           chain.addTransaction(tx);
+          if (tx.type === "pool_donate") {
+            // Keep the Market Vault balance in step with the donation we just learned about.
+            void import("@/lib/blockchain/storage").then((m) => m.derivePoolFromChain()).catch(() => { /* non-fatal */ });
+          }
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
           }
           return true;
         },
         subscribeLocalChainTx: (listener) => chain.onTransactionAdded(listener),
+        // Vault donations wait in pending until someone mines them; offer ours to every new peer.
+        unminedLocalChainTxs: () => chain.getPendingTransactions().filter((tx) => tx.type === "pool_donate"),
       });
       gossip.start();
       if (typeof window !== "undefined") {

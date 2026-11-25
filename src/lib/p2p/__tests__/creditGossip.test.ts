@@ -46,7 +46,11 @@ function mintTx(id: string, timestamp = new Date().toISOString()): SwarmTransact
   return { id, type: "token_mint", from: "system", to: "alice", amount: 0.095, timestamp, signature: "", publicKey: "system", nonce: 1, fee: 0 } as SwarmTransaction;
 }
 
-function node(net: FakeNetwork, id: string) {
+function donationTx(id: string, from = "alice", timestamp = new Date().toISOString()): SwarmTransaction {
+  return { id, type: "pool_donate", from, to: "community-pool", amount: 1700, timestamp, signature: "", publicKey: from, nonce: 1, fee: 0 } as SwarmTransaction;
+}
+
+function node(net: FakeNetwork, id: string, unmined: () => SwarmTransaction[] = () => []) {
   const mesh = new FakeMesh(id, net);
   const received: CreditTransaction[] = [];
   const ledger: SwarmTransaction[] = [];
@@ -58,6 +62,7 @@ function node(net: FakeNetwork, id: string) {
       return true;
     },
     subscribeLocalChainTx: (l) => { localListeners.add(l); return () => localListeners.delete(l); },
+    unminedLocalChainTxs: unmined,
     storage: null,
   });
   gossip.start();
@@ -145,5 +150,32 @@ describe("CreditGossip", () => {
     a.mesh.send("credits", "B", { type: "credit-transfer", transaction: transfer("t5", "bob"), timestamp: Date.now() });
     await vi.waitFor(() => expect(b.received).toHaveLength(2));
     expect(b.mesh.sent.length).toBe(sentBefore);
+  });
+
+  it("relays a member's vault donation across the mesh", async () => {
+    const net = new FakeNetwork();
+    const a = node(net, "A"); const b = node(net, "B"); const c = node(net, "C");
+    net.link("A", "B"); net.link("B", "C");
+    a.addLocal(donationTx("d1"));
+    await vi.waitFor(() => expect(c.ledger.map((t) => t.id)).toEqual(["d1"]));
+  });
+
+  it("never relays the old system mining-tax top-up", async () => {
+    const net = new FakeNetwork();
+    const a = node(net, "A"); const b = node(net, "B");
+    net.link("A", "B");
+    a.addLocal(donationTx("tax", "system"));
+    b.mesh.handlers.get("chain-tx")?.forEach((h) => h("A", { type: "chain-tx", tx: donationTx("tax2", "system"), hops: 0 }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(b.ledger).toEqual([]);
+  });
+
+  it("offers a days-old unmined donation to each newly connected peer", async () => {
+    const net = new FakeNetwork();
+    const old = donationTx("d-old", "alice", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
+    node(net, "A", () => [old]);
+    const b = node(net, "B");
+    net.link("A", "B");
+    await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-old"]));
   });
 });

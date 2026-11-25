@@ -67,6 +67,8 @@ export interface UnifiedHistoryEntry {
   rawType: string;
   /** Engraved SWARM coin this record moved, when it names one. */
   coinId?: string;
+  /** Ledger entry still waiting to be mined into a block (other peers may not have it yet). */
+  pending?: boolean;
 }
 
 export interface HistoryChainInfo {
@@ -378,10 +380,12 @@ export interface BuildUnifiedHistoryInput {
   chains?: HistoryChainInfo[];
   /** Engraving tier per SWARM coin id (null when the coin is not engraved). */
   coinTiers?: Map<string, string | null>;
+  /** Ids of ledger entries not yet mined into a block. */
+  pendingIds?: ReadonlySet<string>;
 }
 
 export function buildUnifiedHistory({
-  userId, credits, chain, chains = [], coinTiers = new Map(),
+  userId, credits, chain, chains = [], coinTiers = new Map(), pendingIds,
 }: BuildUnifiedHistoryInput): UnifiedHistoryEntry[] {
   const chainMap = new Map(chains.map(c => [c.chainId, c]));
   const seenChain = new Set<string>();
@@ -421,6 +425,7 @@ export function buildUnifiedHistory({
     if (entry.coinId && coinTiers.has(entry.coinId)) {
       for (const leg of entry.legs) if (leg.origin === "swarm") leg.weight = swarmWeight(coinTiers.get(entry.coinId));
     }
+    if (pendingIds?.has(tx.id)) entry.pending = true;
     entries.push(entry);
   }
 
@@ -459,6 +464,8 @@ export interface LedgerRow {
   timestamp: string;
   detail: string;
   settlement: HistorySettlement;
+  /** Not yet mined into a block. */
+  pending?: boolean;
 }
 
 export const HISTORY_ACTION_LABELS: Record<HistoryKind, string> = {
@@ -485,6 +492,7 @@ export function ledgerRows(entries: UnifiedHistoryEntry[], asset?: string): Ledg
         key: `${e.id}#${i}`, entryId: e.id, asset: leg.asset, ticker: leg.ticker,
         action: HISTORY_ACTION_LABELS[e.kind], direction: leg.direction === "in" ? "Incoming" : "Outgoing",
         weight: leg.weight, amount: leg.amount, timestamp: e.timestamp, detail, settlement: leg.settlement,
+        ...(e.pending ? { pending: true } : {}),
       });
     });
   }

@@ -129,10 +129,18 @@ export function UnifiedHistory({
               </TableHeader>
               <TableBody>
                 {rows.map(row => (
-                  <TableRow key={row.key} title={`${row.detail} · ${SETTLEMENT_LABELS[row.settlement]}`}>
+                  <TableRow key={row.key}
+                    title={`${row.detail} · ${SETTLEMENT_LABELS[row.settlement]}${row.pending ? " · Pending: waiting to be mined into a block" : ""}`}>
                     <TableCell className="font-medium">{row.ticker}</TableCell>
                     <TableCell>
-                      <div>{row.action}</div>
+                      <div className="flex items-center gap-1.5">
+                        {row.action}
+                        {row.pending && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-500 border-amber-500/50">
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
                       <div className="text-[10px] text-muted-foreground" title={new Date(row.timestamp).toLocaleString()}>
                         {formatDistanceToNow(new Date(row.timestamp), { addSuffix: true })}
                       </div>
