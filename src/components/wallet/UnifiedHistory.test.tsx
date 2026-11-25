@@ -9,6 +9,13 @@ const entries = buildUnifiedHistory({
   chain: [{ id: "t", type: "wallet_tip", from: "member", to: "friend", amount: 2, timestamp: "2026-11-17T11:00:00Z",
     signature: "", publicKey: "", nonce: 1, fee: 0, meta: { ticker: "SWARM", intent: "tip" } }],
 });
+const withPendingDonation = buildUnifiedHistory({
+  userId: "member",
+  credits: [],
+  chain: [{ id: "d", type: "pool_donate", from: "member", to: "community-pool", amount: 1700, timestamp: "2026-11-17T12:00:00Z",
+    signature: "", publicKey: "member", nonce: 1, fee: 0 }],
+  pendingIds: new Set(["d"]),
+});
 const load = vi.fn(async () => entries);
 vi.mock("@/lib/history/loadUnifiedHistory", () => ({ loadUnifiedHistory: () => load() }));
 afterEach(cleanup);
@@ -39,5 +46,14 @@ describe("unified wallet history", () => {
     window.dispatchEvent(new Event("credit-transaction"));
     window.dispatchEvent(new Event("wallet-tip-updated"));
     await waitFor(() => expect(load.mock.calls.length).toBe(before + 2));
+  });
+
+  it("marks a ledger entry that is still waiting for a block as Pending", async () => {
+    load.mockImplementationOnce(async () => withPendingDonation);
+    render(<UnifiedHistory userId="member" />);
+    expect(await screen.findByText("Pending")).toBeTruthy();
+    const [, row] = screen.getAllByRole("row");
+    expect(row.getAttribute("title")).toContain("Pool donation");
+    expect(row.getAttribute("title")).toContain("waiting to be mined");
   });
 });

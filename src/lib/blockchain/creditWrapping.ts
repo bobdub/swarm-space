@@ -298,11 +298,18 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
   pool.lastUpdated = new Date().toISOString();
   pool.contributors[userId] = (pool.contributors[userId] || 0) + amount;
   
-  // Record donation transaction on chain
+  // Record donation transaction on chain, signed by the donor's identity key so
+  // peers can check it before accepting it (same rule as a native SWARM tip).
+  const { getCurrentUser, getCachedPrivateKey } = await import("../auth");
+  const user = getCurrentUser();
+  if (!user || user.id !== userId) throw new Error("Sign in to donate from your wallet.");
+  const privateKey = await getCachedPrivateKey();
+  if (!privateKey) throw new Error("Your wallet is locked. Sign in again to unlock it; nothing was donated.");
   const { getSwarmChain } = await import("./chain");
   const { generateTransactionId } = await import("./crypto");
+  const { signWalletTip } = await import("./wallets/tipSignature");
   const chain = getSwarmChain();
-  chain.addTransaction({
+  chain.addTransaction(await signWalletTip({
     id: generateTransactionId(),
     type: "pool_donate",
     from: userId,
@@ -310,14 +317,14 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     amount,
     timestamp: new Date().toISOString(),
     signature: "",
-    publicKey: userId,
+    publicKey: user.publicKey,
     nonce: Date.now(),
     fee: 0,
     meta: {
       poolBalanceAfter: pool.balance,
       marketVaultFunding: "donation",
     },
-  });
+  }, privateKey));
   const { derivePoolFromChain } = await import("./storage");
   await derivePoolFromChain();
 

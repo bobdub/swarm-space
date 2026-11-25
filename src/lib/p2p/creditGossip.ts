@@ -6,7 +6,10 @@
  *     silently dropped if the mesh wasn't online at that instant;
  *   • SWARM mining rewards (token_mint) and credit ledger entries
  *     (credit_sync) only reached other peers when a chain sync on reconnect
- *     happened to carry a longer chain.
+ *     happened to carry a longer chain;
+ *   • a Market Vault donation (pool_donate) never left the donor's device
+ *     unless that device itself mined it into a block, so the shared donor
+ *     leaderboard on every other peer never saw it.
  *
  * Now every update is:
  *   1. pushed to all connected peers immediately,
@@ -27,8 +30,19 @@ export const MAX_REMEMBERED = 200;
 export const REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Only gossip local chain entries this fresh (chain-sync merges of history are not re-announced). */
 export const LOCAL_TX_FRESH_MS = 10 * 60 * 1000;
-/** Chain transaction types that carry credit/reward balance changes. */
-export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync"]);
+/** Chain transaction types that carry credit/reward balance changes, plus member vault donations. */
+export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate"]);
+
+/**
+ * A chain entry peers should hear about. A `pool_donate` from "system" is the
+ * old local mining-tax top-up: the block reward now carries the pool's share,
+ * so relaying it would credit the pool twice on every peer.
+ */
+export function isGossipedChainTx(tx: Pick<SwarmTransaction, "type" | "from"> | null | undefined): boolean {
+  if (!tx || !GOSSIPED_CHAIN_TX_TYPES.has(tx.type)) return false;
+  if (tx.type === "pool_donate" && (!tx.from || tx.from === "system")) return false;
+  return true;
+}
 
 const STORAGE_KEY = "swarm-credit-gossip-v1";
 
@@ -67,6 +81,12 @@ export interface CreditGossipDeps {
   acceptChainTx(tx: SwarmTransaction): boolean | Promise<boolean>;
   /** Subscribe to transactions appended to the local ledger. */
   subscribeLocalChainTx?(listener: (tx: SwarmTransaction) => void): () => void;
+  /**
+   * Local ledger entries still waiting for a block, offered to each newly
+   * connected peer whatever their age, so any miner can include them. Only
+   * entries that pass `isGossipedChainTx` are sent.
+   */
+  unminedLocalChainTxs?(): SwarmTransaction[] | Promise<SwarmTransaction[]>;
   now?(): number;
   storage?: Pick<Storage, "getItem" | "setItem"> | null;
 }
@@ -89,7 +109,7 @@ function isCreditPayload(value: unknown): value is CreditTransferPayload {
 function isChainPayload(value: unknown): value is ChainTxPayload {
   const v = value as ChainTxPayload | null;
   return !!v && v.type === "chain-tx" && !!v.tx && typeof v.tx.id === "string"
-    && typeof v.tx.type === "string" && GOSSIPED_CHAIN_TX_TYPES.has(v.tx.type);
+    && typeof v.tx.type === "string" && isGossipedChainTx(v.tx);
 }
 
 export class CreditGossip {
@@ -129,7 +149,7 @@ export class CreditGossip {
 
   /** Announce a ledger entry created on this device. */
   publishLocalChainTx(tx: SwarmTransaction): void {
-    if (!GOSSIPED_CHAIN_TX_TYPES.has(tx.type)) return;
+    if (!isGossipedChainTx(tx)) return;
     const ts = Date.parse(tx.timestamp);
     if (Number.isFinite(ts) && this.now() - ts > LOCAL_TX_FRESH_MS) return;
     this.publish(CHAIN_TX_CHANNEL, { type: "chain-tx", tx, hops: 0 });
@@ -203,6 +223,23 @@ export class CreditGossip {
     this.prune();
     for (const entry of this.remembered.values()) {
       this.sendToPeers(entry.channel, entry.payload, fresh);
+    }
+    void this.offerUnmined(fresh);
+  }
+
+  /**
+   * Offer local entries still waiting for a block to `peerIds` (default: every
+   * connected peer), however old they are: until one is mined, the peers that
+   * could mine it may never have seen it. Call again once the local ledger has
+   * finished loading, since peers met before that only saw an empty list.
+   */
+  async offerUnmined(peerIds: string[] = this.mesh.getConnectedPeerIds()): Promise<void> {
+    if (peerIds.length === 0) return;
+    let unmined: SwarmTransaction[] = [];
+    try { unmined = (await this.deps.unminedLocalChainTxs?.()) ?? []; } catch { unmined = []; }
+    for (const tx of unmined) {
+      if (!isGossipedChainTx(tx) || this.remembered.has(`chain:${tx.id}`)) continue;
+      this.sendToPeers(CHAIN_TX_CHANNEL, { type: "chain-tx", tx, hops: 0 }, peerIds);
     }
   }
 
@@ -280,15 +317,25 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
           // New coins come only from block rewards: a peer's self-issued mint is unverifiable.
           if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
+          if (tx.type === "pool_donate" && !await acceptablePeerDonation(tx, (id) => chain.getSpendableBalance(id))) return false;
           chain.addTransaction(tx);
+          if (tx.type === "pool_donate") {
+            // Keep the Market Vault balance in step with the donation we just learned about.
+            void import("@/lib/blockchain/storage").then((m) => m.derivePoolFromChain()).catch(() => { /* non-fatal */ });
+          }
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
           }
           return true;
         },
         subscribeLocalChainTx: (listener) => chain.onTransactionAdded(listener),
+        // Vault donations wait in pending until someone mines them; offer them to every new peer.
+        unminedLocalChainTxs: () => signedUnminedDonations(chain),
       });
       gossip.start();
+      // Pending entries load from IndexedDB without passing through
+      // onTransactionAdded: offer them once the ledger is in memory.
+      void chain.whenReady().then(() => gossip.offerUnmined()).catch(() => { /* non-fatal */ });
       if (typeof window !== "undefined") {
         // Transfers that arrived while another account (or none) was active.
         window.addEventListener("user-login", () => { void gossip.redeliverCredits(); });
@@ -303,6 +350,45 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
     }
   })();
   return starting;
+}
+
+/**
+ * A peer's vault donation spends the donor's SWARM, so it is accepted only
+ * when the donor signed it and the local ledger shows they hold the amount:
+ * the same bar a native SWARM tip has to clear.
+ */
+export async function acceptablePeerDonation(tx: SwarmTransaction, spendable: (userId: string) => number): Promise<boolean> {
+  const { verifyPoolDonation } = await import("@/lib/blockchain/wallets/tipSignature");
+  if (!await verifyPoolDonation(tx)) return false;
+  return spendable(tx.from) >= (tx.amount ?? 0);
+}
+
+/**
+ * Unmined vault donations peers can verify. A donation made before donations
+ * were signed is signed now by its own donor, on the donor's device, when the
+ * wallet is unlocked; nobody else's unsigned donation is ever offered.
+ */
+export async function signedUnminedDonations(chain: {
+  getPendingTransactions(): SwarmTransaction[];
+  replacePendingTransaction(tx: SwarmTransaction): boolean;
+}): Promise<SwarmTransaction[]> {
+  const donations = chain.getPendingTransactions().filter((tx) => isGossipedChainTx(tx) && tx.type === "pool_donate");
+  if (donations.length === 0) return [];
+  const [{ getCurrentUser, getCachedPrivateKey }, { signWalletTip, verifyPoolDonation }] = await Promise.all([
+    import("@/lib/auth"),
+    import("@/lib/blockchain/wallets/tipSignature"),
+  ]);
+  const me = getCurrentUser();
+  const out: SwarmTransaction[] = [];
+  for (const tx of donations) {
+    if (await verifyPoolDonation(tx)) { out.push(tx); continue; }
+    if (!me || tx.from !== me.id || tx.signature) continue;
+    const privateKey = await getCachedPrivateKey();
+    if (!privateKey) continue;
+    const signed = await signWalletTip({ ...tx, publicKey: me.publicKey }, privateKey);
+    if (await verifyPoolDonation(signed) && chain.replacePendingTransaction(signed)) out.push(signed);
+  }
+  return out;
 }
 
 /** Announce a local credit transfer to the mesh (queued until gossip starts). */

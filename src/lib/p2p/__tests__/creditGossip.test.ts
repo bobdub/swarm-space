@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { CreditGossip, MAX_HOPS, type GossipMesh } from "../creditGossip";
+
+const auth = vi.hoisted(() => ({ user: null as null | { id: string; publicKey: string }, privateKey: null as null | string }));
+vi.mock("@/lib/auth", () => ({ getCurrentUser: () => auth.user, getCachedPrivateKey: async () => auth.privateKey }));
+import { acceptablePeerDonation, CreditGossip, MAX_HOPS, signedUnminedDonations, type GossipMesh } from "../creditGossip";
+import { signWalletTip } from "@/lib/blockchain/wallets/tipSignature";
+import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
 
@@ -46,7 +51,11 @@ function mintTx(id: string, timestamp = new Date().toISOString()): SwarmTransact
   return { id, type: "token_mint", from: "system", to: "alice", amount: 0.095, timestamp, signature: "", publicKey: "system", nonce: 1, fee: 0 } as SwarmTransaction;
 }
 
-function node(net: FakeNetwork, id: string) {
+function donationTx(id: string, from = "alice", timestamp = new Date().toISOString()): SwarmTransaction {
+  return { id, type: "pool_donate", from, to: "community-pool", amount: 1700, timestamp, signature: "", publicKey: from, nonce: 1, fee: 0 } as SwarmTransaction;
+}
+
+function node(net: FakeNetwork, id: string, unmined: () => SwarmTransaction[] = () => []) {
   const mesh = new FakeMesh(id, net);
   const received: CreditTransaction[] = [];
   const ledger: SwarmTransaction[] = [];
@@ -58,6 +67,7 @@ function node(net: FakeNetwork, id: string) {
       return true;
     },
     subscribeLocalChainTx: (l) => { localListeners.add(l); return () => localListeners.delete(l); },
+    unminedLocalChainTxs: unmined,
     storage: null,
   });
   gossip.start();
@@ -145,5 +155,95 @@ describe("CreditGossip", () => {
     a.mesh.send("credits", "B", { type: "credit-transfer", transaction: transfer("t5", "bob"), timestamp: Date.now() });
     await vi.waitFor(() => expect(b.received).toHaveLength(2));
     expect(b.mesh.sent.length).toBe(sentBefore);
+  });
+
+  it("relays a member's vault donation across the mesh", async () => {
+    const net = new FakeNetwork();
+    const a = node(net, "A"); const b = node(net, "B"); const c = node(net, "C");
+    net.link("A", "B"); net.link("B", "C");
+    a.addLocal(donationTx("d1"));
+    await vi.waitFor(() => expect(c.ledger.map((t) => t.id)).toEqual(["d1"]));
+  });
+
+  it("never relays the old system mining-tax top-up", async () => {
+    const net = new FakeNetwork();
+    const a = node(net, "A"); const b = node(net, "B");
+    net.link("A", "B");
+    a.addLocal(donationTx("tax", "system"));
+    b.mesh.handlers.get("chain-tx")?.forEach((h) => h("A", { type: "chain-tx", tx: donationTx("tax2", "system"), hops: 0 }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(b.ledger).toEqual([]);
+  });
+
+  it("offers a days-old unmined donation to each newly connected peer", async () => {
+    const net = new FakeNetwork();
+    const old = donationTx("d-old", "alice", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
+    node(net, "A", () => [old]);
+    const b = node(net, "B");
+    net.link("A", "B");
+    await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-old"]));
+  });
+
+  it("offers donations restored after start to peers it already knew", async () => {
+    const net = new FakeNetwork();
+    let restored: SwarmTransaction[] = [];
+    const a = node(net, "A", () => restored);
+    const b = node(net, "B");
+    net.link("A", "B");
+    expect(b.ledger).toEqual([]);
+    restored = [donationTx("d-late")];
+    a.gossip.offerUnmined();
+    await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-late"]));
+  });
+
+});
+
+async function identity() {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const publicKey = arrayBufferToBase64(await crypto.subtle.exportKey("spki", pair.publicKey));
+  const privateKey = arrayBufferToBase64(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+  return { id: await computeUserId(publicKey), publicKey, privateKey };
+}
+
+describe("vault donations between peers follow the signed-spend rule", () => {
+  it("accepts a donation only when its donor signed it and holds the SWARM", async () => {
+    const donor = await identity();
+    const signed = await signWalletTip({ ...donationTx("s1", donor.id), publicKey: donor.publicKey }, donor.privateKey);
+    expect(await acceptablePeerDonation(signed, () => 2000)).toBe(true);
+    // Not enough SWARM on this peer's ledger.
+    expect(await acceptablePeerDonation(signed, () => 100)).toBe(false);
+    // Unsigned, or signed by someone else in the donor's name.
+    expect(await acceptablePeerDonation(donationTx("u1", donor.id), () => 2000)).toBe(false);
+    const thief = await identity();
+    const forged = await signWalletTip({ ...donationTx("f1", donor.id), publicKey: thief.publicKey }, thief.privateKey);
+    expect(await acceptablePeerDonation(forged, () => 2000)).toBe(false);
+    // Changing the amount after signing breaks the signature.
+    expect(await acceptablePeerDonation({ ...signed, amount: 1 }, () => 2000)).toBe(false);
+  });
+
+  it("has the donor sign their own older unsigned donation, and never anyone else's", async () => {
+    const me = await identity();
+    const other = await identity();
+    const mine = { ...donationTx("old-mine", me.id), publicKey: me.id };
+    const theirs = { ...donationTx("old-theirs", other.id), publicKey: other.id };
+    const pending: SwarmTransaction[] = [mine, theirs];
+    const chain = {
+      getPendingTransactions: () => pending,
+      replacePendingTransaction: (tx: SwarmTransaction) => {
+        const i = pending.findIndex((p) => p.id === tx.id);
+        if (i < 0) return false;
+        pending[i] = tx;
+        return true;
+      },
+    };
+    auth.user = { id: me.id, publicKey: me.publicKey };
+    auth.privateKey = null;
+    expect(await signedUnminedDonations(chain)).toEqual([]);
+    auth.privateKey = me.privateKey;
+    const offered = await signedUnminedDonations(chain);
+    expect(offered.map((t) => t.id)).toEqual(["old-mine"]);
+    expect(await acceptablePeerDonation(offered[0], () => 2000)).toBe(true);
+    expect(pending[0].signature).not.toBe("");
+    expect(pending[1].signature).toBe("");
   });
 });

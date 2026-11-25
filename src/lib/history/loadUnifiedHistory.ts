@@ -19,8 +19,10 @@ export async function loadUnifiedHistory(userId: string): Promise<UnifiedHistory
   ]);
   // Engraving weight belongs to the coin; only Creator Proof coins are weighted.
   const coinTiers = new Map(coins.map(c => [c.coinId, isWeightedCoin(c) ? readSealTier(c) : null]));
-  const chainTxs = chain.getChain().flatMap(b => b.transactions).concat(chain.getPendingTransactions());
+  const pending = chain.getPendingTransactions();
+  const chainTxs = chain.getChain().flatMap(b => b.transactions).concat(pending);
   return buildUnifiedHistory({
+    pendingIds: new Set(pending.map(tx => tx.id)),
     userId,
     credits,
     chain: chainTxs,

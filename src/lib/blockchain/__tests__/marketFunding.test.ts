@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SwarmTransaction } from "../types";
 
-const state = vi.hoisted(() => ({ txs: [] as SwarmTransaction[], pool: null as null | Record<string, unknown> }));
+const state = vi.hoisted(() => ({
+  txs: [] as SwarmTransaction[], pool: null as null | Record<string, unknown>,
+  user: null as null | { id: string; publicKey: string }, privateKey: null as null | string,
+}));
+vi.mock("../../auth", () => ({ getCurrentUser: () => state.user, getCachedPrivateKey: async () => state.privateKey }));
 vi.mock("../chain", () => ({ getSwarmChain: () => ({
   whenReady: async () => {},
   addTransaction: (tx: SwarmTransaction) => state.txs.push(tx),
@@ -24,22 +28,48 @@ import { donateToRewardPool } from "../creditWrapping";
 import { rewardTransactionProcessing } from "../miningRewards";
 import { poolDeltaFromTx } from "../storage";
 import { loadDonorLeaderboard } from "../infinity/donorLeaderboard";
+import { verifyPoolDonation } from "../wallets/tipSignature";
+import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 
-beforeEach(() => { state.txs = []; state.pool = null; });
+let member = "";
+async function signIn() {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const publicKey = arrayBufferToBase64(await crypto.subtle.exportKey("spki", pair.publicKey));
+  state.privateKey = arrayBufferToBase64(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+  member = await computeUserId(publicKey);
+  state.user = { id: member, publicKey };
+}
+
+beforeEach(async () => { state.txs = []; state.pool = null; await signIn(); });
 describe("Market Vault donations", () => {
   it("moves a 10 SWARM donation once, without burning another 10", async () => {
-    await donateToRewardPool("member", 10);
-    expect(state.txs.filter(tx => tx.from === "member").reduce((sum, tx) => sum + (tx.amount ?? 0), 0)).toBe(10);
+    await donateToRewardPool(member, 10);
+    expect(state.txs.filter(tx => tx.from === member).reduce((sum, tx) => sum + (tx.amount ?? 0), 0)).toBe(10);
     expect(state.txs.some(tx => tx.type === "token_burn")).toBe(false);
     expect(state.txs.find(tx => tx.type === "pool_donate")).toMatchObject({ to: "community-pool", amount: 10 });
     expect(state.pool?.balance).toBe(10);
   });
 
   it("puts a Support the Vault donor on the donor leaderboard", async () => {
-    await donateToRewardPool("member", 10);
+    await donateToRewardPool(member, 10);
     const board = await loadDonorLeaderboard();
-    expect(board.donors).toMatchObject([{ userId: "member", amounts: { SWARM: 10 }, donations: 1 }]);
+    expect(board.donors).toMatchObject([{ userId: member, amounts: { SWARM: 10 }, donations: 1 }]);
     expect(board.totals).toEqual({ SWARM: 10 });
+  });
+
+  it("signs the donation with the donor's identity key so peers can verify it", async () => {
+    await donateToRewardPool(member, 10);
+    const tx = state.txs.find(t => t.type === "pool_donate")!;
+    expect(await verifyPoolDonation(tx)).toBe(true);
+    expect(await verifyPoolDonation({ ...tx, amount: 1000 })).toBe(false);
+    expect(await verifyPoolDonation({ ...tx, from: "0123456789abcdef" })).toBe(false);
+    expect(await verifyPoolDonation({ ...tx, signature: "" })).toBe(false);
+  });
+
+  it("refuses to donate while the wallet is locked", async () => {
+    state.privateKey = null;
+    await expect(donateToRewardPool(member, 10)).rejects.toThrow(/locked/);
+    expect(state.txs).toEqual([]);
   });
 });
 describe("community funding rules", () => {

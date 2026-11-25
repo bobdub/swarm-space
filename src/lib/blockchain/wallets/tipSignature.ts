@@ -62,3 +62,30 @@ export async function verifyWalletTip(tx: SwarmTransaction): Promise<boolean> {
     return false;
   } catch { return false; }
 }
+
+/**
+ * Check that `tx` is signed by the identity key that owns `tx.from`, in
+ * either encoding. Used for ledger entries other than tips that move a
+ * member's SWARM, so peers never accept a spend its owner did not sign.
+ */
+export async function verifyLedgerSignature(tx: SwarmTransaction): Promise<boolean> {
+  try {
+    if (!tx.publicKey || !tx.signature || await computeUserId(tx.publicKey) !== tx.from) return false;
+    const key = await crypto.subtle.importKey("spki", base64ToArrayBuffer(tx.publicKey),
+      { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    const sig = base64ToArrayBuffer(tx.signature);
+    for (const p of [canonicalPayload(tx), legacyPayload(tx)]) {
+      if (await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, p)) return true;
+    }
+    return false;
+  } catch { return false; }
+}
+
+/** A member's Support the Vault donation, well formed and signed by the donor. */
+export async function verifyPoolDonation(tx: SwarmTransaction): Promise<boolean> {
+  if (tx.type !== "pool_donate" || tx.to !== "community-pool" || !tx.from || tx.from === "system") return false;
+  if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || tx.fee !== 0) return false;
+  if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
+  if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
+  return verifyLedgerSignature(tx);
+}
