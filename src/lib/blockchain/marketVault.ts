@@ -100,6 +100,86 @@ async function addTokenTransfer(from: string, to: string, amount: number, contra
   });
 }
 
+export const VAULT_CREDITS_CURRENCY = "CREDITS";
+
+/** On-ledger record of Credits entering or leaving the vault's Credits reserve. Moves no SWARM. */
+async function addCreditRecord(from: string, to: string, credits: number, direction: string, meta: Record<string, unknown> = {}) {
+  const { getSwarmChain } = await import("./chain");
+  const { generateTransactionId } = await import("./crypto");
+  getSwarmChain().addTransaction({
+    id: generateTransactionId(), type: "custom_token_transfer", from, to, amount: credits,
+    timestamp: new Date().toISOString(), signature: "", publicKey: from, nonce: Date.now(), fee: 0,
+    meta: { currency: VAULT_CREDITS_CURRENCY, marketVault: true, direction, ...meta },
+  });
+}
+
+/**
+ * Credits the vault holds: Credits members paid for vault buys, plus donated Credits,
+ * minus Credits paid out to members who sold SWARM for Credits.
+ */
+export function vaultCreditReserve(ledger: readonly import("./types").SwarmTransaction[]): number {
+  let reserve = 0;
+  const seen = new Set<string>();
+  for (const tx of ledger) {
+    if (seen.has(tx.id)) continue;
+    seen.add(tx.id);
+    const m = (tx.meta ?? {}) as Record<string, unknown>;
+    if (!m.marketVault) continue;
+    if (tx.type === "credit_lock" && tx.from === POOL && m.direction === "vault-buy" && m.paidAsset === "Credits") {
+      reserve += Math.max(0, Number(m.paidAmount ?? m.creditsLocked) || 0);
+    } else if (tx.type === "custom_token_transfer" && m.currency === VAULT_CREDITS_CURRENCY) {
+      const n = Math.max(0, Number(tx.amount) || 0);
+      if (tx.to === POOL) reserve += n;
+      if (tx.from === POOL) reserve -= n;
+    }
+  }
+  return Math.max(0, Math.floor(reserve));
+}
+
+export async function getVaultCreditReserve(): Promise<number> {
+  const { getSwarmChain } = await import("./chain");
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  return vaultCreditReserve([...chain.getChain().flatMap(b => b.transactions ?? []), ...chain.getPendingTransactions()]);
+}
+
+/** Sell SWARM to the vault for Credits from its Credits reserve. */
+export async function sellSwarmForCredits(userId: string, swarm: number) {
+  return withCreatorMarketOperation("swarm-market-vault", async () => {
+    const { getCurrentUser } = await import("../auth");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in to sell from your wallet.");
+    const { getSwarmBalance, transferSwarm } = await import("./token");
+    const { quoteSwarmForCredits } = await import("./marketVaultPricing");
+    const [reserve, mine] = await Promise.all([getVaultCreditReserve(), getSwarmBalance(userId)]);
+    const q = quoteSwarmForCredits(reserve, swarm, mine);
+    if (q.error) throw new Error(q.error);
+    const operationId = crypto.randomUUID();
+    await transferSwarm({ from: userId, to: POOL, amount: swarm, meta: { marketVault: true, direction: "vault-sell", operationId, tradeLeg: "payment" } });
+    await addCreditRecord(POOL, userId, q.out, "vault-sell", { operationId, tradeLeg: "payout", paidAmount: swarm, paidAsset: "SWARM", receivedAsset: "Credits" });
+    const { awardVaultCredits } = await import("../credits");
+    await awardVaultCredits(userId, q.out, `Market Vault: sold ${swarm} SWARM for ${q.out} credits`);
+    const { derivePoolFromChain } = await import("./storage");
+    await derivePoolFromChain().catch(() => {});
+    return q;
+  });
+}
+
+/**
+ * Donate Credits to the Market Vault's Credits reserve, which pays members who sell
+ * SWARM to the vault for Credits. No SWARM is released for a donation.
+ */
+export async function donateCreditsToVault(userId: string, credits: number) {
+  return withCreatorMarketOperation("swarm-market-vault", async () => {
+    if (!Number.isSafeInteger(credits) || credits <= 0) throw new Error("Donate a whole number of Credits above zero.");
+    const { getCurrentUser } = await import("../auth");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in to donate from your wallet.");
+    const { deductCredits } = await import("../credits");
+    await deductCredits(userId, credits, `Market Vault donation: ${credits} credits`);
+    await addCreditRecord(userId, POOL, credits, "donation");
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("credit-transaction", { detail: { userId, amount: credits } }));
+  });
+}
+
 /** Donate a synced native-wallet token (for example Dreams) to the Market Vault; nothing is paid back. */
 export async function donateTokenToVault(userId: string, contract: string, amount: number) {
   return withCreatorMarketOperation("swarm-market-vault", async () => {
