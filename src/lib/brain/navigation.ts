@@ -63,7 +63,14 @@ export function headingFromCamera(
     ];
   };
   let [e, n] = flat(viewForward);
-  if (Math.hypot(e, n) < 0.2) [e, n] = flat(viewUp);
+  if (Math.hypot(e, n) < 0.2) {
+    // Looking almost straight down, screen-up points the way you face;
+    // looking almost straight up it points behind you, so flip it.
+    const fl = quatRotate(pose.invSpinQuat, viewForward);
+    const lookingUp = fl[0] * frame.up[0] + fl[1] * frame.up[1] + fl[2] * frame.up[2] > 0;
+    [e, n] = flat(viewUp);
+    if (lookingUp) { e = -e; n = -n; }
+  }
   if (Math.hypot(e, n) < 1e-6) return null;
   return wrapAngle(Math.atan2(e, n));
 }

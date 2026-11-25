@@ -67,6 +67,12 @@ describe('navigation', () => {
       const down: Vec3 = [-frame.up[0], -frame.up[1], -frame.up[2]];
       const west: Vec3 = [-frame.east[0], -frame.east[1], -frame.east[2]];
       expect(angleGap(headingFromCamera(toWorld(down), toWorld(west), body, pose), (3 * Math.PI) / 2)).toBeLessThan(1e-6);
+      // Looking nearly straight up while facing north still reads north
+      // (screen-up then points south, behind you).
+      const pitch = (84 * Math.PI) / 180;
+      const fwd = norm([0, 1, 2].map((i) => frame.north[i] * Math.cos(pitch) + frame.up[i] * Math.sin(pitch)) as Vec3);
+      const scrUp = norm([0, 1, 2].map((i) => -frame.north[i] * Math.sin(pitch) + frame.up[i] * Math.cos(pitch)) as Vec3);
+      expect(angleGap(headingFromCamera(toWorld(fwd), toWorld(scrUp), body, pose), 0)).toBeLessThan(1e-6);
     }
   });
 });
