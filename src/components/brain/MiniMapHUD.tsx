@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getEarthPose, getSurfaceFrame, EARTH_RADIUS, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import { getWeather, isWeatherFallback } from '@/lib/world/weather';
+import { fahrenheitToCelsius } from '@/lib/world/temperature';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
@@ -202,7 +203,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
       {wx && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-lg bg-foreground/5 px-2 py-1.5 text-xs text-foreground/90">
           <span className="font-semibold">{wx.icon} {wx.label}</span>
-          <span className="font-bold">{wx.tempF}°F</span>
+          <span className="font-bold">{wx.tempF}°F / {wx.tempC}°C</span>
           <span className="text-foreground/60">{wx.rainChance}% {wx.tempF <= 32 ? 'snow' : 'rain'}</span>
         </div>
       )}
@@ -219,7 +220,7 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
     </div>
   );
 }
-interface LocalWeather { icon: string; label: string; tempF: number; rainChance: number }
+interface LocalWeather { icon: string; label: string; tempF: number; tempC: number; rainChance: number }
 
 /** Local conditions read from the live weather field at the player's position. */
 function readLocalWeather(pos: Vec3): LocalWeather {
@@ -244,6 +245,7 @@ function readLocalWeather(pos: Vec3): LocalWeather {
   }
   const under = nearest !== Infinity;
   if (under) tempF -= raining ? 8 : 4;
+  const tempC = Math.round(fahrenheitToCelsius(tempF));
   tempF = Math.round(tempF);
   const rainChance = Math.round(Math.min(100, raining ? 90 + charge * 10 : under ? charge * 80 : w.humidity * 20));
   const cold = tempF <= 32;
@@ -253,5 +255,5 @@ function readLocalWeather(pos: Vec3): LocalWeather {
   else if (sunDot < 0) { icon = '🌙'; label = 'Clear night'; }
   else if (sunDot < 0.2) { icon = '🌤️'; label = 'Low sun'; }
   if (isWeatherFallback()) label += ' (lite)';
-  return { icon, label, tempF, rainChance };
+  return { icon, label, tempF, tempC, rainChance };
 }
