@@ -1,11 +1,11 @@
 /**
- * Deploy Pricing — dynamic prices tied to the community pool.
+ * Deploy Pricing — fixed Creator launch alternatives; pool-scaled sub-chains.
  *
  * Baseline (pool = 100 SWARM):
- *   • Creator Token: 25 credits + 5 SWARM
+ *   • Creator Token: 10,000 Credits OR 100 SWARM
  *   • Coin (sub-chain): 10 000 SWARM
  *
- * As the pool grows, prices scale linearly. Existing tokens are grandfathered
+ * Sub-chain prices scale with the pool. Existing tokens are grandfathered
  * by callers that skip the fee when a token/vault already exists.
  */
 import { derivePoolFromChain, getRewardPool } from "./storage";
@@ -24,12 +24,8 @@ export interface DeployPricing {
   coinPoolContribution: number;
 }
 
-/** Baseline anchor — the pool balance at which cached constants apply. */
-const BASELINE_POOL = 100;
 /** Baseline anchor for coin deploys (single-multiplier growth). */
 const COIN_BASELINE_POOL = 10_000;
-const CREATOR_BASE_CREDITS = 25;
-const CREATOR_BASE_SWARM = 5;
 
 function scale(base: number, pool: number, anchor: number): number {
   const mult = Math.max(1, pool / anchor);
@@ -50,17 +46,8 @@ export async function getDeployPricing(): Promise<DeployPricing> {
     }
   }
 
-  // Baseline creator token = 25 credits + 5 SWARM at pool ≥ 100 SWARM.
-  const creatorTokenCredits = scale(
-    Math.min(CREATOR_TOKEN_DEPLOY_COST, CREATOR_BASE_CREDITS),
-    poolBalance,
-    BASELINE_POOL,
-  );
-  const creatorTokenSwarm = scale(
-    Math.min(CREATOR_TOKEN_SWARM_DEPLOY_COST, CREATOR_BASE_SWARM),
-    poolBalance,
-    BASELINE_POOL,
-  );
+  const creatorTokenCredits = CREATOR_TOKEN_DEPLOY_COST;
+  const creatorTokenSwarm = CREATOR_TOKEN_SWARM_DEPLOY_COST;
 
   const coinDeploySwarm = scale(COIN_DEPLOY_COST, poolBalance, COIN_BASELINE_POOL);
   const coinLiquidityLock = Math.floor(coinDeploySwarm / 2);

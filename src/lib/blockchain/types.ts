@@ -230,11 +230,11 @@ export const CREDIT_TO_SWARM_RATIO = 100;
 /** Creator token max supply per account */
 export const CREATOR_TOKEN_MAX_SUPPLY = 10_000;
 
-/** Creator token deployment baseline in credits at 100 SWARM community liquidity */
-export const CREATOR_TOKEN_DEPLOY_COST = 25;
+/** Creator deployment price in Credits (alternative to SWARM). */
+export const CREATOR_TOKEN_DEPLOY_COST = 10_000;
 
-/** Creator token deployment baseline SWARM at 100 SWARM community liquidity */
-export const CREATOR_TOKEN_SWARM_DEPLOY_COST = 5;
+/** Equivalent Creator deployment price at 100 Credits per SWARM. */
+export const CREATOR_TOKEN_SWARM_DEPLOY_COST = CREATOR_TOKEN_DEPLOY_COST / CREDIT_TO_SWARM_RATIO;
 
 /**
  * Fraction of a Creator Token's max supply that is unlocked and marketable at

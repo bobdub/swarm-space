@@ -1,3 +1,4 @@
+- [ ] Offer Creator deployment for 10,000 Credits or 100 SWARM, retain market custody, and verify alternative payments.
 - [ ] Slice peer-join background work cooperatively without pausing sync; batch library/neural saves and soften avatar nameplate mounting.
 - [ ] Run focused join/storage/render regressions; leave live Brain testing with the user.
 - [x] Add identity-scoped Guest Name to Brain avatar selection without avatar/name leakage.
