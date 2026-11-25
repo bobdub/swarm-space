@@ -11,10 +11,11 @@ import { isContractAddress, isValidSymbol, CUSTOM_TOKEN_DEPOSIT_MAX } from "@/li
 import { getColdKeyReceivingAddress } from "@/lib/blockchain/wallets/coldKey";
 import { TOKEN_NETWORKS, TOKEN_NETWORK_IDS, type TokenNetworkId } from "@/lib/blockchain/deposits/tokenNetworks";
 
-export function NativeTokenImport({ userId }: { userId: string }) {
+/** `network` locks the dialog to one chain (the wallet's MintMe or Ethereum view); omitted, the member picks. */
+export function NativeTokenImport({ userId, network: lockedNetwork }: { userId: string; network?: TokenNetworkId }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
-  const [network, setNetwork] = useState<TokenNetworkId>("mintme");
+  const [network, setNetwork] = useState<TokenNetworkId>(lockedNetwork ?? "mintme");
   const net = TOKEN_NETWORKS[network];
   const [address, setAddress] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -32,7 +33,7 @@ export function NativeTokenImport({ userId }: { userId: string }) {
     return () => { active = false; };
   }, [open, userId]);
 
-  const reset = () => { setStep(0); setNetwork("mintme"); setAddress(""); setSymbol(""); setDecimalsIn("18"); setFound(null); };
+  const reset = () => { setStep(0); setNetwork(lockedNetwork ?? "mintme"); setAddress(""); setSymbol(""); setDecimalsIn("18"); setFound(null); };
 
   const read = async () => {
     setBusy(true);
@@ -76,7 +77,7 @@ export function NativeTokenImport({ userId }: { userId: string }) {
 
           {step === 0 && (
             <div className="space-y-3 text-sm">
-              <div className="space-y-1">
+              {!lockedNetwork && <div className="space-y-1">
                 <Label id="nt-net-label">Network</Label>
                 <div role="radiogroup" aria-labelledby="nt-net-label" className="grid grid-cols-2 gap-2">
                   {TOKEN_NETWORK_IDS.map((id) => (
@@ -88,7 +89,7 @@ export function NativeTokenImport({ userId }: { userId: string }) {
                     </Button>
                   ))}
                 </div>
-              </div>
+              </div>}
               <ul className="list-disc space-y-1.5 pl-5 text-muted-foreground">
                 <li>Add tokens from the <b className="text-foreground">{net.label} blockchain</b>{network === "ethereum" ? " (mainnet, ERC-20)" : ""} by contract address — no MetaMask needed.</li>
                 <li>The app reads the token's details from {net.label}'s public nodes.</li>

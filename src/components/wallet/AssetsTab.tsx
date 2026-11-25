@@ -14,6 +14,8 @@ import { useNativeWalletAddress } from "@/hooks/useNativeWalletAddress";
 import { SwarmBridgeDialog } from "./SwarmBridgeDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeNativeActions } from "./NetworkActionDialogs";
+import { isEvmNetwork } from "@/lib/blockchain/walletNetworkPreference";
+import { EthereumEthActions } from "./EthereumEthActions";
 import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { CustomTokenRow, useCustomTokens } from "./NativeCustomTokens";
@@ -96,7 +98,7 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
 
   return (
     <section aria-label="Assets" className="space-y-3">
-      {layer === "native" && offline && network !== "mintme" && (
+      {layer === "native" && offline && !isEvmNetwork(network) && (
         <div role="status" className="flex items-center gap-2 rounded-md border border-dashed p-3 text-sm text-muted-foreground">
           <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-muted-foreground" />
           Waiting for peers — native transfers travel through the mesh, so a peer must be online. Like mining, they unlock once you connect.
@@ -111,7 +113,7 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
               <Plus className="mr-1 h-3 w-3" />Deploy custom token
             </Button>
           ) : (
-            <NativeTokenImport userId={userId} />
+            <NativeTokenImport userId={userId} network={isEvmNetwork(network) ? network : undefined} />
           )}
         </div>
       </div>}
@@ -143,13 +145,13 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
             onHide={layer === "native" && canHideAsset(`custom:${customTokenRef(t)}`, getRecordedTokenBalance(userId, customTokenRef(t))) ? () => hide(`custom:${customTokenRef(t)}`) : undefined} />
         ))}
         {layer === "native" && holdings.filter((h) => visible(`creator:${h.tokenId}`)).map((h) => (
-          <div key={h.tokenId} className={`flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between ${network === "mintme" ? "opacity-50" : ""}`}>
+          <div key={h.tokenId} className={`flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between ${isEvmNetwork(network) ? "opacity-50" : ""}`}>
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" />{h.ticker}<span className="text-xs text-muted-foreground">Creator token</span></div>
               <div className="text-xl font-semibold tabular-nums">{h.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-shrink-0">
-              {network === "mintme" ? <SwarmOnlyButtons /> : <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} /></span>}
+              {isEvmNetwork(network) ? <SwarmOnlyButtons /> : <span title={SWARM_TRANSFER_HINT} className="inline-flex"><NativeTransferDialog userId={userId} assetId={`creator:${h.tokenId}`} assetLabel={h.ticker} amount={h.amount} /></span>}
               {canHideAsset(`creator:${h.tokenId}`, h.amount) && (
                 <Button type="button" size="sm" variant="ghost" onClick={() => hide(`creator:${h.tokenId}`)}>
                   <EyeOff className="mr-1 h-3 w-3" />Hide
@@ -193,6 +195,11 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
   const swarmOnly = layer === "native" && network === "mintme" && ["SWARM", "CREDIT", "ETH", "BTC"].includes(code);
   if (swarmOnly) {
     return <div className={`${cls} opacity-50`}><SwarmOnlyButtons />{hideButton}</div>;
+  }
+  // The Ethereum view only moves ETH and Ethereum tokens; SWARM, Credits, MINTME and BTC are greyed out.
+  if (layer === "native" && network === "ethereum") {
+    if (code === "ETH") return <div className={cls}><EthereumEthActions userId={userId} />{hideButton}</div>;
+    return <div className={`${cls} opacity-50`}><SwarmOnlyButtons hint={code === "MINTME" ? "MINTME lives on MintMe. Switch the network to MintMe to deposit or withdraw it." : `Not supported on Ethereum`} />{hideButton}</div>;
   }
   if (layer === "native" && code === "SWARM") {
     return (
@@ -242,10 +249,10 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
 const SWARM_TRANSFER_HINT = "Only transfer to online peers on SWARM";
 const SWARM_ONLY_HINT = "Only supported on SWARM";
 
-function SwarmOnlyButtons() {
+function SwarmOnlyButtons({ hint = SWARM_ONLY_HINT }: { hint?: string }) {
   return <>
-    <span title={SWARM_ONLY_HINT} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button></span>
-    <span title={SWARM_ONLY_HINT} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button></span>
+    <span title={hint} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button></span>
+    <span title={hint} className="inline-flex"><Button type="button" variant="outline" size="sm" disabled className="pointer-events-none w-full"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button></span>
   </>;
 }
 

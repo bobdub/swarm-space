@@ -34,6 +34,8 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
   const ref = customTokenRef(token);
   const net = TOKEN_NETWORKS[customTokenNetwork(token)];
   const recorded = getRecordedTokenBalance(userId, ref);
+  // On the other EVM view (MintMe vs Ethereum) this token cannot be deposited or moved.
+  const offChain = (network === "mintme" || network === "ethereum") && network !== customTokenNetwork(token);
   const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, ref) : 0;
   const [, bump] = useState(0);
   useEffect(() => {
@@ -57,7 +59,7 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
   };
   const amount = recorded;
   return <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
-    <div className="min-w-0">
+    <div className={`min-w-0${offChain ? " opacity-50" : ""}`}>
       <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">{net.label} token</span></div>
       <div className="text-xl font-semibold tabular-nums">{amount == null ? "…" : amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} <span className="text-xs font-normal text-muted-foreground">{token.symbol}</span></div>
       {pendingSync > 0 && <div className="text-xs text-muted-foreground" title={`Confirmed on ${net.label}. Usable in the mesh once shared with a peer; you can withdraw it to a ${net.label} address.`}>
@@ -74,7 +76,8 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
             </DialogContent>
           </Dialog>
         )} />
-      <Button type="button" size="sm" variant="ghost" disabled={checking} onClick={checkDeposit}>
+      <Button type="button" size="sm" variant="ghost" disabled={checking || offChain} onClick={checkDeposit}
+        title={offChain ? `Switch the network to ${net.label} to check ${token.symbol} deposits.` : undefined}>
         <RefreshCw className={`mr-1 h-3 w-3${checking ? " animate-spin" : ""}`} />{checking ? "Checking…" : "Check deposit"}
       </Button>
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}

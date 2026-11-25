@@ -1,7 +1,7 @@
 /**
  * Wallet network preference
  * ─────────────────────────
- * Remembers which network the wallet was last showing (SWARM, MintMe, a
+ * Remembers which network the wallet was last showing (SWARM, MintMe, Ethereum, a
  * deployed sub-chain or a cell chain) so /Wallet reopens where the member left it after
  * navigating away or reloading.
  *
@@ -15,10 +15,14 @@ function storageKey(userId: string | null | undefined): string {
   return `swarm-space:wallet-network:${userId || "anon"}`;
 }
 
+/** The external EVM views: each shows only the assets that live on that chain. */
+export const isEvmNetwork = (network: AssetNetwork): network is "mintme" | "ethereum" => network === "mintme" || network === "ethereum";
+
 export function isAssetNetwork(value: unknown): value is AssetNetwork {
   return (
     value === "swarm" ||
     value === "mintme" ||
+    value === "ethereum" ||
     (typeof value === "string" && value.startsWith("chain:") && value.length > "chain:".length) ||
     (typeof value === "string" && value.startsWith("cell:") && value.length > "cell:".length)
   );
