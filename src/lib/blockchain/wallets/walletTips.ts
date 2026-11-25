@@ -16,6 +16,7 @@ import { assertStorageWritable } from "@/lib/storage/quotaGuard";
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, mintMeAmount, mintMeUnits, NATIVE_MINTME_ASSET_ID } from "./nativeMintmeLedger";
 import { isCustomTokenSync } from "../deposits/customTokenCustody";
+import { notifyReceivedTips } from "./tipNotifications";
 
 export type { TipAsset } from "./tipRules";
 
@@ -150,7 +151,7 @@ export function startWalletTipSync(): () => void {
       else if (isCustomTokenSync(tx)) void getSwarmChain().acceptCustomTokenDeposit(tx).then(ok => {
         if (ok) window.dispatchEvent(new Event("blockchain-transaction"));
       }).catch(() => {});
-      else void receiveWalletTip(tx).catch(() => {});
+      else void receiveWalletTip(tx).then(ok => { if (ok) return notifyMine(); }).catch(() => {});
     }
   };
   let bc: BroadcastChannel | undefined;
@@ -158,7 +159,15 @@ export function startWalletTipSync(): () => void {
   void import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
     if (!stopped) unsubscribe = getSwarmMeshStandalone().onMessage("wallet-tips", (_peer, tx) => accept(tx));
   });
+  const notifyMine = async () => {
+    const uid = getCurrentUser()?.id;
+    if (!uid || stopped) return;
+    const chain = getSwarmChain();
+    await chain.whenReady();
+    await notifyReceivedTips([...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()], uid);
+  };
   const replay = async () => {
+    void notifyMine().catch(() => {});
     const chain = getSwarmChain();
     await chain.whenReady();
     for (const tx of [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()]) {
