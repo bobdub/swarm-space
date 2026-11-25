@@ -42,7 +42,7 @@ vi.mock("../chain", () => ({ getSwarmChain: () => ({
   },
   addTransaction: (tx: SwarmTransaction) => { state.ledger.push(tx); },
 }) }));
-import { addCustomToken, getRecordedTokenBalance, numberToUnits, syncCustomTokenDeposits, withdrawCustomToken } from "./customTokens";
+import { addCustomToken, getRecordedTokenBalance, listCustomTokens, numberToUnits, syncCustomTokenDeposits, withdrawCustomToken } from "./customTokens";
 import { Interface } from "ethers";
 import { customTokenCustodyFlows, verifyCustomTokenSync } from "./customTokenCustody";
 
@@ -75,9 +75,23 @@ describe("confirmed imported token deposits", () => {
     await expect(syncCustomTokenDeposits("member", contract)).rejects.toThrow("5,000,000");
     expect(state.sign).not.toHaveBeenCalled();
   });
+  it("corrects decimals saved while MintMe was unreachable, before any record depends on them", async () => {
+    addCustomToken("member", { address: contract, symbol: "Dreams", decimals: 18 });
+    expect(await syncCustomTokenDeposits("member", contract)).toBe(10);
+    expect(listCustomTokens("member").find(t => t.address === contract)?.decimals).toBe(12);
+    expect(state.ledger[0].meta?.decimals).toBe(12);
+  });
+  it("refuses to rescale decimals once ledger records exist", async () => {
+    await syncCustomTokenDeposits("member", contract);
+    addCustomToken("member", { address: contract, symbol: "Dreams", decimals: 18 });
+    await expect(syncCustomTokenDeposits("member", contract)).rejects.toThrow("saved with 18 decimals, but MintMe reports 12");
+    expect(state.ledger).toHaveLength(1);
+  });
   it("rejects wrong decimals and locked signing without crediting", async () => {
+    state.ledger.push({ id: "prior", type: "external_deposit", from: "x", to: "other", amount: 1, meta: { currency: `MINTME:${contract}` } } as SwarmTransaction);
     state.decimals = 18;
-    await expect(syncCustomTokenDeposits("member", contract)).rejects.toThrow("metadata");
+    await expect(syncCustomTokenDeposits("member", contract)).rejects.toThrow("MintMe reports 18");
+    state.ledger = [];
     state.decimals = 12; state.locked = true;
     await expect(syncCustomTokenDeposits("member", contract)).rejects.toThrow("locked");
     expect(state.ledger).toHaveLength(0);

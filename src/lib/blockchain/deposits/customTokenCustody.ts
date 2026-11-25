@@ -53,6 +53,17 @@ export function customTokenSyncMessage(owner: string, address: string, contract:
   return JSON.stringify([CUSTOM_TOKEN_CUSTODY, owner, address.toLowerCase(), contract.toLowerCase(), decimals, cumulative.toString(), units.toString()]);
 }
 
+/** The token's real decimals, read from MintMe. */
+export async function readTokenDecimalsOnMintMe(contract: string): Promise<number> {
+  const provider = mintMeReadProvider();
+  try {
+    const token = new Contract(contract, TOKEN_ABI, provider);
+    const [network, decimals] = await Promise.all([provider.getNetwork(), token.decimals()]);
+    if (network.chainId !== BigInt(MINTME_NETWORK.chainId)) throw new Error("Could not reach the MintMe network. Try again shortly.");
+    return Number(decimals);
+  } finally { provider.destroy(); }
+}
+
 /** Live checks use both settled and current holdings so recent withdrawals cannot be re-credited. */
 export async function readCustomTokenCustody(address: string, contract: string, decimals: number, ledger: readonly SwarmTransaction[] = [], owner = ""): Promise<bigint> {
   const provider = mintMeReadProvider();
