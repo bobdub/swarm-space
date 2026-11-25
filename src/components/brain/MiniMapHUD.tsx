@@ -79,9 +79,11 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
     terrain.height = MAP_SIZE;
     const tctx = terrain.getContext('2d');
     let terrainAt: Vec3 | null = null;
+    let terrainNorth: Vec3 | null = null;
     let frameRef: NorthFrame | null = null;
     const CELL_PX = 4;
     const REPAINT_ARC = ((MAP_RANGE_M * 2) / (MAP_SIZE / CELL_PX)) / EARTH_RADIUS;
+    const REPAINT_COS = Math.cos((2 * Math.PI) / 180); // repaint after 2° of turn
 
     const paintTerrain = (frame: NorthFrame) => {
       if (!tctx) return;
@@ -110,9 +112,15 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
         const moved = terrainAt
           ? Math.acos(Math.max(-1, Math.min(1, self[0] * terrainAt[0] + self[1] * terrainAt[1] + self[2] * terrainAt[2])))
           : Infinity;
-        if (moved >= REPAINT_ARC) {
+        // The cached layer is only translated, never rotated, so also
+        // repaint when north has turned (near a pole it can swing fast).
+        const turned = terrainNorth
+          ? frame.north[0] * terrainNorth[0] + frame.north[1] * terrainNorth[1] + frame.north[2] * terrainNorth[2] < REPAINT_COS
+          : true;
+        if (moved >= REPAINT_ARC || turned) {
           paintTerrain(frame);
           terrainAt = self;
+          terrainNorth = frame.north;
         }
 
         ctx.clearRect(0, 0, MAP_SIZE, MAP_SIZE);
