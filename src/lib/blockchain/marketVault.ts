@@ -100,6 +100,21 @@ async function addTokenTransfer(from: string, to: string, amount: number, contra
   });
 }
 
+/**
+ * Donate Credits to the Market Vault. Credits are retired into the vault the same way
+ * Credits paid for a vault buy are locked; no SWARM is released for them.
+ */
+export async function donateCreditsToVault(userId: string, credits: number) {
+  return withCreatorMarketOperation("swarm-market-vault", async () => {
+    if (!Number.isSafeInteger(credits) || credits <= 0) throw new Error("Donate a whole number of Credits above zero.");
+    const { getCurrentUser } = await import("../auth");
+    if (getCurrentUser()?.id !== userId) throw new Error("Sign in to donate from your wallet.");
+    const { deductCredits } = await import("../credits");
+    await deductCredits(userId, credits, `Market Vault donation: ${credits} credits`);
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("credit-transaction", { detail: { userId, amount: credits } }));
+  });
+}
+
 /** Donate a synced native-wallet token (for example Dreams) to the Market Vault; nothing is paid back. */
 export async function donateTokenToVault(userId: string, contract: string, amount: number) {
   return withCreatorMarketOperation("swarm-market-vault", async () => {

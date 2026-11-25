@@ -7,12 +7,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Heart } from "lucide-react";
 import { toast } from "sonner";
 import { donateToRewardPool } from "@/lib/blockchain/creditWrapping";
-import { donateTokenToVault } from "@/lib/blockchain/marketVault";
+import { donateCreditsToVault, donateTokenToVault } from "@/lib/blockchain/marketVault";
+import { getCreditBalance } from "@/lib/credits";
 import { CUSTOM_TOKENS_EVENT, getAvailableTokenBalance, listCustomTokens } from "@/lib/blockchain/deposits/customTokens";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
 
-interface DonationAsset { id: string; symbol: string; balance: number; contract?: string }
+interface DonationAsset { id: string; symbol: string; balance: number; contract?: string; credits?: boolean }
 
 /**
  * Support the Vault — voluntary donations that deepen the Market Vault: SWARM
@@ -28,16 +29,16 @@ export function VaultDonationCard() {
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const swarm = await getSwarmBalance(user.id);
+    const [swarm, credits] = await Promise.all([getSwarmBalance(user.id), getCreditBalance(user.id).catch(() => 0)]);
     const tokens = listCustomTokens(user.id)
       .map((t) => ({ id: t.address, symbol: t.symbol, contract: t.address, balance: getAvailableTokenBalance(user.id, t.address) }))
       .filter((t) => t.balance > 0);
-    setAssets([{ id: "SWARM", symbol: "SWARM", balance: swarm }, ...tokens]);
+    setAssets([{ id: "SWARM", symbol: "SWARM", balance: swarm }, { id: "CREDITS", symbol: "Credits", balance: credits, credits: true }, ...tokens]);
   }, [user]);
 
   useEffect(() => {
     void refresh();
-    const events = ["blockchain-transaction", "reward-pool-update", "swarm-block-mined", CUSTOM_TOKENS_EVENT];
+    const events = ["blockchain-transaction", "credit-transaction", "reward-pool-update", "swarm-block-mined", CUSTOM_TOKENS_EVENT];
     const onUpdate = () => void refresh();
     events.forEach((event) => window.addEventListener(event, onUpdate));
     return () => events.forEach((event) => window.removeEventListener(event, onUpdate));
@@ -53,13 +54,18 @@ export function VaultDonationCard() {
       toast.error("Please enter a valid amount");
       return;
     }
+    if (asset.credits && !Number.isSafeInteger(donation)) {
+      toast.error("Credits are donated in whole numbers");
+      return;
+    }
     if (donation > asset.balance) {
       toast.error(`Insufficient ${asset.symbol} balance`);
       return;
     }
     setDonating(true);
     try {
-      if (asset.contract) await donateTokenToVault(user.id, asset.contract, donation);
+      if (asset.credits) await donateCreditsToVault(user.id, donation);
+      else if (asset.contract) await donateTokenToVault(user.id, asset.contract, donation);
       else await donateToRewardPool(user.id, donation);
       toast.success(`Thank you for donating ${donation} ${asset.symbol} to the Market Vault!`);
       setAmount("");
@@ -82,7 +88,7 @@ export function VaultDonationCard() {
           Support the Vault
         </h3>
         <p className="text-sm text-foreground/60">
-          Donate SWARM or your synced MintMe tokens directly to the Market Vault — deeper liquidity means tighter spreads for everyone on the mesh.
+          Donate SWARM, Credits or your synced MintMe tokens directly to the Market Vault — deeper liquidity means tighter spreads for everyone on the mesh.
         </p>
       </div>
 
@@ -107,7 +113,7 @@ export function VaultDonationCard() {
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0"
               min="0"
-              step="any"
+              step={asset.credits ? 1 : "any"}
               max={asset.balance}
               className="pr-20"
             />
@@ -127,6 +133,7 @@ export function VaultDonationCard() {
         <div className="text-xs text-foreground/60">
           Available: {asset.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol}
           {asset.contract ? " (synced with a peer)" : ""}
+          {asset.credits ? " · Credits are retired into the vault, like Credits paid for a vault buy." : ""}
         </div>
       </div>
 
