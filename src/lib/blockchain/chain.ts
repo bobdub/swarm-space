@@ -7,6 +7,7 @@ import { planAdoption } from "./chainCatchup";
 import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./blockHeader";
 import { blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
 import { verifyWalletTip } from "./wallets/tipSignature";
+import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
@@ -256,6 +257,8 @@ export class SwarmChain {
     if (isNativeMintMeTip(transaction)) {
       const units = nativeMintMeUnits(transaction);
       if (units === null || nativeMintMeBalanceUnits(transactions, transaction.from) < units) return false;
+    } else if (isCustomTokenTip(transaction)) {
+      if (!canSettleCustomTokenTip(transactions, transaction)) return false;
     } else if (this.getSpendableBalance(transaction.from) < (transaction.amount ?? 0)) return false;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
@@ -505,7 +508,7 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
-    if (isNativeMintMeTip(tx)) return 0;
+    if (isNativeMintMeTip(tx) || isCustomTokenTip(tx)) return 0;
     if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     // SWARM moved between a native identity and its MetaMask-key-controlled ledger slot.
     const swarmExternal = (tx.type === "external_withdraw" || tx.type === "external_deposit")
@@ -868,6 +871,8 @@ export class SwarmChain {
           if (isNativeMintMeTip(tx)) {
             const units = nativeMintMeUnits(tx);
             if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return false;
+          } else if (isCustomTokenTip(tx)) {
+            if (!canSettleCustomTokenTip(accepted, tx)) return false;
           } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
         }
         seen.add(tx.id);

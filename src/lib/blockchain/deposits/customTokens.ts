@@ -5,6 +5,7 @@ import { generateTransactionId } from "../crypto";
 import { deriveColdKey, getColdKeyReceivingAddress, getColdKeyAuthority, sendColdKeyTokenTransfer } from "../wallets/coldKey";
 import type { SwarmTransaction } from "../types";
 import { _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
+import { isCustomTokenTip } from "./customTokenTips";
 import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
 import { CUSTOM_TOKEN_CUSTODY, customTokenCustodyFlows, customTokenSyncMessage, readCustomTokenCustody, readTokenDecimalsOnMintMe } from "./customTokenCustody";
 export { CUSTOM_TOKEN_DEPOSIT_MAX } from "./customTokenLimits";
@@ -86,7 +87,7 @@ export function getRecordedTokenBalance(swarmId: string, address: string): numbe
     if (m.currency !== cur) continue;
     if (tx.type === "external_deposit" && tx.to === swarmId) n += Number(tx.amount ?? 0);
     else if (tx.type === "external_withdraw" && tx.from === swarmId) n -= Number(tx.amount ?? 0);
-    else if (tx.type === "custom_token_transfer") {
+    else if (tx.type === "custom_token_transfer" || (tx.type === "wallet_tip" && isCustomTokenTip(tx))) {
       if (tx.from === swarmId) n -= Number(tx.amount ?? 0);
       if (tx.to === swarmId) n += Number(tx.amount ?? 0);
     }
