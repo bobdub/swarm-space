@@ -10,9 +10,9 @@ import { getCurrentUser } from "@/lib/auth";
 import { useMarketGate } from "@/hooks/useMarketGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, type MarketVaultState } from "@/lib/blockchain/marketVaultPricing";
-import { buySwarmFromVault, getMarketVaultState, getVaultTokenHeld, swapSwarmForToken, swapTokenForSwarm, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
+import { buySwarmFromVault, getMarketVaultState, getVaultCreditReserve, getVaultTokenHeld, sellSwarmForCredits, swapSwarmForToken, swapTokenForSwarm, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
 import { useCreatorMarketRate } from "@/hooks/useCreatorMarketRate";
-import { quoteSwarmForToken, quoteTokenForSwarm, quoteCreatorTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
+import { quoteSwarmForCredits, quoteSwarmForToken, quoteTokenForSwarm, quoteCreatorTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
 import { listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
 import { useNativeAssets } from "@/hooks/useNativeAssets";
 import { nativeMarketPayments } from "@/lib/blockchain/wallets/nativeAssets";
@@ -33,6 +33,7 @@ export function MarketVaultPanel() {
   const [sellAmount, setSellAmount] = useState("");
   const [held, setHeld] = useState<Record<string, number>>({});
   const [swarm, setSwarm] = useState(0);
+  const [creditReserve, setCreditReserve] = useState(0);
   const nativeAssets = useNativeAssets(user?.id ?? "");
   const payments = useMemo(() => nativeMarketPayments(nativeAssets), [nativeAssets]);
   const paymentId = payments.some((asset) => asset.id === payWith) ? payWith : payments[0]?.id ?? "";
@@ -45,6 +46,7 @@ export function MarketVaultPanel() {
 
   const load = useCallback(() => {
     void getMarketVaultState().then(setState).catch(() => {});
+    void getVaultCreditReserve().then(setCreditReserve).catch(() => {});
     if (user?.id) void getSwarmBalance(user.id).then(setSwarm).catch(() => {});
     if (user?.id) void Promise.all(listCustomTokens(user.id).map(async (t) => [t.address, await getVaultTokenHeld(t.address)] as const))
       .then((rows) => setHeld(Object.fromEntries(rows))).catch(() => {});
@@ -54,7 +56,9 @@ export function MarketVaultPanel() {
     window.addEventListener("reward-pool-update", load);
     window.addEventListener("blockchain-transaction", load);
     window.addEventListener("creator-vault-update", load);
+    window.addEventListener("credit-transaction", load);
     return () => {
+      window.removeEventListener("credit-transaction", load);
       window.removeEventListener("reward-pool-update", load);
       window.removeEventListener("blockchain-transaction", load);
       window.removeEventListener("creator-vault-update", load);
@@ -67,7 +71,10 @@ export function MarketVaultPanel() {
   const tokenQuote = state && payToken && user?.id
     ? quoteTokenForSwarm(state, held[payToken.contract ?? ""] ?? 0, Number(amount), payToken.available) : null;
   const sellToken = tokens.find((t) => t.address === sellFor);
-  const sellQuote = state && sellToken ? quoteSwarmForToken(state, held[sellToken.address] ?? 0, Number(sellAmount), swarm) : null;
+  const sellCredits = sellFor === "credits";
+  const sellQuote = sellCredits ? quoteSwarmForCredits(creditReserve, Number(sellAmount), swarm)
+    : state && sellToken ? quoteSwarmForToken(state, held[sellToken.address] ?? 0, Number(sellAmount), swarm) : null;
+  const sellSymbol = sellCredits ? "Labor" : sellToken?.symbol ?? "";
 
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
@@ -184,8 +191,9 @@ export function MarketVaultPanel() {
             <div>
               <Label>Receive</Label>
               <Select value={sellFor} onValueChange={setSellFor}>
-                <SelectTrigger><SelectValue placeholder="Choose a token the vault holds" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Choose what the vault pays you in" /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="credits" disabled={creditReserve <= 0}>Labor credits (vault holds {creditReserve.toLocaleString()})</SelectItem>
                   {tokens.map((t) => (
                     <SelectItem key={t.address} value={t.address} disabled={(held[t.address] ?? 0) <= 0}>
                       {t.symbol} (vault holds {fmt(held[t.address] ?? 0, 2)})
@@ -193,21 +201,31 @@ export function MarketVaultPanel() {
                   ))}
                 </SelectContent>
               </Select>
-              {tokens.length === 0 && <p className="mt-1 text-xs text-muted-foreground">Add a custom token in your wallet's Assets tab first.</p>}
+              {tokens.length === 0 && !sellCredits && <p className="mt-1 text-xs text-muted-foreground">To receive a token, add it in your wallet's Assets tab first.</p>}
             </div>
             <div>
               <Label htmlFor="vault-sell">SWARM to sell</Label>
               <Input id="vault-sell" type="number" min="0" step="0.0001" placeholder="1" value={sellAmount} onChange={(e) => setSellAmount(e.target.value)} />
               <p className="mt-1 text-xs text-muted-foreground">You have {fmt(swarm)} SWARM</p>
             </div>
-            {sellToken && sellQuote && Number(sellAmount) > 0 && (
+            {(sellToken || sellCredits) && sellQuote && Number(sellAmount) > 0 && (
               <div className="rounded-md border bg-muted/40 p-2 text-xs">
-                <Row k="You receive" v={`${fmt(sellQuote.out, 6)} ${sellToken.symbol}`} />
+                <Row k="You receive" v={`${fmt(sellQuote.out, 6)} ${sellSymbol}`} />
                 {sellQuote.error && <p className="pt-1 text-destructive">{sellQuote.error}</p>}
               </div>
             )}
-            <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !sellToken || !sellQuote || !!sellQuote.error}
-              onClick={() => { if (!user?.id || !sellToken || !canTrade) return; const userId = user.id; const token = sellToken; void run(async () => { const q = await swapSwarmForToken(userId, token.address, Number(sellAmount)); return `Received ${fmt(q.out, 6)} ${token.symbol}`; }); }}>
+            <Button type="button" className="w-full" disabled={busy || !canTrade || !user?.id || !(sellToken || sellCredits) || !sellQuote || !!sellQuote.error}
+              onClick={() => {
+                if (!user?.id || !canTrade) return;
+                const userId = user.id;
+                if (sellCredits) {
+                  void run(async () => { const q = await sellSwarmForCredits(userId, Number(sellAmount)); return `Received ${q.out.toLocaleString()} Labor`; });
+                  return;
+                }
+                if (!sellToken) return;
+                const token = sellToken;
+                void run(async () => { const q = await swapSwarmForToken(userId, token.address, Number(sellAmount)); return `Received ${fmt(q.out, 6)} ${token.symbol}`; });
+              }}>
               {busy ? "Selling…" : "Sell to vault"}
             </Button>
           </TabsContent>

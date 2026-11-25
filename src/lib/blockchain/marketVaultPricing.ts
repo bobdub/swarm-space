@@ -117,3 +117,25 @@ export function quoteSwarmForToken(state: MarketVaultState, vaultHeld: number, s
   else if (out > held * MARKET_VAULT_MAX_TRADE_SHARE + 1e-9) error = "One trade can take at most 10% of the vault's holding.";
   return { out, error };
 }
+
+/**
+ * Sell SWARM to the vault for Credits from its Credits reserve (Credits paid for vault
+ * buys plus donated Credits). Valued at the base wrap rate against that reserve:
+ *   Credits out = reserve · value / (reserve + value), value = swarm · 100
+ * so a sale never pays more than the base rate, which never exceeds the buy price,
+ * and the reserve can never be emptied. One trade takes at most 10% of the reserve.
+ */
+export function quoteSwarmForCredits(creditReserve: number, swarm: number, userSwarm: number): TokenQuote {
+  const reserve = Math.max(0, Number.isFinite(creditReserve) ? creditReserve : 0);
+  const qty = Number.isFinite(swarm) && swarm > 0 ? swarm : 0;
+  const value = qty * CREDIT_TO_SWARM_RATIO;
+  const out = reserve > 0 ? Math.floor((reserve * value) / (reserve + value)) : 0;
+  const cap = Math.floor(reserve * MARKET_VAULT_MAX_TRADE_SHARE);
+  let error: string | null = null;
+  if (qty <= 0) error = "Enter an amount of SWARM.";
+  else if (qty > userSwarm + 1e-9) error = "Not enough SWARM in your wallet.";
+  else if (reserve <= 0) error = "The vault holds no Credits yet.";
+  else if (out <= 0) error = "Amount too small to receive any Credits.";
+  else if (out > cap) error = `One trade can take at most ${cap.toLocaleString()} Credits (10% of the vault's Credits).`;
+  return { out, error };
+}

@@ -398,6 +398,25 @@ async function updateBalance(
   }
 }
 
+/** Pay Credits out of the Market Vault's Credits reserve to a member who sold it SWARM. */
+export async function awardVaultCredits(userId: string, amount: number, reason: string): Promise<void> {
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("Invalid Credits payout");
+  const transaction: CreditTransaction = {
+    id: crypto.randomUUID(),
+    fromUserId: "community-pool",
+    toUserId: userId,
+    amount,
+    type: "transfer",
+    createdAt: new Date().toISOString(),
+    meta: { description: reason },
+  };
+  await put("creditTransactions", transaction);
+  await updateBalance(userId, amount, "earned");
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("credit-transaction", { detail: transaction }));
+  }
+}
+
 /**
  * Award genesis credits to a new user
  */

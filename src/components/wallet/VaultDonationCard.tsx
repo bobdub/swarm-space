@@ -133,7 +133,7 @@ export function VaultDonationCard() {
         <div className="text-xs text-foreground/60">
           Available: {asset.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol}
           {asset.contract ? " (synced with a peer)" : ""}
-          {asset.credits ? " · Credits are retired into the vault, like Credits paid for a vault buy." : ""}
+          {asset.credits ? " · Donated Credits pay members who sell SWARM to the vault for Credits." : ""}
         </div>
       </div>
 
