@@ -19,11 +19,11 @@
  * directly. Receiving wallets do not need to connect to the app.
  */
 
-import { Contract, FallbackProvider, Interface, JsonRpcProvider, Wallet, keccak256, toUtf8Bytes } from "ethers";
+import { Contract, type FallbackProvider, Interface, Wallet, keccak256, toUtf8Bytes } from "ethers";
 import { get, put } from "../../store";
 import type { SwarmCoin } from "../types";
 import { COIN_MAX_WEIGHT } from "../types";
-import { MINTME_NETWORK } from "./mintmeNetwork";
+import { mintMeFallbackProvider } from "./mintmeRpc";
 
 /** Mined SWARM locked to engrave a standalone cold-key container. */
 export const COLD_KEY_ENGRAVING_SWARM = 1;
@@ -145,10 +145,7 @@ export async function deriveColdKey(userId: string): Promise<DerivedColdKey> {
 const ERC20 = new Interface(["function balanceOf(address) view returns (uint256)", "function transfer(address,uint256) returns (bool)"]);
 
 function mintMeProvider(): FallbackProvider {
-  return new FallbackProvider(
-    MINTME_NETWORK.rpcUrls.map((url) => ({ provider: new JsonRpcProvider(url), priority: 1, stallTimeout: 1500 })),
-    1,
-  );
+  return mintMeFallbackProvider();
 }
 
 /**

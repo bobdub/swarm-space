@@ -1,5 +1,6 @@
-import { FallbackProvider, JsonRpcProvider, verifyMessage } from "ethers";
+import { type FallbackProvider, verifyMessage } from "ethers";
 import { MINTME_NETWORK } from "./mintmeNetwork";
+import { mintMeFallbackProvider } from "./mintmeRpc";
 import {
   custodyFlows, isNativeMintMeDeposit, isNativeMintMeWithdraw, mintMeCustodyMessage, mintMeSyncMessage,
   mintMeWithdrawMessage, nativeMintMeUnits,
@@ -7,9 +8,7 @@ import {
 import type { SwarmTransaction } from "../types";
 
 export function mintMeReadProvider(): FallbackProvider {
-  return new FallbackProvider(
-    MINTME_NETWORK.rpcUrls.map(url => ({ provider: new JsonRpcProvider(url), priority: 1, stallTimeout: 1500 })), 1,
-  );
+  return mintMeFallbackProvider();
 }
 
 /** Recheck MintMe custody records. Hash deposits and withdrawals are rechecked

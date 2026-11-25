@@ -7,8 +7,8 @@
  * spendable once a real MintMe transfer to the owner's cold-key receiving
  * address is confirmed and recorded on the SWARM ledger.
  */
-import { FallbackProvider, Interface, JsonRpcProvider } from "ethers";
-import { MINTME_NETWORK } from "../wallets/mintmeNetwork";
+import { Interface } from "ethers";
+import { mintMeFallbackProvider } from "../wallets/mintmeRpc";
 import { addCustomToken, isContractAddress, isValidSymbol, type CustomToken } from "./customTokens";
 
 const ERC20_META = new Interface([
@@ -20,10 +20,7 @@ const ERC20_META = new Interface([
 export type MintMeCall = (to: string, data: string) => Promise<string>;
 
 export function publicMintMeCall(): MintMeCall {
-  const provider = new FallbackProvider(
-    MINTME_NETWORK.rpcUrls.map((url) => ({ provider: new JsonRpcProvider(url), priority: 1, stallTimeout: 1500 })),
-    1,
-  );
+  const provider = mintMeFallbackProvider();
   return async (to, data) => String(await provider.call({ to, data }));
 }
 
