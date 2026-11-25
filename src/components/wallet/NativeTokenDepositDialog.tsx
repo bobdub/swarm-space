@@ -1,9 +1,11 @@
 /**
- * NativeTokenDepositDialog — deposit info for an imported MintMe token.
+ * NativeTokenDepositDialog — deposit info for MINTME or an imported token
+ * (MintMe tokens, or Ethereum ERC-20 tokens).
  *
  * Shows the owner's cold-key receiving address (QR + copy) so tokens can be
- * sent from any MintMe wallet. No MetaMask involved; the balance appears
- * once a confirmed MintMe transfer to this address is recorded.
+ * sent from any wallet on the token's chain. The same key owns the same
+ * address on MintMe and Ethereum. No MetaMask involved; the balance appears
+ * once a confirmed transfer to this address is recorded.
  */
 import { useEffect, useState } from "react";
 import { ArrowDownToLine, Copy } from "lucide-react";
@@ -12,8 +14,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import { getColdKeyReceivingAddress } from "@/lib/blockchain/wallets/coldKey";
+import { TOKEN_NETWORKS, type TokenNetworkId } from "@/lib/blockchain/deposits/tokenNetworks";
 
-export function NativeTokenDepositDialog({ userId, symbol, tokenAddress, decimals }: { userId: string; symbol: string; tokenAddress?: string; decimals?: number }) {
+/** `tokenAddress` is the imported token's ref (chain + contract); omit it for native MINTME. */
+export function NativeTokenDepositDialog({ userId, symbol, tokenAddress, decimals, tokenNetwork = "mintme" }: {
+  userId: string; symbol: string; tokenAddress?: string; decimals?: number; tokenNetwork?: TokenNetworkId;
+}) {
+  const net = TOKEN_NETWORKS[tokenNetwork];
   const [open, setOpen] = useState(false);
   const [addr, setAddr] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -36,10 +43,10 @@ export function NativeTokenDepositDialog({ userId, symbol, tokenAddress, decimal
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Deposit {symbol}</DialogTitle></DialogHeader>
           <p role="note" className="rounded-md border border-primary/40 bg-primary/10 p-2 text-xs font-medium text-foreground">
-            Only deposit MintMe tokens on the MintMe blockchain.
+            Only deposit {net.label} tokens on the {net.label} blockchain{tokenNetwork === "ethereum" ? " (Ethereum mainnet, chain 1)" : ""}.
           </p>
           <p className="text-xs text-muted-foreground">
-            Send {symbol} from any MintMe wallet to your native receiving address. It appears here once the transfer confirms on MintMe — tokens sent on any other network are lost.
+            Send {symbol} from any {net.label} wallet to your native receiving address. It appears here once the transfer confirms on {net.label} ({net.confirmations} blocks) — tokens sent on any other network are lost.
           </p>
           {addr && (
             <div className="mx-auto rounded-md border p-3">
@@ -58,16 +65,16 @@ export function NativeTokenDepositDialog({ userId, symbol, tokenAddress, decimal
               setChecking(true);
               const check = tokenAddress
                 ? import("@/lib/blockchain/deposits/customTokens").then(m => {
-                    const token = m.listCustomTokens(userId).find(t => t.address.toLowerCase() === tokenAddress.toLowerCase());
+                    const token = m.listCustomTokens(userId).find(t => m.customTokenRef(t) === tokenAddress.toLowerCase());
                     if (token && decimals !== undefined && token.decimals !== decimals) throw new Error("Token details changed. Reopen the deposit window.");
                     return m.syncCustomTokenDeposits(userId, tokenAddress);
                   })
                 : import("@/lib/blockchain/wallets/nativeMintmeDirect").then(m => m.syncNativeMintMeDeposits(userId));
               void check
                 .then(n => n > 0 ? toast.success(`${n} ${symbol} added to your native wallet`) : toast.info(`No new confirmed ${symbol} yet. It is checked automatically every couple of minutes.`))
-                .catch(e => toast.error(e instanceof Error ? e.message : "Could not check MintMe right now."))
+                .catch(e => toast.error(e instanceof Error ? e.message : `Could not check ${net.label} right now.`))
                 .finally(() => setChecking(false));
-            }}>{checking ? "Checking MintMe…" : "Check for my deposit"}</Button>
+            }}>{checking ? `Checking ${net.label}…` : "Check for my deposit"}</Button>
           )}
         </DialogContent>
       </Dialog>

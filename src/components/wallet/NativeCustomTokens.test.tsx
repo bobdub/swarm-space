@@ -8,6 +8,8 @@ vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
   syncCustomTokenDeposits: mocks.sync, getRecordedTokenBalance: () => 0, getPendingSyncTokenBalance: () => 0,
   syncPendingDeposits: vi.fn(), removeCustomToken: vi.fn(), isContractAddress: () => true, listCustomTokens: () => [],
   CUSTOM_TOKENS_EVENT: "custom-tokens", hydrateCustomTokens: async () => [], withdrawCustomToken: vi.fn(),
+  customTokenRef: (t: { address: string; network?: string }) => (t.network === "ethereum" ? `eth:${t.address}` : t.address).toLowerCase(),
+  customTokenNetwork: (t: { network?: string }) => t.network ?? "mintme",
 }));
 vi.mock("@/lib/blockchain/deposits/depositSync", () => ({ DEPOSIT_SYNC_EVENT: "deposit-sync" }));
 vi.mock("@/lib/blockchain/wallets/coldKey", () => ({ COLD_KEY_ENGRAVING_SWARM: 1, engraveColdKey: vi.fn(), getColdKeyAuthority: vi.fn() }));

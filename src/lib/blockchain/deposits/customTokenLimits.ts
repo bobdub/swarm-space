@@ -1,10 +1,11 @@
 import type { SwarmTransaction } from "../types";
+import { tokenCurrency, tokenRefFromCurrency } from "./tokenNetworks";
 
 export const CUSTOM_TOKEN_DEPOSIT_MAX = 5_000_000;
 
-/** Lifetime ingress per contract on the known ledger; withdrawals do not reset it. */
-export function customTokenDepositCapacity(transactions: SwarmTransaction[], address: string) {
-  const currency = `MINTME:${address.trim().toLowerCase()}`;
+/** Lifetime ingress per token (chain + contract) on the known ledger; withdrawals do not reset it. */
+export function customTokenDepositCapacity(transactions: SwarmTransaction[], ref: string) {
+  const currency = tokenCurrency(ref);
   const ids = new Set<string>();
   let deposited = 0;
   for (const tx of transactions) {
@@ -17,9 +18,9 @@ export function customTokenDepositCapacity(transactions: SwarmTransaction[], add
   return { deposited, remaining: Math.max(0, CUSTOM_TOKEN_DEPOSIT_MAX - deposited), max: CUSTOM_TOKEN_DEPOSIT_MAX };
 }
 
-export function assertCustomTokenDepositCapacity(transactions: SwarmTransaction[], address: string, amount: number) {
+export function assertCustomTokenDepositCapacity(transactions: SwarmTransaction[], ref: string, amount: number) {
   if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter an amount above zero");
-  const capacity = customTokenDepositCapacity(transactions, address);
+  const capacity = customTokenDepositCapacity(transactions, ref);
   if (amount > capacity.remaining) {
     throw new Error(`This token has ${capacity.remaining.toLocaleString()} remaining of its 5,000,000 total deposit limit on the synced ledger.`);
   }
@@ -32,7 +33,7 @@ export function validCustomTokenDepositLedger(transactions: SwarmTransaction[]):
   const seen = new Set<string>();
   for (const tx of transactions) {
     const currency = String(tx.meta?.currency ?? "").toLowerCase();
-    if (tx.type !== "external_deposit" || !/^mintme:0x[\da-f]{40}$/.test(currency)) continue;
+    if (tx.type !== "external_deposit" || !tokenRefFromCurrency(currency)) continue;
     if (seen.has(tx.id)) return false;
     seen.add(tx.id);
     const amount = Number(tx.amount);

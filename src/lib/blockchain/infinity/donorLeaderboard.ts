@@ -18,6 +18,8 @@ import type { SwarmTransaction } from "../types";
 import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
+import { customTipRef } from "../deposits/customTokenTips";
+import { TOKEN_NETWORKS, parseTokenRef } from "../deposits/tokenNetworks";
 
 const NATIVE_TICKERS = new Set(["SWARM", "MINTME"]);
 
@@ -51,6 +53,14 @@ export function donationFromTx(tx: SwarmTransaction): { ticker: string; amount: 
     const assetId = typeof tx.meta?.assetId === "string" ? tx.meta.assetId : "";
     if (assetId === "chain:SWARM") return { ticker: "SWARM", amount };
     if (!assetId) return null;
+    // Imported tokens are keyed by chain + contract: two tokens sharing a symbol never merge.
+    const ref = customTipRef(tx);
+    const token = ref ? parseTokenRef(ref) : null;
+    if (token) {
+      const symbol = typeof tx.meta?.ticker === "string" && tx.meta.ticker.trim() ? tx.meta.ticker.trim().slice(0, 16) : "Token";
+      const c = token.contract;
+      return { ticker: `${symbol} (${TOKEN_NETWORKS[token.network].label} ${c.slice(0, 6)}…${c.slice(-4)})`, amount };
+    }
     const label = typeof tx.meta?.ticker === "string" ? tx.meta.ticker.trim() : "";
     // A creator token may not borrow a native ticker.
     const ticker = label && !NATIVE_TICKERS.has(label.toUpperCase()) ? label : assetId;

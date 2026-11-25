@@ -46,6 +46,17 @@ describe("buildDonorLeaderboard", () => {
     expect(board.totals).toEqual({ MINTME: 3, "token:eve-coin": 9, FOX: 4 });
   });
 
+  it("keys imported-token gifts by chain and contract, not by symbol", () => {
+    const c = "0x634340447220bcaaa09a5505d71ca62b644a1a82";
+    const tokenTip = (ref: string, currency: string) => ({ assetId: `custom:${ref}`, currency, ticker: "MTCG", decimals: 18, amountUnits: "2000000000000000000" });
+    const board = buildDonorLeaderboard([
+      tx({ from: "eve", amount: 2, meta: tokenTip(`eth:${c}`, `ETHEREUM:${c}`) }),
+      tx({ from: "eve", amount: 2, meta: tokenTip(c, `MINTME:${c}`) }),
+      tx({ from: "eve", amount: 2, meta: tokenTip(`eth:${c}`, `ETHEREUM:${c}`) }),
+    ]);
+    expect(board.totals).toEqual({ "MTCG (Ethereum 0x6343…1a82)": 4, "MTCG (MintMe 0x6343…1a82)": 2 });
+  });
+
   it("formats SWARM first", () => {
     expect(formatDonationAmounts({ MINTME: 2, SWARM: 1500 })).toBe(`${(1500).toLocaleString()} SWARM · 2 MINTME`);
   });

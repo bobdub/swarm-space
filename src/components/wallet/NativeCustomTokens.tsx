@@ -1,4 +1,4 @@
-/** Native custom-token inventory and direct MintMe withdrawals. */
+/** Native custom-token inventory and direct withdrawals on the token's own chain (MintMe or Ethereum). */
 import { useEffect, useState } from "react";
 import { useWalletDialogTask } from "@/hooks/useWalletDialogTask";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { toast } from "sonner";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { removeCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance, syncPendingDeposits,
   isContractAddress, listCustomTokens, CUSTOM_TOKENS_EVENT, hydrateCustomTokens, withdrawCustomToken, syncCustomTokenDeposits,
-  type CustomToken } from "@/lib/blockchain/deposits/customTokens";
+  customTokenNetwork, customTokenRef, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
+import { TOKEN_NETWORKS } from "@/lib/blockchain/deposits/tokenNetworks";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
 import { CustomTokenNetworkActions, type AssetNetwork } from "./NetworkActionDialogs";
@@ -30,8 +31,10 @@ export function useCustomTokens(userId: string) {
 
 /** Imported tokens remain visible until their owner hides or removes them. */
 export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide }: { userId: string; token: CustomToken; layer: "native"; network?: AssetNetwork; onHide?: () => void }) {
-  const recorded = getRecordedTokenBalance(userId, token.address);
-  const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, token.address) : 0;
+  const ref = customTokenRef(token);
+  const net = TOKEN_NETWORKS[customTokenNetwork(token)];
+  const recorded = getRecordedTokenBalance(userId, ref);
+  const pendingSync = layer === "native" ? getPendingSyncTokenBalance(userId, ref) : 0;
   const [, bump] = useState(0);
   useEffect(() => {
     if (layer !== "native" || pendingSync <= 0) return;
@@ -45,25 +48,25 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
   // Deposits are also checked in the background, but that run stays silent; this shows the real outcome.
   const checkDeposit = () => {
     setChecking(true);
-    void syncCustomTokenDeposits(userId, token.address)
+    void syncCustomTokenDeposits(userId, ref)
       .then((n) => n > 0
         ? toast.success(`${n} ${token.symbol} added to your native wallet`)
         : toast.info(`No new confirmed ${token.symbol} at your receiving address yet.`))
-      .catch((e) => toast.error(e instanceof Error ? e.message : "Could not check MintMe right now."))
+      .catch((e) => toast.error(e instanceof Error ? e.message : `Could not check ${net.label} right now.`))
       .finally(() => setChecking(false));
   };
   const amount = recorded;
   return <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
     <div className="min-w-0">
-      <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">MintMe token</span></div>
+      <div className="flex items-center gap-2 text-sm font-medium"><Coins className="h-4 w-4 text-primary" /> {token.symbol} <span className="text-[10px] text-muted-foreground">{net.label} token</span></div>
       <div className="text-xl font-semibold tabular-nums">{amount == null ? "…" : amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} <span className="text-xs font-normal text-muted-foreground">{token.symbol}</span></div>
-      {pendingSync > 0 && <div className="text-xs text-muted-foreground" title="Confirmed on MintMe. Usable in the mesh once shared with a peer; you can withdraw it to a MintMe address.">
+      {pendingSync > 0 && <div className="text-xs text-muted-foreground" title={`Confirmed on ${net.label}. Usable in the mesh once shared with a peer; you can withdraw it to a ${net.label} address.`}>
         {pendingSync.toLocaleString(undefined, { maximumFractionDigits: 6 })} pending sync · {Math.max(0, recorded - pendingSync).toLocaleString(undefined, { maximumFractionDigits: 6 })} available
       </div>}
     </div>
     {layer === "native" && <div className="grid grid-cols-2 gap-2 sm:flex">
-      <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={token.address} recorded={recorded}
-        network={network} decimals={token.decimals}
+      <CustomTokenNetworkActions userId={userId} symbol={token.symbol} address={ref} recorded={recorded}
+        network={network} decimals={token.decimals} tokenNetwork={customTokenNetwork(token)}
         renderWithdrawForm={(onDone) => (
           <Dialog open onOpenChange={(v) => { if (!v) onDone(); }}>
             <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
@@ -77,13 +80,13 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
         const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";
-        if (window.confirm(`Remove ${token.symbol} from your wallet list?${note}`)) { removeCustomToken(userId, token.address); }
+        if (window.confirm(`Remove ${token.symbol} from your wallet list?${note}`)) { removeCustomToken(userId, ref); }
       }}><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
     </div>}
   </div>;
 }
 
-/** Cold-key withdrawal form — sends the token to any MintMe address. Mounted only while shown. */
+/** Cold-key withdrawal form — sends the token to any address on its own chain. Mounted only while shown. */
 export function WithdrawForm({ userId, token, recorded, onDone }: {
   userId: string; token: CustomToken; recorded: number; onDone: () => void;
 }) {
@@ -91,6 +94,7 @@ export function WithdrawForm({ userId, token, recorded, onDone }: {
   const [dest, setDest] = useState("");
   const [authority, setAuthority] = useState<ColdKeyAuthority | null | undefined>(undefined);
   const { busy, run } = useWalletDialogTask(true);
+  const net = TOKEN_NETWORKS[customTokenNetwork(token)];
   useEffect(() => {
     setAuthority(undefined);
     void getColdKeyAuthority(userId).then(setAuthority);
@@ -106,12 +110,12 @@ export function WithdrawForm({ userId, token, recorded, onDone }: {
     if (getCurrentUser()?.id !== userId) throw new Error("Sign in with the account belonging to this wallet");
     return withdrawCustomToken({ swarmId: userId, token, amount: n, to: dest.trim() });
   }, (tx) => {
-    toast.success(`${n} ${token.symbol} sent to MintMe`, { description: `MintMe tx ${String(tx.signature).slice(0, 10)}… · appears under the MintMe network` });
+    toast.success(`${n} ${token.symbol} sent on ${net.label}`, { description: `${net.label} tx ${String(tx.signature).slice(0, 10)}… · appears under the ${net.label} network` });
     setAmount(""); onDone();
   });
   return (
     <>
-      <DialogHeader><DialogTitle>Send {token.symbol} to MintMe</DialogTitle></DialogHeader>
+      <DialogHeader><DialogTitle>Send {token.symbol} on {net.label}</DialogTitle></DialogHeader>
       {authority === undefined ? <p className="text-sm text-muted-foreground">Checking your cold-wallet key…</p>
         : !authority ? <div className="space-y-3 text-sm">
           <p>A cold-wallet key signs withdrawals out of your native wallet. You don't have one yet.</p>
@@ -120,14 +124,14 @@ export function WithdrawForm({ userId, token, recorded, onDone }: {
         </div>
         : <div className="space-y-3">
           <p className="text-sm">Native balance: <b className="tabular-nums">{recorded.toLocaleString(undefined, { maximumFractionDigits: 6 })} {token.symbol}</b> <span className="text-[10px] text-muted-foreground">· key: {authority.kind === "vault" ? "Creator Coin Vault" : "engraved cold key"}</span></p>
-          <div className="space-y-1"><Label htmlFor="ct-wd-dest">Destination (MintMe address)</Label>
+          <div className="space-y-1"><Label htmlFor="ct-wd-dest">Destination ({net.label} address)</Label>
             <Input id="ct-wd-dest" value={dest} disabled={busy} onChange={(e) => setDest(e.target.value)} className="font-mono text-xs" placeholder="0x…" />
-            <p className="text-[10px] text-muted-foreground">Use an address that accepts this token on MintMe. Transfers cannot be undone.</p></div>
+            <p className="text-[10px] text-muted-foreground">Use an address that accepts this token on {net.label}. Transfers cannot be undone.</p></div>
           <div className="space-y-1"><Label htmlFor="ct-wd-amt">Amount ({token.symbol})</Label>
             <Input id="ct-wd-amt" type="number" inputMode="decimal" min="0" step="any" value={amount} disabled={busy} onChange={(e) => setAmount(e.target.value)} /></div>
-          <p className="text-xs text-muted-foreground">Your on-device wallet sends directly to MintMe. Your receiving address needs MINTME for gas; you can fund it from any MintMe wallet. The native balance is debited only after the outgoing transfer is accepted.</p>
+          <p className="text-xs text-muted-foreground">Your on-device wallet sends directly on {net.label}. Your receiving address needs {net.gasSymbol} for gas; you can fund it from any {net.label} wallet. The native balance is debited only after the outgoing transfer is accepted.</p>
           <DialogFooter className="gap-2">
-            <Button type="button" disabled={busy || invalid} onClick={submit}>{busy ? "Signing with cold key…" : "Send to MintMe"}</Button>
+            <Button type="button" disabled={busy || invalid} onClick={submit}>{busy ? "Signing with cold key…" : `Send on ${net.label}`}</Button>
           </DialogFooter>
         </div>}
       <Button type="button" variant="ghost" disabled={busy} onClick={onDone}>Close</Button>

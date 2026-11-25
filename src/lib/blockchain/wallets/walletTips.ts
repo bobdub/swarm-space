@@ -4,7 +4,8 @@ import { getSwarmChain } from "../chain";
 import { getAllLiveChains, getChainBalance } from "../multiChainManager";
 import { getUserProfileTokenHoldings } from "../profileTokenBalance";
 import { getAppWalletBalances } from "./appWallet";
-import { getAvailableTokenBalance, getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
+import { customTokenNetwork, customTokenRef, getAvailableTokenBalance, getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
+import { TOKEN_NETWORKS, tokenCurrency } from "../deposits/tokenNetworks";
 import { customTipAssetId, customTipUnits, CUSTOM_TIP_ASSET_PREFIX } from "../deposits/customTokenTips";
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
@@ -51,10 +52,11 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
   }
   for (const token of listCustomTokens(userId)) {
     // Deposits still waiting to be shared with a peer are not spendable in the mesh yet.
-    const recorded = getRecordedTokenBalance(userId, token.address);
-    const balance = getAvailableTokenBalance(userId, token.address);
-    if (recorded > 0) assets.push({ id: customTipAssetId(token.address), ticker: token.symbol,
-      name: "Custom MintMe token", kind: "external", balance, decimals: token.decimals,
+    const ref = customTokenRef(token);
+    const recorded = getRecordedTokenBalance(userId, ref);
+    const balance = getAvailableTokenBalance(userId, ref);
+    if (recorded > 0) assets.push({ id: customTipAssetId(ref), ticker: token.symbol,
+      name: `Custom ${TOKEN_NETWORKS[customTokenNetwork(token)].label} token`, kind: "external", balance, decimals: token.decimals,
       ...(balance > 0 ? {} : { unavailable: `Your ${token.symbol} deposit becomes spendable once it has been shared with a connected peer. No funds will be deducted.` }) });
   }
   return assets;
@@ -124,7 +126,7 @@ export async function sendWalletTip(params: {
       meta: { assetId: asset.id, ticker: asset.ticker, creatorUserId: asset.creatorUserId ?? null,
         ...(asset.id === NATIVE_MINTME_ASSET_ID ? { currency: "MINTME", amountUnits: mintMeUnits(params.amount).toString() } : {}),
         ...(asset.id.startsWith(CUSTOM_TIP_ASSET_PREFIX) && asset.decimals !== undefined ? {
-          currency: `MINTME:${asset.id.slice(CUSTOM_TIP_ASSET_PREFIX.length)}`, decimals: asset.decimals,
+          currency: tokenCurrency(asset.id.slice(CUSTOM_TIP_ASSET_PREFIX.length)), decimals: asset.decimals,
           amountUnits: customTipUnits(params.amount, asset.decimals).toString(),
         } : {}),
         intent: params.intent ?? "tip", message: message ?? null,

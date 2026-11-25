@@ -18,7 +18,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { CustomTokenRow, useCustomTokens } from "./NativeCustomTokens";
 import { NativeTokenImport } from "./NativeTokenImport";
-import { getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
+import { customTokenRef, getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
 import { getUserProfileTokenHoldings, type ProfileTokenHolding } from "@/lib/blockchain/profileTokenBalance";
 import { nativeWalletInventory } from "@/lib/blockchain/wallets/nativeAssets";
 import { canHideAsset, hydrateHiddenAssets, listHiddenAssets, setAssetHidden, HIDDEN_ASSETS_EVENT } from "@/lib/blockchain/wallets/hiddenAssets";
@@ -86,7 +86,7 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
   // The wallet lists every known asset — nothing is hidden automatically.
   const inventory = nativeWalletInventory({
     swarm, credits, mintme, eth: bridge.ETH + getChainEthBalance(userId), btc: bridge.BTC, holdings,
-    custom: customTokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, token.address), available: getRecordedTokenBalance(userId, token.address) })),
+    custom: customTokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, customTokenRef(token)), available: getRecordedTokenBalance(userId, customTokenRef(token)) })),
   });
   const hidden = new Set(hiddenIds);
   const visible = (id: string) => !hidden.has(id);
@@ -137,10 +137,10 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
           {layer === "native" && r.code === "SWARM" && weightedCount > 0 && <WeightedCoinRow count={weightedCount} />}
           </Fragment>
         ))}
-        {customTokens.filter((t) => visible(`custom:${t.address}`)).map((t) => (
-          <CustomTokenRow key={t.address} userId={userId} token={t} layer={layer}
+        {customTokens.filter((t) => visible(`custom:${customTokenRef(t)}`)).map((t) => (
+          <CustomTokenRow key={customTokenRef(t)} userId={userId} token={t} layer={layer}
             network={network}
-            onHide={layer === "native" && canHideAsset(`custom:${t.address}`, getRecordedTokenBalance(userId, t.address)) ? () => hide(`custom:${t.address}`) : undefined} />
+            onHide={layer === "native" && canHideAsset(`custom:${customTokenRef(t)}`, getRecordedTokenBalance(userId, customTokenRef(t))) ? () => hide(`custom:${customTokenRef(t)}`) : undefined} />
         ))}
         {layer === "native" && holdings.filter((h) => visible(`creator:${h.tokenId}`)).map((h) => (
           <div key={h.tokenId} className={`flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between ${network === "mintme" ? "opacity-50" : ""}`}>

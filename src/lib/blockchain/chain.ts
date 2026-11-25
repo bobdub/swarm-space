@@ -11,7 +11,8 @@ import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customToke
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
-import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows } from "./deposits/customTokenCustody";
+import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows, syncRecordRef } from "./deposits/customTokenCustody";
+import { tokenRefFromCurrency } from "./deposits/tokenNetworks";
 import { networkNow } from "@/lib/time/networkClock";
 import type { Endorsement } from "./endorsements";
 import { blockMayRecordWitnesses, latestCheckpoint, Participation, selectWitnesses, verifyWitnesses, witnessRoot } from "./witnesses";
@@ -225,11 +226,11 @@ export class SwarmChain {
       throw new Error("Invalid transaction");
     }
     if (this.hasTransaction(transaction.id)) return;
-    const currency = String(transaction.meta?.currency ?? "");
-    if (transaction.type === "external_deposit" && /^MINTME:0x[\da-f]{40}$/i.test(currency)) {
+    const depositRef = transaction.type === "external_deposit" ? tokenRefFromCurrency(transaction.meta?.currency) : null;
+    if (depositRef) {
       assertCustomTokenDepositCapacity(
         [...this.chain.flatMap((block) => block.transactions ?? []), ...this.pendingTransactions],
-        currency.slice("MINTME:".length),
+        depositRef,
         Number(transaction.amount),
       );
     }
@@ -287,11 +288,12 @@ export class SwarmChain {
     // Recheck after asynchronous RPC/signature validation before the synchronous append.
     if (this.hasTransaction(transaction.id)) return true;
     const current = ledger();
-    const contract = String(transaction.meta?.contract);
+    const ref = syncRecordRef(transaction);
+    if (!ref) return false;
     const address = String(transaction.meta?.custodyAddress);
-    const flows = customTokenCustodyFlows(current, transaction.to, address, contract, Number(transaction.meta?.decimals));
+    const flows = customTokenCustodyFlows(current, transaction.to, address, ref, Number(transaction.meta?.decimals));
     if (flows.inflow + BigInt(String(transaction.meta?.amountUnits)) !== BigInt(String(transaction.meta?.cumulativeUnits))) return false;
-    try { assertCustomTokenDepositCapacity(current, contract, Number(transaction.amount)); } catch { return false; }
+    try { assertCustomTokenDepositCapacity(current, ref, Number(transaction.amount)); } catch { return false; }
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;

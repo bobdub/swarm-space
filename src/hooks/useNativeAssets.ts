@@ -3,7 +3,7 @@ import { getSwarmChain } from "@/lib/blockchain/chain";
 import { getCreditBalance } from "@/lib/credits";
 import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { getChainEthBalance } from "@/lib/blockchain/deposits/ethDeposit";
-import { CUSTOM_TOKENS_EVENT, getAvailableTokenBalance, getRecordedTokenBalance, hydrateCustomTokens } from "@/lib/blockchain/deposits/customTokens";
+import { CUSTOM_TOKENS_EVENT, customTokenRef, getAvailableTokenBalance, getRecordedTokenBalance, hydrateCustomTokens } from "@/lib/blockchain/deposits/customTokens";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { getUserProfileTokenHoldings } from "@/lib/blockchain/profileTokenBalance";
 import { getAppWalletBalances } from "@/lib/blockchain/wallets/appWallet";
@@ -27,7 +27,7 @@ export function useNativeAssets(userId: string): NativeAsset[] {
         const assets = nativeWalletAssets({
           swarm: chain.getBalance(userId), credits, mintme: getChainMintmeBalance(userId),
           eth: bridge.ETH + getChainEthBalance(userId), btc: bridge.BTC, holdings,
-          custom: tokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, token.address), available: getAvailableTokenBalance(userId, token.address) })),
+          custom: tokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, customTokenRef(token)), available: getAvailableTokenBalance(userId, customTokenRef(token)) })),
         });
         if (!disposed && current === revision) setSnapshot({ userId, assets });
       } catch { /* Keep last known balances during transient storage failures. */ }

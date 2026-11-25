@@ -23,6 +23,8 @@ vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () =>
 vi.mock("@/lib/blockchain/mintmeMiner/miner", () => ({ getMintMeMiner: () => ({ start: state.start, stop: state.stop }) }));
 vi.mock("@/lib/blockchain/wallets/nativeMintmeDirect", () => ({ syncNativeMintMeDeposits: state.nativeSync }));
 vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
+  customTokenRef: (t: { address: string; network?: string }) => (t.network === "ethereum" ? `eth:${t.address}` : t.address).toLowerCase(),
+  customTokenNetwork: (t: { network?: string }) => t.network ?? "mintme",
   hydrateCustomTokens: async () => [],
   listCustomTokens: () => [{ address: "dreams", symbol: "DREAMS", decimals: 12 }, { address: "other", symbol: "OTHER", decimals: 18 }],
   syncCustomTokenDeposits: state.customSync,

@@ -9,15 +9,18 @@ import { toast } from "sonner";
 import { donateToRewardPool } from "@/lib/blockchain/creditWrapping";
 import { donateCreditsToVault, donateTokenToVault } from "@/lib/blockchain/marketVault";
 import { getCreditBalance } from "@/lib/credits";
-import { CUSTOM_TOKENS_EVENT, getAvailableTokenBalance, listCustomTokens } from "@/lib/blockchain/deposits/customTokens";
+import { CUSTOM_TOKENS_EVENT, customTokenNetwork, customTokenRef, getAvailableTokenBalance, listCustomTokens } from "@/lib/blockchain/deposits/customTokens";
+import { TOKEN_NETWORKS } from "@/lib/blockchain/deposits/tokenNetworks";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
 
-interface DonationAsset { id: string; symbol: string; balance: number; contract?: string; credits?: boolean }
+/** `contract` is the token ref (chain + contract); `network` labels imported tokens. */
+interface DonationAsset { id: string; symbol: string; balance: number; contract?: string; network?: string; credits?: boolean }
 
 /**
  * Support the Vault — voluntary donations that deepen the Market Vault: SWARM
- * into the reward pool, or synced MintMe tokens (such as Dreams) into its token holdings.
+ * into the reward pool, or synced imported tokens (MintMe tokens such as Dreams,
+ * Ethereum tokens such as MTCG) into its token holdings.
  */
 export function VaultDonationCard() {
   const { user } = useAuth();
@@ -31,7 +34,10 @@ export function VaultDonationCard() {
     if (!user) return;
     const [swarm, credits] = await Promise.all([getSwarmBalance(user.id), getCreditBalance(user.id).catch(() => 0)]);
     const tokens = listCustomTokens(user.id)
-      .map((t) => ({ id: t.address, symbol: t.symbol, contract: t.address, balance: getAvailableTokenBalance(user.id, t.address) }))
+      .map((t) => {
+        const ref = customTokenRef(t);
+        return { id: ref, symbol: t.symbol, contract: ref, network: TOKEN_NETWORKS[customTokenNetwork(t)].label, balance: getAvailableTokenBalance(user.id, ref) };
+      })
       .filter((t) => t.balance > 0);
     setAssets([{ id: "SWARM", symbol: "SWARM", balance: swarm }, { id: "CREDITS", symbol: "Credits", balance: credits, credits: true }, ...tokens]);
   }, [user]);
@@ -88,7 +94,7 @@ export function VaultDonationCard() {
           Support the Vault
         </h3>
         <p className="text-sm text-foreground/60">
-          Donate SWARM, Credits or your synced MintMe tokens directly to the Market Vault — deeper liquidity means tighter spreads for everyone on the mesh.
+          Donate SWARM, Credits or your synced MintMe and Ethereum tokens directly to the Market Vault — deeper liquidity means tighter spreads for everyone on the mesh.
         </p>
       </div>
 
@@ -97,7 +103,7 @@ export function VaultDonationCard() {
         <Select value={asset.id} onValueChange={(v) => { setAssetId(v); setAmount(""); }} disabled={donating}>
           <SelectTrigger id="vault-donation-asset" aria-label="Donation asset"><SelectValue /></SelectTrigger>
           <SelectContent>
-            {assets.map((a) => <SelectItem key={a.id} value={a.id}>{a.symbol} · {a.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
+            {assets.map((a) => <SelectItem key={a.id} value={a.id}>{a.symbol}{a.network ? ` (${a.network})` : ""} · {a.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>

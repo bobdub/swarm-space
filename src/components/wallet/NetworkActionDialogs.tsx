@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { NativeTokenDepositDialog } from "./NativeTokenDepositDialog";
 import { NativeTransferDialog } from "./NativeTransferDialog";
 import { MintMeWithdrawDialog } from "./MintMeWithdrawDialog";
+import { TOKEN_NETWORKS, type TokenNetworkId } from "@/lib/blockchain/deposits/tokenNetworks";
 
 export type AssetNetwork = "swarm" | "mintme" | `chain:${string}` | `cell:${string}`;
 
@@ -36,21 +37,25 @@ export function MintMeNativeActions({ userId, amount, network = "swarm" }: { use
   </>;
 }
 
-export function CustomTokenNetworkActions({ userId, symbol, address, decimals, recorded, network = "swarm", renderWithdrawForm }: {
+/** `address` is the token ref (chain + contract); `tokenNetwork` is the chain the token lives on. */
+export function CustomTokenNetworkActions({ userId, symbol, address, decimals, recorded, network = "swarm", tokenNetwork = "mintme", renderWithdrawForm }: {
   userId: string; symbol: string; address: string; decimals?: number; recorded: number; network?: AssetNetwork;
+  tokenNetwork?: TokenNetworkId;
   renderWithdrawForm: (onDone: () => void) => React.ReactNode;
 }) {
   const [sendOpen, setSendOpen] = useState(false);
   const [receiveOpen, setReceiveOpen] = useState(false);
+  const chainLabel = TOKEN_NETWORKS[tokenNetwork].label;
   if (network.startsWith("chain:")) return <>
-    <Button type="button" variant="outline" size="sm" disabled title="MintMe tokens cannot settle on a SWARM sub-chain"><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
-    <Button type="button" variant="outline" size="sm" disabled title="MintMe tokens cannot settle on a SWARM sub-chain"><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button>
+    <Button type="button" variant="outline" size="sm" disabled title={`${chainLabel} tokens cannot settle on a SWARM sub-chain`}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>
+    <Button type="button" variant="outline" size="sm" disabled title={`${chainLabel} tokens cannot settle on a SWARM sub-chain`}><ArrowUpFromLine className="mr-1 h-3 w-3" />Transfer</Button>
   </>;
+  // The external (EVM) network view deposits and withdraws each token on its own chain.
   return <>
-    {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} tokenAddress={address} decimals={decimals} /> :
+    {network === "mintme" ? <NativeTokenDepositDialog userId={userId} symbol={symbol} tokenAddress={address} decimals={decimals} tokenNetwork={tokenNetwork} /> :
       <Button type="button" variant="outline" size="sm" disabled={!userId} onClick={() => setReceiveOpen(true)}><ArrowDownToLine className="mr-1 h-3 w-3" />Receive</Button>}
     {network === "swarm" ? <span title="Only transfer to online peers on SWARM" className="inline-flex"><NativeTransferDialog userId={userId} assetId={`custom:${address}`} assetLabel={symbol} amount={recorded} /></span> :
-      <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} title="Only transfer to wallets that support the MintMe chain" onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}
+      <Button type="button" variant="outline" size="sm" disabled={!userId || recorded <= 0} title={`Only transfer to wallets that support the ${chainLabel} chain`} onClick={() => setSendOpen(true)}><ArrowUpFromLine className="mr-1 h-3 w-3" />Withdraw</Button>}
     {sendOpen && network === "mintme" && renderWithdrawForm(() => setSendOpen(false))}
     {receiveOpen && <NativeSwarmReceiveDialog userId={userId} label={symbol} open={receiveOpen} onOpenChange={setReceiveOpen} />}
   </>;

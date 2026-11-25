@@ -1,6 +1,6 @@
 /**
  * Bell notifications for tips and transfers a member receives (SWARM, MINTME,
- * imported MintMe tokens like Dreams). Tips reach a member by mesh delivery,
+ * imported MintMe tokens like Dreams, imported Ethereum tokens like MTCG). Tips reach a member by mesh delivery,
  * pending-pool sync or a peer's block, so the ledger is scanned rather than
  * hooking one path. A watermark set on first run keeps old history quiet, and
  * one inbox entry per tip id keeps rescans and replays from repeating it.
