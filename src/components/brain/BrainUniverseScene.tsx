@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useGamepadIntent } from '@/hooks/useGamepadIntent';
 import { CompassHUD } from '@/components/brain/CompassHUD';
+import { headingFromCamera, setViewHeading } from '@/lib/brain/navigation';
 import { MiniMapHUD } from '@/components/brain/MiniMapHUD';
 import { BuilderActivator } from '@/components/brain/builder/BuilderActivator';
 import { BuilderInventory } from '@/components/brain/builder/BuilderInventory';
@@ -574,6 +575,12 @@ function PhysicsCameraRig({ selfId, fallbackId }: { selfId: string; fallbackId: 
     const viewEuler = new THREE.Euler(pitchRef.current, yawRef.current, 0, 'YXZ');
     const viewQuat = new THREE.Quaternion().setFromEuler(viewEuler);
     camera.quaternion.copy(basisQuat).multiply(viewQuat);
+    // Share which way you face (against true north) with the compass and map.
+    try {
+      const vf = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      const vu = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      setViewHeading(headingFromCamera([vf.x, vf.y, vf.z], [vu.x, vu.y, vu.z], source as [number, number, number], pose));
+    } catch { /* heading is best-effort */ }
 
     // 4. Position camera at eye height above the body. Single source of
     // truth: EYE_LIFT (earth.ts). Phase 4C — no radial eye rescue. The
