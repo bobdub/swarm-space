@@ -186,8 +186,8 @@ export class MintMeCommunityPayout {
 
 /** Live wiring: mesh transport, public MintMe RPC pool read, SWARM ledger, member id. */
 export async function createMeshCommunityPayout(mesh: CommunityPayoutDeps["transport"] & { getConnectedPeers(): string[] }) {
-  const [{ getSwarmChain }, auth, { getMintMeCommunityVaultAddress }, { FallbackProvider, JsonRpcProvider }, { MINTME_NETWORK }] = await Promise.all([
-    import("../chain"), import("@/lib/auth"), import("./communityCustody"), import("ethers"), import("../wallets/mintmeNetwork"),
+  const [{ getSwarmChain }, auth, { getMintMeCommunityVaultAddress }, { mintMeFallbackProvider }] = await Promise.all([
+    import("../chain"), import("@/lib/auth"), import("./communityCustody"), import("../wallets/mintmeRpc"),
   ]);
   const chain = getSwarmChain();
   return new MintMeCommunityPayout({
@@ -196,8 +196,7 @@ export async function createMeshCommunityPayout(mesh: CommunityPayoutDeps["trans
     async readVaultUnits() {
       const vault = getMintMeCommunityVaultAddress();
       if (!vault) return null;
-      const providers = MINTME_NETWORK.rpcUrls.map(url => new JsonRpcProvider(url));
-      const provider = new FallbackProvider(providers, undefined, { quorum: Math.min(2, providers.length) });
+      const provider = mintMeFallbackProvider(2);
       try {
         const height = await provider.getBlockNumber();
         return await provider.getBalance(vault, Math.max(0, height - 12));
