@@ -6,7 +6,7 @@ import { deriveColdKey, getColdKeyReceivingAddress, getColdKeyAuthority, sendCol
 import type { SwarmTransaction } from "../types";
 import { _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
 import { assertCustomTokenDepositCapacity, customTokenDepositCapacity } from "./customTokenLimits";
-import { CUSTOM_TOKEN_CUSTODY, customTokenCustodyFlows, customTokenSyncMessage, readCustomTokenCustody } from "./customTokenCustody";
+import { CUSTOM_TOKEN_CUSTODY, customTokenCustodyFlows, customTokenSyncMessage, readCustomTokenCustody, readTokenDecimalsOnMintMe } from "./customTokenCustody";
 export { CUSTOM_TOKEN_DEPOSIT_MAX } from "./customTokenLimits";
 
 export function getCustomTokenDepositCapacity(address: string) {
@@ -118,6 +118,24 @@ export async function syncPendingDeposits(swarmId: string): Promise<boolean> {
   return markDepositsSynced(ids, await connectedPeerCount());
 }
 
+/**
+ * A token imported while MintMe could not be read keeps the form's default decimals (18), but MintMe
+ * tokens use 12, so every deposit check would fail. Fix the saved value from the contract while no
+ * ledger record depends on it; once records exist, changing decimals would rescale them, so refuse.
+ */
+async function correctImportedDecimals(userId: string, token: CustomToken): Promise<CustomToken> {
+  const actual = await readTokenDecimalsOnMintMe(token.address);
+  if (actual === token.decimals) return token;
+  const currency = `mintme:${token.address.toLowerCase()}`;
+  const recorded = allTransactions().some(tx => String(tx.meta?.currency ?? "").toLowerCase() === currency);
+  if (recorded || !Number.isInteger(actual) || actual < 0 || actual > 36) {
+    throw new Error(`${token.symbol} was saved with ${token.decimals} decimals, but MintMe reports ${actual}. Re-import this token and try again.`);
+  }
+  const fixed = addCustomToken(userId, { address: token.address, symbol: token.symbol, decimals: actual });
+  if (token.hidden) setTokenHidden(userId, token.address, true);
+  return { ...fixed, hidden: token.hidden };
+}
+
 const depositChecks = new Map<string, Promise<number>>();
 
 /** Record only confirmed, previously uncredited ERC-20 custody; no external wallet connection. */
@@ -127,10 +145,11 @@ export function syncCustomTokenDeposits(userId: string, tokenAddress: string): P
   const running = depositChecks.get(key);
   if (running) return running;
   const check = async () => {
-    const token = (await hydrateCustomTokens(userId)).find(t => t.address.toLowerCase() === contract);
+    let token = (await hydrateCustomTokens(userId)).find(t => t.address.toLowerCase() === contract);
     if (!token || !isContractAddress(contract)) throw new Error("Import this MintMe token before checking its deposit.");
     const chain = getSwarmChain();
     await chain.whenReady();
+    token = await correctImportedDecimals(userId, token);
     const address = (await getColdKeyReceivingAddress(userId)).toLowerCase();
     const backed = await readCustomTokenCustody(address, contract, token.decimals, allTransactions(), userId);
     const flows = customTokenCustodyFlows(allTransactions(), userId, address, contract, token.decimals);

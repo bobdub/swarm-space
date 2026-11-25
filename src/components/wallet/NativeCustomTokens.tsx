@@ -5,11 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { EyeOff, Trash2, Coins } from "lucide-react";
+import { EyeOff, Trash2, Coins, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { DEPOSIT_SYNC_EVENT } from "@/lib/blockchain/deposits/depositSync";
 import { removeCustomToken, getRecordedTokenBalance, getPendingSyncTokenBalance, syncPendingDeposits,
-  isContractAddress, listCustomTokens, CUSTOM_TOKENS_EVENT, hydrateCustomTokens, withdrawCustomToken,
+  isContractAddress, listCustomTokens, CUSTOM_TOKENS_EVENT, hydrateCustomTokens, withdrawCustomToken, syncCustomTokenDeposits,
   type CustomToken } from "@/lib/blockchain/deposits/customTokens";
 import { COLD_KEY_ENGRAVING_SWARM, engraveColdKey, getColdKeyAuthority, type ColdKeyAuthority } from "@/lib/blockchain/wallets/coldKey";
 import { getCachedPrivateKey, getCurrentUser } from "@/lib/auth";
@@ -41,6 +41,17 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
     void syncPendingDeposits(userId);
     return () => { window.removeEventListener(DEPOSIT_SYNC_EVENT, onSync); window.clearInterval(t); };
   }, [layer, pendingSync, userId]);
+  const [checking, setChecking] = useState(false);
+  // Deposits are also checked in the background, but that run stays silent; this shows the real outcome.
+  const checkDeposit = () => {
+    setChecking(true);
+    void syncCustomTokenDeposits(userId, token.address)
+      .then((n) => n > 0
+        ? toast.success(`${n} ${token.symbol} added to your native wallet`)
+        : toast.info(`No new confirmed ${token.symbol} at your receiving address yet.`))
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Could not check MintMe right now."))
+      .finally(() => setChecking(false));
+  };
   const amount = recorded;
   return <div className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
     <div className="min-w-0">
@@ -60,6 +71,9 @@ export function CustomTokenRow({ userId, token, layer, network = "swarm", onHide
             </DialogContent>
           </Dialog>
         )} />
+      <Button type="button" size="sm" variant="ghost" disabled={checking} onClick={checkDeposit}>
+        <RefreshCw className={`mr-1 h-3 w-3${checking ? " animate-spin" : ""}`} />{checking ? "Checking…" : "Check deposit"}
+      </Button>
       {onHide && <Button type="button" size="sm" variant="ghost" onClick={onHide}><EyeOff className="mr-1 h-3 w-3" />Hide</Button>}
       <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => {
         const note = recorded > 0 ? ` Your ${recorded} ${token.symbol} stays recorded and returns when you add the token again.` : "";
