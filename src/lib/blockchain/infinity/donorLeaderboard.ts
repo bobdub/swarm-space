@@ -7,6 +7,8 @@
  *     MINTME, creator tokens), signed by the sender.
  *   • `pool_donate` from a member (SWARM given to the Market Vault).
  *     Mining-tax top-ups (`from: "system"`) are not donations and are skipped.
+ *   • Credits or a synced MintMe token given through Support the Vault: a
+ *     `custom_token_transfer` to the vault with `direction: "donation"`.
  *
  *   • Hand-recorded off-mesh donations from `manualDonations.ts`: ETH/BTC
  *     sent to the external donation addresses, gift cards, cash, and so on.
@@ -19,7 +21,9 @@ import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
 
-const NATIVE_TICKERS = new Set(["SWARM", "MINTME"]);
+const NATIVE_TICKERS = new Set(["SWARM", "MINTME", "CREDITS"]);
+/** The Market Vault's ledger account. */
+const VAULT = "community-pool";
 
 export interface DonorEntry {
   /** Swarm user id, or `manual:<name>` for a hand-recorded donor with no account. */
@@ -57,6 +61,16 @@ export function donationFromTx(tx: SwarmTransaction): { ticker: string; amount: 
     return { ticker, amount };
   }
   if (tx.type === "pool_donate") return { ticker: "SWARM", amount };
+  if (tx.type === "custom_token_transfer" && tx.to === VAULT && tx.meta?.marketVault === true && tx.meta?.direction === "donation") {
+    const currency = typeof tx.meta.currency === "string" ? tx.meta.currency : "";
+    if (!currency) return null;
+    if (currency.toUpperCase() === "CREDITS") return { ticker: "Credits", amount };
+    // A synced MintMe token: its symbol when the donation named it, else a short contract.
+    const label = typeof tx.meta.ticker === "string" ? tx.meta.ticker.trim() : "";
+    if (label && !NATIVE_TICKERS.has(label.toUpperCase())) return { ticker: label, amount };
+    const contract = currency.replace(/^MINTME:/i, "");
+    return { ticker: `${contract.slice(0, 6)}…${contract.slice(-4)}`, amount };
+  }
   return null;
 }
 

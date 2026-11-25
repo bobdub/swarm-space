@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ user: null as null | { id: string; publicKey: string }, privateKey: null as null | string }));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: () => auth.user, getCachedPrivateKey: async () => auth.privateKey }));
-import { acceptablePeerDonation, CreditGossip, MAX_HOPS, signedUnminedDonations, type GossipMesh } from "../creditGossip";
+import { acceptablePeerDonation, CreditGossip, MAX_HOPS, signedUnminedDonations, UNMINED_REOFFER_MS, type GossipMesh } from "../creditGossip";
 import { signWalletTip } from "@/lib/blockchain/wallets/tipSignature";
 import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 import type { CreditTransaction } from "@/types";
@@ -55,7 +55,7 @@ function donationTx(id: string, from = "alice", timestamp = new Date().toISOStri
   return { id, type: "pool_donate", from, to: "community-pool", amount: 1700, timestamp, signature: "", publicKey: from, nonce: 1, fee: 0 } as SwarmTransaction;
 }
 
-function node(net: FakeNetwork, id: string, unmined: () => SwarmTransaction[] = () => []) {
+function node(net: FakeNetwork, id: string, unmined: () => SwarmTransaction[] = () => [], accept: (tx: SwarmTransaction) => boolean = () => true) {
   const mesh = new FakeMesh(id, net);
   const received: CreditTransaction[] = [];
   const ledger: SwarmTransaction[] = [];
@@ -63,6 +63,7 @@ function node(net: FakeNetwork, id: string, unmined: () => SwarmTransaction[] = 
   const gossip = new CreditGossip(mesh, {
     onCreditTransfer: (tx) => { received.push(tx); },
     acceptChainTx: (tx) => {
+      if (!accept(tx)) return false;
       if (!ledger.some((t) => t.id === tx.id)) { ledger.push(tx); localListeners.forEach((l) => l(tx)); }
       return true;
     },
@@ -204,6 +205,41 @@ async function identity() {
   const privateKey = arrayBufferToBase64(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
   return { id: await computeUserId(publicKey), publicKey, privateKey };
 }
+
+describe("donations a peer could not check yet", () => {
+  it("are checked again on the next offer instead of being dropped for good", async () => {
+    const net = new FakeNetwork();
+    const donation = donationTx("d-retry");
+    let ledgerCaughtUp = false;
+    const a = node(net, "A", () => [donation]);
+    const b = node(net, "B", () => [], () => ledgerCaughtUp);
+    net.link("A", "B");
+    await new Promise((r) => setTimeout(r, 10));
+    expect(b.ledger).toEqual([]);
+    ledgerCaughtUp = true;
+    await a.gossip.offerUnmined();
+    await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-retry"]));
+  });
+
+  it("are offered again on a timer while they stay unmined", async () => {
+    vi.useFakeTimers();
+    try {
+      const net = new FakeNetwork();
+      const donation = donationTx("d-timer");
+      let ledgerCaughtUp = false;
+      node(net, "A", () => [donation]);
+      const b = node(net, "B", () => [], () => ledgerCaughtUp);
+      net.link("A", "B");
+      await vi.advanceTimersByTimeAsync(10);
+      expect(b.ledger).toEqual([]);
+      ledgerCaughtUp = true;
+      await vi.advanceTimersByTimeAsync(UNMINED_REOFFER_MS + 10);
+      expect(b.ledger.map((t) => t.id)).toEqual(["d-timer"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("vault donations between peers follow the signed-spend rule", () => {
   it("accepts a donation only when its donor signed it and holds the SWARM", async () => {

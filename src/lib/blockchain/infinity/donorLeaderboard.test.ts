@@ -84,3 +84,31 @@ describe("hand-recorded donations", () => {
     expect(formatDonationAmounts({ USD: 25, BTC: 0.00012, SWARM: 3 })).toBe("3 SWARM · 0.00012 BTC · $25");
   });
 });
+
+describe("Support the Vault donations in Credits and synced tokens", () => {
+  const vaultGift = (p: Partial<SwarmTransaction>) => tx({
+    type: "custom_token_transfer", to: "community-pool", amount: 50,
+    meta: { currency: "CREDITS", marketVault: true, direction: "donation" }, ...p,
+  });
+
+  it("counts Credits and named token donations, but not vault trades", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "alice", amount: 50 }),
+      vaultGift({ from: "bob", amount: 3, meta: { currency: "MINTME:0x1234567890abcdef1234567890abcdef12345678", marketVault: true, direction: "donation", ticker: "DREAMS" } }),
+      vaultGift({ from: "carol", amount: 7, meta: { currency: "MINTME:0x1234567890abcdef1234567890abcdef12345678", marketVault: true, direction: "donation" } }),
+      // A sale to the vault is a trade, not a gift.
+      vaultGift({ from: "dave", amount: 9, meta: { currency: "CREDITS", marketVault: true, direction: "vault-buy" } }),
+      // Credits paid out of the vault are not a donation either.
+      vaultGift({ from: "community-pool", to: "erin", amount: 4, meta: { currency: "CREDITS", marketVault: true, direction: "vault-sell" } }),
+    ]);
+    expect(board.totals).toEqual({ Credits: 50, DREAMS: 3, "0x1234…5678": 7 });
+    expect(board.donors.map((d) => d.userId).sort()).toEqual(["alice", "bob", "carol"]);
+  });
+
+  it("never lets a token's label pass itself off as SWARM or Credits", () => {
+    const board = buildDonorLeaderboard([
+      vaultGift({ from: "mallory", amount: 5, meta: { currency: "MINTME:0xabcdefabcdefabcdefabcdefabcdefabcdef1234", marketVault: true, direction: "donation", ticker: "swarm" } }),
+    ]);
+    expect(board.totals).toEqual({ "0xabcd…1234": 5 });
+  });
+});
