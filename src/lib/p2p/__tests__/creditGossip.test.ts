@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { CreditGossip, MAX_HOPS, type GossipMesh } from "../creditGossip";
+
+const auth = vi.hoisted(() => ({ user: null as null | { id: string; publicKey: string }, privateKey: null as null | string }));
+vi.mock("@/lib/auth", () => ({ getCurrentUser: () => auth.user, getCachedPrivateKey: async () => auth.privateKey }));
+import { acceptablePeerDonation, CreditGossip, MAX_HOPS, signedUnminedDonations, type GossipMesh } from "../creditGossip";
+import { signWalletTip } from "@/lib/blockchain/wallets/tipSignature";
+import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
 
@@ -177,5 +182,68 @@ describe("CreditGossip", () => {
     const b = node(net, "B");
     net.link("A", "B");
     await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-old"]));
+  });
+
+  it("offers donations restored after start to peers it already knew", async () => {
+    const net = new FakeNetwork();
+    let restored: SwarmTransaction[] = [];
+    const a = node(net, "A", () => restored);
+    const b = node(net, "B");
+    net.link("A", "B");
+    expect(b.ledger).toEqual([]);
+    restored = [donationTx("d-late")];
+    a.gossip.offerUnmined();
+    await vi.waitFor(() => expect(b.ledger.map((t) => t.id)).toEqual(["d-late"]));
+  });
+
+});
+
+async function identity() {
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+  const publicKey = arrayBufferToBase64(await crypto.subtle.exportKey("spki", pair.publicKey));
+  const privateKey = arrayBufferToBase64(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+  return { id: await computeUserId(publicKey), publicKey, privateKey };
+}
+
+describe("vault donations between peers follow the signed-spend rule", () => {
+  it("accepts a donation only when its donor signed it and holds the SWARM", async () => {
+    const donor = await identity();
+    const signed = await signWalletTip({ ...donationTx("s1", donor.id), publicKey: donor.publicKey }, donor.privateKey);
+    expect(await acceptablePeerDonation(signed, () => 2000)).toBe(true);
+    // Not enough SWARM on this peer's ledger.
+    expect(await acceptablePeerDonation(signed, () => 100)).toBe(false);
+    // Unsigned, or signed by someone else in the donor's name.
+    expect(await acceptablePeerDonation(donationTx("u1", donor.id), () => 2000)).toBe(false);
+    const thief = await identity();
+    const forged = await signWalletTip({ ...donationTx("f1", donor.id), publicKey: thief.publicKey }, thief.privateKey);
+    expect(await acceptablePeerDonation(forged, () => 2000)).toBe(false);
+    // Changing the amount after signing breaks the signature.
+    expect(await acceptablePeerDonation({ ...signed, amount: 1 }, () => 2000)).toBe(false);
+  });
+
+  it("has the donor sign their own older unsigned donation, and never anyone else's", async () => {
+    const me = await identity();
+    const other = await identity();
+    const mine = { ...donationTx("old-mine", me.id), publicKey: me.id };
+    const theirs = { ...donationTx("old-theirs", other.id), publicKey: other.id };
+    const pending: SwarmTransaction[] = [mine, theirs];
+    const chain = {
+      getPendingTransactions: () => pending,
+      replacePendingTransaction: (tx: SwarmTransaction) => {
+        const i = pending.findIndex((p) => p.id === tx.id);
+        if (i < 0) return false;
+        pending[i] = tx;
+        return true;
+      },
+    };
+    auth.user = { id: me.id, publicKey: me.publicKey };
+    auth.privateKey = null;
+    expect(await signedUnminedDonations(chain)).toEqual([]);
+    auth.privateKey = me.privateKey;
+    const offered = await signedUnminedDonations(chain);
+    expect(offered.map((t) => t.id)).toEqual(["old-mine"]);
+    expect(await acceptablePeerDonation(offered[0], () => 2000)).toBe(true);
+    expect(pending[0].signature).not.toBe("");
+    expect(pending[1].signature).toBe("");
   });
 });

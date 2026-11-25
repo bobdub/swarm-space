@@ -623,6 +623,18 @@ export class SwarmChain {
   }
 
   /**
+   * Replace a still-unmined entry with a copy carrying the same id, e.g. once
+   * its owner has signed it. Returns false when it is no longer pending.
+   */
+  replacePendingTransaction(transaction: SwarmTransaction): boolean {
+    const index = this.pendingTransactions.findIndex((tx) => tx.id === transaction.id);
+    if (index < 0) return false;
+    this.pendingTransactions[index] = transaction;
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
+  /**
    * Replace the entire local chain (used by fork resolution).
    * Caller is expected to have validated `incoming` and decided via
    * `resolveFork()` that adoption is correct.

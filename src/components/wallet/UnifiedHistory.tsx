@@ -18,7 +18,8 @@ import {
 } from "@/lib/history/unifiedHistory";
 
 const ALL = "all";
-const REFRESH_EVENTS = ["credit-transaction", "blockchain-transaction", "wallet-tip-updated"] as const;
+// A mined block clears Pending tags: the mesh announces it as a pool update or a mined block.
+const REFRESH_EVENTS = ["credit-transaction", "blockchain-transaction", "wallet-tip-updated", "reward-pool-update", "swarm-block-mined"] as const;
 
 interface UnifiedHistoryProps {
   userId: string;
