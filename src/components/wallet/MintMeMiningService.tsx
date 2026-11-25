@@ -103,11 +103,13 @@ export function MintMeMiningService() {
           import("@/lib/blockchain/deposits/customTokens"),
         ]);
         if (cancelled) return;
-        await native.syncNativeMintMeDeposits(uid).then(n => notify(n, "MINTME")).catch(() => {});
+        await native.syncNativeMintMeDeposits(uid).then(n => notify(n, "MINTME"))
+          .catch(e => console.warn("[wallet] MINTME deposit check failed", e));
         await custom.hydrateCustomTokens(uid);
         for (const token of custom.listCustomTokens(uid)) {
           if (cancelled) break;
-          await custom.syncCustomTokenDeposits(uid, token.address).then(n => notify(n, token.symbol)).catch(() => {});
+          await custom.syncCustomTokenDeposits(uid, token.address).then(n => notify(n, token.symbol))
+            .catch(e => console.warn(`[wallet] ${token.symbol} deposit check failed`, e));
         }
       } catch { /* locked vault or MintMe unreachable: retry next tick */ }
       finally { syncing = false; }
