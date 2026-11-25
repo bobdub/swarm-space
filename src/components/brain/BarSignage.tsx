@@ -169,7 +169,7 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
     ctx.fillText('No donations yet. Be the first patron!', W / 2, y + 120);
     ctx.font = '28px Georgia, serif';
     ctx.fillStyle = '#b8a888';
-    ctx.fillText('Send coins to Infinity from your wallet to join the board.', W / 2, y + 180);
+    ctx.fillText('Donate through Support the Vault, or send coins to Infinity, to join the board.', W / 2, y + 180);
   }
   rows.forEach((d, i) => {
     const medal = ['#ffd35a', '#d9d9d9', '#d08a4a'][i];

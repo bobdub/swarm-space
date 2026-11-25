@@ -19,6 +19,7 @@ vi.mock("../../credits", () => ({ deductCredits: credits.deduct, awardVaultCredi
 vi.mock("../deposits/customTokens", () => ({
   getAvailableTokenBalance: () => state.available,
   tokenCurrency: (a: string) => `MINTME:${a.toLowerCase()}`,
+  listCustomTokens: () => [{ address: "0x634340447220BCAAA09A5505D71CA62B644A1A82", symbol: "DREAMS", decimals: 18, addedAt: 0 }],
 }));
 
 const { donateCreditsToVault, donateTokenToVault, sellSwarmForCredits, vaultCreditReserve } = await import("../marketVault");
@@ -32,7 +33,7 @@ describe("donating MintMe tokens to the Market Vault", () => {
     await donateTokenToVault("member", contract, 4);
     expect(state.added).toHaveLength(1);
     expect(state.added[0]).toMatchObject({ type: "custom_token_transfer", from: "member", to: "community-pool", amount: 4,
-      meta: { currency: `MINTME:${contract.toLowerCase()}`, marketVault: true, direction: "donation" } });
+      meta: { currency: `MINTME:${contract.toLowerCase()}`, marketVault: true, direction: "donation", ticker: "DREAMS" } });
   });
 
   it("refuses more than the synced balance, zero amounts and other accounts", async () => {
