@@ -175,14 +175,10 @@ export default function Preview() {
     const search = async () => {
       if (cancelled) return;
       attempts += 1;
-      // Keep asking open mesh peers by id, and redial the sharer now and
-      // then in case their node came online after we gave up on the dial.
+      // Keep asking open mesh peers by id. No timed redial of the sharer:
+      // the first dial saved them as a library peer, and the mesh's own
+      // rejoin path redials with backoff and honours Auto-connect.
       requestPostFromMesh(postId);
-      if (previewSession && attempts % 3 === 1) {
-        try {
-          p2pRef.current.connectToPeer(previewSession.creatorPeerId, { manual: true, source: 'preview-mode-redial' });
-        } catch { /* ignore */ }
-      }
       const acks = await requestContentHost(postId, { timeoutMs: 4000 });
       if (cancelled) return;
       const winner = acks[0];

@@ -72,8 +72,8 @@ describe('Preview page', () => {
       view.rerender(page());
       await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     }
-    // One dial on entry, one redial when the swarm search starts.
-    expect(state.connectToPeer).toHaveBeenCalledTimes(2);
+    // One explicit dial on entry; later redials are left to the mesh's backoff.
+    expect(state.connectToPeer).toHaveBeenCalledTimes(1);
     expect(state.requestContent).toHaveBeenCalledWith(['post-1']);
     // The 8s fallback fired despite the churn.
     expect(screen.getAllByText('Searching the swarm for a host…').length).toBeGreaterThan(0);
