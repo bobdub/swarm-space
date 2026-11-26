@@ -525,6 +525,18 @@ export class SwarmChain {
   }
 
   getBalance(address: string): number {
+    let balance = this.getConfirmedBalance(address);
+    for (const tx of this.pendingTransactions) {
+      balance += this.applyTransactionToBalance(tx, address);
+    }
+    return Math.max(0, balance);
+  }
+
+  /**
+   * Balance from mined blocks alone, leaving out this device's unmined entries:
+   * every peer on the same chain tip computes the same figure.
+   */
+  getConfirmedBalance(address: string): number {
     let balance = 0;
 
     for (const block of this.chain) {
@@ -536,12 +548,7 @@ export class SwarmChain {
         balance += this.applyTransactionToBalance(tx, address);
       }
     }
-
-    for (const tx of this.pendingTransactions) {
-      balance += this.applyTransactionToBalance(tx, address);
-    }
-
-    return Math.max(0, balance);
+    return balance;
   }
 
   /**

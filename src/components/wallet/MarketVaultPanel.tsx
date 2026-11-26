@@ -10,7 +10,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { useMarketGate } from "@/hooks/useMarketGate";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
 import { marketVaultLayers, quoteVaultBuy, spotCreditsPerSwarm, type MarketVaultState } from "@/lib/blockchain/marketVaultPricing";
-import { buySwarmFromVault, getMarketVaultState, getVaultCreditReserve, getVaultTokenHeld, sellSwarmForCredits, swapSwarmForToken, swapTokenForSwarm, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
+import { buySwarmFromVault, getMarketVaultState, getUnminedVaultTradeCount, getVaultCreditReserve, getVaultTokenHeld, sellSwarmForCredits, swapSwarmForToken, swapTokenForSwarm, swapCreatorTokenForSwarm } from "@/lib/blockchain/marketVault";
 import { useCreatorMarketRate } from "@/hooks/useCreatorMarketRate";
 import { quoteSwarmForCredits, quoteSwarmForToken, quoteTokenForSwarm, quoteCreatorTokenForSwarm } from "@/lib/blockchain/marketVaultPricing";
 import { listCustomTokens, type CustomToken } from "@/lib/blockchain/deposits/customTokens";
@@ -34,6 +34,7 @@ export function MarketVaultPanel() {
   const [held, setHeld] = useState<Record<string, number>>({});
   const [swarm, setSwarm] = useState(0);
   const [creditReserve, setCreditReserve] = useState(0);
+  const [unmined, setUnmined] = useState(0);
   const nativeAssets = useNativeAssets(user?.id ?? "");
   const payments = useMemo(() => nativeMarketPayments(nativeAssets), [nativeAssets]);
   const paymentId = payments.some((asset) => asset.id === payWith) ? payWith : payments[0]?.id ?? "";
@@ -47,22 +48,16 @@ export function MarketVaultPanel() {
   const load = useCallback(() => {
     void getMarketVaultState().then(setState).catch(() => {});
     void getVaultCreditReserve().then(setCreditReserve).catch(() => {});
+    void getUnminedVaultTradeCount().then(setUnmined).catch(() => {});
     if (user?.id) void getSwarmBalance(user.id).then(setSwarm).catch(() => {});
     if (user?.id) void Promise.all(listCustomTokens(user.id).map(async (t) => [t.address, await getVaultTokenHeld(t.address)] as const))
       .then((rows) => setHeld(Object.fromEntries(rows))).catch(() => {});
   }, [user?.id]);
   useEffect(() => {
     load();
-    window.addEventListener("reward-pool-update", load);
-    window.addEventListener("blockchain-transaction", load);
-    window.addEventListener("creator-vault-update", load);
-    window.addEventListener("credit-transaction", load);
-    return () => {
-      window.removeEventListener("credit-transaction", load);
-      window.removeEventListener("reward-pool-update", load);
-      window.removeEventListener("blockchain-transaction", load);
-      window.removeEventListener("creator-vault-update", load);
-    };
+    const events = ["reward-pool-update", "blockchain-transaction", "creator-vault-update", "credit-transaction", "swarm-block-mined"];
+    for (const name of events) window.addEventListener(name, load);
+    return () => { for (const name of events) window.removeEventListener(name, load); };
   }, [load]);
 
   const layers = state ? marketVaultLayers(state) : null;
@@ -116,6 +111,10 @@ export function MarketVaultPanel() {
           <Stat label="Liquid to trade" value={layers ? `${fmt(layers.liquid, 2)} SWARM` : "—"} />
           <Stat label="Spot price" value={state ? `${fmt(spotCreditsPerSwarm(state), 1)} Labor` : "—"} />
         </div>
+        <p className="text-[10px] text-muted-foreground">
+          Figures come from mined blocks, so every member sees the same vault.
+          {unmined > 0 && ` ${unmined === 1 ? "1 vault entry" : `${unmined} vault entries`} from this device will count once mined.`}
+        </p>
 
         <Tabs defaultValue="buy">
           <TabsList className="grid grid-cols-2">

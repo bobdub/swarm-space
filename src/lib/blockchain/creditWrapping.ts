@@ -3,7 +3,6 @@
 // All wraps must pass mineHealth validation.
 import { get, put, getAll } from "../store";
 import { CREDIT_TO_SWARM_RATIO } from "./types";
-import { getRewardPoolBalance } from "./miningRewards";
 import { validateMineHealth } from "./mineHealthValidator";
 import type { CreditTransaction } from "@/types";
 
@@ -153,11 +152,16 @@ async function executeWrap(request: WrapRequest): Promise<void> {
  * Mined SWARM the community pool can actually pay out: the smaller of the
  * pool record and the on-chain "community-pool" ledger balance.
  */
+/**
+ * Pool SWARM this device may release: the mined-block balance every peer
+ * shares, lowered by this device's own unmined releases. Read from the ledger,
+ * never from the locally cached pool record, which peers fill differently.
+ */
 export async function getMinedPoolBalance(): Promise<number> {
-  const recorded = await getRewardPoolBalance();
-  const { getSwarmBalance } = await import("./token");
-  const onChain = await getSwarmBalance(COMMUNITY_POOL_ADDRESS);
-  return Math.max(0, Math.min(recorded, onChain));
+  const [{ getSwarmChain }, { spendablePoolBalance }] = await Promise.all([import("./chain"), import("./poolLedger")]);
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  return spendablePoolBalance(chain);
 }
 
 export const COMMUNITY_POOL_ADDRESS = "community-pool";
@@ -200,29 +204,9 @@ export async function releaseMinedPoolSwarm(params: {
       ...params.meta,
     },
   });
-  await deductFromRewardPool(params.amount);
-}
-
-/**
- * Deduct from reward pool
- */
-export async function deductFromRewardPool(amount: number): Promise<void> {
-  const { getRewardPool, saveRewardPool } = await import("./storage");
-  
-  const pool = await getRewardPool();
-  if (!pool || pool.balance < amount) {
-    throw new Error("Insufficient reward pool balance");
-  }
-  
-  pool.balance -= amount;
-  pool.lastUpdated = new Date().toISOString();
-  await saveRewardPool(pool);
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
-  }
-  
-  console.log(`[RewardPool] Deducted ${amount} from pool (new balance: ${pool.balance})`);
+  // Re-derive the cached pool record from the ledger instead of editing it by hand.
+  const { derivePoolFromChain } = await import("./storage");
+  await derivePoolFromChain().catch(() => {});
 }
 
 /**

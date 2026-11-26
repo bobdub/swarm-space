@@ -14,9 +14,11 @@ vi.mock("../profileTokenBalance", () => ({
   getProfileTokenHolding: async (id: string) => ({ amount: f.balances.get(id) ?? 0, ticker: "MIKE" }),
   transferProfileTokens: (...args: unknown[]) => f.transfer(...args),
 }));
-vi.mock("../creditWrapping", () => ({ getMinedPoolBalance: async () => 1000, releaseMinedPoolSwarm: (...args: unknown[]) => f.release(...args) }));
+vi.mock("../creditWrapping", () => ({ releaseMinedPoolSwarm: (...args: unknown[]) => f.release(...args) }));
 vi.mock("../chain", () => ({ getSwarmChain: () => ({
   whenReady: async () => {}, getTotalSupply: () => 1000,
+  getChain: () => [{ transactions: [{ id: "seed", type: "pool_donate", from: "seed", to: "community-pool", amount: 1000 }] }],
+  getPendingTransactions: () => [], getConfirmedBalance: () => 1000, getBalance: () => 1000,
   hasTransaction: (id: string) => f.txs.has(id), addTransaction: (tx: { id: string }) => f.txs.add(tx.id),
 }) }));
 import { swapCreatorTokenForSwarm } from "../marketVault";

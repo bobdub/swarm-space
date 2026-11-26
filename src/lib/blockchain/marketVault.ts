@@ -1,6 +1,7 @@
 import { withCreatorMarketOperation } from "./creatorMarketOperation";
 import { quoteVaultBuy, type MarketVaultState } from "./marketVaultPricing";
-import { getMinedPoolBalance, releaseMinedPoolSwarm } from "./creditWrapping";
+import { releaseMinedPoolSwarm } from "./creditWrapping";
+import { confirmedTransactions, localTransactions, sharedMarketVaultState, unminedVaultTransactions } from "./poolLedger";
 import { getCreatorVault, priceAtSupply } from "./creatorVault";
 import { getProfileTokenHolding, transferProfileTokens } from "./profileTokenBalance";
 import { quoteCreatorTokenForSwarm } from "./marketVaultPricing";
@@ -56,11 +57,26 @@ export async function swapCreatorTokenForSwarm(userId: string, tokenId: string, 
   }));
 }
 
-export async function getMarketVaultState(): Promise<MarketVaultState> {
-  const [poolBalance, { getSwarmChain }] = await Promise.all([getMinedPoolBalance(), import("./chain")]);
+async function readyChain() {
+  const { getSwarmChain } = await import("./chain");
   const chain = getSwarmChain();
   await chain.whenReady();
-  return { poolBalance, knownMined: Math.max(poolBalance, chain.getTotalSupply()) };
+  return chain;
+}
+
+/**
+ * Vault pool, floor, liquid and spot inputs from mined blocks only, so every
+ * member on the same chain tip sees the same figures and gets the same price.
+ * This device's unmined trades join once a block carries them; releases are
+ * still checked against them so nothing is spent twice.
+ */
+export async function getMarketVaultState(): Promise<MarketVaultState> {
+  return sharedMarketVaultState(await readyChain());
+}
+
+/** How many of this device's Market Vault entries are still waiting for a block. */
+export async function getUnminedVaultTradeCount(): Promise<number> {
+  return unminedVaultTransactions(await readyChain()).length;
 }
 
 /** Buy SWARM from the community-pool vault with Credits. Never mints; the 40% floor is never released. */
@@ -84,9 +100,18 @@ export async function buySwarmFromVault(userId: string, swarm: number) {
 
 const POOL = "community-pool";
 
+/** Tokens the vault holds according to mined blocks: the same figure on every peer. */
 export async function getVaultTokenHeld(contract: string): Promise<number> {
   const { getRecordedTokenBalance } = await import("./deposits/customTokens");
-  return getRecordedTokenBalance(POOL, contract.toLowerCase());
+  return getRecordedTokenBalance(POOL, contract.toLowerCase(), confirmedTransactions(await readyChain()));
+}
+
+/** Tokens the vault can pay out from this device: the shared figure less this device's unmined payouts. */
+async function spendableVaultTokenHeld(contract: string): Promise<number> {
+  const { getRecordedTokenBalance } = await import("./deposits/customTokens");
+  const chain = await readyChain();
+  const c = contract.toLowerCase();
+  return Math.min(getRecordedTokenBalance(POOL, c, confirmedTransactions(chain)), getRecordedTokenBalance(POOL, c, localTransactions(chain)));
 }
 
 async function addTokenTransfer(from: string, to: string, amount: number, contract: string, direction: string, meta: Record<string, unknown> = {}) {
@@ -136,11 +161,15 @@ export function vaultCreditReserve(ledger: readonly import("./types").SwarmTrans
   return Math.max(0, Math.floor(reserve));
 }
 
+/** The vault's Credits reserve according to mined blocks: the same figure on every peer. */
 export async function getVaultCreditReserve(): Promise<number> {
-  const { getSwarmChain } = await import("./chain");
-  const chain = getSwarmChain();
-  await chain.whenReady();
-  return vaultCreditReserve([...chain.getChain().flatMap(b => b.transactions ?? []), ...chain.getPendingTransactions()]);
+  return vaultCreditReserve(confirmedTransactions(await readyChain()));
+}
+
+/** Credits the vault can pay out from this device: the shared reserve less this device's unmined payouts. */
+async function spendableVaultCreditReserve(): Promise<number> {
+  const chain = await readyChain();
+  return Math.min(vaultCreditReserve(confirmedTransactions(chain)), vaultCreditReserve(localTransactions(chain)));
 }
 
 /** Sell SWARM to the vault for Credits from its Credits reserve. */
@@ -150,7 +179,7 @@ export async function sellSwarmForCredits(userId: string, swarm: number) {
     if (getCurrentUser()?.id !== userId) throw new Error("Sign in to sell from your wallet.");
     const { getSwarmBalance, transferSwarm } = await import("./token");
     const { quoteSwarmForCredits } = await import("./marketVaultPricing");
-    const [reserve, mine] = await Promise.all([getVaultCreditReserve(), getSwarmBalance(userId)]);
+    const [reserve, mine] = await Promise.all([spendableVaultCreditReserve(), getSwarmBalance(userId)]);
     const q = quoteSwarmForCredits(reserve, swarm, mine);
     if (q.error) throw new Error(q.error);
     const operationId = crypto.randomUUID();
@@ -218,7 +247,7 @@ export async function swapSwarmForToken(userId: string, contract: string, swarm:
     const c = contract.toLowerCase();
     const { getSwarmBalance, transferSwarm } = await import("./token");
     const { quoteSwarmForToken } = await import("./marketVaultPricing");
-    const [state, held, mine] = await Promise.all([getMarketVaultState(), getVaultTokenHeld(c), getSwarmBalance(userId)]);
+    const [state, held, mine] = await Promise.all([getMarketVaultState(), spendableVaultTokenHeld(c), getSwarmBalance(userId)]);
     const q = quoteSwarmForToken(state, held, swarm, mine);
     if (q.error) throw new Error(q.error);
     const operationId = crypto.randomUUID();
