@@ -217,14 +217,15 @@ export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledge
   return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS, await importedTokenSymbols()), ledgerSize: txs.length };
 }
 
-/** Symbols of the MintMe tokens the signed-in member has imported, by lower-case contract. */
+/** Symbols of the MintMe-network tokens the signed-in member has imported, by lower-case contract. */
 async function importedTokenSymbols(): Promise<Record<string, string>> {
   try {
-    const [{ getCurrentUser }, { listCustomTokens }] = await Promise.all([import("@/lib/auth"), import("../deposits/customTokens")]);
+    const [{ getCurrentUser }, { listCustomTokens, customTokenNetwork }] = await Promise.all([import("@/lib/auth"), import("../deposits/customTokens")]);
     const me = getCurrentUser();
     const out: Record<string, string> = {};
     for (const t of me ? listCustomTokens(me.id) : []) {
-      if (typeof t?.address === "string" && typeof t.symbol === "string") out[t.address.toLowerCase()] = t.symbol;
+      // Only MintMe tokens: an Ethereum token at the same address is a different coin.
+      if (typeof t?.address === "string" && typeof t.symbol === "string" && customTokenNetwork(t) === "mintme") out[t.address.toLowerCase()] = t.symbol;
     }
     return out;
   } catch {
