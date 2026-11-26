@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AlertCircle, Check, CheckCheck, Clock, Lock, Send, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Check, CheckCheck, Clock, Lock, Send, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar } from '@/components/Avatar';
@@ -9,6 +9,7 @@ import { SwarmLink } from '@/components/routing/SwarmLink';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { entangle } from '@/lib/entanglements';
+import { WALLET_LOCK_EVENT } from '@/lib/auth';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { armChatChirpAudio, chirpForRemoteLine } from '@/lib/brain/chatChirp';
 import {
@@ -63,6 +64,7 @@ export function DirectMessageThread({
   const [records, setRecords] = useState<DirectMessageRecord[]>([]);
   const [text, setText] = useState('');
   const [peerTyping, setPeerTyping] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastTypingSentRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -74,6 +76,7 @@ export function DirectMessageThread({
   const runHandshake = useCallback(async () => {
     if (!messenger) return;
     setHandshake('pending');
+    setRejected(null);
     const s = await messenger.connect(peer.peerId);
     setSession(s);
     setHandshake(s ? 'ready' : 'failed');
@@ -93,8 +96,18 @@ export function DirectMessageThread({
       return;
     }
     let cancelled = false;
-    messenger.history(conversationId).then((rows) => { if (!cancelled) setRecords(rows); }).catch(() => undefined);
-    return () => { cancelled = true; };
+    const load = () => {
+      messenger.history(conversationId).then((rows) => { if (!cancelled) setRecords(rows); }).catch(() => undefined);
+    };
+    load();
+    // Locking the wallet (here or in another tab) seals the history again.
+    window.addEventListener(WALLET_LOCK_EVENT, load);
+    window.addEventListener('storage', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(WALLET_LOCK_EVENT, load);
+      window.removeEventListener('storage', load);
+    };
   }, [messenger, conversationId]);
 
   // Live lines, receipts and typing.
@@ -105,6 +118,13 @@ export function DirectMessageThread({
       if (e.type === 'session' && e.session.peerId === peer.peerId) {
         setSession(e.session);
         setHandshake('ready');
+        setRejected(null);
+        return;
+      }
+      if (e.type === 'rejected' && e.peerId === peer.peerId) {
+        setSession(null);
+        setHandshake('failed');
+        setRejected(e.reason);
         return;
       }
       if (e.type === 'typing') {
@@ -177,20 +197,35 @@ export function DirectMessageThread({
         <Avatar avatarRef={peer.avatarRef} username={peer.displayName} displayName={peer.displayName} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm text-foreground" data-testid="dm-header">
-            Messaging Entangled Peer <span className="font-semibold">{peer.displayName}</span>, {peer.namespace}
+            Messaging Entangled Peer <span className="font-semibold">{peer.displayName}</span>,{' '}
+            {session?.verified && session.discriminator ? `#${session.discriminator}` : peer.namespace}
           </p>
           <p className="flex items-center gap-1 text-[11px] text-foreground/60">
             {handshake === 'ready' && session ? (
               <>
                 <Lock className="h-3 w-3" /> End-to-end encrypted · key {session.fingerprint}
-                {session.identityVerified && (
-                  <span className="ml-1 inline-flex items-center gap-0.5 text-primary" title="Their user id matches the identity key they presented">
-                    <ShieldCheck className="h-3 w-3" /> verified
+                {session.verified ? (
+                  <span
+                    className="ml-1 inline-flex items-center gap-0.5 text-primary"
+                    title="They signed this session with their account identity key and the wallet that anchors their namespace"
+                  >
+                    <ShieldCheck className="h-3 w-3" /> namespace verified
+                  </span>
+                ) : (
+                  <span
+                    className="ml-1 inline-flex items-center gap-0.5 text-amber-400"
+                    title="Their account is locked or on an older build, so they could not sign this session. Anyone could claim this name."
+                  >
+                    <ShieldAlert className="h-3 w-3" /> unverified
                   </span>
                 )}
               </>
             ) : handshake === 'pending' ? (
               'Entangling…'
+            ) : rejected ? (
+              <span className="inline-flex items-center gap-1 text-destructive" data-testid="dm-rejected">
+                <ShieldX className="h-3 w-3" /> Blocked: this link claims to be {peer.displayName} but could not prove their namespace.
+              </span>
             ) : (
               <>
                 They did not answer the handshake.
@@ -219,11 +254,17 @@ export function DirectMessageThread({
                   mine ? 'bg-primary/20 text-foreground' : 'bg-foreground/10 text-foreground',
                 )}
               >
-                <div className="prose prose-sm prose-invert max-w-none break-words [&_p]:my-0">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-                    {formatChatMarkdown(r.text)}
-                  </ReactMarkdown>
-                </div>
+                {r.locked ? (
+                  <p className="flex items-center gap-1 text-xs italic text-foreground/60">
+                    <Lock className="h-3 w-3" /> Sealed. Unlock your account to read it.
+                  </p>
+                ) : (
+                  <div className="prose prose-sm prose-invert max-w-none break-words [&_p]:my-0">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                      {formatChatMarkdown(r.text)}
+                    </ReactMarkdown>
+                  </div>
+                )}
                 <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-foreground/50">
                   {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   {mine && r.status === 'failed' ? (

@@ -245,7 +245,7 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                         </span>
                       }
                       title={p.displayName}
-                      subtitle={`${p.namespace} · online`}
+                      subtitle={`${p.namespace}${p.session?.verified ? " ✓" : ""} · online`}
                       unread={cid ? dmUnread.get(cid) : undefined}
                     />
                   );
