@@ -15,6 +15,8 @@ vi.mock("../chain", () => ({ getSwarmChain: () => ({
 vi.mock("../token", () => ({
   getSwarmBalance: async () => 100,
   getSpendableSwarmBalance: async () => state.spendable,
+  swarmSpendProblem: async (_id: string, amount: number) => state.spendable >= amount ? null
+    : `You can spend ${state.spendable} SWARM right now. 6 is recorded on this device only, outside any block, so peers can't accept it. Nothing was donated.`,
   burnSwarm: async (p: { from: string; amount: number }) => state.txs.push({ ...p, type: "token_burn" } as SwarmTransaction),
 }));
 vi.mock("../storage", async (original) => ({
@@ -68,7 +70,7 @@ describe("Market Vault donations", () => {
 
   it("refuses SWARM issued on this device alone, which peers would never accept", async () => {
     state.spendable = 4;
-    await expect(donateToRewardPool(member, 10)).rejects.toThrow(/Only 4 of your SWARM is on the shared chain/);
+    await expect(donateToRewardPool(member, 10)).rejects.toThrow(/You can spend 4 SWARM right now. 6 is recorded on this device only/);
     expect(state.txs).toEqual([]);
     expect(state.pool).toBeNull();
   });

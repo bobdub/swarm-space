@@ -660,6 +660,11 @@ export class SwarmChain {
     return Math.max(0, this.getBalance(address) - local);
   }
 
+  /** SWARM this device issued to itself outside a block: shown apart, never spendable. */
+  getDeviceOnlyBalance(address: string): number {
+    return Math.max(0, this.getBalance(address) - this.getSpendableBalance(address));
+  }
+
   /** Block rewards paid to `address` that are not yet spendable. */
   getImmatureRewards(address: string): number {
     let total = 0;
@@ -843,6 +848,8 @@ export class SwarmChain {
       if (this.hasTransaction(tx.id)) return false;
       // A dropped block's reward dies with the block; the next block pays its own.
       if (tx.type === "mining_reward") return false;
+      // A self-issued mint can never be mined into a shared block: don't revive it.
+      if (isSelfIssuedSwarmMint(tx)) return false;
       if (tx.type === "wallet_tip") return await this.acceptWalletTip(tx);
       if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
       if (isNativeEthCustody(tx)) return await this.acceptNativeEthCustody(tx);

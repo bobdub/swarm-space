@@ -6,7 +6,8 @@ import { ArrowDownToLine, ArrowUpFromLine, Copy, Coins, EyeOff, Eye, Plus } from
 import { toast } from "sonner";
 import { getCurrentUser } from "@/lib/auth";
 import { getAppWalletBalances, onAppWalletUpdate } from "@/lib/blockchain/wallets/appWallet";
-import { getSwarmBalance } from "@/lib/blockchain/token";
+import { REWARD_MATURITY_BLOCKS } from "@/lib/blockchain/issuance";
+import { getDeviceOnlySwarmBalance, getMaturingSwarmRewards, getSwarmBalance } from "@/lib/blockchain/token";
 import { getChainMintmeBalance } from "@/lib/blockchain/deposits/mintmeDeposit";
 import { getChainEthBalance } from "@/lib/blockchain/deposits/ethDeposit";
 import { useCreditBalance } from "@/hooks/useCreditBalance";
@@ -44,6 +45,8 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
   const userId = getCurrentUser()?.id ?? "";
   const { balance: credits } = useCreditBalance(userId || null);
   const [swarm, setSwarm] = useState(0);
+  const [maturing, setMaturing] = useState(0);
+  const [deviceOnly, setDeviceOnly] = useState(0);
   const [mintme, setMintme] = useState(0);
   const [bridge, setBridge] = useState({ ETH: 0, BTC: 0, MINTME: 0 });
   const layer: Layer = "native";
@@ -60,7 +63,10 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
       setBridge(getAppWalletBalances(userId));
       setMintme(getChainMintmeBalance(userId));
       try { setHoldings(await getUserProfileTokenHoldings(userId)); } catch { /* retain last known holdings */ }
-      try { setSwarm(await getSwarmBalance(userId)); } catch { /* ignore */ }
+      try {
+        const [shared, ripening, local] = await Promise.all([getSwarmBalance(userId), getMaturingSwarmRewards(userId), getDeviceOnlySwarmBalance(userId)]);
+        setSwarm(shared); setMaturing(ripening); setDeviceOnly(local);
+      } catch { /* ignore */ }
       try { setWeightedCount((await getUserWalletCoins(userId)).filter(isWeightedCoin).length); } catch { /* retain */ }
       try { setHiddenIds(await hydrateHiddenAssets(userId)); } catch { /* retain last known */ }
     };
@@ -136,6 +142,12 @@ export function AssetsTab({ network = "swarm", onDeployToken }: { network?: Asse
               layer={layer} offline={offline}
               onHide={layer === "native" && canHideAsset(r.code, r.amount) ? () => hide(r.code) : undefined} />
           </div>
+          {layer === "native" && r.code === "SWARM" && (maturing > 0 || deviceOnly > 0) && (
+            <div className="space-y-1 rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+              {maturing > 0 && <p>+{maturing.toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM from blocks you mined, spendable once {REWARD_MATURITY_BLOCKS} more blocks are on top of each.</p>}
+              {deviceOnly > 0 && <p>{deviceOnly.toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM is recorded on this device only, outside any shared block. Peers can't verify it, so it isn't counted above and can't be tipped or donated.</p>}
+            </div>
+          )}
           {layer === "native" && r.code === "SWARM" && weightedCount > 0 && <WeightedCoinRow count={weightedCount} />}
           </Fragment>
         ))}

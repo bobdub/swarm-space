@@ -129,6 +129,16 @@ describe("block reward is the only issuance", () => {
     expect(await peer.appendPeerBlock(block)).toBe(true);
   }, 60_000);
 
+  it("splits a balance into spendable, maturing and device-only SWARM", async () => {
+    const miner = new SwarmChain();
+    await miner.whenReady();
+    miner.addTransaction(selfMint("legacy") as never);
+    await miner.minePendingTransactions("me", undefined, { allowEmpty: true });
+    expect(miner.getSpendableBalance("me")).toBe(0);
+    expect(miner.getImmatureRewards("me")).toBe(47.5);
+    expect(miner.getDeviceOnlyBalance("me")).toBe(1_000);
+  }, 60_000);
+
   it("rejects a peer block stamped after the cutoff that carries a self-issued mint", async () => {
     const signer = await newSigner();
     const local = new SwarmChain();

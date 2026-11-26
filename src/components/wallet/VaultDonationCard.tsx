@@ -11,7 +11,7 @@ import { donateCreditsToVault, donateTokenToVault } from "@/lib/blockchain/marke
 import { getCreditBalance } from "@/lib/credits";
 import { CUSTOM_TOKENS_EVENT, customTokenNetwork, customTokenRef, getAvailableTokenBalance, listCustomTokens } from "@/lib/blockchain/deposits/customTokens";
 import { TOKEN_NETWORKS } from "@/lib/blockchain/deposits/tokenNetworks";
-import { getSpendableSwarmBalance } from "@/lib/blockchain/token";
+import { getSpendableSwarmBalance, swarmSpendProblem } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
 import { getWalletTipAssets, sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
@@ -77,7 +77,8 @@ export function VaultDonationCard() {
       return;
     }
     if (donation > asset.balance) {
-      toast.error(`Insufficient ${asset.symbol} balance`);
+      const why = asset.id === "SWARM" ? await swarmSpendProblem(user.id, donation, "donated") : null;
+      toast.error(why ?? `Insufficient ${asset.symbol} balance`);
       return;
     }
     setDonating(true);

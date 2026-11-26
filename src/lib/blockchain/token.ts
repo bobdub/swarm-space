@@ -5,11 +5,31 @@ import { generateTransactionId } from "./crypto";
 import { getTokenBalance, saveTokenBalance } from "./storage";
 import { getCurrentUser } from "../auth";
 import { assertStorageWritable } from "../storage/quotaGuard";
+import { REWARD_MATURITY_BLOCKS } from "./issuance";
 
+/**
+ * SWARM `address` holds on the shared chain: the figure every peer computes
+ * and the one tips, donations and payments may spend. SWARM issued on this
+ * device alone is left out (see getDeviceOnlySwarmBalance).
+ */
 export async function getSwarmBalance(address: string): Promise<number> {
   const chain = getSwarmChain();
   await chain.whenReady();
-  return chain.getBalance(address);
+  return chain.getSpendableBalance(address);
+}
+
+/** SWARM recorded on this device alone: peers can't verify it, so it can't be spent. */
+export async function getDeviceOnlySwarmBalance(address: string): Promise<number> {
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  return chain.getDeviceOnlyBalance(address);
+}
+
+/** Block rewards this address mined that ripen after REWARD_MATURITY_BLOCKS more blocks. */
+export async function getMaturingSwarmRewards(address: string): Promise<number> {
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  return chain.getImmatureRewards(address);
 }
 
 /** SWARM a signed payment may spend on the shared chain: leaves out SWARM issued on this device alone. */
@@ -17,6 +37,27 @@ export async function getSpendableSwarmBalance(address: string): Promise<number>
   const chain = getSwarmChain();
   await chain.whenReady();
   return chain.getSpendableBalance(address);
+}
+
+const fmtSwarm = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+
+/**
+ * Why `amount` SWARM can't be spent right now, naming each part of the
+ * balance that is held back, or null when it can. Uses the same shared-chain
+ * figure a peer checks before accepting the payment.
+ */
+export async function swarmSpendProblem(address: string, amount: number, verb = "sent"): Promise<string | null> {
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  const spendable = chain.getSpendableBalance(address);
+  if (spendable >= amount) return null;
+  const parts = [`You can spend ${fmtSwarm(spendable)} SWARM right now.`];
+  const maturing = chain.getImmatureRewards(address);
+  if (maturing > 0) parts.push(`${fmtSwarm(maturing)} more is from blocks you mined in the last ${REWARD_MATURITY_BLOCKS} blocks and unlocks as new blocks land.`);
+  const deviceOnly = chain.getDeviceOnlyBalance(address);
+  if (deviceOnly > 0) parts.push(`${fmtSwarm(deviceOnly)} is recorded on this device only, outside any block, so peers can't accept it.`);
+  parts.push(`Nothing was ${verb}.`);
+  return parts.join(" ");
 }
 
 export async function getTokenBalanceRecord(address: string): Promise<SwarmTokenBalance> {
