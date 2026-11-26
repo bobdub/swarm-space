@@ -5,7 +5,10 @@
  * "See more Remixes" link opens Brains). The Lab reads `?projectId=` or
  * `?target=main-brain` to pick where it mints.
  */
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
+import { TopNavigationBar } from '@/components/TopNavigationBar';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { LabTab } from '@/components/remix/LabTab';
 import { BrainsTab } from '@/components/remix/BrainsTab';
@@ -22,6 +25,13 @@ function tabFrom(value: string | null): RemixTab {
 
 export default function Remix() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  // Back to where the player came from; a direct visit goes to the Brain.
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate('/brain');
+  };
   const tab = tabFrom(params.get('tab'));
 
   const onTab = (next: string) => {
@@ -31,8 +41,20 @@ export default function Remix() {
   };
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-3 py-4">
+    <div className="min-h-screen">
+    <TopNavigationBar />
+    <main className="mx-auto w-full max-w-6xl px-3 pb-24 pt-4">
       <header className="mb-3 flex flex-col gap-1">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          onClick={goBack}
+          className="h-7 w-fit gap-1 px-2 text-[11px]"
+          data-testid="remix-back"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </Button>
         <h1 className="text-lg font-semibold tracking-tight text-foreground">Lab &amp; Remix</h1>
         <p className="text-xs text-muted-foreground">
           Draw with what you gather, forge coins and tools, and remix any Brain into a project of your own.
@@ -52,5 +74,6 @@ export default function Remix() {
         <TabsContent value="assets"><AssetsTab /></TabsContent>
       </Tabs>
     </main>
+    </div>
   );
 }

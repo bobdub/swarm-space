@@ -16,7 +16,6 @@
  * `type="button"`.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { X, Hammer, Plus } from 'lucide-react';
 import {
   getPrefab,
@@ -44,7 +43,7 @@ import { ToolPurchaseCard } from '@/components/brain/builder/ToolPurchaseCard';
 import { ownsTool, TOOL_PURCHASE_EVENT } from '@/lib/world/toolPurchases';
 import { subscribeMintedPrefabs, type MintedRecord } from '@/lib/remix/mintedPrefabsStore';
 import { subscribeForgedTools, type ForgedToolRecord } from '@/lib/brain/toolMintStore';
-import { labUrlFor } from '@/lib/remix/labProjectBridge';
+import { LabTab } from '@/components/remix/LabTab';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 
 export interface InventorySection {
@@ -89,12 +88,14 @@ interface BuilderInventoryProps {
 export function BuilderInventory({
   open, builder, onClose, onExit, selfId, onEquipTool, projectId = null, projectName,
 }: BuilderInventoryProps) {
-  const navigate = useNavigate();
   const [mints, setMints] = useState<MintedRecord[]>([]);
   const [forged, setForged] = useState<ForgedToolRecord[]>([]);
   useEffect(() => subscribeMintedPrefabs(setMints), []);
   useEffect(() => subscribeForgedTools(setForged), []);
   const [sectionId, setSectionId] = useState<string>('structures');
+  /** The Lab canvas, opened in place inside the Lab section. */
+  const [labOpen, setLabOpen] = useState(false);
+  useEffect(() => { if (!open || sectionId !== 'lab') setLabOpen(false); }, [open, sectionId]);
   const [totals, setTotals] = useState<Record<MaterialId, number>>(() => materialTotals());
 
   useEffect(() => subscribeMaterials(setTotals), []);
@@ -114,12 +115,16 @@ export function BuilderInventory({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
+        // Lab canvas open: Esc goes back to the Lab list, and only that.
+        // (The fullscreen canvas catches its own Esc before this runs.)
+        if (labOpen) { e.stopImmediatePropagation(); setLabOpen(false); return; }
         onClose();
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    // Capture phase, so the Lab's "back" wins over the scene's close-on-Esc.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open, onClose, labOpen]);
 
   const section = useMemo(
     () => INVENTORY_SECTIONS.find((s) => s.id === sectionId) ?? INVENTORY_SECTIONS[1],
@@ -181,13 +186,20 @@ export function BuilderInventory({
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center p-3 animate-in fade-in duration-200"
+      className={`pointer-events-none absolute inset-0 ${labOpen ? 'z-[60]' : 'z-30'} flex items-center justify-center p-3 animate-in fade-in duration-200`}
       data-testid="builder-inventory"
     >
       <div
         role="form"
         aria-label="Build inventory"
-        className="pointer-events-auto flex max-h-[76vh] w-[min(96vw,860px)] flex-col overflow-hidden rounded-2xl border border-primary/30 bg-background/55 shadow-[0_24px_80px_-24px_rgba(0,0,0,0.8)] backdrop-blur-md"
+        className={[
+          'pointer-events-auto flex flex-col overflow-hidden rounded-2xl border border-primary/30 shadow-[0_24px_80px_-24px_rgba(0,0,0,0.8)]',
+          // The Lab canvas needs more room; no backdrop blur there, so its
+          // fullscreen mode can cover the whole viewport.
+          labOpen
+            ? 'max-h-[92vh] w-[min(98vw,1100px)] bg-background/95'
+            : 'max-h-[76vh] w-[min(96vw,860px)] bg-background/55 backdrop-blur-md',
+        ].join(' ')}
       >
         {/* Totals strip */}
         <div className="flex items-center gap-2 border-b border-border/40 px-3 py-2">
@@ -248,11 +260,13 @@ export function BuilderInventory({
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {section.id === 'options' ? (
               <BuilderOptionsPanel builder={builder} selfId={selfId} projectId={projectId} projectName={projectName} />
+            ) : section.id === 'lab' && labOpen ? (
+              <LabTab embedded projectId={projectId} onBack={() => setLabOpen(false)} />
             ) : section.id === 'lab' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2" data-testid="inventory-lab">
                 <button
                   type="button"
-                  onClick={() => { onClose(); navigate(labUrlFor(projectId)); }}
+                  onClick={() => setLabOpen(true)}
                   data-testid="inventory-lab-create"
                   title={`Open the Lab canvas to draw for ${projectId ? 'this project' : 'the Main Brain'}`}
                   className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/50 bg-primary/5 px-2 py-2.5 text-primary hover:border-primary hover:bg-primary/10"
