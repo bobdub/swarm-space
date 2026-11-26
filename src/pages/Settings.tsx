@@ -59,6 +59,9 @@ import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
 import { ExternalTimestampsPanel } from "@/components/settings/ExternalTimestampsPanel";
 import { TestConnectPanel } from "@/components/settings/TestConnectPanel";
+
+/** Test Connect / Test Mode stay in code as a dev artifact but are hidden from Account Settings. */
+const SHOW_TEST_CONNECT = false;
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -642,7 +645,7 @@ const Settings = () => {
 
               <LoadingChainEditor />
               <SessionHealthCard />
-              <TestConnectPanel />
+              {SHOW_TEST_CONNECT && <TestConnectPanel />}
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
