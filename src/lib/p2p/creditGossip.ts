@@ -19,6 +19,7 @@
  *      update made while offline, or while the recipient was offline, is
  *      delivered the moment a connection exists — no polling interval.
  */
+import { isVaultDonationRecord } from "@/lib/blockchain/wallets/tipSignature";
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
 import { isSelfIssuedSwarmMint } from "@/lib/blockchain/issuance";
@@ -33,17 +34,24 @@ export const LOCAL_TX_FRESH_MS = 10 * 60 * 1000;
 /** How often still-unmined local donations are offered again to every connected peer. */
 export const UNMINED_REOFFER_MS = 2 * 60 * 1000;
 /** Chain transaction types that carry credit/reward balance changes, plus member vault donations. */
-export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate"]);
+export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate", "custom_token_transfer"]);
 
 /**
  * A chain entry peers should hear about. A `pool_donate` from "system" is the
  * old local mining-tax top-up: the block reward now carries the pool's share,
  * so relaying it would credit the pool twice on every peer.
  */
-export function isGossipedChainTx(tx: Pick<SwarmTransaction, "type" | "from"> | null | undefined): boolean {
+export function isGossipedChainTx(tx: Pick<SwarmTransaction, "type" | "from"> & Partial<Pick<SwarmTransaction, "to" | "meta">> | null | undefined): boolean {
   if (!tx || !GOSSIPED_CHAIN_TX_TYPES.has(tx.type)) return false;
   if (tx.type === "pool_donate" && (!tx.from || tx.from === "system")) return false;
+  // Of the token records, only a member's Credits or token gift to the Market Vault travels.
+  if (tx.type === "custom_token_transfer" && !isVaultDonationRecord(tx as SwarmTransaction)) return false;
   return true;
+}
+
+/** A gift to the Market Vault that may travel before it is mined, once its donor has signed it. */
+function isVaultGift(tx: SwarmTransaction): boolean {
+  return (tx.type === "pool_donate" && !!tx.from && tx.from !== "system") || isVaultDonationRecord(tx);
 }
 
 const STORAGE_KEY = "swarm-credit-gossip-v1";
@@ -332,6 +340,7 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
           if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
           if (tx.type === "pool_donate" && !await acceptablePeerDonation(tx, (id) => chain.getSpendableBalance(id))) return false;
+          if (tx.type === "custom_token_transfer" && !await acceptablePeerVaultGift(tx)) return false;
           chain.addTransaction(tx);
           if (tx.type === "pool_donate") {
             // Keep the Market Vault balance in step with the donation we just learned about.
@@ -378,6 +387,24 @@ export async function acceptablePeerDonation(tx: SwarmTransaction, spendable: (u
 }
 
 /**
+ * A peer's Credits or token gift to the Market Vault: signed by the donor.
+ * A token gift also needs the donor's recorded balance of that token on this
+ * ledger. Credits live on each member's device, so peers can check only the
+ * signature, as they already do when a block carrying it is mined.
+ */
+export async function acceptablePeerVaultGift(
+  tx: SwarmTransaction,
+  tokenBalance?: (userId: string, currency: string) => number,
+): Promise<boolean> {
+  const { verifyVaultDonation } = await import("@/lib/blockchain/wallets/tipSignature");
+  if (!await verifyVaultDonation(tx)) return false;
+  const currency = String(tx.meta?.currency ?? "");
+  if (currency.toUpperCase() === "CREDITS") return true;
+  const balance = tokenBalance ?? (await import("@/lib/blockchain/deposits/customTokens")).recordedBalanceForCurrency;
+  return balance(tx.from, currency) >= (tx.amount ?? 0);
+}
+
+/**
  * Unmined vault donations peers can verify. A donation made before donations
  * were signed is signed now by its own donor, on the donor's device, when the
  * wallet is unlocked; nobody else's unsigned donation is ever offered.
@@ -386,21 +413,22 @@ export async function signedUnminedDonations(chain: {
   getPendingTransactions(): SwarmTransaction[];
   replacePendingTransaction(tx: SwarmTransaction): boolean;
 }): Promise<SwarmTransaction[]> {
-  const donations = chain.getPendingTransactions().filter((tx) => isGossipedChainTx(tx) && tx.type === "pool_donate");
+  const donations = chain.getPendingTransactions().filter((tx) => isGossipedChainTx(tx) && isVaultGift(tx));
   if (donations.length === 0) return [];
-  const [{ getCurrentUser, getCachedPrivateKey }, { signWalletTip, verifyPoolDonation }] = await Promise.all([
+  const [{ getCurrentUser, getCachedPrivateKey }, { signWalletTip, verifyPoolDonation, verifyVaultDonation }] = await Promise.all([
     import("@/lib/auth"),
     import("@/lib/blockchain/wallets/tipSignature"),
   ]);
+  const verify = (tx: SwarmTransaction) => (tx.type === "pool_donate" ? verifyPoolDonation(tx) : verifyVaultDonation(tx));
   const me = getCurrentUser();
   const out: SwarmTransaction[] = [];
   for (const tx of donations) {
-    if (await verifyPoolDonation(tx)) { out.push(tx); continue; }
+    if (await verify(tx)) { out.push(tx); continue; }
     if (!me || tx.from !== me.id || tx.signature) continue;
     const privateKey = await getCachedPrivateKey();
     if (!privateKey) continue;
     const signed = await signWalletTip({ ...tx, publicKey: me.publicKey }, privateKey);
-    if (await verifyPoolDonation(signed) && chain.replacePendingTransaction(signed)) out.push(signed);
+    if (await verify(signed) && chain.replacePendingTransaction(signed)) out.push(signed);
   }
   return out;
 }

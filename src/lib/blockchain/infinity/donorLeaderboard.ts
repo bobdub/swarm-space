@@ -21,7 +21,8 @@ import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
 import { isNativeEthTip } from "../wallets/nativeEth";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
-import { parseTokenRef, tokenRefFromCurrency } from "../deposits/tokenNetworks";
+import { loadMarketPrices } from "./donationPrices";
+import { parseTokenRef, tokenCurrency, tokenRefFromCurrency } from "../deposits/tokenNetworks";
 
 const NATIVE_TICKERS = new Set(["SWARM", "MINTME", "CREDITS"]);
 /** The Market Vault's ledger account. */
@@ -34,6 +35,8 @@ export interface DonorEntry {
   name?: string;
   /** Amount given per ticker, e.g. { SWARM: 120, MINTME: 4 }. */
   amounts: Record<string, number>;
+  /** Everything given, at today's market prices, in SWARM. Assets with no price add nothing. */
+  value: number;
   donations: number;
   lastAt: string;
 }
@@ -42,6 +45,8 @@ export interface DonorLeaderboard {
   donors: DonorEntry[];
   /** Total raised per ticker across every donor. */
   totals: Record<string, number>;
+  /** Total raised at today's market prices, in SWARM. */
+  totalValue: number;
   donationCount: number;
 }
 
@@ -64,6 +69,11 @@ export interface DonationGift {
   amount: number;
   /** A token's self-chosen symbol, used only as a display label. */
   label?: string;
+  /**
+   * What sets this asset's market price: "SWARM", "MINTME", "ETH", "Credits",
+   * a token's ledger currency ("MINTME:0x…") or "creator:<tokenId>".
+   */
+  priceRef: string;
 }
 
 const tokenKey = (id: string) => `${TOKEN_KEY}${id}`;
@@ -85,24 +95,38 @@ export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
   if (!Number.isFinite(amount) || amount <= 0 || !tx.from || tx.from === "system") return null;
   if (tx.type === "wallet_tip" && tx.to === INFINITY_GIFT_VAULT) {
     // The settled asset decides the currency, never the sender's display ticker.
-    if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount };
-    if (isNativeEthTip(tx)) return { ticker: "ETH", amount };
+    if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount, priceRef: "MINTME" };
+    if (isNativeEthTip(tx)) return { ticker: "ETH", amount, priceRef: "ETH" };
     const assetId = typeof tx.meta?.assetId === "string" ? tx.meta.assetId : "";
-    if (assetId === "chain:SWARM") return { ticker: "SWARM", amount };
+    if (assetId === "chain:SWARM") return { ticker: "SWARM", amount, priceRef: "SWARM" };
     if (!assetId) return null;
-    return { ticker: tokenKey(assetId), amount, label: tokenLabel(tx.meta?.ticker) };
+    return { ticker: tokenKey(assetId), amount, label: tokenLabel(tx.meta?.ticker), priceRef: tipPriceRef(assetId) };
   }
-  if (tx.type === "pool_donate") return { ticker: "SWARM", amount };
+  if (tx.type === "pool_donate") return { ticker: "SWARM", amount, priceRef: "SWARM" };
   if (tx.type === "custom_token_transfer" && tx.to === VAULT && tx.meta?.marketVault === true && tx.meta?.direction === "donation") {
     const currency = typeof tx.meta.currency === "string" ? tx.meta.currency.trim() : "";
     if (!currency) return null;
-    if (currency.toUpperCase() === "CREDITS") return { ticker: "Credits", amount };
+    if (currency.toUpperCase() === "CREDITS") return { ticker: "Credits", amount, priceRef: "Credits" };
     // A synced MintMe or Ethereum token, counted per chain + contract (addresses are case-insensitive).
-    const token = parseTokenRef(tokenRefFromCurrency(currency) ?? "");
-    if (!token) return null;
-    return { ticker: tokenKey(`${token.network}:${token.contract}`), amount, label: tokenLabel(tx.meta.ticker) };
+    const ref = tokenRefFromCurrency(currency);
+    const token = parseTokenRef(ref ?? "");
+    if (!ref || !token) return null;
+    return { ticker: tokenKey(`${token.network}:${token.contract}`), amount, label: tokenLabel(tx.meta.ticker), priceRef: tokenCurrency(ref) };
   }
   return null;
+}
+
+/** The price source of a tipped asset: its creator market, or the vault's market for a synced token. */
+function tipPriceRef(assetId: string): string {
+  if (assetId.startsWith("creator:")) return assetId;
+  if (assetId.startsWith("custom:")) return tokenCurrency(assetId.slice("custom:".length));
+  return assetId;
+}
+
+/** SWARM a gift is worth at `prices` (SWARM per unit); 0 when the asset has no price. */
+function swarmValue(priceRef: string, amount: number, prices: Readonly<Record<string, number>>): number {
+  const price = priceRef === "SWARM" ? 1 : prices[priceRef];
+  return Number.isFinite(price) && price > 0 ? amount * price : 0;
 }
 
 /**
@@ -150,21 +174,31 @@ function manualTimestamp(date: string): string {
 export function buildDonorLeaderboard(
   txs: Iterable<SwarmTransaction>,
   manual: readonly ManualDonation[] = [],
+  /** Symbols for MintMe contracts this viewer has imported, by lower-case address: a label for gifts that named none. */
+  knownSymbols: Readonly<Record<string, string>> = {},
+  /** Market prices in SWARM per unit, keyed by `DonationGift.priceRef` (see `loadMarketPrices`). */
+  prices: Readonly<Record<string, number>> = {},
 ): DonorLeaderboard {
   const seen = new Set<string>();
   const byDonor = new Map<string, DonorEntry>();
   const totals: Record<string, number> = {};
   const labels = new Map<string, string | undefined>();
   let donationCount = 0;
+  let totalValue = 0;
   for (const tx of txs) {
     if (!tx || seen.has(tx.id)) continue;
     const gift = donationFromTx(tx);
     if (!gift) continue;
     seen.add(tx.id);
     donationCount++;
-    if (isTokenKey(gift.ticker) && !labels.get(gift.ticker)) labels.set(gift.ticker, gift.label);
-    const entry = byDonor.get(tx.from) ?? { userId: tx.from, amounts: {}, donations: 0, lastAt: tx.timestamp };
+    if (isTokenKey(gift.ticker) && !labels.get(gift.ticker)) {
+      labels.set(gift.ticker, gift.label ?? tokenLabel(knownSymbols[gift.ticker.slice(TOKEN_KEY.length).replace(/^mintme:/, "")]));
+    }
+    const entry = byDonor.get(tx.from) ?? { userId: tx.from, amounts: {}, value: 0, donations: 0, lastAt: tx.timestamp };
     entry.amounts[gift.ticker] = round6((entry.amounts[gift.ticker] ?? 0) + gift.amount);
+    const value = swarmValue(gift.priceRef, gift.amount, prices);
+    entry.value = round6(entry.value + value);
+    totalValue += value;
     entry.donations++;
     if (tx.timestamp > entry.lastAt) entry.lastAt = tx.timestamp;
     byDonor.set(tx.from, entry);
@@ -178,9 +212,14 @@ export function buildDonorLeaderboard(
     const key = manualKey(d);
     const at = manualTimestamp(d.date);
     donationCount++;
-    const entry = byDonor.get(key) ?? { userId: key, amounts: {}, donations: 0, lastAt: at };
+    const entry = byDonor.get(key) ?? { userId: key, amounts: {}, value: 0, donations: 0, lastAt: at };
     entry.name ??= donor;
     entry.amounts[ticker] = round6((entry.amounts[ticker] ?? 0) + amount);
+    // A hand-recorded gift may carry its SWARM value as recorded; otherwise its coin's market price.
+    const recorded = Number(d.swarmValue);
+    const value = Number.isFinite(recorded) && recorded > 0 ? recorded : swarmValue(ticker, amount, prices);
+    entry.value = round6(entry.value + value);
+    totalValue += value;
     entry.donations++;
     if (at > entry.lastAt) entry.lastAt = at;
     byDonor.set(key, entry);
@@ -193,12 +232,13 @@ export function buildDonorLeaderboard(
     for (const k of Object.keys(totals)) delete totals[k];
     Object.assign(totals, renamed);
   }
-  // SWARM is the network's unit, so it sets the rank; other assets break ties.
+  // Rank by what everything given is worth at market prices; SWARM given, then raw amounts, break ties.
   const donors = [...byDonor.values()].sort((a, b) =>
-    (b.amounts.SWARM ?? 0) - (a.amounts.SWARM ?? 0)
+    b.value - a.value
+    || (b.amounts.SWARM ?? 0) - (a.amounts.SWARM ?? 0)
     || Object.values(b.amounts).reduce((s, n) => s + n, 0) - Object.values(a.amounts).reduce((s, n) => s + n, 0)
     || a.userId.localeCompare(b.userId));
-  return { donors, totals, donationCount };
+  return { donors, totals, totalValue: round6(totalValue), donationCount };
 }
 
 /** Read the local copy of the shared ledger (mined blocks + pending mesh txs). */
@@ -210,7 +250,35 @@ export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledge
     ...chain.getChain().flatMap((b) => b.transactions ?? []),
     ...chain.getPendingTransactions(),
   ];
-  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS), ledgerSize: txs.length };
+  const refs = new Set<string>(MANUAL_DONATIONS.map((d) => String(d.currency ?? "").trim().toUpperCase()));
+  for (const tx of txs) {
+    const gift = tx ? donationFromTx(tx) : null;
+    if (gift) refs.add(gift.priceRef);
+  }
+  const [symbols, prices] = await Promise.all([importedTokenSymbols(), loadMarketPrices(refs).catch(() => ({}))]);
+  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS, symbols, prices), ledgerSize: txs.length };
+}
+
+/** Symbols of the MintMe-network tokens the signed-in member has imported, by lower-case contract. */
+async function importedTokenSymbols(): Promise<Record<string, string>> {
+  try {
+    const [{ getCurrentUser }, { listCustomTokens, customTokenNetwork }] = await Promise.all([import("@/lib/auth"), import("../deposits/customTokens")]);
+    const me = getCurrentUser();
+    const out: Record<string, string> = {};
+    for (const t of me ? listCustomTokens(me.id) : []) {
+      // Only MintMe tokens: an Ethereum token at the same address is a different coin.
+      if (typeof t?.address === "string" && typeof t.symbol === "string" && customTokenNetwork(t) === "mintme") out[t.address.toLowerCase()] = t.symbol;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** "≈ 2,315 SWARM": a market value, rounded for the board. */
+export function formatSwarmValue(value: number): string {
+  const digits = value >= 100 ? 0 : value >= 1 ? 2 : 4;
+  return `≈ ${value.toLocaleString(undefined, { maximumFractionDigits: digits })} SWARM`;
 }
 
 /** "120 SWARM · 0.05 ETH · $25" with SWARM first. */

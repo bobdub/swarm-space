@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/auth';
 import type { User } from '@/types';
 import {
   formatDonationAmounts,
+  formatSwarmValue,
   loadDonorLeaderboard,
   type DonorLeaderboard,
 } from '@/lib/blockchain/infinity/donorLeaderboard';
@@ -51,7 +52,7 @@ export function BarSignArt({ width, glow = 0.25 }: { width: number; glow?: numbe
 // ── Donor leaderboard ────────────────────────────────────────────────
 
 const REFRESH_EVENTS = ['blockchain-transaction', 'wallet-tip-updated', 'reward-pool-update', 'swarm-block-mined'];
-const EMPTY: DonorLeaderboard = { donors: [], totals: {}, donationCount: 0 };
+const EMPTY: DonorLeaderboard = { donors: [], totals: {}, totalValue: 0, donationCount: 0 };
 
 const NAME_TIMEOUT_MS = 3000;
 
@@ -114,13 +115,23 @@ function useDonorLeaderboard(): BoardState {
 }
 
 const CANVAS_W = 1280;
-const MAX_ROWS = 10;
+const MAX_ROWS = 7;
 
 function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
   let t = text;
   while (t.length > 1 && ctx.measureText(`${t}…`).width > maxW) t = t.slice(0, -1);
   return `${t}…`;
+}
+
+/** Set the largest font from `max` down to `min` px at which `text` fits in `maxW`. */
+function shrinkToFit(ctx: CanvasRenderingContext2D, text: string, maxW: number, max: number, min: number, weight: string) {
+  let size = max;
+  ctx.font = `${weight}${size}px Georgia, serif`;
+  while (size > min && ctx.measureText(text).width > maxW) {
+    size -= 2;
+    ctx.font = `${weight}${size}px Georgia, serif`;
+  }
 }
 
 function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize, readAt }: BoardState) {
@@ -157,7 +168,7 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
   ctx.beginPath(); ctx.moveTo(left, 210); ctx.lineTo(right, 210); ctx.stroke();
 
   const rows = board.donors.slice(0, MAX_ROWS);
-  const rowH = 62;
+  const rowH = 78;
   let y = 260;
   if (rows.length === 0 && status !== 'ready') {
     ctx.fillStyle = '#e8dcc0';
@@ -179,11 +190,17 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
     ctx.fillText(`${i + 1}.`, left, y);
     ctx.fillStyle = '#f2e6c9';
     ctx.font = `${i < 3 ? 'bold ' : ''}46px Georgia, serif`;
-    ctx.fillText(fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 420), left + 90, y);
+    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 420);
+    ctx.fillText(name, left + 90, y);
+    // Ranked by market value; what they actually gave sits beneath it.
     ctx.textAlign = 'right';
     ctx.fillStyle = '#f4c46a';
-    ctx.font = '42px Georgia, serif';
-    ctx.fillText(fit(ctx, formatDonationAmounts(d.amounts), 600), right, y);
+    ctx.font = `${i < 3 ? 'bold ' : ''}42px Georgia, serif`;
+    const nameRight = left + 90 + ctx.measureText(name).width + 40;
+    ctx.fillText(fit(ctx, d.value > 0 ? formatSwarmValue(d.value) : 'no market price yet', right - nameRight), right, y);
+    shrinkToFit(ctx, formatDonationAmounts(d.amounts), right - (left + 90), 26, 18, '');
+    ctx.fillStyle = '#b8a888';
+    ctx.fillText(fit(ctx, formatDonationAmounts(d.amounts), right - (left + 90)), right, y + 32);
     y += rowH;
   });
   if (board.donors.length > MAX_ROWS) {
@@ -198,11 +215,12 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
   ctx.beginPath(); ctx.moveTo(left, footY - 50); ctx.lineTo(right, footY - 50); ctx.stroke();
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e8dcc0';
-  ctx.font = '38px Georgia, serif';
-  ctx.fillText('Total raised altogether', W / 2, footY - 12);
+  shrinkToFit(ctx, `Total raised altogether: ${formatDonationAmounts(board.totals)}`, W - 200, 32, 20, '');
+  ctx.fillText(fit(ctx, `Total raised altogether: ${formatDonationAmounts(board.totals)}`, W - 200), W / 2, footY - 12);
   ctx.fillStyle = '#ffd35a';
-  ctx.font = 'bold 58px Georgia, serif';
-  ctx.fillText(fit(ctx, formatDonationAmounts(board.totals), W - 200), W / 2, footY + 48);
+  const total = `${formatSwarmValue(board.totalValue)} at market prices`;
+  shrinkToFit(ctx, total, W - 200, 58, 32, 'bold ');
+  ctx.fillText(fit(ctx, total, W - 200), W / 2, footY + 48);
 
   // Small print: how much ledger the board read, so an empty board can be told apart from an unread one.
   if (readAt) {

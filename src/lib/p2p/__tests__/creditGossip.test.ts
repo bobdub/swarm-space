@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ user: null as null | { id: string; publicKey: string }, privateKey: null as null | string }));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: () => auth.user, getCachedPrivateKey: async () => auth.privateKey }));
-import { acceptablePeerDonation, CreditGossip, MAX_HOPS, signedUnminedDonations, UNMINED_REOFFER_MS, type GossipMesh } from "../creditGossip";
+import { acceptablePeerDonation, acceptablePeerVaultGift, CreditGossip, isGossipedChainTx, MAX_HOPS, signedUnminedDonations, UNMINED_REOFFER_MS, type GossipMesh } from "../creditGossip";
 import { signWalletTip } from "@/lib/blockchain/wallets/tipSignature";
 import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 import type { CreditTransaction } from "@/types";
@@ -281,5 +281,52 @@ describe("vault donations between peers follow the signed-spend rule", () => {
     expect(await acceptablePeerDonation(offered[0], () => 2000)).toBe(true);
     expect(pending[0].signature).not.toBe("");
     expect(pending[1].signature).toBe("");
+  });
+});
+
+describe("Credits and token gifts to the vault travel signed", () => {
+  const gift = (id: string, from: string, currency: string, amount = 50): SwarmTransaction => ({
+    id, type: "custom_token_transfer", from, to: "community-pool", amount, timestamp: new Date().toISOString(),
+    signature: "", publicKey: from, nonce: 1, fee: 0, meta: { currency, marketVault: true, direction: "donation" },
+  } as SwarmTransaction);
+  const TOKEN = "MINTME:0x634340447220bcaaa09a5505d71ca62b644a1a82";
+
+  it("travels only as a member's donation to the vault, never as another token record", () => {
+    expect(isGossipedChainTx(gift("g", "alice", "CREDITS"))).toBe(true);
+    expect(isGossipedChainTx({ ...gift("t", "alice", TOKEN), meta: { currency: TOKEN, marketVault: true, direction: "vault-buy" } })).toBe(false);
+    expect(isGossipedChainTx({ ...gift("p", "community-pool", "CREDITS"), to: "alice" })).toBe(false);
+    expect(isGossipedChainTx({ ...gift("x", "alice", TOKEN), to: "bob" })).toBe(false);
+  });
+
+  it("accepts a Credits gift only with the donor's signature", async () => {
+    const donor = await identity();
+    const signed = await signWalletTip({ ...gift("c1", donor.id, "CREDITS"), publicKey: donor.publicKey }, donor.privateKey);
+    expect(await acceptablePeerVaultGift(signed)).toBe(true);
+    expect(await acceptablePeerVaultGift(gift("c2", donor.id, "CREDITS"))).toBe(false);
+    expect(await acceptablePeerVaultGift({ ...signed, amount: 5000 })).toBe(false);
+    const thief = await identity();
+    const forged = await signWalletTip({ ...gift("c3", donor.id, "CREDITS"), publicKey: thief.publicKey }, thief.privateKey);
+    expect(await acceptablePeerVaultGift(forged)).toBe(false);
+  });
+
+  it("accepts a token gift only when the donor holds that token on this ledger", async () => {
+    const donor = await identity();
+    const signed = await signWalletTip({ ...gift("t1", donor.id, TOKEN, 40), publicKey: donor.publicKey }, donor.privateKey);
+    expect(await acceptablePeerVaultGift(signed, (id, cur) => (id === donor.id && cur === TOKEN ? 40 : 0))).toBe(true);
+    expect(await acceptablePeerVaultGift(signed, () => 39)).toBe(false);
+  });
+
+  it("has the donor sign their own older unsigned Credits gift before offering it", async () => {
+    const me = await identity();
+    const pending: SwarmTransaction[] = [gift("old-credits", me.id, "CREDITS")];
+    const chain = {
+      getPendingTransactions: () => pending,
+      replacePendingTransaction: (tx: SwarmTransaction) => { pending[0] = tx; return true; },
+    };
+    auth.user = { id: me.id, publicKey: me.publicKey };
+    auth.privateKey = me.privateKey;
+    const offered = await signedUnminedDonations(chain);
+    expect(offered.map((t) => t.id)).toEqual(["old-credits"]);
+    expect(await acceptablePeerVaultGift(offered[0])).toBe(true);
   });
 });

@@ -18,6 +18,9 @@
  *     method: "ETH transfer",       // optional: "gift card", "BTC", "cash"…
  *     date: "2026-11-24",           // when it was given (YYYY-MM-DD)
  *     reference: "0xabc…",          // optional: tx hash or receipt id
+ *     swarmValue: 500,              // optional: its worth in SWARM, for the
+ *                                   //   ranking (needed for fiat and gift cards;
+ *                                   //   ETH, BTC and MINTME use market prices)
  *   },
  *
  * Fiat currencies (USD, EUR, GBP) display with their symbol, e.g. "$25".
@@ -36,6 +39,11 @@ export interface ManualDonation {
   date: string;
   /** Transaction hash or receipt id, for your own records. Not shown on the board. */
   reference?: string;
+  /**
+   * What the gift is worth in SWARM, for ranking. Without it, ETH, BTC and
+   * MINTME are valued at the coin market's price and anything else at 0.
+   */
+  swarmValue?: number;
 }
 
 export const MANUAL_DONATIONS: ManualDonation[] = [

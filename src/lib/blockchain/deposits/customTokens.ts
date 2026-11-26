@@ -99,8 +99,12 @@ export function numberToUnits(amount: number, decimals: number): bigint {
 
 /** Recorded native balance of a token, by ref (chain + contract). */
 export function getRecordedTokenBalance(swarmId: string, ref: string): number {
-  if (!swarmId) return 0;
-  const cur = tokenCurrency(ref);
+  return recordedBalanceForCurrency(swarmId, tokenCurrency(ref));
+}
+
+/** Recorded balance of a token by its ledger currency, e.g. "MINTME:0xabc…". */
+export function recordedBalanceForCurrency(swarmId: string, cur: string): number {
+  if (!swarmId || !cur) return 0;
   let n = 0;
   for (const tx of allTransactions()) {
     const m = (tx.meta ?? {}) as Record<string, unknown>;

@@ -6,7 +6,7 @@ import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainH
 import { planAdoption } from "./chainCatchup";
 import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./blockHeader";
 import { blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
-import { verifyWalletTip } from "./wallets/tipSignature";
+import { verifyPoolDonation, verifyWalletTip } from "./wallets/tipSignature";
 import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
@@ -269,6 +269,42 @@ export class SwarmChain {
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
+  }
+
+  /**
+   * A member's Market Vault donation learned from a peer. It spends the
+   * donor's SWARM, so it needs the donor's signature and the donor's
+   * spendable balance on this ledger, like a native SWARM tip.
+   */
+  async acceptPoolDonation(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (this.hasTransaction(transaction.id)) return false;
+    if (!await verifyPoolDonation(transaction)) return false;
+    if (this.getSpendableBalance(transaction.from) < (transaction.amount ?? 0)) return false;
+    this.addTransaction(transaction);
+    return this.hasTransaction(transaction.id);
+  }
+
+  /**
+   * When we keep our chain over a peer's, the gifts mined on their branch
+   * would otherwise never reach us. Bring in the signed vault donations and
+   * wallet tips from it through the same checks a gossiped one passes, so
+   * they are mined into the shared chain. Unsigned entries stay behind.
+   */
+  private async salvagePeerBranch(branch: SwarmBlock[]): Promise<number> {
+    let salvaged = 0;
+    for (const block of branch) {
+      for (const tx of block.transactions ?? []) {
+        try {
+          if (tx.type === "pool_donate" && tx.from !== "system") {
+            if (await this.acceptPoolDonation(tx)) salvaged++;
+          } else if (tx.type === "wallet_tip" && !this.hasTransaction(tx.id)) {
+            if (await this.acceptWalletTip(tx)) salvaged++;
+          }
+        } catch { /* a bad entry never blocks the rest */ }
+      }
+    }
+    return salvaged;
   }
 
   async acceptNativeMintMeDeposit(transaction: SwarmTransaction): Promise<boolean> {
@@ -837,9 +873,15 @@ export class SwarmChain {
       // Keep our own trusted genesis object rather than the peer's copy.
       const candidate = [this.chain[0], ...incoming.slice(1)];
       const plan = planAdoption(this.chain, candidate, resolveFork);
-      if (!plan.replace) return "kept";
       // A block most voters signed is final: never switch to a chain that drops it.
-      if (plan.forkPoint <= this.getLatestCheckpoint()) return "kept";
+      if (!plan.replace || plan.forkPoint <= this.getLatestCheckpoint()) {
+        const salvaged = await this.salvagePeerBranch(candidate.slice(Math.max(1, plan.forkPoint)));
+        if (salvaged > 0) {
+          await this.persistState();
+          console.log(`[Chain] Kept our chain; took ${salvaged} signed gift(s) from the peer's branch`);
+        }
+        return "kept";
+      }
       try {
         await this.replaceChain(candidate);
       } catch (err) {
