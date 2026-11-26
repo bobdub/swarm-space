@@ -129,6 +129,27 @@ export function burnUntil(pitId: string): number {
   return end;
 }
 
+/**
+ * True when the fire in `pitId` burned without a break from `from` to
+ * `to` (ms). A fire that went out and was lit again in between does not
+ * count: whatever was on the grill went cold.
+ */
+export function litThrough(pitId: string, from: number, to: number): boolean {
+  hydrate();
+  let start = 0;
+  let end = 0;
+  for (const e of sortedFor(pitId)) {
+    if (e.at > end) {
+      // The fire was out; this wood starts a new one.
+      if (start <= from && end >= to && end > 0) return true;
+      start = e.at;
+    }
+    const f = Math.max(end, e.at);
+    end = Math.min(f + e.wood * BURN_MS_PER_WOOD, e.at + MAX_BURN_MS);
+  }
+  return end > 0 && start <= from && end >= to;
+}
+
 export function isFireLit(pitId: string, now = Date.now()): boolean {
   return burnUntil(pitId) > now;
 }

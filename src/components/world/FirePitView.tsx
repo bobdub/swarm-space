@@ -6,7 +6,7 @@
  * flames over the same pit at the same time and they die down together.
  * Drawn in the placement's local frame (y is up, origin at the base).
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -19,6 +19,17 @@ import {
 } from '@/lib/world/fireStore';
 import { materialTotals, subscribeMaterials } from '@/lib/world/materials';
 import { addWoodToFire } from '@/lib/world/fireActions';
+import {
+  COOKABLE_FOODS,
+  GRILL_SLOTS,
+  cookableFor,
+  grillJobs,
+  heldRaw,
+  subscribeGrill,
+  type GrillJob,
+} from '@/lib/world/cooking';
+import { attachGrillToasts, cookOnFire } from '@/lib/world/cookingActions';
+import { subscribeHarvested } from '@/lib/remix/harvestedInventory';
 
 const STONES = 9;
 
@@ -31,6 +42,34 @@ function useFireBurnUntil(pitId: string): number {
   }, [pitId]);
   return until;
 }
+
+/** This player's food on this pit's grill. */
+function useGrillJobs(pitId: string): GrillJob[] {
+  const [jobs, setJobs] = useState<GrillJob[]>(() => grillJobs(pitId));
+  useEffect(() => {
+    attachGrillToasts();
+    const update = () => setJobs(grillJobs(pitId));
+    update();
+    return subscribeGrill(update);
+  }, [pitId]);
+  return jobs;
+}
+
+/** Raw food this player could put on the grill, by kind. */
+function useRawFood(): Record<string, number> {
+  const read = () => Object.fromEntries(COOKABLE_FOODS.map((f) => [f.raw, heldRaw(f.raw)]));
+  const [held, setHeld] = useState<Record<string, number>>(read);
+  useEffect(() => subscribeHarvested(() => setHeld(read())), []);
+  return held;
+}
+
+/** How each food looks on the grill: size (× pit width) and raw colour. */
+const GRILL_LOOK: Record<string, { len: number; r: number; raw: string; done: string }> = {
+  egg: { len: 0.04, r: 0.04, raw: '#fff7e6', done: '#ffe9a8' },
+  fish: { len: 0.14, r: 0.035, raw: '#9fb6c8', done: '#8a5a2b' },
+  chicken: { len: 0.08, r: 0.06, raw: '#f2c9b0', done: '#9a5a22' },
+  shark: { len: 0.18, r: 0.05, raw: '#7d8a96', done: '#6b3f1f' },
+};
 
 /** Re-renders once a second while `until` is in the future. */
 function useNow(until: number): number {
@@ -102,6 +141,9 @@ export function FirePitView({
   const logLen = width * 0.55;
   const logR = width * 0.045;
   const fireH = Math.max(0.5, width * 0.6);
+  const grillY = logR * 3 + fireH * 0.45;
+  const barR = Math.max(0.006, width * 0.012);
+  const jobs = useGrillJobs(pitId);
 
   return (
     <group>
@@ -143,6 +185,46 @@ export function FirePitView({
           />
         </mesh>
       ))}
+      {/* The grill: a grate on two stone posts, over the flames. */}
+      <group position={[0, grillY, 0]}>
+        {[-1, 1].map((side) => (
+          <mesh key={`post${side}`} position={[side * ringR * 0.95, -grillY / 2, 0]} castShadow>
+            <boxGeometry args={[stoneSize * 0.7, grillY, stoneSize * 0.7]} />
+            <meshStandardMaterial color="#6f6a66" roughness={0.95} />
+          </mesh>
+        ))}
+        {[-2, -1, 0, 1, 2].map((k) => (
+          <mesh key={`bar${k}`} position={[0, 0, k * ringR * 0.22]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[barR, barR, ringR * 2, 5]} />
+            <meshStandardMaterial
+              color={lit ? '#3b2a22' : '#2a2a2a'}
+              metalness={0.6}
+              roughness={0.5}
+              emissive={lit ? '#ff4d00' : '#000000'}
+              emissiveIntensity={lit ? 0.05 * strength : 0}
+            />
+          </mesh>
+        ))}
+        {jobs.map((job, i) => {
+          const look = GRILL_LOOK[job.raw] ?? GRILL_LOOK.fish;
+          const food = cookableFor(job.raw);
+          const t = food ? Math.min(1, Math.max(0, (now - job.startedAt) / food.cookMs)) : 0;
+          const color = new THREE.Color(look.raw).lerp(new THREE.Color(look.done), t);
+          const slot = (i - (Math.min(jobs.length, GRILL_SLOTS) - 1) / 2) * ringR * 0.5;
+          return (
+            <mesh
+              key={job.id}
+              position={[slot, barR + look.r * width * 0.8, 0]}
+              rotation={[Math.PI / 2, 0, 0]}
+              scale={[1, 1, 0.75]}
+              castShadow
+            >
+              <capsuleGeometry args={[look.r * width, look.len * width, 4, 8]} />
+              <meshStandardMaterial color={color} roughness={0.8} />
+            </mesh>
+          );
+        })}
+      </group>
       {lit && (
         <>
           <group ref={flames} position={[0, logR * 3, 0]}>
@@ -236,7 +318,8 @@ export function FirePitControls({
       🔥 {label} · 🪵 {WOOD_PER_FUEL}{compact && lit ? ` · ${formatBurnLeft(until - now)} left` : ''}
     </button>
   );
-  if (compact) return button;
+  const grill = <GrillButtons pitId={pitId} lit={lit} now={now} />;
+  if (compact) return <>{button}{grill}</>;
   return (
     <div
       onPointerDown={(e) => e.stopPropagation()}
@@ -261,6 +344,7 @@ export function FirePitControls({
       </span>
       <span style={{ opacity: 0.7 }}>🪵 {wood}</span>
       {button}
+      {grill}
       {onClose && (
         <button
           type="button"
@@ -275,5 +359,75 @@ export function FirePitControls({
         </button>
       )}
     </div>
+  );
+}
+
+function grillButtonStyle(enabled: boolean): CSSProperties {
+  return {
+    appearance: 'none',
+    border: 'none',
+    borderRadius: 999,
+    padding: '4px 8px',
+    fontWeight: 700,
+    cursor: enabled ? 'pointer' : 'not-allowed',
+    background: enabled ? 'hsla(35,90%,50%,0.3)' : 'hsla(0,0%,100%,0.08)',
+    color: enabled ? '#fde68a' : 'hsla(0,0%,100%,0.55)',
+    whiteSpace: 'nowrap',
+  };
+}
+
+/**
+ * The grill: one button per raw food this player holds (put one on), and
+ * a countdown for each piece already cooking. Cooking needs the fire lit.
+ */
+function GrillButtons({ pitId, lit, now }: { pitId: string; lit: boolean; now: number }) {
+  const jobs = useGrillJobs(pitId);
+  const held = useRawFood();
+  const full = jobs.length >= GRILL_SLOTS;
+  const foods = COOKABLE_FOODS.filter((f) => (held[f.raw] ?? 0) > 0);
+  if (foods.length === 0 && jobs.length === 0) return null;
+  return (
+    <span data-testid="fire-pit-grill" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      {jobs.map((job) => {
+        const f = cookableFor(job.raw);
+        if (!f) return null;
+        const left = Math.max(0, Math.ceil((job.doneAt - now) / 1000));
+        return (
+          <span
+            key={job.id}
+            data-testid="fire-pit-grill-job"
+            title={`${f.rawLabel} cooking into ${f.label}`}
+            style={{ padding: '2px 6px', borderRadius: 999, background: 'hsla(25,95%,55%,0.18)', color: '#fed7aa' }}
+          >
+            {f.icon}→{f.cookedIcon} {left}s
+          </span>
+        );
+      })}
+      {foods.map((f) => {
+        const enabled = lit && !full;
+        return (
+          <button
+            key={f.raw}
+            type="button"
+            data-testid={`fire-pit-cook-${f.raw}`}
+            disabled={!enabled}
+            title={
+              !lit
+                ? 'Light the fire to cook'
+                : full
+                  ? `The grill holds ${GRILL_SLOTS} at a time`
+                  : `Grill 1 ${f.rawLabel} into ${f.label} (${Math.round(f.cookMs / 1000)} s) · rows ${f.rowMetres} m`
+            }
+            onClick={(e) => {
+              e.stopPropagation();
+              cookOnFire(pitId, f.raw);
+            }}
+            style={grillButtonStyle(enabled)}
+          >
+            Cook {f.icon} {held[f.raw]}
+          </button>
+        );
+      })}
+    </span>
   );
 }
