@@ -20,6 +20,7 @@
  * fails closed: the stand settles only in SWARM or Credits.
  */
 import type { SwarmBlock, SwarmTransaction } from '@/lib/blockchain/types';
+import type { UserCell } from '@/lib/p2p/userCell';
 import {
   COMMUNITY_POOL,
   VAULT_CREDITS_CURRENCY,
@@ -69,7 +70,7 @@ export interface StandScope {
  * marked public (`isPublic`); public Cells and every Brain room settle
  * against the main mesh vault.
  */
-export function standScopeFor(input: { universeKey?: string; cell?: { cellId: string; name?: string; isPublic?: boolean } | null }): StandScope {
+export function standScopeFor(input: { universeKey?: string; cell?: (Pick<UserCell, 'cellId'> & Partial<Pick<UserCell, 'name' | 'isPublic'>>) | null }): StandScope {
   const cell = input.cell;
   if (cell?.cellId && cell.isPublic !== true) {
     const key = `cell:${cell.cellId}`;
@@ -82,12 +83,12 @@ export function standScopeFor(input: { universeKey?: string; cell?: { cellId: st
 
 /** The stand scope for where this device is now: the active Brain universe and Cell. */
 export async function currentStandScope(): Promise<StandScope> {
-  const [{ getActiveUniverse }, cellMod] = await Promise.all([
+  const [{ getActiveUniverse }, { getActiveUserCell }] = await Promise.all([
     import('@/lib/world/worldPlacementsStore'),
-    import('@/lib/p2p/userCell').catch(() => null),
+    import('@/lib/p2p/userCell'),
   ]);
-  const cell = cellMod?.getActiveUserCell?.() as ({ cellId: string; name?: string; isPublic?: boolean } | null | undefined);
-  return standScopeFor({ universeKey: getActiveUniverse(), cell: cell ?? null });
+  // UserCell.isPublic (PR #495): public Cells settle against the main mesh vault.
+  return standScopeFor({ universeKey: getActiveUniverse(), cell: getActiveUserCell() });
 }
 
 // ── Ledger folds (pure) ──────────────────────────────────────────────
