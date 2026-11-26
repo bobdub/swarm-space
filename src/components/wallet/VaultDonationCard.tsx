@@ -11,7 +11,7 @@ import { donateCreditsToVault, donateTokenToVault } from "@/lib/blockchain/marke
 import { getCreditBalance } from "@/lib/credits";
 import { CUSTOM_TOKENS_EVENT, customTokenNetwork, customTokenRef, getAvailableTokenBalance, listCustomTokens } from "@/lib/blockchain/deposits/customTokens";
 import { TOKEN_NETWORKS } from "@/lib/blockchain/deposits/tokenNetworks";
-import { getSwarmBalance } from "@/lib/blockchain/token";
+import { getSpendableSwarmBalance } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
 import { getWalletTipAssets, sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
 import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
@@ -39,7 +39,8 @@ export function VaultDonationCard() {
 
   const refresh = useCallback(async () => {
     if (!user) return;
-    const [swarm, credits] = await Promise.all([getSwarmBalance(user.id), getCreditBalance(user.id).catch(() => 0)]);
+    // Only SWARM on the shared chain can be donated: peers refuse gifts funded by SWARM issued on this device alone.
+    const [swarm, credits] = await Promise.all([getSpendableSwarmBalance(user.id), getCreditBalance(user.id).catch(() => 0)]);
     const tokens = listCustomTokens(user.id)
       .map((t) => {
         const ref = customTokenRef(t);
