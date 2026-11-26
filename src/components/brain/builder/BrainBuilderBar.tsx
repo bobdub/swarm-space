@@ -10,7 +10,7 @@
  * current project. The first tile is "+ Create New" and routes to the
  * Lab with the project pre-wired; the rest render as normal PrefabTiles.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { X, FlaskConical, Plus, LandPlot as LandPlotIcon, Footprints, SlidersHorizontal } from 'lucide-react';
 import { setBuilderTopView } from '@/lib/brain/builderCameraStore';
@@ -28,6 +28,7 @@ import {
   subscribeMintedPrefabs,
   type MintedRecord,
 } from '@/lib/remix/mintedPrefabsStore';
+import { labUrlFor } from '@/lib/remix/labProjectBridge';
 import {
   loadLandPlots,
   subscribeLandPlots,
@@ -138,17 +139,35 @@ export function BrainBuilderBar({
     [plots, selfId],
   );
 
+  // A project's Lab tab shows its mints; the Main Brain shows the shared
+  // (untagged) catalog.
   const labItems = useMemo(
-    () => (projectId ? mints.filter((r) => r.projectId === projectId) : mints),
+    () => mints.filter((r) => (projectId ? r.projectId === projectId : !r.projectId)),
     [mints, projectId],
   );
 
   const items = useMemo(() => listPrefabsBySection(activeSection), [activeSection]);
 
-  const openLab = () => {
-    const url = projectId ? `/remix?projectId=${encodeURIComponent(projectId)}` : '/remix';
-    navigate(url);
-  };
+  const openLab = () => navigate(labUrlFor(projectId));
+
+  /** Lab tab — rendered right after the Tools tab. */
+  const labTab = (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={virtualTab === LAB_SECTION}
+      onClick={() => setVirtualTab(LAB_SECTION)}
+      className={[
+        'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
+        virtualTab === LAB_SECTION
+          ? 'bg-primary text-primary-foreground'
+          : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
+      ].join(' ')}
+      data-section-id={LAB_SECTION}
+    >
+      <FlaskConical className="h-3 w-3" /> Lab
+    </button>
+  );
 
   // While actively walking a survey (no pending plot yet), hide the
   // entire bar so the world is fully walkable.
@@ -266,31 +285,17 @@ export function BrainBuilderBar({
       <div className="flex items-center gap-1.5">
         <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto" role="tablist" aria-label="Builder sections">
           {!hideCatalog && PREFAB_SECTIONS.map((s) => (
-            <SectionTab
-              key={s.id}
-              id={s.id}
-              label={s.label}
-              active={virtualTab === null && activeSection === s.id}
-              onSelect={() => { setVirtualTab(null); setActiveSection(s.id); }}
-            />
+            <Fragment key={s.id}>
+              <SectionTab
+                id={s.id}
+                label={s.label}
+                active={virtualTab === null && activeSection === s.id}
+                onSelect={() => { setVirtualTab(null); setActiveSection(s.id); }}
+              />
+              {/* Lab sits right after Tools: your minted prefabs and the canvas. */}
+              {s.id === 'tools' && labTab}
+            </Fragment>
           ))}
-          {!hideCatalog && (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={virtualTab === LAB_SECTION}
-              onClick={() => setVirtualTab(LAB_SECTION)}
-              className={[
-                'whitespace-nowrap rounded-full px-3 py-1 text-[11px] transition-colors inline-flex items-center gap-1',
-                virtualTab === LAB_SECTION
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted/40 text-muted-foreground hover:bg-muted/70',
-              ].join(' ')}
-              data-section-id={LAB_SECTION}
-            >
-              <FlaskConical className="h-3 w-3" /> Lab
-            </button>
-          )}
           {!hideCatalog && ownsAnyPlot && (
             <button
               type="button"
@@ -343,7 +348,7 @@ export function BrainBuilderBar({
 
       {currentTab === OPTIONS_SECTION ? (
         /* Options tab — every builder toggle lives here */
-        <BuilderOptionsPanel builder={builder} selfId={selfId} className="pb-1" />
+        <BuilderOptionsPanel builder={builder} selfId={selfId} projectId={projectId} className="pb-1" />
       ) : !hideCatalog ? (
       <>
       {/* Asset tiles */}

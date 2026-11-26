@@ -136,7 +136,8 @@ export function isStarterTool(prefabId: string): boolean {
  * the carbon belongs to the rock, not to timber, so it counts as Stone.
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
-  if (isStarterTool(prefab.id)) return {};
+  // Lab-forged tools were paid for at the bench, stroke by stroke.
+  if (isStarterTool(prefab.id) || prefab.id.startsWith('forge:')) return {};
   const hasMineral = !prefab.compositeCost && prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));
   const atoms = emptyTotals();
   for (const c of prefab.constituents) {

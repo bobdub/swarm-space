@@ -16,8 +16,10 @@
  * `type="button"`.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { X, Hammer } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Hammer, Plus } from 'lucide-react';
 import {
+  getPrefab,
   listPrefabsBySection,
   type Prefab,
   type PrefabSectionId,
@@ -37,6 +39,9 @@ import {
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { subscribeHarvested } from '@/lib/remix/harvestedInventory';
 import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
+import { subscribeMintedPrefabs, type MintedRecord } from '@/lib/remix/mintedPrefabsStore';
+import { subscribeForgedTools, type ForgedToolRecord } from '@/lib/brain/toolMintStore';
+import { labUrlFor } from '@/lib/remix/labProjectBridge';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 
 export interface InventorySection {
@@ -53,6 +58,8 @@ export const INVENTORY_SECTIONS: InventorySection[] = [
   { id: 'openings', label: 'Doors & Windows', sources: ['doors', 'windows'] },
   { id: 'roofs', label: 'Roofs', sources: ['roofs'] },
   { id: 'tools', label: 'Tools', sources: ['tools', 'consumables'] },
+  // Right below Tools: your minted prefabs, forged tools and the canvas.
+  { id: 'lab', label: 'Lab', sources: [] },
   { id: 'options', label: 'Options', sources: [] },
 ];
 
@@ -71,9 +78,19 @@ interface BuilderInventoryProps {
   selfId?: string;
   /** Equip a catalog tool straight into the hand slot. */
   onEquipTool?: (prefabId: string) => void;
+  /** Project this Brain belongs to; absent in the Main Brain. */
+  projectId?: string | null;
+  projectName?: string;
 }
 
-export function BuilderInventory({ open, builder, onClose, onExit, selfId, onEquipTool }: BuilderInventoryProps) {
+export function BuilderInventory({
+  open, builder, onClose, onExit, selfId, onEquipTool, projectId = null, projectName,
+}: BuilderInventoryProps) {
+  const navigate = useNavigate();
+  const [mints, setMints] = useState<MintedRecord[]>([]);
+  const [forged, setForged] = useState<ForgedToolRecord[]>([]);
+  useEffect(() => subscribeMintedPrefabs(setMints), []);
+  useEffect(() => subscribeForgedTools(setForged), []);
   const [sectionId, setSectionId] = useState<string>('structures');
   const [totals, setTotals] = useState<Record<MaterialId, number>>(() => materialTotals());
 
@@ -105,6 +122,24 @@ export function BuilderInventory({ open, builder, onClose, onExit, selfId, onEqu
     for (const src of section.sources) out.push(...listPrefabsBySection(src));
     return out;
   }, [section]);
+
+  // Lab: assets minted into this Brain (the Main Brain's shared catalog is
+  // the untagged ones), then every tool you forged; tools travel with you.
+  const labItems = useMemo<Prefab[]>(() => {
+    const out: Prefab[] = [];
+    const seen = new Set<string>();
+    for (const r of mints) {
+      if (projectId ? r.projectId !== projectId : !!r.projectId) continue;
+      if (seen.has(r.prefab.id)) continue;
+      seen.add(r.prefab.id);
+      out.push(r.prefab);
+    }
+    for (const t of forged) {
+      const p = getPrefab(t.id);
+      if (p && !seen.has(p.id)) { seen.add(p.id); out.push(p); }
+    }
+    return out;
+  }, [mints, forged, projectId]);
 
   if (!open) return null;
 
@@ -186,7 +221,37 @@ export function BuilderInventory({ open, builder, onClose, onExit, selfId, onEqu
           {/* Tiles */}
           <div className="min-h-0 flex-1 overflow-y-auto p-3">
             {section.id === 'options' ? (
-              <BuilderOptionsPanel builder={builder} selfId={selfId} />
+              <BuilderOptionsPanel builder={builder} selfId={selfId} projectId={projectId} projectName={projectName} />
+            ) : section.id === 'lab' ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2" data-testid="inventory-lab">
+                <button
+                  type="button"
+                  onClick={() => { onClose(); navigate(labUrlFor(projectId)); }}
+                  data-testid="inventory-lab-create"
+                  title={`Open the Lab canvas to draw for ${projectId ? 'this project' : 'the Main Brain'}`}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-primary/50 bg-primary/5 px-2 py-2.5 text-primary hover:border-primary hover:bg-primary/10"
+                >
+                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/40">
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span className="text-[12px] font-medium">Create in Lab</span>
+                  <span className="text-[10px] text-primary/70">Draw with gathered materials</span>
+                </button>
+                {labItems.map((p) => (
+                  <InventoryTile
+                    key={p.id}
+                    prefab={p}
+                    totals={totals}
+                    selected={builder.selectedPrefabId === p.id}
+                    onPick={() => pick(p)}
+                  />
+                ))}
+                {labItems.length === 0 && (
+                  <div className="col-span-full px-2 py-4 text-center text-[12px] text-muted-foreground">
+                    No Lab creations {projectId ? 'for this project' : 'in the Main Brain'} yet.
+                  </div>
+                )}
+              </div>
             ) : section.id === 'gathered' ? (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
                 {MATERIALS.map((m) => (

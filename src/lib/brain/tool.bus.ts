@@ -10,7 +10,7 @@
  */
 import { emitScaffold } from '@/lib/uqrc/scaffoldBus';
 import type { Molecule } from '@/lib/remix/moleculeCatalog';
-import { deriveForgedTool } from './toolForge';
+import { deriveForgedTool, type ForgeToolAction } from './toolForge';
 import {
   forgeTool,
   hydrateForgedTools,
@@ -20,13 +20,17 @@ import {
 export interface ForgeMoleculeInput {
   molecule: Molecule;
   actorId: string;
+  /** Purpose stamped into the tool: Cut, Pick, Dig or Gather. */
+  actionKind?: ForgeToolAction;
+  /** Brain the tool was forged for (a project id; absent for the Main Brain). */
+  projectId?: string;
 }
 
 export async function forgeMoleculeAsTool(
   input: ForgeMoleculeInput,
 ): Promise<ForgedToolRecord> {
-  const tool = deriveForgedTool(input.molecule);
-  const rec = await forgeTool({ tool, actorId: input.actorId });
+  const tool = deriveForgedTool(input.molecule, { actionKind: input.actionKind });
+  const rec = await forgeTool({ tool, actorId: input.actorId, projectId: input.projectId });
   emitScaffold({
     domain: 'lab',
     type: 'recipe',

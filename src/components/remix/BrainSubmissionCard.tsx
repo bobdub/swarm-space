@@ -1,17 +1,18 @@
 /**
- * BrainSubmissionCard — one entry in the public Brains gallery.
+ * BrainSubmissionCard — one Brain in the Remix gallery.
  *
- * Live frame: lazy iframe pointing at `/brain?projectId=<id>`. We render
- * the iframe only after the card scrolls into view to keep the gallery
- * cheap. Sandboxed to prevent the embedded scene from hijacking the
- * parent route.
+ * Remix starts a new project of your own with this Brain's Lab assets
+ * carried over (`remixBrain`); Visit opens the Brain itself. A light
+ * preview tile replaces the old live iframe, which booted a whole 3D
+ * world per card.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Heart, Sparkles, LogIn, Trash2, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { createProject } from '@/lib/projects';
+import { getCurrentUser } from '@/lib/auth';
+import { remixBrain } from '@/lib/remix/remixBrain';
 import {
   likeBrainSubmission,
   removeBrainSubmission,
@@ -21,45 +22,36 @@ import {
 interface Props {
   submission: BrainSubmission;
   currentUserId: string | null;
+  /** Lab assets that come along when this Brain is remixed. */
+  assetCount?: number;
 }
 
-export function BrainSubmissionCard({ submission, currentUserId }: Props) {
+export function BrainSubmissionCard({ submission, currentUserId, assetCount = 0 }: Props) {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [inView, setInView] = useState(false);
   const [remixing, setRemixing] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!ref.current || typeof IntersectionObserver === 'undefined') {
-      setInView(true);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) { setInView(true); io.disconnect(); break; }
-      },
-      { rootMargin: '120px' },
-    );
-    io.observe(ref.current);
-    return () => io.disconnect();
-  }, []);
 
   const isOwner = currentUserId && submission.actorId === currentUserId;
 
   const handleRemix = async () => {
     if (remixing) return;
+    const user = getCurrentUser();
+    if (!user) {
+      toast({ title: 'Sign in to remix', variant: 'destructive' });
+      return;
+    }
     setRemixing(true);
     try {
-      const next = await createProject(
-        `${submission.projectName} (Remix)`,
-        submission.projectDescription ?? `Remix of ${submission.projectName}`,
-      );
+      const { project, assetsCopied } = await remixBrain({
+        projectId: submission.projectId,
+        name: submission.projectName,
+        description: submission.projectDescription,
+      }, user.id);
       toast({
         title: 'Brain remixed',
-        description: `${next.name} created from ${submission.projectName}.`,
+        description: `${project.name} created${assetsCopied ? ` with ${assetsCopied} Lab asset${assetsCopied === 1 ? '' : 's'}` : ''}.`,
       });
-      navigate(`/project/${next.id}`);
+      navigate(`/projects/${project.id}/hub`);
     } catch (err) {
       toast({
         title: 'Remix failed',
@@ -72,7 +64,7 @@ export function BrainSubmissionCard({ submission, currentUserId }: Props) {
   };
 
   const handleJoin = () => {
-    navigate(`/project/${submission.projectId}`);
+    navigate(`/projects/${submission.projectId}/hub`);
   };
 
   const handleLike = () => { void likeBrainSubmission(submission.id); };
@@ -85,26 +77,15 @@ export function BrainSubmissionCard({ submission, currentUserId }: Props) {
 
   return (
     <article
-      ref={ref}
       className="flex flex-col gap-2 overflow-hidden rounded-md border border-border/40 bg-background/40 p-2"
     >
-      <div className="relative aspect-video w-full overflow-hidden rounded-md border border-border/30 bg-gradient-to-br from-primary/15 via-background to-background">
-        {inView ? (
-          <iframe
-            src={`/brain?projectId=${encodeURIComponent(submission.projectId)}`}
-            title={`${submission.projectName} Brain preview`}
-            className="h-full w-full"
-            sandbox="allow-scripts allow-same-origin"
-            loading="lazy"
-            referrerPolicy="no-referrer"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
-            Loading…
-          </div>
-        )}
-        <span className="absolute left-1.5 top-1.5 rounded-full bg-background/80 px-1.5 py-[1px] text-[9px] font-medium text-foreground/80 backdrop-blur">
-          live
+      <div
+        className="relative flex h-24 w-full items-end overflow-hidden rounded-md border border-border/30 bg-gradient-to-br from-primary/20 via-background to-background p-2"
+        aria-hidden="true"
+      >
+        <span className="text-3xl">🧠</span>
+        <span className="absolute right-1.5 top-1.5 rounded-full bg-background/80 px-1.5 py-[1px] text-[9px] font-medium text-foreground/80 backdrop-blur">
+          {assetCount} Lab asset{assetCount === 1 ? '' : 's'}
         </span>
       </div>
 
@@ -147,7 +128,7 @@ export function BrainSubmissionCard({ submission, currentUserId }: Props) {
           className="h-7 gap-1 text-[11px]"
         >
           <LogIn className="h-3 w-3" />
-          Join
+          Visit
         </Button>
         {isOwner && (
           <Button

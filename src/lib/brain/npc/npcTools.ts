@@ -62,6 +62,8 @@ export function toolKindOf(prefabId: string): NpcToolKind | null {
   const tool = getToolAny(prefabId);
   if (tool) {
     if (tool.actionKind === 'claim') return null;
+    // A forged sickle forages; NPCs carry it home like a bucket.
+    if (tool.actionKind === 'gather') return 'carry';
     return tool.actionKind;
   }
   if (prefabId.startsWith('tool_bucket')) return 'carry';
