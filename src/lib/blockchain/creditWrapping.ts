@@ -249,7 +249,16 @@ export async function getUserWrapRequests(userId: string): Promise<WrapRequest[]
 /**
  * Donate SWARM tokens to the reward pool
  */
-export async function donateToRewardPool(userId: string, amount: number): Promise<void> {
+export async function donateToRewardPool(
+  userId: string,
+  amount: number,
+  /**
+   * Extra signed metadata naming what the gift paid for, e.g. a drink at the
+   * bar (`barTabMeta` in `infinity/barTab.ts`). It rides inside the signature,
+   * so no relay can add or strip it.
+   */
+  extraMeta?: Record<string, unknown>,
+): Promise<void> {
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error("Donation amount must be greater than 0");
   }
@@ -306,6 +315,7 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     nonce: Date.now(),
     fee: 0,
     meta: {
+      ...extraMeta,
       poolBalanceAfter: pool.balance,
       marketVaultFunding: "donation",
     },

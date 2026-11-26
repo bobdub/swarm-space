@@ -21,6 +21,12 @@ export interface DrinkEvent {
   toPeerIds: string[];
   /** True when this was a round for the whole table. */
   round: boolean;
+  /** True when a patron ordered for themselves at the bar counter. */
+  solo?: boolean;
+  /** What they ordered at the counter, e.g. "Red Dragon Stout". */
+  drinkName?: string;
+  /** How many they ordered at the counter. */
+  qty?: number;
   ts: number;
 }
 
@@ -56,6 +62,11 @@ function prune() {
 
 export function drinkChatLine(evt: DrinkEvent): string {
   const who = evt.fromName || evt.fromPeerId.slice(0, 8);
+  if (evt.solo) {
+    const what = typeof evt.drinkName === 'string' && evt.drinkName.trim() ? evt.drinkName.trim().slice(0, 40) : 'a drink';
+    const qty = Number.isSafeInteger(evt.qty) && (evt.qty ?? 0) > 1 ? Math.min(evt.qty as number, 6) : 1;
+    return qty > 1 ? `🍺 ${who} ordered ${qty} × ${what} at the bar.` : `🍺 ${who} ordered a ${what} at the bar.`;
+  }
   if (evt.round) return `🍺 ${who} bought the table a round.`;
   const target = evt.toPeerIds[0]?.slice(0, 8) ?? 'someone';
   return `🍺 ${who} bought ${target} a drink.`;
@@ -114,6 +125,15 @@ export async function buyDrink(params: {
   recordDrink(evt);
   if (drinkGossip) { try { drinkGossip(evt); } catch { /* ignore */ } }
   return evt;
+}
+
+/**
+ * Pour a drink already paid for elsewhere (the bar counter pays the vault
+ * itself): show the glass, post the chat line and tell the room.
+ */
+export function serveDrink(evt: DrinkEvent): void {
+  if (!recordDrink(evt)) return;
+  if (drinkGossip) { try { drinkGossip(evt); } catch { /* ignore */ } }
 }
 
 /** Live glasses — one entry per (recipient, event) still inside the TTL. */
