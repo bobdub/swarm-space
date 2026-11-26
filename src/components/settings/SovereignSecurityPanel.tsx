@@ -2,12 +2,13 @@
  * Settings → Security: the sovereign identity dashboard.
  *
  * Shows the namespace handle (#discriminator), the versioned Recovery Link
- * with live peer-custody status, a downloadable credential `.md`, and the
+ * (and its QR code, naming a chosen vault holder) with live peer-custody status, a downloadable credential `.md`, and the
  * "Wrap New Outer Shell" rotation. Also hosts the local password change,
  * which only re-wraps the on-device key and never touches the vault.
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,13 +23,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { AlertTriangle, Copy, Download, Info, KeyRound, Link2, Loader2, RefreshCw, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Copy, Download, Info, KeyRound, Link2, Loader2, QrCode, RefreshCw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { getCachedPrivateKey, getCurrentUser, loginUser, type UserMeta, type WrappedKey } from "@/lib/auth";
 import { unwrapPrivateKey, wrapPrivateKey } from "@/lib/crypto";
 import { get, put } from "@/lib/store";
 import { useP2P } from "@/hooks/useP2P";
-import { openRecoveryVault, recoveryUrl } from "@/lib/backup/recoveryVault";
+import { chooseRecoveryHolder, openRecoveryVault, recoveryUrl } from "@/lib/backup/recoveryVault";
 import {
   CUSTODY_EVENT,
   getCustodyAcks,
@@ -62,6 +63,24 @@ async function opensCurrentShell(record: OwnVaultRecord, candidate: string): Pro
   } catch {
     return false;
   }
+}
+
+/** Live set of directly connected peer ids (empty until the mesh runs). */
+function useConnectedPeerIds(): Set<string> {
+  const [ids, setIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void import("@/lib/p2p/swarmMesh.standalone").then(({ getSwarmMeshStandalone }) => {
+      if (cancelled) return;
+      const mesh = getSwarmMeshStandalone();
+      const read = () => setIds(new Set(mesh.getConnectedPeerIds()));
+      read();
+      stop = mesh.onPeersChange(() => read());
+    }).catch(() => { /* mesh not available */ });
+    return () => { cancelled = true; stop?.(); };
+  }, []);
+  return ids;
 }
 
 async function unlockKey(accountPassword: string): Promise<string | null> {
@@ -98,6 +117,9 @@ export function SovereignSecurityPanel() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
+  const [holder, setHolder] = useState<string | null>(null);
+  const [showQr, setShowQr] = useState(false);
+  const connectedPeers = useConnectedPeerIds();
 
   const userId = user?.id ?? "";
 
@@ -163,9 +185,15 @@ export function SovereignSecurityPanel() {
   const version = vault?.envelope.version ?? 0;
   const handle = discriminator ? `${user.username}#${discriminator}` : user.username;
   // The link names a CUSTODIAN (a peer that acked this shell), because the
-  // device you recover from is usually not this one. Before any custody, fall
-  // back to this node so a second device can still recover while it is online.
-  const linkPeer = custodyPeers[0]?.peerId ?? peerId;
+  // device you recover from is usually not this one: the person's pick, else
+  // one connected now. Before any custody, fall back to this node so a second
+  // device can still recover while it is online.
+  const linkPeer = chooseRecoveryHolder({
+    custodians: custodyPeers.map((p) => p.peerId),
+    connected: connectedPeers,
+    selected: holder,
+    self: peerId,
+  });
   const link = version > 0 ? recoveryUrl(window.location.origin, { id: user.id, v: version, peer: linkPeer }) : "";
   const custodyLabel = !vault
     ? "No recovery vault sealed yet"
@@ -320,11 +348,54 @@ export function SovereignSecurityPanel() {
             <div className="space-y-1.5">
               <Label>Recovery Link</Label>
               {vault ? (
-                <div className="flex gap-2">
-                  <Input value={link} readOnly className="font-mono text-xs" />
-                  <Button variant="outline" size="icon" aria-label="Copy recovery link" onClick={() => copy(link, "Recovery link")}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input value={link} readOnly className="font-mono text-xs" aria-label="Recovery link" />
+                    <Button variant="outline" size="icon" aria-label="Copy recovery link" onClick={() => copy(link, "Recovery link")}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button variant={showQr ? "default" : "outline"} size="icon" aria-label={showQr ? "Hide recovery QR code" : "Show recovery QR code"} aria-pressed={showQr} onClick={() => setShowQr((v) => !v)}>
+                      <QrCode className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  {custodyPeers.length > 1 && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-foreground/60">Vault holder named in this link</p>
+                      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Vault holder">
+                        {custodyPeers.map((p) => {
+                          const active = p.peerId === linkPeer;
+                          const online = connectedPeers.has(p.peerId);
+                          return (
+                            <button
+                              key={p.peerId}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              onClick={() => setHolder(p.peerId)}
+                              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs ${active ? "border-primary bg-primary/15 text-primary" : "border-foreground/15 text-foreground/70 hover:text-foreground"}`}
+                            >
+                              <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-green-500" : "bg-foreground/30"}`} aria-hidden />
+                              {p.name || p.peerId.slice(0, 12)}
+                              <span className="sr-only">{online ? "(connected)" : "(offline)"}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  {showQr && (
+                    <div className="space-y-2">
+                      <div className="flex justify-center rounded-xl bg-white p-3">
+                        <QRCodeSVG value={link} size={176} bgColor="#ffffff" fgColor="#000000" aria-label="Recovery QR code" />
+                      </div>
+                      <p className="text-xs leading-relaxed text-foreground/60">
+                        Scan it from the device you want to recover on (its camera app, or Scan Recovery QR on the recovery
+                        page). Share this link or QR only with your own devices or connected peers who hold your recovery
+                        vault. We recommend merging your devices (Merge Account below), so a device of your own always
+                        keeps a copy of the vault.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-sm text-foreground/60">{loaded ? "Seal a recovery vault to get your link." : "Loading…"}</p>

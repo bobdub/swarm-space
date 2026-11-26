@@ -14,13 +14,15 @@
  *   merge:select-master ◀──────────────▶ merge:select-master (mirrored)
  *   merge:authorized ◀─────────────────▶ merge:authorized (local password)
  *   merge:execute ─────────────────────▶ retiring side runs the sweep
+ *   merge:custody-part ◀────────────────── imported-token custody records
  *   merge:union ◀──────────────────────── signed attestation + data
  *   merge:ack ──────────────────────────▶ master's signed acknowledgement
  *                ◀─────────────────────── merge:complete (tombstoned)
  *
  * The code never crosses the wire: each side proves knowledge of it with an
  * HMAC over the session, its identity and a fresh nonce. Three wrong codes or
- * three minutes end the session.
+ * three minutes end the session. Guests have no local password and cannot
+ * pair: they are asked to create an account first.
  */
 
 import type { AccountMergedAttestation } from "@/types";
@@ -35,6 +37,9 @@ export const MERGE_ACK_TIMEOUT_MS = 90 * 1000;
 const UNION_PART_BYTES = 48 * 1024;
 /** Mirrors accountMerge.MAX_MERGE_POSTS: at most one post per part. */
 const MAX_MERGE_POSTS = 20_000;
+/** Mirrors accountMerge.MAX_MERGE_CUSTODY_RECORDS. */
+const MAX_MERGE_CUSTODY_RECORDS = 512;
+export const GUEST_MERGE_MESSAGE = "Guests cannot merge accounts. Create an account first, then merge.";
 
 // ── Code + proofs ──────────────────────────────────────────────────────
 
@@ -102,7 +107,8 @@ export type MergeMessage =
   | { kind: "merge:execute"; sessionId: string }
   | { kind: "merge:progress"; sessionId: string; step: string }
   | { kind: "merge:union-part"; sessionId: string; index: number; total: number; posts: MergeUnionBundle["posts"] }
-  | { kind: "merge:union"; sessionId: string; parts: number; bundle: Omit<MergeUnionBundle, "posts"> }
+  | { kind: "merge:custody-part"; sessionId: string; index: number; total: number; records: NonNullable<MergeUnionBundle["custody"]> }
+  | { kind: "merge:union"; sessionId: string; parts: number; custodyParts?: number; bundle: Omit<MergeUnionBundle, "posts" | "custody"> }
   | { kind: "merge:ack"; sessionId: string; ack: MasterMergeAck; result: { postsReattributed: number; contactsAdded: number } }
   | { kind: "merge:complete"; sessionId: string; tombstoned: boolean }
   | { kind: "merge:failed"; sessionId: string; error: string };
@@ -164,8 +170,13 @@ export interface MergeExecutor {
   verifyIdentity(identity: MergePeerIdentity): Promise<boolean>;
   buildSummary(): Promise<MergeAccountSummary>;
   unlock(password: string): Promise<string>;
-  sweep(master: MergeIdentityRef, onStep: (step: string) => void): Promise<{ txs: MergeUnionBundle["txs"]; creditTxId: string | null; swarm: number; credits: number; mintme: number; mintmeOnChain: MergeUnionBundle["mintmeOnChain"] }>;
-  collect(retiringId: string): Promise<Omit<MergeUnionBundle, "attestation" | "txs" | "mintmeOnChain">>;
+  sweep(master: MergeIdentityRef, onStep: (step: string) => void): Promise<{
+    txs: MergeUnionBundle["txs"]; creditTxId: string | null; swarm: number; credits: number; mintme: number;
+    mintmeOnChain: MergeUnionBundle["mintmeOnChain"];
+    /** Imported token definitions and their custody records (optional for older executors). */
+    tokens?: MergeUnionBundle["tokens"]; custody?: MergeUnionBundle["custody"];
+  }>;
+  collect(retiringId: string): Promise<Omit<MergeUnionBundle, "attestation" | "txs" | "mintmeOnChain" | "tokens" | "custody">>;
   attest(input: { retiringId: string; masterId: string; transfers: AccountMergedAttestation["transfers"]; privateKey: string; publicKey: string }): Promise<AccountMergedAttestation>;
   acceptOnMaster(input: { bundle: MergeUnionBundle; privateKey: string; retiring: { userId: string; username: string } }): Promise<{ ack: MasterMergeAck; postsReattributed: number; contactsAdded: number }>;
   retire(input: { privateKey: string; attestation: AccountMergedAttestation; ack: MasterMergeAck; masterUsername: string }): Promise<{ tombstoned: boolean }>;
@@ -179,23 +190,25 @@ function isIdentity(v: unknown): v is MergePeerIdentity {
     && typeof i.username === "string" && i.username.length <= 128 && typeof i.publicKey === "string" && i.publicKey.length <= 1024;
 }
 
-function chunkPosts(posts: MergeUnionBundle["posts"]): Array<MergeUnionBundle["posts"]> {
-  const parts: Array<MergeUnionBundle["posts"]> = [];
-  let current: MergeUnionBundle["posts"] = [];
+function chunkBySize<T>(items: readonly T[]): T[][] {
+  const parts: T[][] = [];
+  let current: T[] = [];
   let size = 0;
-  for (const post of posts) {
-    const bytes = JSON.stringify(post).length;
+  for (const item of items) {
+    const bytes = JSON.stringify(item).length;
     if (current.length > 0 && size + bytes > UNION_PART_BYTES) {
       parts.push(current);
       current = [];
       size = 0;
     }
-    current.push(post);
+    current.push(item);
     size += bytes;
   }
   if (current.length > 0) parts.push(current);
   return parts;
 }
+
+const chunkPosts = (posts: MergeUnionBundle["posts"]) => chunkBySize(posts);
 
 /**
  * One merge session at a time per device. React subscribes to `snapshot()`.
@@ -212,6 +225,7 @@ export class MergeController {
   private selectSeq = 0;
   private privateKey: string | null = null;
   private unionParts = new Map<number, MergeUnionBundle["posts"]>();
+  private custodyParts = new Map<number, NonNullable<MergeUnionBundle["custody"]>>();
   private pendingAck: ((ack: MasterMergeAck | null) => void) | null = null;
   private lastActivity = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -432,6 +446,7 @@ export class MergeController {
     this.privateKey = null;
     this.selectSeq = 0;
     this.unionParts.clear();
+    this.custodyParts.clear();
     this.pendingAck?.(null);
     this.pendingAck = null;
   }
@@ -501,6 +516,8 @@ export class MergeController {
       const data = await ex.collect(me.userId);
       const parts = chunkPosts(data.posts);
       parts.forEach((posts, index) => this.sendRemote({ kind: "merge:union-part", sessionId: s.sessionId, index, total: parts.length, posts }));
+      const custodyParts = chunkBySize((sweep.custody ?? []).slice(-MAX_MERGE_CUSTODY_RECORDS));
+      custodyParts.forEach((records, index) => this.sendRemote({ kind: "merge:custody-part", sessionId: s.sessionId, index, total: custodyParts.length, records }));
       const ackPromise = new Promise<MasterMergeAck | null>((resolve) => {
         this.pendingAck = resolve;
         setTimeout(() => resolve(null), MERGE_ACK_TIMEOUT_MS);
@@ -509,7 +526,12 @@ export class MergeController {
         kind: "merge:union",
         sessionId: s.sessionId,
         parts: parts.length,
-        bundle: { attestation, txs: sweep.txs, mintmeOnChain: sweep.mintmeOnChain, favorites: data.favorites, connections: data.connections, library: data.library },
+        custodyParts: custodyParts.length,
+        bundle: {
+          attestation, txs: sweep.txs, mintmeOnChain: sweep.mintmeOnChain,
+          favorites: data.favorites, connections: data.connections, library: data.library,
+          tokens: sweep.tokens ?? [],
+        },
       });
       this.step("Waiting for the master account to accept");
       const ack = await ackPromise;
@@ -571,7 +593,10 @@ export class MergeController {
       case "merge:cancel":
         if (s.phase === "executing") return;
         this.privateKey = null;
-        this.update({ phase: "cancelled", code: null, error: msg.reason === "idle" ? "The other device ended the idle session." : null });
+        this.update({
+          phase: "cancelled", code: null,
+          error: msg.reason === "idle" ? "The other device ended the idle session." : msg.reason === "guest" ? GUEST_MERGE_MESSAGE : null,
+        });
         return;
       case "merge:accept-code": {
         if (s.role !== "initiator" || s.phase !== "offering" || !s.code) return;
@@ -621,6 +646,12 @@ export class MergeController {
         if ((s.phase !== "paired" && s.phase !== "verifying") || !s.remote) return;
         const summary = msg.summary;
         if (!summary || summary.userId !== s.remote.userId) return;
+        if (summary.guest) {
+          this.privateKey = null;
+          this.update({ phase: "failed", remoteSummary: summary, error: "The other device is signed in as a guest. It must create an account before it can merge." });
+          this.sendRemote({ kind: "merge:cancel", sessionId: s.sessionId, reason: "guest" });
+          return;
+        }
         this.update({ remoteSummary: summary });
         return;
       }
@@ -658,6 +689,11 @@ export class MergeController {
         if (!Number.isSafeInteger(msg.index) || msg.index < 0 || msg.index >= MAX_MERGE_POSTS) return;
         this.unionParts.set(msg.index, msg.posts);
         return;
+      case "merge:custody-part":
+        if (s.phase !== "executing" || !this.isLocalMaster() || !Array.isArray(msg.records)) return;
+        if (!Number.isSafeInteger(msg.index) || msg.index < 0 || msg.index >= MAX_MERGE_CUSTODY_RECORDS) return;
+        this.custodyParts.set(msg.index, msg.records);
+        return;
       case "merge:union": {
         if (s.phase !== "executing" || !this.isLocalMaster() || !this.privateKey || !s.remote) return;
         const parts = Number(msg.parts) || 0;
@@ -671,10 +707,14 @@ export class MergeController {
           posts.push(...part);
         }
         this.unionParts.clear();
+        const custodyCount = Math.min(Number(msg.custodyParts) || 0, MAX_MERGE_CUSTODY_RECORDS);
+        const custody: NonNullable<MergeUnionBundle["custody"]> = [];
+        for (let i = 0; i < custodyCount; i++) custody.push(...(this.custodyParts.get(i) ?? []));
+        this.custodyParts.clear();
         try {
           this.update({ progress: [...(this.session?.progress ?? []), "Verifying attestation and absorbing data"] });
           const result = await this.executor.acceptOnMaster({
-            bundle: { ...msg.bundle, posts } as MergeUnionBundle,
+            bundle: { ...msg.bundle, posts, custody: custody.slice(0, MAX_MERGE_CUSTODY_RECORDS) } as MergeUnionBundle,
             privateKey: this.privateKey,
             retiring: { userId: s.remote.userId, username: s.remote.username },
           });
@@ -716,18 +756,20 @@ export function getMergeController(): MergeController {
 export async function ensureMergeAttached(): Promise<MergeController> {
   const controller = getMergeController();
   if (controller.isAttached()) return controller;
-  const [{ getSwarmMeshStandalone }, merge, { getCurrentUser }, { computeUserId }] = await Promise.all([
+  const [{ getSwarmMeshStandalone }, merge, { getCurrentUser }, { computeUserId }, { isGuestUser }] = await Promise.all([
     import("./swarmMesh.standalone"),
     import("../blockchain/accountMerge"),
     import("../auth"),
     import("../crypto"),
+    import("../preview/guestAccess"),
   ]);
   const mesh = getSwarmMeshStandalone();
   let cachedDiscriminator: { userId: string; value: string | null } | null = null;
   controller.attach(mesh, {
     localIdentity: () => {
       const me = getCurrentUser();
-      if (!me?.publicKey) return null;
+      // Guests hold a P2P identity but no account: they never offer or pair.
+      if (!me?.publicKey || isGuestUser(me)) return null;
       return {
         userId: me.id,
         username: me.username,
@@ -747,7 +789,7 @@ export async function ensureMergeAttached(): Promise<MergeController> {
     unlock: (password) => merge.unlockForMerge(password),
     sweep: async (master, onStep) => {
       const r = await merge.sweepAssetsToMaster(master, onStep);
-      return { txs: r.txs, creditTxId: r.creditTxId, swarm: r.swarm, credits: r.credits, mintme: r.mintme, mintmeOnChain: r.mintmeOnChain };
+      return { txs: r.txs, creditTxId: r.creditTxId, swarm: r.swarm, credits: r.credits, mintme: r.mintme, mintmeOnChain: r.mintmeOnChain, tokens: r.tokens, custody: r.custody };
     },
     collect: (retiringId) => merge.collectUnionData(retiringId),
     attest: (input) => merge.signMergeAttestation(input),
@@ -760,7 +802,7 @@ export async function ensureMergeAttached(): Promise<MergeController> {
       return { tombstoned: r.tombstoned };
     },
   });
-  // Prime our #discriminator so offers carry it.
+  // Prime our #discriminator so offers carry it (guests have no summary).
   void merge.buildAccountSummary().then((s) => { cachedDiscriminator = { userId: s.userId, value: s.discriminator }; }).catch(() => undefined);
   return controller;
 }
