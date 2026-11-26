@@ -383,3 +383,36 @@ describe('direct message identity over time', () => {
     expect(alice.getSession('peer-x')).toBeUndefined();
   });
 });
+
+describe('manual wallet lock', () => {
+  it('pauses direct messages while locked and catches up after unlock', async () => {
+    const net = hub(['peer-a', 'peer-b']);
+    const storeA = memoryStore();
+    const storeB = memoryStore();
+    let bobLocked = false;
+    const alice = new DirectMessenger(net.mesh('peer-a'), storeA, { userId: 'alice', displayName: 'Alice' });
+    const bob = new DirectMessenger(net.mesh('peer-b'), storeB, {
+      userId: 'bob', displayName: 'Bob', isLocked: () => bobLocked,
+    });
+    alice.start();
+    bob.start();
+    await alice.connect('peer-b');
+    await settle();
+
+    bobLocked = true;
+    // Bob cannot send or start a handshake while locked.
+    expect(await bob.send('peer-a', 'nope')).toBeNull();
+    expect(await bob.connect('peer-a', 100)).toBeNull();
+    // Alice's line waits: Bob neither stores nor acknowledges it.
+    const line = await alice.send('peer-b', 'are you there?');
+    await settle();
+    expect(storeB.rows.size).toBe(0);
+    expect((await storeA.get(line!.id))?.status).toBe('sent');
+
+    bobLocked = false;
+    await bob.resume();
+    await settle(80);
+    expect((await bob.history(conversationIdFor('alice', 'bob'))).map((r) => r.text)).toEqual(['are you there?']);
+    expect((await storeA.get(line!.id))?.status).toBe('delivered');
+  });
+});
