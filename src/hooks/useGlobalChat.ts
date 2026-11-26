@@ -151,7 +151,7 @@ export function useConnectedChatPeers(messenger: DirectMessenger | null): Connec
           userId: session?.userId ?? lib?.userId,
           displayName: lib?.displayName || session?.displayName || lib?.username || lib?.alias || peerId.slice(0, 8),
           avatarRef: lib?.avatarRef,
-          namespace: peerNamespace(lib, peerId),
+          namespace: session?.verified && session.discriminator ? `#${session.discriminator}` : peerNamespace(lib, peerId),
           session,
         };
       }),
