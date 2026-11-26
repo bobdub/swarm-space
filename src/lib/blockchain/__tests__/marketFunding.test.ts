@@ -9,7 +9,7 @@ vi.mock("../../auth", () => ({ getCurrentUser: () => state.user, getCachedPrivat
 vi.mock("../chain", () => ({ getSwarmChain: () => ({
   whenReady: async () => {},
   addTransaction: (tx: SwarmTransaction) => state.txs.push(tx),
-  getChain: () => [], getPendingTransactions: () => state.txs,
+  getChain: () => [], getPendingTransactions: () => state.txs, getConfirmedBalance: () => 0, getBalance: () => 0,
 }) }));
 vi.mock("../token", () => ({
   getSwarmBalance: async () => 100,

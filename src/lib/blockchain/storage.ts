@@ -1,5 +1,6 @@
 // Blockchain Storage Layer using IndexedDB
 import { openDB } from "../store";
+import { poolDeltaFromTx, isPoolAffectingTransaction } from "./poolLedger";
 import type {
   ChainState,
   SwarmBlock,
@@ -304,48 +305,7 @@ function round6(n: number): number {
   return Math.round(n * 1_000_000) / 1_000_000;
 }
 
-function numberFrom(value: unknown, fallback = 0): number {
-  const n = Number(value ?? fallback);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-export function poolDeltaFromTx(tx: SwarmTransaction): number {
-  const meta = (tx.meta ?? {}) as Record<string, unknown>;
-  switch (tx.type) {
-    case "coin_deploy":
-      return numberFrom(meta.poolContribution);
-    case "pool_donate":
-      return numberFrom(tx.amount);
-    case "credit_lock":
-      // Credit wrapping spends SWARM liquidity from the pool to the user.
-      return -numberFrom(meta.swarmMinted, numberFrom(tx.amount));
-    case "post_lock":
-      return numberFrom(meta.poolContribution, numberFrom(meta.coinsToPool));
-    case "creator_vault_split":
-      return numberFrom(meta.communityShare);
-    case "creator_token_buy": {
-      const split = (meta.split ?? {}) as Record<string, unknown>;
-      if (meta.liquidityTopUp === true && meta.communityForwarded !== undefined) return numberFrom(meta.communityForwarded);
-      return numberFrom(split.community, numberFrom(meta.communityShare));
-    }
-    case "token_transfer":
-      return meta.marketVault === true && meta.direction === "vault-sell" && tx.to === "community-pool" ? numberFrom(tx.amount) : 0;
-    case "profile_token_deploy":
-    case "creator_token_deploy":
-      return numberFrom(meta.communityShare);
-    case "creator_token_earnings_withdraw":
-      return meta.closed === true ? numberFrom(meta.dissolved) : 0;
-    case "mining_reward":
-      // The pool's share of a block reward is the output paid to the pool.
-      return tx.to === "community-pool" ? numberFrom(tx.amount) : numberFrom(meta.poolTax);
-    default:
-      return 0;
-  }
-}
-
-export function isPoolAffectingTransaction(tx: SwarmTransaction): boolean {
-  return poolDeltaFromTx(tx) !== 0;
-}
+export { poolDeltaFromTx, isPoolAffectingTransaction };
 
 /**
  * Derive the community pool from the SWARM ledger. This is the authoritative

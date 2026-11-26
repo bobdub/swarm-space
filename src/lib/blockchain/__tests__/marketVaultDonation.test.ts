@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SwarmTransaction } from "../types";
 
-const state = vi.hoisted(() => ({ added: [] as SwarmTransaction[], available: 10, user: "member" as string | null, swarm: 10 }));
+const state = vi.hoisted(() => ({ added: [] as SwarmTransaction[], mined: [] as SwarmTransaction[], available: 10, user: "member" as string | null, swarm: 10 }));
 vi.mock("../../auth", () => ({ getCurrentUser: () => (state.user ? { id: state.user } : null) }));
 vi.mock("../chain", () => ({ getSwarmChain: () => ({
   addTransaction: (tx: SwarmTransaction) => state.added.push(tx), whenReady: async () => {},
-  getChain: () => [], getPendingTransactions: () => state.added,
+  getChain: () => [{ transactions: state.mined }], getPendingTransactions: () => state.added,
 }) }));
 vi.mock("../token", () => ({
   getSwarmBalance: async () => state.swarm,
@@ -22,7 +22,9 @@ vi.mock("../deposits/customTokens", () => ({
   listCustomTokens: () => [{ address: "0x634340447220BCAAA09A5505D71CA62B644A1A82", symbol: "DREAMS", decimals: 18, addedAt: 0 }],
 }));
 
-const { donateCreditsToVault, donateTokenToVault, sellSwarmForCredits, vaultCreditReserve } = await import("../marketVault");
+const { donateCreditsToVault, donateTokenToVault, getVaultCreditReserve, sellSwarmForCredits, vaultCreditReserve } = await import("../marketVault");
+/** Move this device's unmined entries into a block, as a peer mining them would. */
+const mine = () => { state.mined.push(...state.added.splice(0)); };
 const { quoteSwarmForCredits } = await import("../marketVaultPricing");
 const contract = "0x634340447220BCAAA09A5505D71CA62B644A1A82";
 
@@ -64,7 +66,7 @@ describe("donating Credits to the Market Vault", () => {
 });
 
 describe("selling SWARM to the vault for Credits", () => {
-  beforeEach(() => { credits.deduct.mockReset(); credits.award.mockReset(); state.user = "member"; state.added = []; state.swarm = 10; });
+  beforeEach(() => { credits.deduct.mockReset(); credits.award.mockReset(); state.user = "member"; state.added = []; state.mined = []; state.swarm = 10; });
 
   it("counts Credits paid for vault buys and donations, minus payouts", () => {
     const buy = { id: "b", type: "credit_lock", from: "community-pool", to: "x", amount: 1,
@@ -83,10 +85,23 @@ describe("selling SWARM to the vault for Credits", () => {
 
   it("takes the SWARM, pays Credits from the reserve and records the payout", async () => {
     await donateCreditsToVault("member", 100_000);
+    mine();
     const q = await sellSwarmForCredits("member", 1);
     expect(q.out).toBe(99);
     expect(credits.award).toHaveBeenCalledWith("member", 99, "Market Vault: sold 1 SWARM for 99 credits");
     expect(state.added.some(tx => tx.type === "token_transfer" && tx.from === "member" && tx.to === "community-pool" && tx.amount === 1)).toBe(true);
-    expect(vaultCreditReserve(state.added)).toBe(100_000 - 99);
+    expect(vaultCreditReserve([...state.mined, ...state.added])).toBe(100_000 - 99);
+  });
+
+  it("shows every peer the reserve from mined blocks and never pays out of an unmined one", async () => {
+    await donateCreditsToVault("member", 100_000);
+    // Other members can't see this donation until a block carries it, so neither does the shared figure.
+    expect(await getVaultCreditReserve()).toBe(0);
+    await expect(sellSwarmForCredits("member", 1)).rejects.toThrow("no Credits");
+    mine();
+    expect(await getVaultCreditReserve()).toBe(100_000);
+    await sellSwarmForCredits("member", 1);
+    // The unmined payout doesn't change the shared figure, but it does limit this device's next payout.
+    expect(await getVaultCreditReserve()).toBe(100_000);
   });
 });

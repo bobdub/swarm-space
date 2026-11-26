@@ -554,23 +554,63 @@ export class SwarmChain {
   }
 
   getBalance(address: string): number {
-    let balance = 0;
-
-    for (const block of this.chain) {
-      // A reward is spendable only once enough blocks sit on top of it, so a
-      // block that loses a fork takes its reward with it before anyone spends it.
-      const mature = isRewardMature(block.index, this.chain.length);
-      for (const tx of block.transactions) {
-        if (tx.type === "mining_reward" && !mature) continue;
-        balance += this.applyTransactionToBalance(tx, address);
-      }
-    }
-
+    let balance = this.getConfirmedBalance(address);
     for (const tx of this.pendingTransactions) {
       balance += this.applyTransactionToBalance(tx, address);
     }
-
     return Math.max(0, balance);
+  }
+
+  /**
+   * Balance from mined blocks alone, leaving out this device's unmined entries:
+   * every peer on the same chain tip computes the same figure.
+   */
+  getConfirmedBalance(address: string): number {
+    return this.confirmedBalances().settled.get(address) ?? 0;
+  }
+
+  /**
+   * Every address's mined-block balance, kept keyed by the tip's hash and
+   * resumed from there when blocks are appended rather than re-walked from
+   * genesis. A fork (the cached tip is no longer in place) walks again.
+   */
+  private confirmedCache: ConfirmedBalances | null = null;
+
+  private confirmedBalances(): ConfirmedBalances {
+    const length = this.chain.length;
+    const cached = this.confirmedCache;
+    let walk: ConfirmedBalances;
+    if (cached && length >= cached.length && cached.length > 0 && this.chain[cached.length - 1]?.hash === cached.tipHash) {
+      if (length === cached.length) return cached;
+      walk = { length: cached.length, tipHash: cached.tipHash, settled: new Map(cached.settled), maturing: cached.maturing.slice() };
+    } else {
+      walk = { length: 0, tipHash: "", settled: new Map(), maturing: [] };
+    }
+    const add = (address: string, amount: number) => {
+      if (amount !== 0) walk.settled.set(address, (walk.settled.get(address) ?? 0) + amount);
+    };
+    for (let b = walk.length; b < length; b++) {
+      const block = this.chain[b];
+      for (const tx of block.transactions) {
+        for (const address of new Set([tx.from, tx.to])) {
+          const delta = this.applyTransactionToBalance(tx, address);
+          // A reward is spendable only once enough blocks sit on top of it, so a
+          // block that loses a fork takes its reward with it before anyone spends it.
+          if (tx.type === "mining_reward") { if (delta !== 0) walk.maturing.push({ index: block.index, address, amount: delta }); }
+          else add(address, delta);
+        }
+      }
+    }
+    walk.maturing = walk.maturing.filter((reward) => {
+      if (!isRewardMature(reward.index, length)) return true;
+      add(reward.address, reward.amount);
+      return false;
+    });
+    walk.length = length;
+    const tip = this.chain[length - 1];
+    walk.tipHash = tip?.hash ?? "";
+    if (walk.tipHash) this.confirmedCache = walk;
+    return walk;
   }
 
   /**
@@ -933,6 +973,14 @@ export class SwarmChain {
     }
     return true;
   }
+}
+
+/** Mined-block balances up to a tip, with rewards still waiting to mature. */
+interface ConfirmedBalances {
+  length: number;
+  tipHash: string;
+  settled: Map<string, number>;
+  maturing: { index: number; address: string; amount: number }[];
 }
 
 /** Running state of a wallet-ledger walk over blocks. */
