@@ -8,6 +8,8 @@ import {
   standCreditsPerSwarm,
   standLayers,
   standPriceBoard,
+  splitOwnerCut,
+  STAND_OWNER_SHARE,
   unitPriceSwarm,
   type StandVaultState,
 } from '@/lib/world/tradingStand/pricing';
@@ -15,6 +17,7 @@ import {
   goodCurrency,
   sharedStandVaultState,
   spendableStandVaultState,
+  donateToStandVault,
   standScopeFor,
   standStock,
   standTotalsOf,
@@ -200,6 +203,32 @@ describe('Trading Stand vault state', () => {
     expect(shared.creditReserve).toBe(2000);
     expect(shared.swarmPool).toBe(12);
     expect(spendableStandVaultState(chain, scope).stock.stone).toBe(40);
+  });
+});
+
+describe("the stand owner's share", () => {
+  it('pays the owner 15% of every sale to another player', () => {
+    expect(STAND_OWNER_SHARE).toBe(0.15);
+    expect(splitOwnerCut(1, 'SWARM', 'buyer', 'owner')).toEqual({ owner: 0.15, vault: 0.85 });
+    expect(splitOwnerCut(200, 'CREDITS', 'buyer', 'owner')).toEqual({ owner: 30, vault: 170 });
+    // Whole Credits: the owner's part rounds down and the parts add up to the price.
+    const odd = splitOwnerCut(7, 'CREDITS', 'buyer', 'owner');
+    expect(odd).toEqual({ owner: 1, vault: 6 });
+    const swarm = splitOwnerCut(0.123457, 'SWARM', 'buyer', 'owner');
+    expect(swarm.owner + swarm.vault).toBeCloseTo(0.123457, 9);
+  });
+
+  it('takes no cut when the owner buys at their own stand or there is no owner', () => {
+    expect(splitOwnerCut(10, 'SWARM', 'owner', 'owner')).toEqual({ owner: 0, vault: 10 });
+    expect(splitOwnerCut(10, 'CREDITS', 'buyer', null)).toEqual({ owner: 0, vault: 10 });
+  });
+
+  it('lets only the owner fund a stand, and routes main-vault stands to the Market Vault', async () => {
+    const priv = standScopeFor({ cell: { cellId: 'u/abc' } });
+    const stand = { placementId: 'p1', ownerId: 'owner' };
+    await expect(donateToStandVault('someone', priv, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Only the stand's owner/);
+    await expect(donateToStandVault('owner', standScopeFor({ universeKey: 'global' }), stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Market Vault/);
+    await expect(donateToStandVault('owner', priv, stand, { kind: 'SWARM' }, 0)).rejects.toThrow(/above zero/);
   });
 });
 

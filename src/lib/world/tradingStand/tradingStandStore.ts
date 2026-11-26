@@ -38,6 +38,7 @@ import {
   isTradingGood,
   maxBuyQty,
   quoteStandBuy,
+  splitOwnerCut,
   STAND_FLOOR_SHARE,
   quoteStandSell,
   type StandCurrency,
@@ -240,6 +241,8 @@ export interface StandTradeRequest {
   good: TradingGood;
   qty: number;
   currency: StandCurrency;
+  /** The stand being traded at, so its owner takes their 15% of sales. */
+  stand?: { placementId: string; ownerId: string } | null;
 }
 
 function assertSupported(currency: string): asserts currency is StandCurrency {
@@ -295,19 +298,29 @@ export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> 
       throw new Error('That stock is promised to trades still waiting for a block. Nothing was charged.');
     }
     const operationId = crypto.randomUUID();
-    const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-buy', operationId, good: req.good, goodQty: req.qty };
+    const standMeta = req.stand ? { standId: req.stand.placementId, standOwner: req.stand.ownerId } : {};
+    const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-buy', operationId, good: req.good, goodQty: req.qty, ...standMeta };
     const vaultAddress = req.scope.settlesMain ? COMMUNITY_POOL : req.scope.address;
+    // The stand's owner takes 15% of every sale to another player, paid first:
+    // if that leg fails, nothing else has moved.
+    const cut = splitOwnerCut(quote.amount, req.currency, req.userId, req.stand?.ownerId);
     let payment: SwarmTransaction;
     if (req.currency === 'SWARM') {
       const { transferSwarm } = await import('@/lib/blockchain/token');
+      if (cut.owner > 0 && req.stand) {
+        await transferSwarm({ from: req.userId, to: req.stand.ownerId, amount: cut.owner, meta: { ...meta, tradeLeg: 'owner-cut' } });
+      }
       // A SWARM payment into the community pool joins the Market Vault the way a Market sale does.
-      payment = await transferSwarm({ from: req.userId, to: vaultAddress, amount: quote.swarm,
+      payment = await transferSwarm({ from: req.userId, to: vaultAddress, amount: cut.vault,
         meta: { ...meta, tradeLeg: 'payment', ...(req.scope.settlesMain ? { marketVault: true, direction: 'vault-sell' } : {}) } });
     } else {
-      const { deductCredits } = await import('@/lib/credits');
-      await deductCredits(req.userId, quote.credits, `Trading Stand: ${req.qty} ${req.good} for ${quote.credits} credits`);
-      payment = await addRecord({ from: req.userId, to: vaultAddress, amount: quote.credits, currency: VAULT_CREDITS_CURRENCY,
-        meta: { ...meta, tradeLeg: 'payment', ...(req.scope.settlesMain ? { marketVault: true } : {}) } });
+      const { deductCredits, transferCredits } = await import('@/lib/credits');
+      if (cut.owner > 0 && req.stand) {
+        await transferCredits(req.stand.ownerId, cut.owner, { message: `Trading Stand sale: ${req.qty} ${req.good}` });
+      }
+      await deductCredits(req.userId, cut.vault, `Trading Stand: ${req.qty} ${req.good} for ${quote.credits} credits`);
+      payment = await addRecord({ from: req.userId, to: vaultAddress, amount: cut.vault, currency: VAULT_CREDITS_CURRENCY,
+        meta: { ...meta, tradeLeg: 'payment', ownerCut: cut.owner, ...(req.scope.settlesMain ? { marketVault: true } : {}) } });
     }
     const goods = await addRecord({ from: req.scope.address, to: req.userId, amount: req.qty, currency: goodCurrency(req.good),
       meta: { ...meta, tradeLeg: 'goods', paidAmount: quote.amount, paidAsset: req.currency } });
@@ -416,4 +429,53 @@ async function payerBalance(userId: string, currency: StandCurrency): Promise<nu
 export async function getPlayerBalances(userId: string): Promise<{ swarm: number; credits: number }> {
   const [swarm, credits] = await Promise.all([payerBalance(userId, 'SWARM').catch(() => 0), payerBalance(userId, 'CREDITS').catch(() => 0)]);
   return { swarm, credits };
+}
+
+// ── Owner funding ────────────────────────────────────────────────────
+
+export type StandDonationAsset =
+  | { kind: 'SWARM' }
+  | { kind: 'CREDITS' }
+  | { kind: 'TOKEN'; contract: string; symbol?: string };
+
+/**
+ * The stand's owner adds their own SWARM, Credits or synced tokens to a
+ * private Cell's stand vault. (Stands that settle against the main mesh
+ * vault are funded through the Market Vault donation paths instead.)
+ * Anything else fails closed.
+ */
+export async function donateToStandVault(
+  userId: string,
+  scope: StandScope,
+  stand: { placementId: string; ownerId: string },
+  asset: StandDonationAsset,
+  amount: number,
+): Promise<void> {
+  if (stand.ownerId !== userId) throw new Error('Only the stand\'s owner can fund it.');
+  if (scope.settlesMain) throw new Error('This stand trades against the main mesh vault: fund it with a Market Vault donation.');
+  if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter an amount above zero.');
+  const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
+  await withCreatorMarketOperation(lockFor(scope), async () => {
+    await assertSignedIn(userId);
+    const meta = { tradingStand: true, standKey: scope.key, standId: stand.placementId, direction: 'donation', operationId: crypto.randomUUID() };
+    let tx: SwarmTransaction;
+    if (asset.kind === 'SWARM') {
+      const { transferSwarm } = await import('@/lib/blockchain/token');
+      tx = await transferSwarm({ from: userId, to: scope.address, amount: Math.round(amount * 1e6) / 1e6, meta });
+    } else if (asset.kind === 'CREDITS') {
+      if (!Number.isSafeInteger(amount)) throw new Error('Credits are donated in whole numbers.');
+      const { deductCredits } = await import('@/lib/credits');
+      await deductCredits(userId, amount, `Trading Stand: funded your stand with ${amount} credits`);
+      tx = await addRecord({ from: userId, to: scope.address, amount, currency: VAULT_CREDITS_CURRENCY, meta });
+    } else if (asset.kind === 'TOKEN') {
+      const c = asset.contract.toLowerCase();
+      const { getAvailableTokenBalance, tokenCurrency } = await import('@/lib/blockchain/deposits/customTokens');
+      if (amount > getAvailableTokenBalance(userId, c) + 1e-9) throw new Error('More than your available (synced) balance.');
+      tx = await addRecord({ from: userId, to: scope.address, amount: Math.round(amount * 1e8) / 1e8, currency: tokenCurrency(c),
+        meta: { ...meta, ...(asset.symbol ? { ticker: asset.symbol } : {}) } });
+    } else {
+      throw new Error('This asset cannot be added to a stand vault. Nothing was moved.');
+    }
+    announce(scope, tx);
+  });
 }

@@ -237,3 +237,26 @@ export function standPriceBoard(state: StandVaultState): StandPriceRow[] {
     };
   });
 }
+
+/** The stand owner's share of every sale the stand makes to another player. */
+export const STAND_OWNER_SHARE = 0.15;
+
+export interface OwnerCut {
+  /** Paid straight to the stand's owner, in the trade's currency. */
+  owner: number;
+  /** Paid into the stand vault, in the trade's currency. */
+  vault: number;
+}
+
+/**
+ * Split what a buyer pays: 15% to the stand's owner, the rest into the
+ * stand vault. No cut when the owner buys at their own stand or the stand
+ * has no known owner. SWARM splits to six places, Credits to whole Credits;
+ * the owner's part rounds down so the two parts always add up to the price.
+ */
+export function splitOwnerCut(amount: number, currency: StandCurrency, buyerId: string, ownerId?: string | null): OwnerCut {
+  const total = clean(amount);
+  if (!ownerId || ownerId === buyerId || total <= 0) return { owner: 0, vault: total };
+  const owner = currency === 'CREDITS' ? Math.floor(total * STAND_OWNER_SHARE + 1e-9) : floor6(total * STAND_OWNER_SHARE);
+  return { owner, vault: currency === 'CREDITS' ? total - owner : Math.round((total - owner) * 1e6) / 1e6 };
+}
