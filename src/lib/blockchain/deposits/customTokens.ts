@@ -78,11 +78,11 @@ export function numberToUnits(amount: number, decimals: number): bigint {
   return BigInt(w) * 10n ** BigInt(decimals) + BigInt((f + "0".repeat(decimals)).slice(0, decimals) || "0");
 }
 
-export function getRecordedTokenBalance(swarmId: string, address: string, ledger: readonly SwarmTransaction[] = allTransactions()): number {
+export function getRecordedTokenBalance(swarmId: string, address: string): number {
   if (!swarmId) return 0;
   const cur = tokenCurrency(address);
   let n = 0;
-  for (const tx of ledger) {
+  for (const tx of allTransactions()) {
     const m = (tx.meta ?? {}) as Record<string, unknown>;
     if (m.currency !== cur) continue;
     if (tx.type === "external_deposit" && tx.to === swarmId) n += Number(tx.amount ?? 0);

@@ -146,6 +146,21 @@ describe("block reward is the only issuance", () => {
     expect(chain.getImmatureRewards("me")).toBe(47.5);
     expect(chain.getImmatureRewards("community-pool")).toBe(2.5);
   }, 60_000);
+
+  it("matures the reward in the cached confirmed balance as blocks are appended", async () => {
+    const chain = await minedChain(1, "me");
+    expect(chain.getConfirmedBalance("me")).toBe(0);
+    for (let i = 0; i < 20; i++) {
+      chain.addTransaction(tx(`fill-${i}`) as never);
+      await chain.minePendingTransactions("other");
+    }
+    // Resumed from the cached tip each time, and still equal to a fresh walk.
+    expect(chain.getConfirmedBalance("me")).toBe(47.5);
+    const fresh = new SwarmChain();
+    (fresh as unknown as { chain: unknown }).chain = chain.getChain();
+    expect(fresh.getConfirmedBalance("me")).toBe(47.5);
+    expect(fresh.getConfirmedBalance("community-pool")).toBe(chain.getConfirmedBalance("community-pool"));
+  }, 120_000);
 });
 
 describe("rewards and local mints can't fund shared-chain payments early", () => {
