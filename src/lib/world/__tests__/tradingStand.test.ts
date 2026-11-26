@@ -8,8 +8,11 @@ import {
   standCreditsPerSwarm,
   standLayers,
   standPriceBoard,
-  splitOwnerCut,
+  splitStandPayment,
+  STAND_BUYBACK_SHARE,
+  STAND_COMMUNITY_SHARE,
   STAND_OWNER_SHARE,
+  STAND_STABILITY_SHARE,
   unitPriceSwarm,
   type StandVaultState,
 } from '@/lib/world/tradingStand/pricing';
@@ -19,6 +22,7 @@ import {
   spendableStandVaultState,
   donateToStandVault,
   standScopeFor,
+  standVaultScope,
   standStock,
   standTotalsOf,
 } from '@/lib/world/tradingStand/tradingStandStore';
@@ -206,29 +210,28 @@ describe('Trading Stand vault state', () => {
   });
 });
 
-describe("the stand owner's share", () => {
-  it('pays the owner 15% of every sale to another player', () => {
-    expect(STAND_OWNER_SHARE).toBe(0.15);
-    expect(splitOwnerCut(1, 'SWARM', 'buyer', 'owner')).toEqual({ owner: 0.15, vault: 0.85 });
-    expect(splitOwnerCut(200, 'CREDITS', 'buyer', 'owner')).toEqual({ owner: 30, vault: 170 });
-    // Whole Credits: the owner's part rounds down and the parts add up to the price.
-    const odd = splitOwnerCut(7, 'CREDITS', 'buyer', 'owner');
-    expect(odd).toEqual({ owner: 1, vault: 6 });
-    const swarm = splitOwnerCut(0.123457, 'SWARM', 'buyer', 'owner');
-    expect(swarm.owner + swarm.vault).toBeCloseTo(0.123457, 9);
+describe("each stand is its own market", () => {
+  it('splits every sale 40/40/15/5 like a creator market', () => {
+    expect([STAND_BUYBACK_SHARE, STAND_STABILITY_SHARE, STAND_OWNER_SHARE, STAND_COMMUNITY_SHARE]).toEqual([0.4, 0.4, 0.15, 0.05]);
+    expect(splitStandPayment(1, 'SWARM', 'owner')).toEqual({ owner: 0.15, community: 0.05, vault: 0.8 });
+    expect(splitStandPayment(200, 'CREDITS', 'owner')).toEqual({ owner: 30, community: 10, vault: 160 });
+    // Whole Credits: owner and community round down, the vault takes the rest.
+    expect(splitStandPayment(7, 'CREDITS', 'owner')).toEqual({ owner: 1, community: 0, vault: 6 });
+    const swarm = splitStandPayment(0.123457, 'SWARM', 'owner');
+    expect(swarm.owner + swarm.community + swarm.vault).toBeCloseTo(0.123457, 9);
   });
 
-  it('takes no cut when the owner buys at their own stand or there is no owner', () => {
-    expect(splitOwnerCut(10, 'SWARM', 'owner', 'owner')).toEqual({ owner: 0, vault: 10 });
-    expect(splitOwnerCut(10, 'CREDITS', 'buyer', null)).toEqual({ owner: 0, vault: 10 });
+  it("keeps the owner's share in the vault when the stand has no owner", () => {
+    expect(splitStandPayment(100, 'CREDITS', null)).toEqual({ owner: 0, community: 5, vault: 95 });
   });
 
-  it('lets only the owner fund a stand, and routes main-vault stands to the Market Vault', async () => {
-    const priv = standScopeFor({ cell: { cellId: 'u/abc' } });
+  it("gives every stand its own vault, and lets only the owner fund it", async () => {
+    const own = standVaultScope('p1', 'Ada');
+    expect(own).toMatchObject({ key: 'stand:p1', address: 'trading-stand:stand:p1', settlesMain: false });
+    expect(standVaultScope('p2').address).not.toBe(own.address);
     const stand = { placementId: 'p1', ownerId: 'owner' };
-    await expect(donateToStandVault('someone', priv, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Only the stand's owner/);
-    await expect(donateToStandVault('owner', standScopeFor({ universeKey: 'global' }), stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Market Vault/);
-    await expect(donateToStandVault('owner', priv, stand, { kind: 'SWARM' }, 0)).rejects.toThrow(/above zero/);
+    await expect(donateToStandVault('someone', own, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Only the stand's owner/);
+    await expect(donateToStandVault('owner', own, stand, { kind: 'SWARM' }, 0)).rejects.toThrow(/above zero/);
   });
 });
 

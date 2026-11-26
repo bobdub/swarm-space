@@ -14,7 +14,6 @@ import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { VaultDonationCard } from '@/components/wallet/VaultDonationCard';
 import { customTokenRef, getAvailableTokenBalance, listCustomTokens } from '@/lib/blockchain/deposits/customTokens';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { blockWorldPos, getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
@@ -28,6 +27,9 @@ import {
   quoteStandSell,
   standCreditsPerSwarm,
   STAND_OWNER_SHARE,
+  STAND_BUYBACK_SHARE,
+  STAND_STABILITY_SHARE,
+  STAND_COMMUNITY_SHARE,
   standPriceBoard,
   type StandCurrency,
   type StandVaultState,
@@ -78,6 +80,7 @@ function useNearbyStand(selfId: string): string | null {
 }
 
 const fmtSwarm = (n: number | null) => (n === null ? '—' : n < 0.001 ? n.toFixed(6) : n.toFixed(4));
+const pct = (share: number) => `${Math.round(share * 100)}%`;
 const fmtCredits = (n: number | null) => (n === null ? '—' : n.toLocaleString());
 
 /** The proximity prompt plus the window it opens. Mount once over the Brain canvas. */
@@ -129,13 +132,15 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
 
   const refresh = useCallback(async () => {
     try {
-      const s = await currentStandScope();
+      // Each stand trades from its own vault.
+      const rec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
+      const s = await currentStandScope(rec ? { placementId: rec.placementId, ownerName: rec.ownerName } : null);
       const [vault, bal] = await Promise.all([getStandVaultState(s), getPlayerBalances(selfId)]);
       setScope(s); setState(vault); setBalances(bal);
     } catch (err) {
       console.warn('[TradingStand] refresh failed', err);
     }
-  }, [selfId]);
+  }, [selfId, standId]);
 
   useEffect(() => {
     if (!open) return;
@@ -264,8 +269,9 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
           {stand && (
             <p className="text-[11px] text-muted-foreground" data-testid="stand-owner-share">
               {isOwner
-                ? `You own this stand: you receive ${Math.round(STAND_OWNER_SHARE * 100)}% of everything other players pay for its goods.`
-                : `${standRec?.ownerName ?? 'The owner'} receives ${Math.round(STAND_OWNER_SHARE * 100)}% of what you pay for goods here.`}
+                ? `You own this stand: you receive ${pct(STAND_OWNER_SHARE)} of every sale it makes, including ${pct(STAND_OWNER_SHARE)} back when you buy here.`
+                : `${standRec?.ownerName ?? 'The owner'} receives ${pct(STAND_OWNER_SHARE)} of what you pay here.`}
+              {` Each sale splits like a creator market: ${pct(STAND_BUYBACK_SHARE + STAND_STABILITY_SHARE)} to this stand's vault, ${pct(STAND_OWNER_SHARE)} to its owner, ${pct(STAND_COMMUNITY_SHARE)} to the community pool.`}
             </p>
           )}
           <p className="text-[11px] text-muted-foreground">
@@ -276,16 +282,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
           <details className="rounded-md border border-border/60 p-3" data-testid="stand-owner-funding">
             <summary className="cursor-pointer text-sm font-semibold">Fund your stand</summary>
             <div className="mt-2">
-              {scope.settlesMain ? (
-                <>
-                  <p className="mb-2 text-[11px] text-muted-foreground">
-                    This stand trades against the main mesh vault, so funding it is a Market Vault donation. Any asset you hold can go in.
-                  </p>
-                  <VaultDonationCard />
-                </>
-              ) : (
-                <StandFundingForm selfId={selfId} scope={scope} stand={stand} onDone={() => void refresh()} />
-              )}
+              <StandFundingForm selfId={selfId} scope={scope} stand={stand} onDone={() => void refresh()} />
             </div>
           </details>
         )}
@@ -336,7 +333,7 @@ function StandFundingForm({ selfId, scope, stand, onDone }: {
   };
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-muted-foreground">This stand keeps its own vault in this private Cell. What you add pays players who sell goods here.</p>
+      <p className="text-[11px] text-muted-foreground">Goes into this stand's own vault, not the main Market Vault. It pays players who sell goods here; 40% always stays as the protected floor.</p>
       <div className="flex gap-2">
         <select
           aria-label="Asset" value={option.id} onChange={(e) => setAssetId(e.target.value)} disabled={busy}

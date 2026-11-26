@@ -21,6 +21,10 @@
  * more remain), so stock falls geometrically and never reaches zero.
  */
 import {
+  CREATOR_VAULT_COMMUNITY_SHARE,
+  CREATOR_VAULT_CREATOR_SHARE,
+} from '@/lib/blockchain/types';
+import {
   MARKET_VAULT_FLOOR_SHARE,
   MARKET_VAULT_MAX_TRADE_SHARE,
   marketVaultLayers,
@@ -238,25 +242,43 @@ export function standPriceBoard(state: StandVaultState): StandPriceRow[] {
   });
 }
 
-/** The stand owner's share of every sale the stand makes to another player. */
-export const STAND_OWNER_SHARE = 0.15;
+/**
+ * A stand is its own market, so every sale splits the way a creator market
+ * buy does (`creatorVault.ts`, 40/40/15/5):
+ *   • 40% buyback + 40% stability → the stand's own vault (its liquid layer
+ *     and protected floor, read with the Market Vault's 40/60 layers),
+ *   • 15% → the stand's owner (the creator share),
+ *   • 5% → the SWARM community pool (the community share).
+ */
+export {
+  CREATOR_VAULT_BUYBACK_SHARE as STAND_BUYBACK_SHARE,
+  CREATOR_VAULT_STABILITY_SHARE as STAND_STABILITY_SHARE,
+  CREATOR_VAULT_CREATOR_SHARE as STAND_OWNER_SHARE,
+  CREATOR_VAULT_COMMUNITY_SHARE as STAND_COMMUNITY_SHARE,
+} from '@/lib/blockchain/types';
 
-export interface OwnerCut {
-  /** Paid straight to the stand's owner, in the trade's currency. */
+export interface StandSplit {
+  /** Paid to the stand's owner, in the trade's currency. */
   owner: number;
-  /** Paid into the stand vault, in the trade's currency. */
+  /** Paid to the community pool (SWARM) or the Market's Credits reserve (Credits). */
+  community: number;
+  /** Paid into the stand's own vault: its buyback and stability layers. */
   vault: number;
 }
 
 /**
- * Split what a buyer pays: 15% to the stand's owner, the rest into the
- * stand vault. No cut when the owner buys at their own stand or the stand
- * has no known owner. SWARM splits to six places, Credits to whole Credits;
- * the owner's part rounds down so the two parts always add up to the price.
+ * Split what a buyer pays. Owner and community parts round down (six places
+ * for SWARM, whole Credits) and the vault takes the remainder, so the parts
+ * always add up to the price. A stand with no known owner keeps the owner's
+ * share in its vault. The owner buying at their own stand still pays the
+ * full price; the settlement pays their share back.
  */
-export function splitOwnerCut(amount: number, currency: StandCurrency, buyerId: string, ownerId?: string | null): OwnerCut {
+export function splitStandPayment(amount: number, currency: StandCurrency, ownerId?: string | null): StandSplit {
   const total = clean(amount);
-  if (!ownerId || ownerId === buyerId || total <= 0) return { owner: 0, vault: total };
-  const owner = currency === 'CREDITS' ? Math.floor(total * STAND_OWNER_SHARE + 1e-9) : floor6(total * STAND_OWNER_SHARE);
-  return { owner, vault: currency === 'CREDITS' ? total - owner : Math.round((total - owner) * 1e6) / 1e6 };
+  if (total <= 0) return { owner: 0, community: 0, vault: 0 };
+  const part = (share: number) => (currency === 'CREDITS' ? Math.floor(total * share + 1e-9) : floor6(total * share));
+  const owner = ownerId ? part(CREATOR_VAULT_CREATOR_SHARE) : 0;
+  const community = part(CREATOR_VAULT_COMMUNITY_SHARE);
+  const rest = total - owner - community;
+  return { owner, community, vault: currency === 'CREDITS' ? rest : Math.round(rest * 1e6) / 1e6 };
 }
