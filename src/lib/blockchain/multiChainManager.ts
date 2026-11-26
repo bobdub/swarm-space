@@ -136,7 +136,8 @@ export async function getChainBalance(address: string, chainId: string): Promise
   };
 
   if (chainId === "SWARM") {
-    return chain.getBalance(address);
+    // The shared-chain figure: what peers accept a signed tip against.
+    return chain.getSpendableBalance(address);
   }
 
   for (const block of chain.getChain()) {

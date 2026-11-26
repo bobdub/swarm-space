@@ -40,6 +40,7 @@ export type TransactionType =
   | "badge_wrap"
   | "reward_claim"
   | "mining_reward"
+  | "legacy_reward_claim"
   | "profile_token_deploy"
   | "creator_token_deploy"
   | "coin_deploy"

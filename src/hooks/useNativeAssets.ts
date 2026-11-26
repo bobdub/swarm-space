@@ -25,7 +25,7 @@ export function useNativeAssets(userId: string): NativeAsset[] {
         ]);
         const bridge = getAppWalletBalances(userId);
         const assets = nativeWalletAssets({
-          swarm: chain.getBalance(userId), credits, mintme: getChainMintmeBalance(userId),
+          swarm: chain.getSpendableBalance(userId), credits, mintme: getChainMintmeBalance(userId),
           eth: bridge.ETH + getChainEthBalance(userId), btc: bridge.BTC, holdings,
           custom: tokens.map((token) => ({ token, amount: getRecordedTokenBalance(userId, customTokenRef(token)), available: getAvailableTokenBalance(userId, customTokenRef(token)) })),
         });
