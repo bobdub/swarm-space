@@ -2929,6 +2929,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       {ready && isBuilding && (builder.plotting || builder.pendingPlot) && (
         <BrainBuilderBar
           builder={builder}
+          projectId={projectId ?? null}
           onConfirmPlot={handleConfirmPlot}
           swarmBalance={swarmBalance}
           selfId={selfId || undefined}
@@ -2942,6 +2943,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           open={inventoryOpen}
           builder={builder}
           selfId={selfId || undefined}
+          projectId={projectId ?? null}
+          projectName={projectId ? title : undefined}
           onClose={() => setInventoryOpen(false)}
           onExit={() => {
             // X fully leaves Builder Mode — same as tapping the hammer —
@@ -2953,7 +2956,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             equipCatalogTool(prefabId, selfId || 'local');
             // Stone hand tools go straight into the hand — nothing is left
             // to place, so the build grid closes with the selection.
-            if (isStoneHandTool(prefabId)) builder.exitBuild();
+            if (isStoneHandTool(prefabId) || prefabId.startsWith('forge:')) builder.exitBuild();
           }}
         />
       )}

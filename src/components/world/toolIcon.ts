@@ -3,7 +3,7 @@
  * HUD shows an axe for the axe, a pick for the pick, and so on. Anything
  * without a known action (or a non-tool prefab) falls back to the hammer.
  */
-import { Axe, Flag, Hammer, Pickaxe, Shovel, Slice, type LucideIcon } from 'lucide-react';
+import { Axe, Flag, Hammer, Pickaxe, Shovel, Slice, Wheat, type LucideIcon } from 'lucide-react';
 import { getToolAny, type ToolActionKind } from '@/lib/brain/toolCatalog';
 
 const ACTION_ICONS: Record<ToolActionKind, LucideIcon> = {
@@ -11,6 +11,7 @@ const ACTION_ICONS: Record<ToolActionKind, LucideIcon> = {
   chop: Axe,
   dig: Shovel,
   mine: Pickaxe,
+  gather: Wheat,
   claim: Flag,
 };
 

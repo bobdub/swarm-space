@@ -1,15 +1,17 @@
 /**
- * ProjectPicker — Phase 6 Remix Lab.
+ * ProjectPicker — where Lab creations go.
  *
- * Lists the current user's projects via `getUserProjects()` and
- * persists the selection through `setActiveProjectId()`. Falls back to
- * an empty disabled state when the user has no projects yet so the
- * Submit button can stay disabled with a clear reason.
+ * Lists the current user's projects via `getUserProjects()`. With
+ * `includeMainBrain`, the shared Main Brain is offered first as a primary
+ * target (value `MAIN_BRAIN_TARGET`); picking it never touches the saved
+ * active project. Project picks persist through `setActiveProjectId()`.
  */
 import { useEffect, useState } from 'react';
 import { getUserProjects } from '@/lib/projects';
 import {
+  MAIN_BRAIN_TARGET,
   getActiveProjectId,
+  isMainBrainTarget,
   setActiveProjectId,
 } from '@/lib/remix/labProjectBridge';
 import type { Project } from '@/types';
@@ -17,9 +19,12 @@ import type { Project } from '@/types';
 interface Props {
   value: string | null;
   onChange: (id: string | null) => void;
+  /** Offer the Main Brain as a target alongside private projects. */
+  includeMainBrain?: boolean;
+  label?: string;
 }
 
-export function ProjectPicker({ value, onChange }: Props) {
+export function ProjectPicker({ value, onChange, includeMainBrain = false, label = 'Project' }: Props) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -30,6 +35,14 @@ export function ProjectPicker({ value, onChange }: Props) {
         const list = await getUserProjects();
         if (cancelled) return;
         setProjects(list);
+        if (includeMainBrain) {
+          // The caller already resolved the target (Main Brain or the
+          // project the Lab was opened from); only drop a stale project.
+          if (value && !isMainBrainTarget(value) && !list.find((p) => p.id === value)) {
+            onChange(MAIN_BRAIN_TARGET);
+          }
+          return;
+        }
         // If saved id no longer valid, clear it.
         const saved = getActiveProjectId();
         if (saved && !list.find((p) => p.id === saved)) {
@@ -50,27 +63,37 @@ export function ProjectPicker({ value, onChange }: Props) {
 
   const handle = (next: string) => {
     const id = next || null;
-    setActiveProjectId(id);
+    if (!isMainBrainTarget(id)) setActiveProjectId(id);
     onChange(id);
   };
 
+  const disabled = !includeMainBrain && (loading || projects.length === 0);
+
   return (
     <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
-      <span className="hidden sm:inline">Project</span>
+      <span className="hidden sm:inline">{label}</span>
       <select
-        aria-label="Active project"
-        disabled={loading || projects.length === 0}
+        aria-label={includeMainBrain ? 'Target Brain' : 'Active project'}
+        data-testid="lab-target-picker"
+        disabled={disabled}
         value={value ?? ''}
         onChange={(e) => handle(e.target.value)}
-        className="h-7 rounded border border-border/50 bg-background/60 px-1.5 text-[11px] text-foreground"
+        className="h-7 max-w-[11rem] rounded border border-border/50 bg-background/60 px-1.5 text-[11px] text-foreground"
       >
-        <option value="">
-          {loading
-            ? 'Loading…'
-            : projects.length === 0
-              ? 'No projects'
-              : 'Choose project'}
-        </option>
+        {includeMainBrain ? (
+          <option value={MAIN_BRAIN_TARGET}>🧠 Main Brain</option>
+        ) : (
+          <option value="">
+            {loading
+              ? 'Loading…'
+              : projects.length === 0
+                ? 'No projects'
+                : 'Choose project'}
+          </option>
+        )}
+        {includeMainBrain && projects.length > 0 && (
+          <option disabled value="__divider">── Your projects ──</option>
+        )}
         {projects.map((p) => (
           <option key={p.id} value={p.id}>{p.name}</option>
         ))}

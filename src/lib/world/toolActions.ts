@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
-import { getToolAny } from '@/lib/brain/toolCatalog';
+import { getToolAny, type ToolActionKind } from '@/lib/brain/toolCatalog';
 import { applyImpact, emitCellCarved } from '@/lib/brain/sculpting';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
 import { getNatureSpec } from '@/lib/brain/nature/natureCatalog';
@@ -55,7 +55,24 @@ function verbFor(toolPrefabId: string): ToolVerb {
   if (toolPrefabId.startsWith('tool_pick')) return 'mine';
   if (toolPrefabId.startsWith('tool_bucket')) return 'gather';
   if (toolPrefabId.startsWith('consumable_salt')) return 'sharpen';
+  // Lab-forged tools carry their purpose in their spec (Cut, Pick, Dig,
+  // Gather), so the swing runs the matching interaction.
+  const kind = getToolAny(toolPrefabId)?.actionKind;
+  if (kind && kind !== 'claim') return FORGED_VERB[kind];
   return 'none';
+}
+
+const FORGED_VERB: Record<Exclude<ToolActionKind, 'claim'>, ToolVerb> = {
+  chop: 'chop',
+  mine: 'mine',
+  dig: 'dig',
+  gather: 'gather',
+  whittle: 'whittle',
+};
+
+/** The in-world verb a held tool performs. Exposed for tests. */
+export function toolVerbFor(toolPrefabId: string): ToolVerb {
+  return verbFor(toolPrefabId);
 }
 
 /** Nature kinds made of rock. Only a pick can break them. */

@@ -224,3 +224,31 @@ export function _resetProjectMintsForTest(): void {
   if (channel) { try { channel.close(); } catch { /* noop */ } channel = null; }
   gossipBridge = null;
 }
+// ─────────────────────────────────────────────────────────────────────────
+//  Lab target — a private project, or the shared Main Brain
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Target value meaning "the shared Main Brain world" rather than a project. */
+export const MAIN_BRAIN_TARGET = 'main-brain';
+
+export function isMainBrainTarget(target: string | null | undefined): boolean {
+  return target === MAIN_BRAIN_TARGET;
+}
+
+/**
+ * Where a fresh Lab session mints to. Launched from a project's Brain (the
+ * Builder passes `?projectId=`), it is that project; launched from the
+ * Main Brain (`?target=main-brain`) or on its own, it is the Main Brain.
+ */
+export function resolveDefaultLabTarget(params: { projectId?: string | null; target?: string | null }): string {
+  const projectId = params.projectId?.trim();
+  if (projectId && !isMainBrainTarget(projectId)) return projectId;
+  return MAIN_BRAIN_TARGET;
+}
+
+/** Lab URL for a Brain: its project id, or the Main Brain when none. */
+export function labUrlFor(projectId: string | null | undefined): string {
+  return projectId
+    ? `/remix?projectId=${encodeURIComponent(projectId)}`
+    : `/remix?target=${MAIN_BRAIN_TARGET}`;
+}

@@ -52,6 +52,7 @@ import {
 } from '@/lib/brain/builderCameraStore';
 import type { UseBrainBuilder } from '@/lib/brain/useBrainBuilder';
 import { BuilderDeviceOptions } from '@/components/brain/builder/BuilderDeviceOptions';
+import { RemixBrainOption } from '@/components/brain/builder/RemixBrainOption';
 import {
   AVATAR_REGISTRY,
   loadHubPrefs,
@@ -65,12 +66,17 @@ interface BuilderOptionsPanelProps {
   selfId?: string;
   /** Extra classes for the wrapper row. */
   className?: string;
+  /** Project the Brain belongs to (absent in the Main Brain) — for Remix. */
+  projectId?: string | null;
+  projectName?: string;
 }
 
 export function BuilderOptionsPanel({
   builder,
   selfId,
   className = '',
+  projectId = null,
+  projectName,
 }: BuilderOptionsPanelProps) {
   const {
     magnetic,
@@ -103,6 +109,9 @@ export function BuilderOptionsPanel({
 
   return (
     <div className={`flex flex-col gap-2 ${className}`} data-testid="builder-options-panel">
+      {/* Remix — start your own project from this Brain */}
+      <RemixBrainOption projectId={projectId} projectName={projectName} />
+
       {/* Avatar — change your form without leaving the world */}
       <div className="rounded-lg border border-border/40 bg-muted/20 p-2">
         <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">

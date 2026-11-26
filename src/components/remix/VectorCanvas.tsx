@@ -9,7 +9,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Eraser } from 'lucide-react';
+import { Eraser, Maximize2, Minimize2 } from 'lucide-react';
 
 interface Point { x: number; y: number; pressure: number; }
 interface Stroke { points: Point[]; color: string; }
@@ -18,6 +18,14 @@ interface VectorCanvasProps {
   strokeColor: string;
   /** Called when a stroke commits, with approximate length in canvas px. */
   onStrokeCommit?: (lengthPx: number) => void;
+  /** Called when the user clears the canvas with the eraser. */
+  onClear?: () => void;
+  /** Bump to clear the canvas from outside (after a mint, on Reset). */
+  clearSignal?: number;
+  /** Whether the canvas is taking over the viewport. */
+  expanded?: boolean;
+  /** Shows the Expand / Fullscreen toggle when provided. */
+  onToggleExpand?: () => void;
 }
 
 /**
@@ -36,7 +44,14 @@ function safeStroke(color: string): string {
   return color;
 }
 
-export function VectorCanvas({ strokeColor, onStrokeCommit }: VectorCanvasProps) {
+export function VectorCanvas({
+  strokeColor,
+  onStrokeCommit,
+  onClear,
+  clearSignal = 0,
+  expanded = false,
+  onToggleExpand,
+}: VectorCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef<boolean>(false);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
@@ -127,6 +142,15 @@ export function VectorCanvas({ strokeColor, onStrokeCommit }: VectorCanvasProps)
     currentRef.current = null;
   };
 
+  // Outside clears (Reset, after a mint) — skip the initial mount.
+  const lastSignal = useRef(clearSignal);
+  useEffect(() => {
+    if (clearSignal === lastSignal.current) return;
+    lastSignal.current = clearSignal;
+    setStrokes([]);
+    currentRef.current = null;
+  }, [clearSignal]);
+
   return (
     <div role="form" aria-label="Lab vector canvas" className="relative h-full w-full">
       <canvas
@@ -143,11 +167,27 @@ export function VectorCanvas({ strokeColor, onStrokeCommit }: VectorCanvasProps)
           size="icon"
           variant="ghost"
           aria-label="Clear canvas"
-          onClick={clearAll}
+          title="Clear canvas (returns unminted materials)"
+          onClick={() => { clearAll(); onClear?.(); }}
           className="h-7 w-7"
         >
           <Eraser className="h-3.5 w-3.5" />
         </Button>
+        {onToggleExpand && (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={expanded ? 'Exit fullscreen canvas' : 'Expand canvas to fullscreen'}
+            aria-pressed={expanded}
+            data-testid="lab-canvas-expand"
+            title={expanded ? 'Exit fullscreen (Esc)' : 'Expand to fullscreen'}
+            onClick={onToggleExpand}
+            className="h-7 w-7"
+          >
+            {expanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+          </Button>
+        )}
       </div>
     </div>
   );
