@@ -91,3 +91,23 @@ export async function verifyPoolDonation(tx: SwarmTransaction): Promise<boolean>
   if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
   return verifyLedgerSignature(tx);
 }
+
+/**
+ * A member's Credits or token gift to the Market Vault, as Support the Vault
+ * records it. The donor's own device writes it, so it may travel to peers
+ * before it is mined only when the donor signed it.
+ */
+export function isVaultDonationRecord(tx: Pick<SwarmTransaction, "type" | "from" | "to" | "meta"> | null | undefined): boolean {
+  return !!tx && tx.type === "custom_token_transfer" && tx.to === "community-pool"
+    && !!tx.from && tx.from !== "system" && tx.from !== "community-pool"
+    && tx.meta?.marketVault === true && tx.meta?.direction === "donation";
+}
+
+/** A Support the Vault Credits or token donation, well formed and signed by the donor. */
+export async function verifyVaultDonation(tx: SwarmTransaction): Promise<boolean> {
+  if (!isVaultDonationRecord(tx)) return false;
+  if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || tx.fee !== 0) return false;
+  if (typeof tx.meta?.currency !== "string" || !tx.meta.currency) return false;
+  if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
+  return verifyLedgerSignature(tx);
+}

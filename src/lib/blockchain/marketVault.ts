@@ -1,4 +1,5 @@
 import { withCreatorMarketOperation } from "./creatorMarketOperation";
+import type { SwarmTransaction } from "./types";
 import { tokenCurrency } from "./deposits/tokenNetworks";
 import { quoteVaultBuy, type MarketVaultState } from "./marketVaultPricing";
 import { releaseMinedPoolSwarm } from "./creditWrapping";
@@ -130,6 +131,25 @@ async function addTokenTransfer(from: string, to: string, amount: number, contra
 
 export { VAULT_CREDITS_CURRENCY };
 
+/**
+ * A Support the Vault donation signed by the donor, so peers can check it
+ * came from them before it is mined. Fails closed when the wallet is locked;
+ * the caller takes nothing from the donor until this succeeds.
+ */
+async function signedVaultDonation(from: string, amount: number, currency: string, meta: Record<string, unknown> = {}): Promise<SwarmTransaction> {
+  const { getCurrentUser, getCachedPrivateKey } = await import("../auth");
+  const me = getCurrentUser();
+  if (!me || me.id !== from) throw new Error("Sign in to donate from your wallet.");
+  const privateKey = await getCachedPrivateKey();
+  if (!privateKey || !me.publicKey) throw new Error("Your wallet is locked. Sign in again to unlock it; nothing was donated.");
+  const [{ generateTransactionId }, { signWalletTip }] = await Promise.all([import("./crypto"), import("./wallets/tipSignature")]);
+  return signWalletTip({
+    id: generateTransactionId(), type: "custom_token_transfer", from, to: POOL, amount,
+    timestamp: new Date().toISOString(), signature: "", publicKey: me.publicKey, nonce: Date.now(), fee: 0,
+    meta: { currency, marketVault: true, direction: "donation", ...meta },
+  } as SwarmTransaction, privateKey);
+}
+
 /** On-ledger record of Credits entering or leaving the vault's Credits reserve. Moves no SWARM. */
 async function addCreditRecord(from: string, to: string, credits: number, direction: string, meta: Record<string, unknown> = {}) {
   const { getSwarmChain } = await import("./chain");
@@ -190,9 +210,11 @@ export async function donateCreditsToVault(userId: string, credits: number) {
     if (!Number.isSafeInteger(credits) || credits <= 0) throw new Error("Donate a whole number of Credits above zero.");
     const { getCurrentUser } = await import("../auth");
     if (getCurrentUser()?.id !== userId) throw new Error("Sign in to donate from your wallet.");
+    const record = await signedVaultDonation(userId, credits, VAULT_CREDITS_CURRENCY);
     const { deductCredits } = await import("../credits");
     await deductCredits(userId, credits, `Market Vault donation: ${credits} credits`);
-    await addCreditRecord(userId, POOL, credits, "donation");
+    const { getSwarmChain } = await import("./chain");
+    getSwarmChain().addTransaction(record);
     if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("credit-transaction", { detail: { userId, amount: credits } }));
   });
 }
@@ -208,7 +230,9 @@ export async function donateTokenToVault(userId: string, contract: string, amoun
     if (amount > getAvailableTokenBalance(userId, c) + 1e-9) throw new Error("More than your available (synced) balance.");
     // Name the token so the donor leaderboard can show its symbol on every peer.
     const ticker = listCustomTokens(userId).find((t) => t.address.toLowerCase() === c)?.symbol;
-    await addTokenTransfer(userId, POOL, Math.round(amount * 1e8) / 1e8, c, "donation", { operationId: crypto.randomUUID(), ...(ticker ? { ticker } : {}) });
+    const record = await signedVaultDonation(userId, Math.round(amount * 1e8) / 1e8, tokenCurrency(c), { operationId: crypto.randomUUID(), ...(ticker ? { ticker } : {}) });
+    const { getSwarmChain } = await import("./chain");
+    getSwarmChain().addTransaction(record);
   });
 }
 
