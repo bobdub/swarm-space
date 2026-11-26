@@ -46,7 +46,7 @@ async function deployProfileTokenUnlocked(params: {
   if (!params.name.trim()) throw new Error("Token name is required");
   const paymentAsset = params.paymentAsset ?? "credits";
   if (paymentAsset !== "credits" && paymentAsset !== "swarm") throw new Error("Select Credits or SWARM");
-  const { getCreditBalance, deductCredits } = await import("../credits");
+  const { getCreditBalance, deductCredits, awardVaultCredits } = await import("../credits");
   const { getDeployPricing } = await import("./deployPricing");
   const pricing = await getDeployPricing();
   if (paymentAsset === "credits") {
@@ -136,26 +136,24 @@ async function deployProfileTokenUnlocked(params: {
   const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
 
   const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
-  await lockIntoCreatorVault({
-    fromId: paymentAsset === "credits" ? "community-pool" : params.userId,
-    tokenId,
-    creatorUserId: params.userId,
-    amount: swarmSeed,
-    split: { buyback, stability, creator: creatorEarn, community },
-    reason: "Creator Token market launch fee",
-    ...(paymentAsset === "credits" ? { creditsLocked: pricing.creatorTokenCredits } : {}),
-  });
-  // A failed custody lock cannot charge credits or publish a market.
+  // Credits are collected first; if mined backing cannot enter custody they are returned.
+  if (paymentAsset === "credits") {
+    await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
+  }
   try {
-    if (paymentAsset === "credits") {
-      await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
-    }
+    await lockIntoCreatorVault({
+      fromId: paymentAsset === "credits" ? "community-pool" : params.userId,
+      tokenId,
+      creatorUserId: params.userId,
+      amount: swarmSeed,
+      split: { buyback, stability, creator: creatorEarn, community },
+      reason: "Creator Token market launch fee",
+      ...(paymentAsset === "credits" ? { creditsLocked: pricing.creatorTokenCredits } : {}),
+    });
   } catch (error) {
-    const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
-    await releaseFromCreatorVault({ tokenId, creatorUserId: params.userId, toId: "community-pool",
-      amount: swarmSeed, layer: "deployment-refund", reason: "Deployment credit payment failed" });
-    const { derivePoolFromChain } = await import("./storage");
-    await derivePoolFromChain();
+    if (paymentAsset === "credits") {
+      await awardVaultCredits(params.userId, pricing.creatorTokenCredits, "Creator Token deployment refund");
+    }
     throw error;
   }
   const vault = await ensureCreatorVault(tokenId, params.userId);

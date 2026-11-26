@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
-  lock: vi.fn(), release: vi.fn(), deduct: vi.fn(), saveToken: vi.fn(),
+  lock: vi.fn(), release: vi.fn(), deduct: vi.fn(), refund: vi.fn(), saveToken: vi.fn(),
   addTransaction: vi.fn(), saveVault: vi.fn(), addHolding: vi.fn(), existing: null as unknown,
   credits: 10_000, swarm: 0, creditRead: vi.fn(), swarmRead: vi.fn(),
 }));
@@ -10,7 +10,7 @@ vi.mock("../storage", () => ({
   saveProfileToken: state.saveToken,
   derivePoolFromChain: async () => ({}),
 }));
-vi.mock("@/lib/credits", () => ({ getCreditBalance: async () => { state.creditRead(); return state.credits; }, deductCredits: state.deduct }));
+vi.mock("@/lib/credits", () => ({ getCreditBalance: async () => { state.creditRead(); return state.credits; }, deductCredits: state.deduct, awardVaultCredits: state.refund }));
 vi.mock("../token", () => ({ getSwarmBalance: async () => { state.swarmRead(); return state.swarm; } }));
 vi.mock("../creatorVaultCustody", () => ({ lockIntoCreatorVault: state.lock, releaseFromCreatorVault: state.release }));
 vi.mock("../chain", () => ({ getSwarmChain: () => ({ addTransaction: state.addTransaction }) }));
@@ -34,18 +34,19 @@ describe("Market deployment ordering", () => {
     expect(state.lock).not.toHaveBeenCalled();
     expect(state.saveToken).not.toHaveBeenCalled();
   });
-  it("custody failure does not charge credits or publish deployment", async () => {
+  it("custody failure returns all 10,000 Credits and does not publish deployment", async () => {
     state.lock.mockRejectedValueOnce(new Error("Custody unavailable"));
     await expect(deployProfileToken(input)).rejects.toThrow("Custody unavailable");
-    expect(state.deduct).not.toHaveBeenCalled();
+    expect(state.deduct).toHaveBeenCalledWith("creator", 10_000, "Creator Token Deployment");
+    expect(state.refund).toHaveBeenCalledWith("creator", 10_000, "Creator Token deployment refund");
     expect(state.saveToken).not.toHaveBeenCalled();
     expect(state.addTransaction).not.toHaveBeenCalled();
     expect(state.addHolding).not.toHaveBeenCalled();
   });
-  it("failed Credit payment refunds the 100 SWARM backing to the pool, not the user", async () => {
+  it("failed Credit payment releases no pool SWARM", async () => {
     state.deduct.mockRejectedValueOnce(new Error("Credits unavailable"));
     await expect(deployProfileToken(input)).rejects.toThrow("Credits unavailable");
-    expect(state.release).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, toId: "community-pool", layer: "deployment-refund" }));
+    expect(state.lock).not.toHaveBeenCalled();
     expect(state.saveToken).not.toHaveBeenCalled();
     expect(state.addTransaction).not.toHaveBeenCalled();
   });

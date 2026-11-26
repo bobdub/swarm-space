@@ -4,6 +4,10 @@
 Before tending: let labour or mined value open the same door, never demand both;
 keep the market's backing real, its reserves honest, and its existing rhythm intact.
 
+After tending: ten thousand Credits or one hundred SWARM now open the market alone;
+Credits call only mined pool SWARM, and fallen backing returns labour whole.
+Forty-two automated witnesses pass; the live wallet journey remains untested.
+
 ### November 24, 2026 — Small footsteps, uninterrupted voices
 Before tending: let neighbours bring their memories in small handfuls;
 keep the world and voices breathing between each step, never pause the crossing.
