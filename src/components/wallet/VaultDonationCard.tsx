@@ -13,9 +13,16 @@ import { CUSTOM_TOKENS_EVENT, customTokenNetwork, customTokenRef, getAvailableTo
 import { TOKEN_NETWORKS } from "@/lib/blockchain/deposits/tokenNetworks";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { useAuth } from "@/hooks/useAuth";
+import { getWalletTipAssets, sendWalletTip } from "@/lib/blockchain/wallets/walletTips";
+import { nativeWalletAddress } from "@/lib/blockchain/wallets/nativeAddress";
+import { INFINITY_GIFT_VAULT } from "@/lib/blockchain/infinity/vaults";
 
 /** `contract` is the token ref (chain + contract); `network` labels imported tokens. */
-interface DonationAsset { id: string; symbol: string; balance: number; contract?: string; network?: string; credits?: boolean }
+interface DonationAsset {
+  id: string; symbol: string; balance: number; contract?: string; network?: string; credits?: boolean;
+  /** Held assets the Market Vault can't take in (native MINTME, ETH, creator tokens): a signed gift to Infinity's donations vault. */
+  tipAssetId?: string;
+}
 
 /**
  * Support the Vault — voluntary donations that deepen the Market Vault: SWARM
@@ -39,12 +46,16 @@ export function VaultDonationCard() {
         return { id: ref, symbol: t.symbol, contract: ref, network: TOKEN_NETWORKS[customTokenNetwork(t)].label, balance: getAvailableTokenBalance(user.id, ref) };
       })
       .filter((t) => t.balance > 0);
-    setAssets([{ id: "SWARM", symbol: "SWARM", balance: swarm }, { id: "CREDITS", symbol: "Credits", balance: credits, credits: true }, ...tokens]);
+    // Everything else the member holds goes as a signed gift to Infinity's donations vault.
+    const tipped = (await getWalletTipAssets(user.id).catch(() => []))
+      .filter((a) => a.kind !== "credits" && a.id !== "chain:SWARM" && !a.id.startsWith("custom:") && !a.unavailable && a.balance > 0)
+      .map((a) => ({ id: `tip:${a.id}`, symbol: a.ticker, balance: a.balance, network: a.kind === "creator" ? "creator token" : a.name, tipAssetId: a.id }));
+    setAssets([{ id: "SWARM", symbol: "SWARM", balance: swarm }, { id: "CREDITS", symbol: "Credits", balance: credits, credits: true }, ...tokens, ...tipped]);
   }, [user]);
 
   useEffect(() => {
     void refresh();
-    const events = ["blockchain-transaction", "credit-transaction", "reward-pool-update", "swarm-block-mined", CUSTOM_TOKENS_EVENT];
+    const events = ["blockchain-transaction", "credit-transaction", "reward-pool-update", "swarm-block-mined", "wallet-tip-updated", "creator-vault-update", CUSTOM_TOKENS_EVENT];
     const onUpdate = () => void refresh();
     events.forEach((event) => window.addEventListener(event, onUpdate));
     return () => events.forEach((event) => window.removeEventListener(event, onUpdate));
@@ -72,8 +83,10 @@ export function VaultDonationCard() {
     try {
       if (asset.credits) await donateCreditsToVault(user.id, donation);
       else if (asset.contract) await donateTokenToVault(user.id, asset.contract, donation);
-      else await donateToRewardPool(user.id, donation);
-      toast.success(`Thank you for donating ${donation} ${asset.symbol} to the Market Vault!`);
+      else if (asset.tipAssetId) {
+        await sendWalletTip({ recipient: await nativeWalletAddress(INFINITY_GIFT_VAULT), assetId: asset.tipAssetId, amount: donation, intent: "tip" });
+      } else await donateToRewardPool(user.id, donation);
+      toast.success(`Thank you for donating ${donation} ${asset.symbol}${asset.tipAssetId ? " to the project's donations vault" : " to the Market Vault"}!`);
       setAmount("");
       window.dispatchEvent(new Event("blockchain-transaction"));
       await refresh();
@@ -94,7 +107,7 @@ export function VaultDonationCard() {
           Support the Vault
         </h3>
         <p className="text-sm text-foreground/60">
-          Donate SWARM, Credits or your synced MintMe and Ethereum tokens directly to the Market Vault — deeper liquidity means tighter spreads for everyone on the mesh.
+          Donate anything you hold. SWARM, Credits and synced MintMe and Ethereum tokens go to the Market Vault, where deeper liquidity means tighter spreads for everyone on the mesh. MINTME, ETH and creator tokens go to the project's donations vault. Every gift counts on the bar's donor board at market value.
         </p>
       </div>
 
@@ -140,6 +153,7 @@ export function VaultDonationCard() {
           Available: {asset.balance.toLocaleString(undefined, { maximumFractionDigits: 6 })} {asset.symbol}
           {asset.contract ? " (synced with a peer)" : ""}
           {asset.credits ? " · Donated Credits pay members who sell SWARM to the vault for Credits." : ""}
+          {asset.tipAssetId ? " · Sent, signed, to the project's donations vault." : ""}
         </div>
       </div>
 

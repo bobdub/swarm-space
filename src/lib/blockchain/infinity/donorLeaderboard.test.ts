@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SwarmTransaction } from "../types";
-import { buildDonorLeaderboard, formatDonationAmounts } from "./donorLeaderboard";
+import { buildDonorLeaderboard, formatDonationAmounts, formatSwarmValue } from "./donorLeaderboard";
 import { INFINITY_GIFT_VAULT } from "./vaults";
 import { NATIVE_MINTME_ASSET_ID } from "../wallets/nativeMintmeLedger";
 
@@ -180,5 +180,48 @@ describe("token names this viewer knows", () => {
     });
     expect(buildDonorLeaderboard([gift], [], { "0x6343aaaa567890abcdef1234567890abcdef1a82": "PURR" }).totals).toEqual({ PURR: 503 });
     expect(buildDonorLeaderboard([gift], [], { "0x6343aaaa567890abcdef1234567890abcdef1a82": "USD" }).totals).toEqual({ "0x6343…1a82": 503 });
+  });
+});
+
+describe("ranking by market value", () => {
+  const TOKEN = "MINTME:0x6343aaaa567890abcdef1234567890abcdef1a82";
+  const vaultGift = (from: string, amount: number, currency: string) => tx({
+    type: "custom_token_transfer", to: "community-pool", from, amount,
+    meta: { currency, marketVault: true, direction: "donation" },
+  });
+
+  it("ranks donors by what their gifts are worth, not by raw amounts", () => {
+    const board = buildDonorLeaderboard(
+      [
+        tx({ from: "swarmy", amount: 10, meta: { assetId: "chain:SWARM", ticker: "SWARM" } }),
+        // 5,000 Credits at 200 Credits per SWARM is worth 25 SWARM.
+        vaultGift("crediter", 5000, "CREDITS"),
+        // A big pile of a cheap token is worth little.
+        vaultGift("tokener", 1_000_000, TOKEN),
+      ],
+      [{ donor: "Ada", amount: 1, currency: "ETH", date: "2026-11-01" }],
+      {},
+      { Credits: 1 / 200, [TOKEN]: 0.000001, ETH: 5000 },
+    );
+    expect(board.donors.map((d) => [d.userId, d.value])).toEqual([
+      ["manual:ada", 5000], ["crediter", 25], ["swarmy", 10], ["tokener", 1],
+    ]);
+    expect(board.totalValue).toBe(5036);
+  });
+
+  it("values a hand-recorded gift at its recorded SWARM worth, and adds nothing for an unpriced asset", () => {
+    const board = buildDonorLeaderboard([], [
+      { donor: "Gift card", amount: 25, currency: "USD", date: "2026-11-01", swarmValue: 40 },
+      { donor: "Mystery", amount: 3, currency: "XYZ", date: "2026-11-01" },
+    ]);
+    expect(board.donors.map((d) => [d.name, d.value])).toEqual([["Gift card", 40], ["Mystery", 0]]);
+  });
+});
+
+describe("market value on the board", () => {
+  it("rounds big values to whole SWARM and keeps small ones readable", () => {
+    expect(formatSwarmValue(2315.4)).toBe("≈ 2,315 SWARM");
+    expect(formatSwarmValue(3.14159)).toBe("≈ 3.14 SWARM");
+    expect(formatSwarmValue(0.00123)).toBe("≈ 0.0012 SWARM");
   });
 });
