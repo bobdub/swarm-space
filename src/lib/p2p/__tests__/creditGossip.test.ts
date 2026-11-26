@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({ user: null as null | { id: string; publicKey: string }, privateKey: null as null | string }));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: () => auth.user, getCachedPrivateKey: async () => auth.privateKey }));
-import { acceptablePeerDonation, acceptablePeerVaultGift, CreditGossip, isGossipedChainTx, MAX_HOPS, signedUnminedDonations, UNMINED_REOFFER_MS, type GossipMesh } from "../creditGossip";
+import { acceptablePeerDonation, acceptablePeerVaultGift, peerDonationProblem, peerVaultGiftProblem, CreditGossip, isGossipedChainTx, MAX_HOPS, signedUnminedDonations, UNMINED_REOFFER_MS, type GossipMesh } from "../creditGossip";
 import { signWalletTip } from "@/lib/blockchain/wallets/tipSignature";
 import { arrayBufferToBase64, computeUserId } from "@/lib/crypto";
 import type { CreditTransaction } from "@/types";
@@ -328,5 +328,19 @@ describe("Credits and token gifts to the vault travel signed", () => {
     const offered = await signedUnminedDonations(chain);
     expect(offered.map((t) => t.id)).toEqual(["old-credits"]);
     expect(await acceptablePeerVaultGift(offered[0])).toBe(true);
+  });
+});
+
+describe("saying why a peer's donation was refused", () => {
+  it("names a missing signature and a short balance", async () => {
+    const donor = await identity();
+    expect(await peerDonationProblem(donationTx("u", donor.id), () => 2000)).toMatch(/isn't signed/);
+    const signed = await signWalletTip({ ...donationTx("s", donor.id), publicKey: donor.publicKey }, donor.privateKey);
+    expect(await peerDonationProblem(signed, () => 12.5)).toBe("the donor has 12.5 spendable SWARM on this ledger, needs 1,700");
+    expect(await peerDonationProblem(signed, () => 2000)).toBeNull();
+    const gift = { ...donationTx("g", donor.id), type: "custom_token_transfer", amount: 40,
+      meta: { currency: "MINTME:0x634340447220bcaaa09a5505d71ca62b644a1a82", marketVault: true, direction: "donation" } } as SwarmTransaction;
+    const signedGift = await signWalletTip({ ...gift, publicKey: donor.publicKey }, donor.privateKey);
+    expect(await peerVaultGiftProblem(signedGift, () => 3)).toBe("the donor holds 3 of that token on this ledger, needs 40");
   });
 });

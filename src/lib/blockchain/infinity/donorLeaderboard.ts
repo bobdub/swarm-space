@@ -242,7 +242,7 @@ export function buildDonorLeaderboard(
 }
 
 /** Read the local copy of the shared ledger (mined blocks + pending mesh txs). */
-export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledgerSize: number }> {
+export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledgerSize: number; tipHeight: number; tipHash: string }> {
   const { getSwarmChain } = await import("../chain");
   const chain = getSwarmChain();
   await chain.whenReady();
@@ -256,7 +256,9 @@ export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledge
     if (gift) refs.add(gift.priceRef);
   }
   const [symbols, prices] = await Promise.all([importedTokenSymbols(), loadMarketPrices(refs).catch(() => ({}))]);
-  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS, symbols, prices), ledgerSize: txs.length };
+  // The chain tip lets two members compare boards: the same block means the same ledger.
+  const tip = chain.getLatestBlock();
+  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS, symbols, prices), ledgerSize: txs.length, tipHeight: tip?.index ?? 0, tipHash: tip?.hash ?? "" };
 }
 
 /** Symbols of the MintMe-network tokens the signed-in member has imported, by lower-case contract. */
