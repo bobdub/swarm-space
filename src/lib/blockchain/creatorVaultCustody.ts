@@ -93,17 +93,31 @@ export async function lockIntoCreatorVault(params: {
   amount: number;
   split: VaultCustodySplit;
   reason: string;
+  /** Credits exchanged for already-mined pool SWARM; never user SWARM. */
+  creditsLocked?: number;
 }): Promise<void> {
   const { fromId, tokenId, creatorUserId, amount, split, reason } = params;
   if (!(amount > 0) || !Number.isFinite(amount)) throw new Error("Amount must be > 0");
 
-  const { transferSwarm } = await import("./token");
-  await transferSwarm({
-    from: fromId,
-    to: creatorVaultAddress(tokenId),
-    amount,
-    meta: { vaultCustody: true, direction: "lock", tokenId, split, reason },
-  });
+  if (params.creditsLocked !== undefined) {
+    const { CREDIT_TO_SWARM_RATIO } = await import("./types");
+    if (fromId !== "community-pool" || !Number.isSafeInteger(params.creditsLocked) || params.creditsLocked < amount * CREDIT_TO_SWARM_RATIO) {
+      throw new Error("Invalid Creator credit funding");
+    }
+    const { releaseMinedPoolSwarm } = await import("./creditWrapping");
+    await releaseMinedPoolSwarm({
+      to: creatorVaultAddress(tokenId), amount, creditsLocked: params.creditsLocked, reason,
+      meta: { vaultCustody: true, direction: "lock", tokenId, split },
+    });
+  } else {
+    const { transferSwarm } = await import("./token");
+    await transferSwarm({
+      from: fromId,
+      to: creatorVaultAddress(tokenId),
+      amount,
+      meta: { vaultCustody: true, direction: "lock", tokenId, split, reason },
+    });
+  }
 
   const coin = await ensureCreatorVaultCoin(tokenId, creatorUserId);
   coin.custodyChain = [

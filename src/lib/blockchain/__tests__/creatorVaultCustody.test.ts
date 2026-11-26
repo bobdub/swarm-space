@@ -28,6 +28,10 @@ vi.mock("../token", () => ({
     transfers.push({ from, to, amount, meta });
   },
 }));
+const poolReleases: unknown[] = [];
+vi.mock("../creditWrapping", () => ({ releaseMinedPoolSwarm: async (p: { to: string; amount: number }) => {
+  poolReleases.push(p); balances.set(p.to, (balances.get(p.to) ?? 0) + p.amount);
+} }));
 
 import {
   creatorVaultAddress,
@@ -44,6 +48,7 @@ beforeEach(() => {
   stores.clear();
   balances.clear();
   transfers.length = 0;
+  poolReleases.length = 0;
 });
 
 describe("Creator Vault custody — engravings, not burns", () => {
@@ -75,6 +80,20 @@ describe("Creator Vault custody — engravings, not burns", () => {
       }),
     ).rejects.toThrow("Insufficient SWARM");
     expect(balances.get("user-1")).toBe(5);
+  });
+
+  it("Credit funding moves exactly 100 mined pool SWARM for 10,000 Credits", async () => {
+    await lockIntoCreatorVault({ fromId: "community-pool", tokenId: "tok-c", creatorUserId: "user-1",
+      amount: 100, creditsLocked: 10_000, split: SPLIT, reason: "launch" });
+    expect(balances.get(creatorVaultAddress("tok-c"))).toBe(100);
+    expect(poolReleases[0]).toMatchObject({ amount: 100, creditsLocked: 10_000 });
+    expect(transfers).toEqual([]);
+  });
+
+  it("rejects Credit funding at any rate other than 100 Credits per SWARM", async () => {
+    await expect(lockIntoCreatorVault({ fromId: "community-pool", tokenId: "tok-c", creatorUserId: "user-1",
+      amount: 100, creditsLocked: 9_999, split: SPLIT, reason: "launch" })).rejects.toThrow("Invalid");
+    expect(poolReleases).toEqual([]);
   });
 
   it("releases payouts from the vault's real holdings and engraves them", async () => {

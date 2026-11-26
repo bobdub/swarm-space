@@ -104,6 +104,30 @@ export default function Wallet() {
   const [tokenName, setTokenName] = useState("");
   const [tokenTicker, setTokenTicker] = useState("");
   const [tokenDescription, setTokenDescription] = useState("");
+  const [deploymentPayment, setDeploymentPayment] = useState<"credits" | "swarm">("credits");
+  const [deployBusy, setDeployBusy] = useState(false);
+  const deploymentCredits = deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST;
+  const deploymentSwarm = deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST;
+  const deploymentPrice = deploymentPayment === "credits"
+    ? `${deploymentCredits.toLocaleString()} Credits`
+    : `${deploymentSwarm.toLocaleString()} SWARM`;
+  const paymentSelector = (
+    <div className="space-y-2">
+      <Label>Pay with</Label>
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Deployment payment">
+        <Button type="button" variant={deploymentPayment === "credits" ? "default" : "outline"}
+          aria-pressed={deploymentPayment === "credits"} disabled={deployBusy}
+          onClick={() => setDeploymentPayment("credits")}>
+          {deploymentCredits.toLocaleString()} Credits
+        </Button>
+        <Button type="button" variant={deploymentPayment === "swarm" ? "default" : "outline"}
+          aria-pressed={deploymentPayment === "swarm"} disabled={deployBusy}
+          onClick={() => setDeploymentPayment("swarm")}>
+          {deploymentSwarm.toLocaleString()} SWARM
+        </Button>
+      </div>
+    </div>
+  );
   const bannerInputRef = useRef<HTMLInputElement | null>(null);
   const [bannerBusy, setBannerBusy] = useState(false);
 
@@ -324,13 +348,15 @@ export default function Wallet() {
   };
 
   const handleDeployToken = async () => {
-    if (!user) return;
+    if (!user || deployBusy) return;
+    setDeployBusy(true);
     try {
       await deployProfileToken({
         userId: user.id,
         name: tokenName,
         ticker: tokenTicker.toUpperCase(),
         description: tokenDescription,
+        paymentAsset: deploymentPayment,
       });
       toast.success(`Creator token ${tokenTicker} deployed!`);
       setDeployDialogOpen(false);
@@ -340,6 +366,8 @@ export default function Wallet() {
       loadWalletData();
     } catch (error: any) {
       toast.error(error.message || "Failed to deploy token");
+    } finally {
+      setDeployBusy(false);
     }
   };
 
@@ -593,8 +621,9 @@ export default function Wallet() {
                                 <Label htmlFor="token-description">Description</Label>
                                 <Textarea id="token-description" placeholder="Describe the purpose of your token" value={tokenDescription} onChange={(e) => setTokenDescription(e.target.value)} />
                               </div>
-                              <Button onClick={handleDeployToken} className="w-full">
-                                Redeploy Token
+                              {paymentSelector}
+                              <Button type="button" onClick={handleDeployToken} className="w-full" disabled={deployBusy}>
+                                {deployBusy ? "Deploying…" : `Redeploy Token (${deploymentPrice})`}
                               </Button>
                               <p className="text-xs text-muted-foreground">
                                 You can only redeploy if this token has not been used to lock any NFT posts yet.
@@ -612,7 +641,7 @@ export default function Wallet() {
                     <h3 className="text-lg font-semibold mb-2">Deploy Your Creator Token</h3>
                     <p className="text-muted-foreground mb-6">
                       Create your own token with a max supply of {CREATOR_TOKEN_MAX_SUPPLY.toLocaleString()} tokens.
-                      Costs {(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM.
+                      Costs {deploymentCredits.toLocaleString()} Credits or {deploymentSwarm.toLocaleString()} SWARM.
                     </p>
                     <Dialog open={deployDialogOpen} onOpenChange={setDeployDialogOpen}>
                       <DialogTrigger asChild>
@@ -638,15 +667,16 @@ export default function Wallet() {
                             <Label htmlFor="token-description">Description (Optional)</Label>
                             <Textarea id="token-description" placeholder="Describe your token..." value={tokenDescription} onChange={(e) => setTokenDescription(e.target.value)} />
                           </div>
+                          {paymentSelector}
                           <div className="p-3 border rounded-lg bg-muted/50">
                             <p className="text-sm text-muted-foreground">
                               Deployment cost:{" "}
                               <span className="font-bold text-foreground">
-                                {(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM
+                                {deploymentPrice}
                               </span>
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              Dynamic price uses the current community pool ({(deployPricing?.poolBalance ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} SWARM); baseline is 25 credits + 5 SWARM at 100 SWARM pool.
+                              100 Credits = 1 SWARM. Credits fund the same market using already-mined community SWARM; sufficient pool backing is required.
                             </p>
                             <p className="text-sm text-muted-foreground mt-1">
                               Max supply:{" "}
@@ -665,7 +695,7 @@ export default function Wallet() {
                               unlocks as you earn credits.
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              First sale: the {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM fee seeds your vault
+                              First sale: {deploymentSwarm.toLocaleString()} SWARM of backing seeds your vault
                               (40 / 40 / 15 / 5 split) and mints{" "}
                               <span className="font-medium text-foreground">
                                 {CREATOR_TOKEN_INITIAL_CREATOR_SEED} tokens
@@ -674,11 +704,12 @@ export default function Wallet() {
                             </p>
                           </div>
                           <Button
+                            type="button"
                             onClick={handleDeployToken}
                             className="w-full"
-                            disabled={!tokenName || !tokenTicker || tokenTicker.length < 3}
+                            disabled={deployBusy || !tokenName || !tokenTicker || tokenTicker.length < 3}
                           >
-                            Deploy Token ({(deployPricing?.creatorTokenCredits ?? CREATOR_TOKEN_DEPLOY_COST).toLocaleString()} credits + {deployPricing?.creatorTokenSwarm ?? CREATOR_TOKEN_SWARM_DEPLOY_COST} SWARM)
+                            {deployBusy ? "Deploying…" : `Deploy Token (${deploymentPrice})`}
                           </Button>
                         </div>
                       </DialogContent>

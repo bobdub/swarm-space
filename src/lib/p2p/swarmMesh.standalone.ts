@@ -357,6 +357,8 @@ const MINING_INTERVAL = 15_000;
 const LIBRARY_SAVE_DEBOUNCE_MS = 250;
 /** Posts per content-push message when answering a content request. */
 const CONTENT_PUSH_BATCH = 8;
+/** Most ids a targeted (priority) content request may name. */
+const PRIORITY_REQUEST_MAX_IDS = 4;
 /** Bursts of IndexedDB writes share one change event within this window. */
 const NOTICE_COALESCE_MS = 150;
 const CASCADE_SETTLE_TIME = 8_000;
@@ -3695,8 +3697,16 @@ export class StandaloneSwarmMesh {
 
       switch (msg.type) {
         case 'content-inventory': void runCooperatively(this.handleInventorySteps(from, msg)).catch(() => {}); break;
-        case 'content-request': this.handleRequest(from, msg); break;
-        case 'content-push': void runCooperatively(this.handlePushSteps(from, msg)).catch(() => {}); break;
+        case 'content-request':
+          if (msg.priority === true) this.handlePriorityRequest(from, msg);
+          else this.handleRequest(from, msg);
+          break;
+        case 'content-push':
+          // A priority reply holds a few posts someone is waiting on: take it
+          // in now rather than behind a joining peer's whole sync backlog.
+          if (msg.priority === true) { for (const _step of this.handlePushSteps(from, msg)) { /* run now */ } }
+          else void runCooperatively(this.handlePushSteps(from, msg)).catch(() => {});
+          break;
         case 'file-manifest': void this.handleFileManifest(from, msg); break;
         case 'manifest-request': void this.handleManifestRequest(from, msg); break;
         case 'manifest-response': this.resolveAssetRequest(msg); break;
@@ -3766,10 +3776,7 @@ export class StandaloneSwarmMesh {
     if (!Array.isArray(ids)) return;
     const conn = this.connections.get(from);
     if (!conn) return;
-    const live = (id: string): ContentItem | undefined => {
-      const i = this.contentStore.get(id);
-      return i && !(i.type === 'post' && isPostUnsupported(i.id)) && !isAuthorBlocked(itemAuthor(i)) ? i : undefined;
-    };
+    const live = (id: string) => this.servableItem(id);
     const wanted: string[] = [];
     for (const id of ids) { if (live(id)) wanted.push(id); yield; }
     if (!wanted.length) return;
@@ -3785,6 +3792,36 @@ export class StandaloneSwarmMesh {
       const items = batch.map(live).filter((i): i is ContentItem => !!i);
       return items.length ? { type: 'content-push', items, from: this.peerId } : null;
     }));
+  }
+
+  /** A held item we may hand out: not unsupported here, author not blocked. */
+  private servableItem(id: string): ContentItem | undefined {
+    const i = this.contentStore.get(id);
+    return i && !(i.type === 'post' && isPostUnsupported(i.id)) && !isAuthorBlocked(itemAuthor(i)) ? i : undefined;
+  }
+
+  /**
+   * A targeted ask for a few ids (a share-link guest waiting on one post).
+   * Answered straight away on the channel instead of through the paced queue,
+   * where it would wait behind a joining peer's full content and chain sync,
+   * and behind timer throttling when this tab is in the background.
+   */
+  private handlePriorityRequest(from: string, msg: Record<string, unknown>): void {
+    const ids = msg.ids as unknown;
+    if (!Array.isArray(ids)) return;
+    const conn = this.connections.get(from);
+    if (!conn?.open) return;
+    const items = ids
+      .slice(0, PRIORITY_REQUEST_MAX_IDS)
+      .filter((id): id is string => typeof id === 'string')
+      .map((id) => this.servableItem(id))
+      .filter((i): i is ContentItem => !!i);
+    if (!items.length) return;
+    try {
+      conn.send(JSON.stringify({ type: 'content-push', items, from: this.peerId, priority: true }));
+      const p = this.peerData.get(from);
+      if (p) p.messagesSent++;
+    } catch { /* channel closing */ }
   }
 
   /** Per peer: replies waiting to go out, one message per task. */
@@ -4860,9 +4897,13 @@ export class StandaloneSwarmMesh {
    * usual content-push. Returns how many peers were asked.
    */
   requestContent(ids: string[], peerId?: string): number {
-    const wanted = ids.filter((id) => typeof id === 'string' && id.length > 0 && !isPostUnsupported(id));
+    const wanted = ids
+      .filter((id) => typeof id === 'string' && id.length > 0 && !isPostUnsupported(id))
+      .slice(0, PRIORITY_REQUEST_MAX_IDS);
     if (!wanted.length) return 0;
-    const payload = JSON.stringify({ type: 'content-request', ids: wanted, from: this.peerId });
+    // `priority` gets an immediate reply from current peers; older peers
+    // ignore the flag and answer through their normal paced queue.
+    const payload = JSON.stringify({ type: 'content-request', ids: wanted, from: this.peerId, priority: true });
     const targets = peerId
       ? [peerId.startsWith('peer-') ? peerId : `peer-${peerId}`]
       : Array.from(this.connections.keys());

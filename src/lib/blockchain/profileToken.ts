@@ -1,5 +1,5 @@
 // Creator Token Deployment on SWARM blockchain
-// One per account, max 10,000 supply, costs 1,000 credits
+// One per account, 10,000 max supply; Credits OR SWARM fund the same market.
 import {
   CreatorToken,
   SwarmTransaction,
@@ -33,32 +33,38 @@ export async function deployProfileToken(params: {
   ticker: string;
   description?: string;
   image?: string;
+  paymentAsset?: "credits" | "swarm";
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
   return withCreatorMarketOperation(`deployment:${params.userId}`, () => deployProfileTokenUnlocked(params));
 }
 
 async function deployProfileTokenUnlocked(params: {
   userId: string; name: string; ticker: string; description?: string; image?: string;
+  paymentAsset?: "credits" | "swarm";
 }): Promise<{ token: ProfileToken; transaction: SwarmTransaction }> {
   if (!/^[A-Z]{3,5}$/.test(params.ticker)) throw new Error("Ticker must be 3-5 uppercase letters");
   if (!params.name.trim()) throw new Error("Token name is required");
-  // Check credit balance
-  const { getCreditBalance, deductCredits } = await import("../credits");
+  const paymentAsset = params.paymentAsset ?? "credits";
+  if (paymentAsset !== "credits" && paymentAsset !== "swarm") throw new Error("Select Credits or SWARM");
+  const { getCreditBalance, deductCredits, awardVaultCredits } = await import("../credits");
   const { getDeployPricing } = await import("./deployPricing");
   const pricing = await getDeployPricing();
-  const balance = await getCreditBalance(params.userId);
-  
-  if (balance < pricing.creatorTokenCredits) {
-    throw new Error(`Insufficient credits. Need ${pricing.creatorTokenCredits} credits to deploy a Creator Token.`);
-  }
-
-  // Check SWARM balance for the market-launch fee
-  const { getSwarmBalance } = await import("./token");
-  const swarmBalance = await getSwarmBalance(params.userId);
-  if (swarmBalance < pricing.creatorTokenSwarm) {
-    throw new Error(
-      `Insufficient SWARM. Need ${pricing.creatorTokenSwarm} SWARM to launch the token market.`,
-    );
+  if (paymentAsset === "credits") {
+    // Recheck the live market just before payment; the vault's limits must allow the release.
+    const [{ getMarketVaultState }, { quoteVaultBuy }] = await Promise.all([import("./marketVault"), import("./marketVaultPricing")]);
+    const balance = await getCreditBalance(params.userId);
+    const quote = quoteVaultBuy(await getMarketVaultState(), pricing.creatorTokenSwarm, balance);
+    pricing.creatorTokenCredits = Math.max(pricing.creatorTokenCredits, quote.credits);
+    if (balance < pricing.creatorTokenCredits) {
+      throw new Error(`Insufficient Credits. Need ${pricing.creatorTokenCredits} Credits to deploy a Creator Token.`);
+    }
+    if (quote.error) throw new Error(quote.error);
+  } else {
+    const { getSwarmBalance } = await import("./token");
+    const swarmBalance = await getSwarmBalance(params.userId);
+    if (swarmBalance < pricing.creatorTokenSwarm) {
+      throw new Error(`Insufficient SWARM. Need ${pricing.creatorTokenSwarm} SWARM to launch the token market.`);
+    }
   }
 
   // Check if user already has a profile token
@@ -117,6 +123,8 @@ async function deployProfileTokenUnlocked(params: {
       seedSwarm: pricing.creatorTokenSwarm,
       communityShare: Math.round(pricing.creatorTokenSwarm * (1 - CREATOR_VAULT_BUYBACK_SHARE - CREATOR_VAULT_STABILITY_SHARE - CREATOR_VAULT_CREATOR_SHARE) * 1e6) / 1e6,
       pricing,
+      paymentAsset,
+      paidAmount: paymentAsset === "credits" ? pricing.creatorTokenCredits : pricing.creatorTokenSwarm,
     },
   };
 
@@ -133,21 +141,24 @@ async function deployProfileTokenUnlocked(params: {
   const community = Math.round((swarmSeed - buyback - stability - creatorEarn) * 1e6) / 1e6;
 
   const { lockIntoCreatorVault } = await import("./creatorVaultCustody");
-  await lockIntoCreatorVault({
-    fromId: params.userId,
-    tokenId,
-    creatorUserId: params.userId,
-    amount: swarmSeed,
-    split: { buyback, stability, creator: creatorEarn, community },
-    reason: "Creator Token market launch fee",
-  });
-  // A failed custody lock cannot charge credits or publish a market.
-  try {
+  // Credits are collected first; if mined backing cannot enter custody they are returned.
+  if (paymentAsset === "credits") {
     await deductCredits(params.userId, pricing.creatorTokenCredits, "Creator Token Deployment");
+  }
+  try {
+    await lockIntoCreatorVault({
+      fromId: paymentAsset === "credits" ? "community-pool" : params.userId,
+      tokenId,
+      creatorUserId: params.userId,
+      amount: swarmSeed,
+      split: { buyback, stability, creator: creatorEarn, community },
+      reason: "Creator Token market launch fee",
+      ...(paymentAsset === "credits" ? { creditsLocked: pricing.creatorTokenCredits } : {}),
+    });
   } catch (error) {
-    const { releaseFromCreatorVault } = await import("./creatorVaultCustody");
-    await releaseFromCreatorVault({ tokenId, creatorUserId: params.userId, toId: params.userId,
-      amount: swarmSeed, layer: "deployment-refund", reason: "Deployment credit payment failed" });
+    if (paymentAsset === "credits") {
+      await awardVaultCredits(params.userId, pricing.creatorTokenCredits, "Creator Token deployment refund");
+    }
     throw error;
   }
   const vault = await ensureCreatorVault(tokenId, params.userId);
@@ -166,7 +177,7 @@ async function deployProfileTokenUnlocked(params: {
   await saveProfileToken(profileToken);
 
   // Seed the creator with `creatorSeed` tokens as the first "sale", backed by
-  // the 50 SWARM deployment fee routed 40/40/15/5 through the vault.
+  // the selected payment's real SWARM backing routed through the vault.
   const { addProfileTokens } = await import("./profileTokenBalance");
   await addProfileTokens({
     userId: params.userId,
