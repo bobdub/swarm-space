@@ -24,11 +24,10 @@ import {
   getBackoffState 
 } from './connectionBackoff';
 import { getPendingConnectionMonitor } from './pendingConnectionCleanup';
-
-const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:global.stun.twilio.com:3478' }
-];
+// One ICE list for every WebRTC adapter: STUN first, TURN as the fallback
+// for pairs that cannot connect directly (e.g. same-router hairpin failures).
+// Only peer connections created after this loads use it; open ones keep theirs.
+import { DEFAULT_ICE_SERVERS } from './iceServers';
 
 export interface PeerJSEndpointOptions {
   id?: string;

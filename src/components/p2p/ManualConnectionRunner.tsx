@@ -10,6 +10,16 @@ import {
   subscribeManualConnects,
   tickManualConnects,
 } from '@/lib/p2p/manualConnect';
+import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+
+/** The target is reached over the relay because its direct dial stalled (same-Wi-Fi fallback). */
+function relayedTarget(peerId: string): boolean {
+  try {
+    return getSwarmMeshStandalone().getRelayedPeerIds().some(id => matchesManualTarget(peerId, id));
+  } catch {
+    return false;
+  }
+}
 
 /**
  * App-wide driver for manual connects (wifi icon, Node Dashboard). Like
@@ -37,7 +47,7 @@ export function ManualConnectionRunner() {
         selfId: ctx.getPeerId(),
         isBlocked: ctx.isPeerBlocked,
         dial: peerId => ctx.connectToPeer(peerId, { manual: true, source: 'manual-connect' }),
-        isConnected: peerId => Boolean(find(peerId)),
+        isConnected: peerId => Boolean(find(peerId)) || relayedTarget(peerId),
         isNamed: peerId => {
           const detail = find(peerId);
           return Boolean(detail?.profile?.username || detail?.profile?.displayName || detail?.userId);
@@ -66,22 +76,29 @@ export function ManualConnectionRunner() {
           toast.loading(`Connecting to ${label}…`, {
             id,
             description: entry.attempts <= 1
-              ? 'Knocking now. Slow networks can take a couple of minutes.'
-              : `Still knocking (try ${entry.attempts} of ${MANUAL_MAX_ATTEMPTS}).`,
+              ? 'Knocking now.'
+              : `Retrying (try ${entry.attempts} of ${MANUAL_MAX_ATTEMPTS}).`,
           });
           break;
         case 'syncing':
-          toast.loading(`Connected to ${label}, syncing…`, { id, description: undefined });
+          toast.loading(`Connected to ${label}${relayedTarget(entry.peerId) ? ' (relay)' : ''}, syncing…`, { id, description: undefined });
           break;
         case 'connected':
-          toast.success(`Connected to ${label}`, { id, description: undefined });
+          if (relayedTarget(entry.peerId)) {
+            toast.success(`Connected to ${label} (relay)`, {
+              id,
+              description: 'The direct link is still being tried. Chat, presence and posts go via relay meanwhile; calls need the direct link.',
+            });
+          } else {
+            toast.success(`Connected to ${label}`, { id, description: undefined });
+          }
           shown.current.delete(entry.peerId);
           clearSettledManualConnect(entry.peerId);
           break;
         case 'unavailable':
           toast.warning(`Couldn't reach ${label}`, {
             id,
-            description: 'No answer after several minutes of knocking. They may be offline. Try again any time.',
+            description: 'No answer after a dial and one retry. They may be offline. Try again any time.',
           });
           shown.current.delete(entry.peerId);
           clearSettledManualConnect(entry.peerId);

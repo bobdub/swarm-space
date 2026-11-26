@@ -120,6 +120,8 @@ interface MeshLike {
   send(channel: string, peerId: string, payload: unknown): Promise<boolean>;
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
+  /** Peers reached over the relay because their direct dial stalled. */
+  getRelayedPeerIds?(): string[];
   getPeerId(): string;
   dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
   registerPeerConnection?(peerId: string): boolean;
@@ -1051,7 +1053,9 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   // start race where joinedRooms was populated before the edge existed.
   meshExpansionTimer = setInterval(() => {
     if (!meshRef) return;
-    const current = meshRef.getConnectedPeerIds();
+    // Relayed peers (stalled direct dial) get the same room replay, so chat
+    // and presence reach them over the relay.
+    const current = [...meshRef.getConnectedPeerIds(), ...(meshRef.getRelayedPeerIds?.() ?? [])];
     const currentSet = new Set(current);
     const newPeers: string[] = [];
     for (const pid of current) {
