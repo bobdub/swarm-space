@@ -11,6 +11,7 @@ import { Link } from "react-router-dom";
 import { Project, Post } from "@/types";
 import { searchPublicProjects, filterPostsByProjectMembership } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/CreateProjectModal";
+import { PublicCellsDirectory } from "@/components/explore/PublicCellsDirectory";
 import { PostCard } from "@/components/PostCard";
 import { GuestSignupPostCard } from "@/components/preview/GuestSignupPostCard";
 import { isGuestUser } from "@/lib/preview/guestAccess";
@@ -582,13 +583,7 @@ const Explore = () => {
             </TabsContent>
 
             <TabsContent value="people" className="space-y-6">
-              <Card className="p-12 text-center border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,8%,0.4)]">
-                <Users className="w-12 h-12 mx-auto mb-4 text-[hsl(174,59%,56%)] opacity-50" />
-                <p className="text-foreground/60">User discovery coming soon</p>
-                <p className="text-sm text-foreground/40 mt-2">
-                  Find and connect with other users
-                </p>
-              </Card>
+              <PublicCellsDirectory />
             </TabsContent>
 
             <TabsContent value="trending" className="space-y-6">

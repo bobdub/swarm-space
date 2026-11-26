@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Check, Compass, Loader2, MessageCircle, UserRound, Wifi, WifiOff } from "lucide-react";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/useAuth";
 import { isGuestUser, setGuestName } from "@/lib/preview/guestMode";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { BRAIN_JOIN_PATH, getBrainInviteState, retryBrainInvite, subscribeBrainInvite } from "@/lib/p2p/brainInvite";
+import { BRAIN_JOIN_PATH, getBrainInviteState, parseCellInvite, retryBrainInvite, subscribeBrainInvite } from "@/lib/p2p/brainInvite";
+import { CellInviteCard } from "@/components/p2p/CellInviteCard";
 
 type InviterProfile = { username: string | null; label: string | null };
 
@@ -103,7 +104,11 @@ function GuestNameField() {
  */
 export default function PeerConnect() {
   const navigate = useNavigate();
+  const location = useLocation();
   const state = useSyncExternalStore(subscribeBrainInvite, getBrainInviteState);
+  // `/connect?cell=u/name/xxxx#peer-…` also joins the sharer's cell.
+  const cellId = parseCellInvite(location.pathname, location.hash, location.search);
+  const cellOnly = !!cellId && !state.peerId;
   const pending = state.phase === "idle" || state.phase === "starting" || state.phase === "connecting";
   const connected = state.phase === "syncing" || state.phase === "connected";
   // React Router stores the history index; 0 means this link opened a fresh tab.
@@ -116,6 +121,8 @@ export default function PeerConnect() {
     ? `Connecting to ${shortId || "peer"}…`
     : connected
       ? `Connected to ${inviterName || "peer"} as a peer node.`
+      : cellOnly
+        ? "This link invites you into a cell."
       : state.phase === "invalid"
         ? "This connect link is invalid, your own, or the peer is blocked."
         : "The peer has not answered yet. They may be offline.";
@@ -133,7 +140,7 @@ export default function PeerConnect() {
             ) : (
               <WifiOff className="h-6 w-6 shrink-0 text-muted-foreground" />
             )}
-            <h1 className="text-lg font-semibold">Peer connect</h1>
+            <h1 className="text-lg font-semibold">{cellId ? "Cell invite" : "Peer connect"}</h1>
           </div>
           <p role="status" aria-live="polite" className="break-words text-sm text-muted-foreground">
             {message}
@@ -143,6 +150,7 @@ export default function PeerConnect() {
               {state.peerId}
             </code>
           )}
+          {cellId && <CellInviteCard key={cellId} cellId={cellId} invite={state} />}
           {connected && <GuestNameField />}
           {connected && (
             <nav aria-label="Next steps" className="space-y-2">

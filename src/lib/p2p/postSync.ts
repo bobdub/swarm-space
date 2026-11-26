@@ -172,7 +172,7 @@ export class PostSyncManager {
 
   async broadcastPost(post: Post): Promise<void> {
     // Never broadcast local-only posts
-    if (post._localOnly) {
+    if (post._localOnly || post._cellScope) {
       console.log(`[PostSync] ⏭️ Post ${post.id} is local-only, skipping broadcast`);
       return;
     }
@@ -229,7 +229,7 @@ export class PostSyncManager {
 
       // Filter out local-only posts — they should never leave this node
       // ...and posts this node stopped supporting are never relayed.
-      const posts = allPosts.filter(p => !p._localOnly && !isPostUnsupported(p.id) && !isAuthorBlocked(p.author));
+      const posts = allPosts.filter(p => !p._localOnly && !p._cellScope && !isPostUnsupported(p.id) && !isAuthorBlocked(p.author));
 
       console.log(`[PostSync] 📤 Preparing to send ${posts.length} posts and ${projects.length} projects to peer ${peerId}`);
 
@@ -398,7 +398,7 @@ export class PostSyncManager {
 
     for (const post of toFlush) {
       // Skip local-only posts — they should never be broadcast
-      if (post._localOnly) {
+      if (post._localOnly || post._cellScope) {
         delivered.push(post.id);
         console.log(`[PostSync] ⏭️ Skipping local-only post ${post.id}`);
         continue;

@@ -130,6 +130,8 @@ export interface Post {
   _syncedToMesh?: boolean;
   /** If true, this post will never be broadcast to the mesh */
   _localOnly?: boolean;
+  /** Made in (or received inside) this private cell; never leaves it for the main mesh */
+  _cellScope?: string;
   /** Author's node was not shy when posting, so Infinity may learn from it */
   infinityLearn?: boolean;
   /** Explicit long-form identity, persisted so blogs/books never downgrade on peers */

@@ -242,6 +242,11 @@ export const PostComposer = ({
       };
 
       let signedPost = await signPost(applyBlogIdentity(post));
+      // Posts made inside a private cell are scoped to it, so the main mesh
+      // never loads, advertises or serves them later.
+      const { privateCellScope } = await import('@/lib/p2p/userCell');
+      const cellScope = privateCellScope();
+      if (cellScope) signedPost = { ...signedPost, _cellScope: cellScope };
 
       await put("posts", signedPost);
       void import("@/lib/blockchain/contentPayload").then((m) => m.packLocalContent(user.id));
@@ -327,8 +332,10 @@ export const PostComposer = ({
       } catch { /* non-critical */ }
       try {
         const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+        const { cellAllowsMeshBroadcast } = await import('@/lib/p2p/userCell');
         const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'online') {
+        // Inside a private cell the post stays in the cell (sync boundary).
+        if (sm.getPhase() === 'online' && cellAllowsMeshBroadcast()) {
           sm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }
