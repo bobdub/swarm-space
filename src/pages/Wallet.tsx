@@ -43,6 +43,7 @@ import { ProfileTokenHoldings } from "@/components/wallet/ProfileTokenHoldings";
 import { SealedCoinsHistory } from "@/components/wallet/SealedCoinsHistory";
 import { UnifiedHistory } from "@/components/wallet/UnifiedHistory";
 import { LabourPayoutsPanel } from "@/components/wallet/LabourPayoutsPanel";
+import { StandLedgerPanel } from "@/components/wallet/StandLedgerPanel";
 import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 import { ChainSwitcher } from "@/components/wallet/ChainSwitcher";
@@ -449,6 +450,7 @@ export default function Wallet() {
             <CoinEngravingControl userId={user?.id || ""} />
             <SealedCoinsHistory userId={user?.id || ""} />
             <LabourPayoutsPanel />
+            <StandLedgerPanel />
           </TabsContent>
 
           {/* ── Swap ──────────────────────────────────────────────── */}

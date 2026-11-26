@@ -45,6 +45,7 @@ import {
   type StandDonationAsset,
   getPlayerBalances,
   getStandVaultState,
+  getStandLocalStock,
   sellToStand,
   type StandScope,
 } from '@/lib/world/tradingStand/tradingStandStore';
@@ -124,6 +125,8 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const isOwner = !!stand && stand.ownerId === selfId;
   const [scope, setScope] = useState<StandScope | null>(null);
   const [state, setState] = useState<StandVaultState | null>(null);
+  // Stock including this device's unmined sales and buys (on the chain, awaiting a block).
+  const [localStock, setLocalStock] = useState<Partial<Record<TradingGood, number>>>({});
   const [balances, setBalances] = useState({ swarm: 0, credits: 0 });
   const [, setBagTick] = useState(0);
   const [selected, setSelected] = useState<TradingGood>('wood');
@@ -135,8 +138,8 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
       // Each stand trades from its own vault.
       const rec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
       const s = await currentStandScope(rec ? { placementId: rec.placementId, ownerName: rec.ownerName } : null);
-      const [vault, bal] = await Promise.all([getStandVaultState(s), getPlayerBalances(selfId)]);
-      setScope(s); setState(vault); setBalances(bal);
+      const [vault, local, bal] = await Promise.all([getStandVaultState(s), getStandLocalStock(s), getPlayerBalances(selfId)]);
+      setScope(s); setState(vault); setLocalStock(local); setBalances(bal);
     } catch (err) {
       console.warn('[TradingStand] refresh failed', err);
     }
@@ -233,7 +236,14 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
                   data-testid={`stand-row-${row.good.id}`}
                 >
                   <td className="py-1.5 pr-2">{row.good.icon} {row.good.label} <span className="text-muted-foreground">({heldGood(row.good.id)})</span></td>
-                  <td className="py-1.5 pr-2 text-right tabular-nums">{row.stock}</td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums" data-testid={`stand-stock-${row.good.id}`}>
+                    {localStock[row.good.id] ?? row.stock}
+                    {(localStock[row.good.id] ?? row.stock) !== row.stock && (
+                      <><br /><span className="text-[10px] text-amber-500" title="Recorded on the chain; waiting for the next block">
+                        {(localStock[row.good.id] ?? 0) > row.stock ? '+' : ''}{(localStock[row.good.id] ?? 0) - row.stock} awaiting block
+                      </span></>
+                    )}
+                  </td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{fmtSwarm(row.buySwarm)} S<br /><span className="text-muted-foreground">{fmtCredits(row.buyCredits)} Cr</span></td>
                   <td className="py-1.5 text-right tabular-nums">{fmtSwarm(row.sellSwarm)} S<br /><span className="text-muted-foreground">{fmtCredits(row.sellCredits)} Cr</span></td>
                 </tr>

@@ -236,6 +236,21 @@ export async function getStandVaultState(scope: StandScope): Promise<StandVaultS
   return sharedStandVaultState(await readyChain(), scope);
 }
 
+/**
+ * Stock as this device's ledger holds it: mined blocks plus this device's
+ * own unmined stand entries. A sale is on the chain from the moment it is
+ * made (it waits in pending, persisted, until a block takes it), so the
+ * stand shows it straight away and after a refresh; prices are still
+ * quoted from the mined figures every peer shares.
+ */
+export function localStandStock(chain: VaultLedgerSource, scope: StandScope): Partial<Record<TradingGood, number>> {
+  return standStock(localStandTotals(chain, scope.address));
+}
+
+export async function getStandLocalStock(scope: StandScope): Promise<Partial<Record<TradingGood, number>>> {
+  return localStandStock(await readyChain(), scope);
+}
+
 export const TRADING_STAND_EVENT = 'trading-stand-update';
 
 function announce(scope: StandScope, tx?: SwarmTransaction) {
@@ -346,6 +361,9 @@ export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> 
       const { awardVaultCredits, deductCredits, transferCredits } = await import('@/lib/credits');
       if (split.owner > 0 && req.stand && !ownerBuys) {
         await transferCredits(req.stand.ownerId, split.owner, { message: `Trading Stand sale: ${req.qty} ${req.good}` });
+        // The Credits move off-chain; this records the owner's 15% on the chain too.
+        await addRecord({ from: req.userId, to: req.stand.ownerId, amount: split.owner, currency: VAULT_CREDITS_CURRENCY,
+          meta: { ...meta, tradeLeg: 'owner-cut' } });
       }
       await deductCredits(req.userId, toVault + split.community, `Trading Stand: ${req.qty} ${req.good} for ${quote.credits} credits`);
       if (split.community > 0) {
