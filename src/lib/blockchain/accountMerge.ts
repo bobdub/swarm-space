@@ -3,11 +3,14 @@
  *
  * The RETIRING identity (the account being closed) does the signing that
  * only it can do:
- *   1. moves its spendable balances to the master with signed ledger
- *      transactions (SWARM and native MINTME as `wallet_tip` transfers,
- *      Credits as one credit transfer) and, when it holds MINTME on the
- *      MintMe chain itself, sends those coins on-chain to the master's
- *      cold-key receiving address;
+ *   1. tips every spendable asset to the master automatically with signed
+ *      ledger transactions (SWARM, native MINTME, imported tokens such as
+ *      Dreams and any other tippable asset as `wallet_tip` transfers, Credits
+ *      as one credit transfer) and, when it holds MINTME on the MintMe chain
+ *      itself, sends those coins on-chain to the master's cold-key receiving
+ *      address. Imported tokens still waiting on their first peer sync block
+ *      the merge before anything moves, and their definitions travel with the
+ *      bundle so the master's wallet lists them;
  *   2. signs an `account_merged` attestation naming the master;
  *   3. exports its posts, favorites and contacts for the master;
  *   4. after the master acknowledges, signs an `account_tombstone` and
@@ -28,8 +31,11 @@
 
 import type { AccountMergedAttestation, Post } from "@/types";
 import type { SwarmTransaction } from "./types";
+import type { TipAsset } from "./wallets/tipRules";
+import type { CustomToken } from "./deposits/customTokens";
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId, unwrapPrivateKey } from "../crypto";
 import { canonicalJsonBytes } from "../utils/canonicalJson";
+import { customTipAssetId, CUSTOM_TIP_ASSET_PREFIX } from "./deposits/customTokenTips";
 import { get, getAll, put } from "../store";
 
 export type { AccountMergedAttestation } from "@/types";
@@ -60,6 +66,24 @@ export interface MergeAccountSummary {
   contacts: number;
   /** Public cold-key receiving address (MintMe), when known. */
   coldAddress: string | null;
+  /**
+   * Every other asset with a balance: imported tokens (Dreams, MTCG, …),
+   * deposited ETH and the like. `moves` is false for assets a merge cannot
+   * tip (creator tokens, sub-chain balances, unbridged records); `pending`
+   * marks an imported token whose deposit has not synced to a peer yet.
+   * Optional: older peers do not send it.
+   */
+  extraAssets?: MergeExtraAsset[];
+  /** Guests cannot merge; they must create an account first. */
+  guest?: boolean;
+}
+
+export interface MergeExtraAsset {
+  id: string;
+  ticker: string;
+  balance: number;
+  moves: boolean;
+  pending?: boolean;
 }
 
 export interface MergeUnionData {
@@ -75,6 +99,14 @@ export interface MergeUnionBundle extends MergeUnionData {
   txs: SwarmTransaction[];
   /** On-chain MintMe hand-over, when one was sent. */
   mintmeOnChain?: { hash: string; amount: number } | null;
+  /** Imported token definitions (contract, symbol, decimals) the master's wallet should list. */
+  tokens?: CustomToken[];
+  /**
+   * The retiring account's custody sync records for the imported tokens it
+   * tipped, so the master's ledger can settle those tips without waiting for
+   * the next mesh replay. Each is re-verified on the master.
+   */
+  custody?: SwarmTransaction[];
 }
 
 export interface MergeIdentityRef {
@@ -92,6 +124,10 @@ export const MAX_MERGE_TX_IDS = 64;
 const MERGE_MESSAGE_PREFIX = "Account merge into @";
 const MINTME_CONFIRMATIONS = 6;
 export const MAX_MERGE_CONTACTS = 1000;
+/** Imported token definitions and custody records a bundle may carry. */
+export const MAX_MERGE_TOKENS = 64;
+export const MAX_MERGE_CUSTODY_RECORDS = 512;
+export const GUEST_MERGE_MESSAGE = "Guests cannot merge accounts. Create an account first, then merge.";
 const ALIASES_KEY = (masterId: string) => `account:aliases:${masterId}`;
 const RETIRED_KEY = (userId: string) => `account-merge:retired:${userId}`;
 
@@ -223,6 +259,61 @@ export async function verifyMasterAck(value: unknown, attestation: AccountMerged
   }
 }
 
+// ── Guests ─────────────────────────────────────────────────────────────
+
+async function requireMember() {
+  const [{ getCurrentUser }, { isGuestUser }] = await Promise.all([import("../auth"), import("../preview/guestAccess")]);
+  const user = getCurrentUser();
+  if (!user) throw new Error("Sign in first.");
+  if (isGuestUser(user)) throw new MergeBlockedError(GUEST_MERGE_MESSAGE);
+  return user;
+}
+
+// ── Asset plan ─────────────────────────────────────────────────────────
+
+/** Assets the sweep moves with their own dedicated legs. */
+const DEDICATED_ASSETS = new Set(["credits", "chain:SWARM", "external:MINTME"]);
+const IMPORTED_PREFIX = CUSTOM_TIP_ASSET_PREFIX;
+
+export interface AssetSweepPlan {
+  /** Tipped to the master automatically. */
+  movable: TipAsset[];
+  /** Imported tokens recorded but not spendable yet: the merge waits for them. */
+  pendingImported: TipAsset[];
+  /** Held but not tippable (creator tokens, sub-chains, unbridged records). */
+  staying: TipAsset[];
+}
+
+/**
+ * Sort a wallet's assets (as `getWalletTipAssets` lists them) into what the
+ * merge tips across, what must sync first, and what stays behind. SWARM,
+ * native MINTME and Credits have dedicated legs and are left out.
+ */
+export function planAssetSweep(assets: readonly TipAsset[]): AssetSweepPlan {
+  const plan: AssetSweepPlan = { movable: [], pendingImported: [], staying: [] };
+  for (const asset of assets) {
+    if (DEDICATED_ASSETS.has(asset.id)) continue;
+    if (asset.id.startsWith(IMPORTED_PREFIX) && asset.unavailable) {
+      plan.pendingImported.push(asset);
+    } else if (!(asset.balance > 0)) {
+      continue;
+    } else if (asset.unavailable) {
+      plan.staying.push(asset);
+    } else {
+      plan.movable.push(asset);
+    }
+  }
+  return plan;
+}
+
+function extraAssetsOf(plan: AssetSweepPlan): MergeExtraAsset[] {
+  return [
+    ...plan.movable.map((a) => ({ id: a.id, ticker: a.ticker, balance: a.balance, moves: true })),
+    ...plan.pendingImported.map((a) => ({ id: a.id, ticker: a.ticker, balance: a.balance, moves: true, pending: true })),
+    ...plan.staying.map((a) => ({ id: a.id, ticker: a.ticker, balance: a.balance, moves: false })),
+  ];
+}
+
 // ── Password gate ──────────────────────────────────────────────────────
 
 /**
@@ -231,9 +322,8 @@ export async function verifyMasterAck(value: unknown, attestation: AccountMerged
  * merge is authorised per device. Returns the private key (kept in memory).
  */
 export async function unlockForMerge(password: string): Promise<string> {
-  const { getCurrentUser, loginUser } = await import("../auth");
-  const user = getCurrentUser();
-  if (!user) throw new Error("Sign in first.");
+  const user = await requireMember();
+  const { loginUser } = await import("../auth");
   const entry = await get<{ k: string; v: { wrapped: string; salt: string | null; iv: string | null; rawStored?: boolean } }>("meta", user.wrappedKeyRef);
   if (!entry?.v) throw new Error("This device has no key for this account.");
   if (entry.v.rawStored || !entry.v.salt || !entry.v.iv) {
@@ -261,9 +351,7 @@ async function authoredPosts(userId: string): Promise<Post[]> {
 }
 
 export async function buildAccountSummary(): Promise<MergeAccountSummary> {
-  const { getCurrentUser } = await import("../auth");
-  const user = getCurrentUser();
-  if (!user) throw new Error("Sign in first.");
+  const user = await requireMember();
   const [{ getWalletTipAssets }, { getConnectedUserIds }] = await Promise.all([
     import("./wallets/walletTips"),
     import("../connections"),
@@ -292,6 +380,8 @@ export async function buildAccountSummary(): Promise<MergeAccountSummary> {
     posts: (await authoredPosts(user.id)).length,
     contacts: (await getConnectedUserIds(user.id).catch(() => [] as string[])).length,
     coldAddress,
+    extraAssets: extraAssetsOf(planAssetSweep(assets)),
+    guest: false,
   };
 }
 
@@ -313,6 +403,14 @@ export interface AssetSweepResult {
   mintmeOnChain: { hash: string; amount: number } | null;
   /** MINTME left at the retiring cold address (dust below the gas hold). */
   mintmeLeftOnChain: number;
+  /** Every other asset tipped across (imported tokens such as Dreams, ETH, …). */
+  extras: Array<{ assetId: string; ticker: string; amount: number }>;
+  /** Assets that could not be tipped and stay with the retiring account. */
+  staying: Array<{ assetId: string; ticker: string; amount: number }>;
+  /** Imported token definitions for the master's wallet. */
+  tokens: CustomToken[];
+  /** Custody sync records backing the imported-token tips. */
+  custody: SwarmTransaction[];
 }
 
 /**
@@ -395,14 +493,27 @@ async function priorMergeTransfers(retiringId: string, masterId: string): Promis
  * the master. Each leg is its own signed, verified ledger entry.
  */
 export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (step: string) => void): Promise<AssetSweepResult> {
-  const { getCurrentUser } = await import("../auth");
-  const user = getCurrentUser();
-  if (!user) throw new Error("Sign in first.");
+  const user = await requireMember();
   if (user.id === master.userId) throw new Error("An account cannot merge into itself.");
 
   const authored = (await authoredPosts(user.id)).length;
   if (authored > MAX_MERGE_POSTS) {
     throw new MergeBlockedError(`This account has ${authored} posts; a merge supports up to ${MAX_MERGE_POSTS}. Nothing was moved.`);
+  }
+
+  // Imported tokens (Dreams and friends) first: a deposit that has not been
+  // shared with a peer yet is not spendable, and the master is connected
+  // right now, so unlock it. Anything still pending blocks the merge before
+  // any coin moves, so no imported balance is left behind a tombstone.
+  onStep?.("Checking imported tokens");
+  const deposits = await import("./deposits/customTokens");
+  await deposits.hydrateCustomTokens(user.id).catch(() => []);
+  await deposits.syncPendingDeposits(user.id).catch(() => false);
+  const { getWalletTipAssets: listAssets } = await import("./wallets/walletTips");
+  const pending = planAssetSweep(await listAssets(user.id)).pendingImported;
+  if (pending.length > 0) {
+    const names = pending.map((a) => a.ticker).join(", ");
+    throw new MergeBlockedError(`This account's ${names} deposit has not synced to a peer yet, so it cannot be tipped to the master. Keep both devices connected for a minute and try again. Nothing was moved.`);
   }
 
   onStep?.("Checking MINTME on the MintMe network");
@@ -438,6 +549,22 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
     mintme = mintmeAsset.balance;
   }
 
+  // Every other tippable asset: imported tokens such as Dreams, deposited
+  // ETH and the like. Each is an ordinary signed wallet transfer.
+  const plan = planAssetSweep(await getWalletTipAssets(user.id));
+  const extras: AssetSweepResult["extras"] = [];
+  for (const asset of plan.movable) {
+    onStep?.(`Transferring ${asset.balance} ${asset.ticker}`);
+    const tx = await sendWalletTip({ recipient: master.userId, assetId: asset.id, amount: asset.balance, intent: "transfer", message });
+    if (tx) txs.push(tx);
+    extras.push({ assetId: asset.id, ticker: asset.ticker, amount: asset.balance });
+  }
+  const movedImported = new Set(extras.filter((e) => e.assetId.startsWith(IMPORTED_PREFIX)).map((e) => e.assetId));
+  const tokens = deposits.listCustomTokens(user.id)
+    .filter((t) => movedImported.has(customTipAssetId(deposits.customTokenRef(t))))
+    .slice(0, MAX_MERGE_TOKENS);
+  const custody = movedImported.size > 0 ? await custodyRecordsFor(user.id, movedImported) : [];
+
   const { getCreditBalance, transferCreditsForAccountMerge } = await import("../credits");
   const creditBalance = await getCreditBalance(user.id);
   let creditTxId: string | null = null;
@@ -455,7 +582,31 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
     creditTxId,
     mintmeOnChain: onChain.moved,
     mintmeLeftOnChain: onChain.left,
+    extras,
+    staying: plan.staying.map((a) => ({ assetId: a.id, ticker: a.ticker, amount: a.balance })),
+    tokens,
+    custody,
   };
+}
+
+/** The retiring account's custody sync records for the given imported-token asset ids, oldest first. */
+async function custodyRecordsFor(userId: string, assetIds: Set<string>): Promise<SwarmTransaction[]> {
+  const [{ getSwarmChain }, { isCustomTokenSync, syncRecordRef }] = await Promise.all([
+    import("./chain"),
+    import("./deposits/customTokenCustody"),
+  ]);
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  const seen = new Set<string>();
+  const out: SwarmTransaction[] = [];
+  for (const tx of [...chain.getChain().flatMap((b) => b.transactions), ...chain.getPendingTransactions()]) {
+    if (seen.has(tx.id) || tx.to !== userId || !isCustomTokenSync(tx)) continue;
+    const ref = syncRecordRef(tx);
+    if (!ref || !assetIds.has(customTipAssetId(ref))) continue;
+    seen.add(tx.id);
+    out.push(tx);
+  }
+  return out.slice(-MAX_MERGE_CUSTODY_RECORDS);
 }
 
 export async function collectUnionData(retiringId: string): Promise<MergeUnionData> {
@@ -569,6 +720,7 @@ export interface MasterAcceptResult {
   contactsAdded: number;
   favoritesAdded: number;
   txsAccepted: number;
+  tokensAdded: number;
 }
 
 /** Re-attribute one of the retiring account's posts to the master. */
@@ -597,9 +749,7 @@ export async function acceptMergeOnMaster(input: {
   privateKey: string;
   retiring: { userId: string; username: string };
 }): Promise<MasterAcceptResult> {
-  const { getCurrentUser } = await import("../auth");
-  const me = getCurrentUser();
-  if (!me) throw new Error("Sign in first.");
+  const me = await requireMember();
   const { attestation } = input.bundle;
   if (!(await verifyMergeAttestation(attestation))) throw new Error("The retiring account's merge attestation did not verify.");
   if (attestation.masterId !== me.id || attestation.retiringId !== input.retiring.userId) {
@@ -611,6 +761,20 @@ export async function acceptMergeOnMaster(input: {
   // before we acknowledge, because the ack lets the retiring key close for
   // good. A rejection usually means this device has not synced the retiring
   // account's ledger history yet: refuse, and the merge stays retryable.
+  // Imported tokens: settle the retiring account's custody records first
+  // (each re-verified here, exactly as a mesh replay would be), so its tips
+  // of Dreams and other imported tokens can be checked against them.
+  const custody = (input.bundle.custody ?? []).slice(0, MAX_MERGE_CUSTODY_RECORDS);
+  if (custody.length > 0) {
+    const [{ getSwarmChain }, { isCustomTokenSync }] = await Promise.all([import("./chain"), import("./deposits/customTokenCustody")]);
+    const chain = getSwarmChain();
+    await chain.whenReady();
+    for (const record of custody) {
+      if (!record || record.to !== attestation.retiringId || !isCustomTokenSync(record)) continue;
+      await chain.acceptCustomTokenDeposit(record).catch(() => false);
+    }
+  }
+
   let txsAccepted = 0;
   const { receiveWalletTip } = await import("./wallets/walletTips");
   const listed = new Set(attestation.transfers.txIds);
@@ -678,6 +842,24 @@ export async function acceptMergeOnMaster(input: {
     }
   } catch { /* mesh not started */ }
 
+  // List the imported tokens that arrived, so the master's wallet shows them.
+  let tokensAdded = 0;
+  if ((input.bundle.tokens ?? []).length > 0) {
+    try {
+      const { addCustomToken, customTokenRef, listCustomTokens } = await import("./deposits/customTokens");
+      const have = new Set(listCustomTokens(me.id).map((t) => customTokenRef(t)));
+      for (const token of (input.bundle.tokens ?? []).slice(0, MAX_MERGE_TOKENS)) {
+        if (!token || typeof token.address !== "string") continue;
+        try {
+          if (have.has(customTokenRef(token))) continue;
+          const added = addCustomToken(me.id, { address: token.address, symbol: token.symbol, decimals: token.decimals, ...(token.network ? { network: token.network } : {}) });
+          have.add(customTokenRef(added));
+          tokensAdded++;
+        } catch { /* malformed definition: skipped */ }
+      }
+    } catch { /* token list optional */ }
+  }
+
   const ack = await signMasterAck({ attestation, privateKey: input.privateKey, publicKey: me.publicKey });
   await recordAlias(me.id, { retiringId: attestation.retiringId, username: input.retiring.username, mergedAt: now, attestation, ack });
 
@@ -690,5 +872,5 @@ export async function acceptMergeOnMaster(input: {
   }
   try { window.dispatchEvent(new Event("blockchain-transaction")); } catch { /* non-browser */ }
 
-  return { ack, postsReattributed: reattributed.length, contactsAdded, favoritesAdded, txsAccepted };
+  return { ack, postsReattributed: reattributed.length, contactsAdded, favoritesAdded, txsAccepted, tokensAdded };
 }

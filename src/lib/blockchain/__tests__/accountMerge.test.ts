@@ -7,14 +7,29 @@ vi.mock("@/lib/store", () => ({
   remove: vi.fn(async () => undefined),
 }));
 
-const m = vi.hoisted(() => ({ me: null as null | { id: string; username: string; publicKey: string }, accept: true }));
+const m = vi.hoisted(() => ({
+  me: null as null | { id: string; username: string; publicKey: string; _guest?: boolean },
+  accept: true,
+  tokens: new Map<string, Array<{ address: string; symbol: string; decimals: number }>>(),
+}));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: () => m.me }));
 vi.mock("@/lib/blockchain/wallets/walletTips", () => ({ receiveWalletTip: async () => m.accept }));
+vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
+  customTokenRef: (t: { address: string }) => t.address.toLowerCase(),
+  listCustomTokens: (uid: string) => m.tokens.get(uid) ?? [],
+  addCustomToken: (uid: string, t: { address: string; symbol: string; decimals: number }) => {
+    if (!/^0x[0-9a-f]{40}$/i.test(t.address)) throw new Error("bad address");
+    m.tokens.set(uid, [...(m.tokens.get(uid) ?? []), t]);
+    return t;
+  },
+}));
 
 import { genIdentityKeyPair, computeUserId } from "@/lib/crypto";
 import type { Post } from "@/types";
+import type { TipAsset } from "../wallets/tipRules";
 import {
   acceptMergeOnMaster,
+  planAssetSweep,
   reattributePost,
   signMasterAck,
   signMergeAttestation,
@@ -95,5 +110,50 @@ describe("master acceptance", () => {
     const result = await acceptMergeOnMaster({ bundle, privateKey: master.privateKey, retiring: { userId: retiring.id, username: "DeviceB" } });
     expect(result.txsAccepted).toBe(1);
     expect(await verifyMasterAck(result.ack, attestation)).toBe(true);
+  });
+});
+
+describe("asset sweep plan", () => {
+  const asset = (id: string, ticker: string, balance: number, unavailable?: string): TipAsset => ({ id, ticker, name: ticker, kind: "external", balance, ...(unavailable ? { unavailable } : {}) });
+
+  it("tips imported tokens and other spendable assets, waits on unsynced imports and leaves untippable ones", () => {
+    const plan = planAssetSweep([
+      asset("credits", "Credits", 450),
+      asset("chain:SWARM", "SWARM", 3),
+      asset("external:MINTME", "MINTME", 2),
+      asset("custom:0xdream", "DREAMS", 120),
+      asset("custom:eth:0xmtcg", "MTCG", 0, "becomes spendable once shared"),
+      asset("native:ETH", "ETH", 0.5),
+      asset("creator:tok", "TOK", 9, "awaits settlement"),
+      asset("custom:0xempty", "NONE", 0),
+    ]);
+    expect(plan.movable.map((a) => a.ticker)).toEqual(["DREAMS", "ETH"]);
+    expect(plan.pendingImported.map((a) => a.ticker)).toEqual(["MTCG"]);
+    expect(plan.staying.map((a) => a.ticker)).toEqual(["TOK"]);
+  });
+});
+
+describe("guests and imported tokens on the master", () => {
+  it("refuses a guest master: guests must create an account first", async () => {
+    const retiring = await identity();
+    const master = await identity();
+    m.me = { id: master.id, username: "Guest", publicKey: master.publicKey, _guest: true };
+    const attestation = await signMergeAttestation({ retiringId: retiring.id, masterId: master.id, transfers: { swarm: 0, credits: 0, mintme: 0, txIds: [] }, privateKey: retiring.privateKey, publicKey: retiring.publicKey });
+    const bundle = { attestation, txs: [], posts: [], favorites: [], connections: [], library: [], mintmeOnChain: null };
+    await expect(acceptMergeOnMaster({ bundle, privateKey: master.privateKey, retiring: { userId: retiring.id, username: "DeviceB" } })).rejects.toThrow(/Create an account/);
+  });
+
+  it("lists the retiring account's imported tokens in the master's wallet, once each", async () => {
+    const retiring = await identity();
+    const master = await identity();
+    m.me = { id: master.id, username: "DeviceA", publicKey: master.publicKey };
+    m.accept = true;
+    const dreams = { address: "0x" + "d".repeat(40), symbol: "DREAMS", decimals: 12, addedAt: 1 };
+    m.tokens.set(master.id, []);
+    const attestation = await signMergeAttestation({ retiringId: retiring.id, masterId: master.id, transfers: { swarm: 0, credits: 0, mintme: 0, txIds: [] }, privateKey: retiring.privateKey, publicKey: retiring.publicKey });
+    const bundle = { attestation, txs: [], posts: [], favorites: [], connections: [], library: [], mintmeOnChain: null, tokens: [dreams, { ...dreams }, { address: "nope", symbol: "BAD", decimals: 1, addedAt: 1 }] };
+    const result = await acceptMergeOnMaster({ bundle, privateKey: master.privateKey, retiring: { userId: retiring.id, username: "DeviceB" } });
+    expect(result.tokensAdded).toBe(1);
+    expect(m.tokens.get(master.id)?.map((t) => t.symbol)).toEqual(["DREAMS"]);
   });
 });
