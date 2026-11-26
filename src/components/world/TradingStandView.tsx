@@ -1,12 +1,12 @@
 /**
  * TradingStandView — a market booth: a fieldstone footing, four timber
  * posts, a counter with crates of goods, a striped fibre awning and a sign
- * board across the awning with the builder's name ("bobdub's Trading
- * Stand"). Drawn in the placement's local frame
+ * board across the awning with the builder's name ("<name>'s Trading
+ * Stand"), painted as 3D text so every player sees it. Drawn in the placement's local frame
  * (y is up, origin at the base), sized to the prefab's bounding box.
  */
-import { useMemo } from 'react';
-import { Html } from '@react-three/drei';
+import { useEffect, useMemo, useState } from 'react';
+import { Text } from '@/components/brain/SafeText';
 
 const TIMBER = '#8a5a35';
 const TIMBER_DARK = '#5e3b22';
@@ -21,15 +21,18 @@ export function TradingStandView({
   height,
   highlight = false,
   ownerName,
+  ownerId,
 }: {
   width: number;
   depth: number;
   height: number;
   highlight?: boolean;
-  /** The builder's display name, painted on the awning. */
+  /** The builder's display name, painted on the sign. */
   ownerName?: string;
+  /** The builder's id: their name is looked up when the record carries none. */
+  ownerId?: string;
 }) {
-  const name = ownerName?.trim().slice(0, 32);
+  const name = useBuilderName(ownerName, ownerId);
   const footH = 0.18;
   const counterH = 1.0;
   const postR = 0.06;
@@ -42,6 +45,7 @@ export function TradingStandView({
     return [[-x, -z], [x, -z], [-x, z], [x, z]] as const;
   }, [width, depth]);
   const emissive = highlight ? '#f59e0b' : '#000000';
+  const signW = Math.min(width - 0.4, 1.7);
 
   return (
     <group>
@@ -94,16 +98,46 @@ export function TradingStandView({
       </group>
       {/* Sign board on the awning's front edge */}
       <mesh position={[0, awningY + 0.32, depth / 2 + 0.12]}>
-        <boxGeometry args={[Math.min(width - 0.4, 1.7), 0.42, 0.05]} />
+        <boxGeometry args={[signW, 0.42, 0.05]} />
         <meshStandardMaterial color={TIMBER_DARK} roughness={0.8} />
       </mesh>
-      <Html position={[0, awningY + 0.32, depth / 2 + 0.16]} center transform distanceFactor={4} occlude
-        style={{ pointerEvents: 'none', userSelect: 'none' }}>
-        <div style={{ color: '#fde68a', fontFamily: 'Georgia, serif', fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: 0.5, textAlign: 'center', lineHeight: 1.05 }}>
-          {name ? <div data-testid="stand-owner-name" style={{ fontSize: 15 }}>{name}&rsquo;s</div> : null}
-          <div style={{ fontSize: name ? 12 : 16 }}>Trading Stand</div>
-        </div>
-      </Html>
+      {/* Painted in the scene (not a DOM overlay), so every player sees the
+          builder's name on the sign from any angle the board faces. */}
+      <group position={[0, awningY + 0.32, depth / 2 + 0.15]}>
+        {name ? (
+          <>
+            <Text position={[0, 0.07, 0]} fontSize={0.13} maxWidth={signW - 0.08} color="#fde68a"
+              anchorX="center" anchorY="middle" outlineWidth={0.006} outlineColor="#3b2412">
+              {`${name}'s`}
+            </Text>
+            <Text position={[0, -0.09, 0]} fontSize={0.1} color="#fde68a" anchorX="center" anchorY="middle">
+              Trading Stand
+            </Text>
+          </>
+        ) : (
+          <Text fontSize={0.13} color="#fde68a" anchorX="center" anchorY="middle">Trading Stand</Text>
+        )}
+      </group>
     </group>
   );
+}
+
+/**
+ * The name for the sign: the one stamped on the stand when it was built,
+ * else the builder's profile name from this device's user records (a stand
+ * built before names were stamped, or a peer's that arrived without one).
+ */
+export function useBuilderName(stamped?: string, ownerId?: string): string | undefined {
+  const clean = (v?: string) => (v ?? '').trim().slice(0, 32) || undefined;
+  const [looked, setLooked] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (clean(stamped) || !ownerId) return;
+    let live = true;
+    void import('@/lib/store')
+      .then(({ get }) => get<{ displayName?: string; username?: string }>('users', ownerId))
+      .then((u) => { if (live) setLooked(clean(u?.displayName || u?.username)); })
+      .catch(() => { /* no record: the sign reads "Trading Stand" */ });
+    return () => { live = false; };
+  }, [stamped, ownerId]);
+  return clean(stamped) ?? looked;
 }

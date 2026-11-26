@@ -138,6 +138,7 @@ export function UserPlacementsLayer({
                   ) : isStand ? (
                     <TradingStandView
                       ownerName={rec.ownerName ?? (owned ? selfName : undefined)}
+                      ownerId={rec.actorId}
                       width={prefab.width}
                       depth={prefab.depth}
                       height={prefab.height}
