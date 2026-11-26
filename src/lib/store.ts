@@ -1,7 +1,7 @@
 // IndexedDB wrapper for local storage
 
 const DB_NAME = "imagination-db";
-const DB_VERSION = 28;
+const DB_VERSION = 29;
 
 
 export interface Chunk {
@@ -410,6 +410,15 @@ export async function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("postFavorites")) {
         db.createObjectStore("postFavorites", { keyPath: "postId" });
+      }
+
+      // Direct messages (src/lib/chat/directMessages.ts): end-to-end
+      // encrypted peer conversations, stored decrypted on this device so
+      // history loads instantly. Non-destructive addition.
+      if (!db.objectStoreNames.contains("direct_messages")) {
+        const dmStore = db.createObjectStore("direct_messages", { keyPath: "id" });
+        dmStore.createIndex("conversationId", "conversationId", { unique: false });
+        dmStore.createIndex("peerId", "peerId", { unique: false });
       }
     };
     

@@ -138,6 +138,10 @@ interface Props {
   infinitySyncRequested?: boolean;
   onInfinitySyncChoice?: (accept: boolean) => void;
   guestConnectionOffered?: boolean;
+  /** Header label; defaults to "Brain Chat" (or "Live Chat" in classic mode). */
+  title?: string;
+  /** Show the new-message chirp toggle; defaults to on except when embedded. */
+  showChirpToggle?: boolean;
 }
 
 /**
@@ -166,6 +170,8 @@ export function BrainChatPanel({
   infinitySyncRequested = false,
   onInfinitySyncChoice,
   guestConnectionOffered = false,
+  title,
+  showChirpToggle,
 }: Props) {
   const { user } = useAuth();
   const { activeRoom, promoteRoomToPost } = useStreaming();
@@ -698,7 +704,7 @@ export function BrainChatPanel({
       >
         <div className="flex items-center gap-2">
           <span className="hidden sm:inline text-xs font-display uppercase tracking-[0.2em] text-foreground/80">
-            {isClassic ? 'Live Chat' : 'Brain Chat'}
+            {title ?? (isClassic ? 'Live Chat' : 'Brain Chat')}
           </span>
           <Badge variant="secondary" className="gap-1 text-[10px]">
             <Users className="h-3 w-3" /> {railUsers.length}
@@ -754,7 +760,7 @@ export function BrainChatPanel({
               </Button>
             )
           )}
-          {!isEmbedded && <Button
+          {(showChirpToggle ?? !isEmbedded) && <Button
             type="button"
             size="icon"
             variant="ghost"
