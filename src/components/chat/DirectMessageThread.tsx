@@ -226,7 +226,18 @@ export function DirectMessageThread({
                 </div>
                 <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-foreground/50">
                   {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  {mine && <StatusIcon status={r.status} />}
+                  {mine && r.status === 'failed' ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-0.5 text-destructive underline"
+                      onClick={() => void messenger?.retry(r.id)}
+                      aria-label="Not sent, tap to retry"
+                    >
+                      <StatusIcon status={r.status} /> Retry
+                    </button>
+                  ) : mine ? (
+                    <StatusIcon status={r.status} />
+                  ) : null}
                 </div>
               </div>
             </div>

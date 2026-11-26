@@ -39,6 +39,30 @@ function linkedMeshes(tap?: (from: string, payload: unknown) => unknown) {
   return { a: make('peer-a', 'peer-b'), b: make('peer-b', 'peer-a') };
 }
 
+
+/** A small mesh where every node links to every other; `down` drops links. */
+function hub(ids: string[]) {
+  const handlers = new Map<string, (peerId: string, payload: unknown) => void>();
+  const down = new Set<string>();
+  const meshes = new Map<string, DirectMessageMesh>();
+  for (const self of ids) {
+    meshes.set(self, {
+      getConnectedPeerIds: () => ids.filter((x) => x !== self && !down.has(x) && !down.has(self)),
+      async send(channel, peerId, payload) {
+        if (channel !== DM_CHANNEL || down.has(peerId) || down.has(self) || !ids.includes(peerId)) return false;
+        const wire = JSON.parse(JSON.stringify(payload));
+        queueMicrotask(() => handlers.get(peerId)?.(self, wire));
+        return true;
+      },
+      onMessage(channel, handler) {
+        if (channel === DM_CHANNEL) handlers.set(self, handler);
+        return () => handlers.delete(self);
+      },
+    });
+  }
+  return { mesh: (id: string) => meshes.get(id)!, down };
+}
+
 async function settle(ms = 30): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
@@ -135,5 +159,66 @@ describe('direct messages', () => {
     await alice.send('peer-b', 'after reload');
     await settle(60);
     expect((await bob.history(conversationIdFor('alice', 'bob'))).map((r) => r.text)).toEqual(['after reload']);
+  });
+  it('never re-sends earlier lines to another link claiming the same user', async () => {
+    const net = hub(['peer-a', 'peer-b', 'peer-x']);
+    const storeA = memoryStore();
+    const alice = new DirectMessenger(net.mesh('peer-a'), storeA, { userId: 'alice', displayName: 'Alice' });
+    const bob = new DirectMessenger(net.mesh('peer-b'), memoryStore(), { userId: 'bob', displayName: 'Bob' });
+    const mallory = new DirectMessenger(net.mesh('peer-x'), memoryStore(), { userId: 'bob', displayName: 'Bob' });
+    const malloryStore = (mallory as unknown as { store: ReturnType<typeof memoryStore> }).store;
+    alice.start();
+    bob.start();
+    mallory.start();
+    await alice.connect('peer-b');
+    await settle();
+    net.down.add('peer-b');
+    const line = await alice.send('peer-b', 'for bob only');
+    await settle();
+    expect((await storeA.get(line!.id))?.status).toBe('failed');
+
+    // Another link says hello as "bob".
+    await mallory.connect('peer-a');
+    await settle(60);
+    expect(malloryStore.rows.size).toBe(0);
+  });
+
+  it('re-sends a failed line once the same link comes back', async () => {
+    const net = hub(['peer-a', 'peer-b']);
+    const storeA = memoryStore();
+    const alice = new DirectMessenger(net.mesh('peer-a'), storeA, { userId: 'alice', displayName: 'Alice' });
+    const bob = new DirectMessenger(net.mesh('peer-b'), memoryStore(), { userId: 'bob', displayName: 'Bob' });
+    alice.start();
+    bob.start();
+    await alice.connect('peer-b');
+    await settle();
+    net.down.add('peer-b');
+    const line = await alice.send('peer-b', 'while offline');
+    await settle();
+    expect((await storeA.get(line!.id))?.status).toBe('failed');
+
+    net.down.delete('peer-b');
+    await alice.refresh('peer-b');
+    await settle(60);
+    expect((await storeA.get(line!.id))?.status).toBe('delivered');
+    expect((await bob.history(conversationIdFor('alice', 'bob'))).map((r) => r.text)).toEqual(['while offline']);
+  });
+
+  it('retries a failed line on request', async () => {
+    const net = hub(['peer-a', 'peer-b']);
+    const storeA = memoryStore();
+    const alice = new DirectMessenger(net.mesh('peer-a'), storeA, { userId: 'alice', displayName: 'Alice' });
+    const bob = new DirectMessenger(net.mesh('peer-b'), memoryStore(), { userId: 'bob', displayName: 'Bob' });
+    alice.start();
+    bob.start();
+    await alice.connect('peer-b');
+    await settle();
+    net.down.add('peer-b');
+    const line = await alice.send('peer-b', 'retry me');
+    await settle();
+    net.down.delete('peer-b');
+    await alice.retry(line!.id);
+    await settle();
+    expect((await storeA.get(line!.id))?.status).toBe('delivered');
   });
 });

@@ -243,7 +243,11 @@ export class DirectMessenger {
    */
   async connect(peerId: string, timeoutMs = 8_000): Promise<DirectPeerSession | null> {
     const existing = this.sessions.get(peerId);
-    if (existing) return publicSession(existing);
+    if (existing) {
+      // Refresh: the peer answers, and any line still waiting is re-sent.
+      void this.refresh(peerId);
+      return publicSession(existing);
+    }
     const wait = new Promise<DirectPeerSession | null>((resolve) => {
       const list = this.sessionWaiters.get(peerId) ?? [];
       list.push(resolve);
@@ -258,6 +262,28 @@ export class DirectMessenger {
     });
     await this.sendHello(peerId, false);
     return wait;
+  }
+
+  /**
+   * Re-handshake with a peer we already hold a session with (e.g. its link
+   * just came back). Our hello makes it re-send its pending lines; its reply
+   * makes us re-send ours.
+   */
+  async refresh(peerId: string): Promise<void> {
+    if (!this.sessions.has(peerId)) return;
+    await this.sendHello(peerId, false);
+  }
+
+  /** Re-send one of our lines that was not delivered. */
+  async retry(id: string): Promise<void> {
+    const r = await this.store.get(id);
+    if (!r || r.senderId !== this.identity.userId || r.status === 'delivered' || r.status === 'read') return;
+    const session = this.sessions.get(r.peerId);
+    if (!session || session.conversationId !== r.conversationId) {
+      await this.connect(r.peerId);
+      return;
+    }
+    await this.transmit(session, r);
   }
 
   async history(conversationId: string): Promise<DirectMessageRecord[]> {
@@ -455,7 +481,7 @@ export class DirectMessenger {
     // Answer an opening hello so the other side derives the same key; never
     // answer a reply, or two peers would bounce hellos forever.
     if (!hello.reply) await this.sendHello(peerId, true);
-    if (changed) await this.resendUndelivered(peerId);
+    await this.resendUndelivered(peerId);
   }
 
   /** Re-seal and re-send our lines the peer has not acknowledged yet. */
@@ -463,13 +489,15 @@ export class DirectMessenger {
     const session = this.sessions.get(peerId);
     if (!session) return;
     const rows = await this.history(session.conversationId);
+    // Only to the link each line was addressed to. A hello only claims a
+    // user id; it does not prove it, so a different link announcing the
+    // same user never receives earlier lines without the user choosing to
+    // send to it.
     const pending = rows
-      .filter((r) => r.senderId === this.identity.userId && (r.status === 'sending' || r.status === 'sent' || r.status === 'failed'))
+      .filter((r) => r.senderId === this.identity.userId && r.peerId === peerId
+        && (r.status === 'sending' || r.status === 'sent' || r.status === 'failed'))
       .slice(-RESEND_LIMIT);
-    for (const r of pending) {
-      const record = r.peerId === peerId ? r : { ...r, peerId };
-      await this.transmit(session, record);
-    }
+    for (const r of pending) await this.transmit(session, r);
   }
 
   private async onMsg(peerId: string, msg: Extract<Wire, { kind: 'msg' }>): Promise<void> {

@@ -64,11 +64,28 @@ export function NetworkChatHost(): JSX.Element | null {
     } catch {
       return;
     }
-    return messenger.subscribe((e) => {
+    const offDm = messenger.subscribe((e) => {
       if (e.type === 'message' && e.record.senderId !== userId) {
         chirpForRemoteLine({ id: e.record.id, peerId: e.record.peerId, authorId: e.record.senderId });
       }
     });
+    // A link that comes back re-handshakes, so lines that failed while it
+    // was down are re-sent in both directions.
+    let offPeers = () => {};
+    try {
+      let known = new Set<string>(getSwarmMeshStandalone().getConnectedPeerIds());
+      offPeers = getSwarmMeshStandalone().onPeersChange(() => {
+        const now = new Set(getSwarmMeshStandalone().getConnectedPeerIds());
+        for (const peerId of now) if (!known.has(peerId)) void messenger.refresh(peerId);
+        known = now;
+      });
+    } catch {
+      /* mesh not available */
+    }
+    return () => {
+      offDm();
+      offPeers();
+    };
   }, [userId, displayName, identityKey]);
 
   if (!open || !user || isBrainScene) return null;
