@@ -40,6 +40,12 @@ export interface ToolSpec {
   height: number;
   /** Rough head aspect (length / thickness). Sharper > 6, blunter < 2. */
   headAspect: number;
+  /**
+   * Chips ore out of its host rock instead of striking the metal itself,
+   * so it works an ore vein (an `EarthShell` with `workDensity`) at the
+   * host rock's resistance. Only the Prospector's Pick has it.
+   */
+  oreVeins?: boolean;
 }
 
 export interface ToolDerived {
@@ -175,6 +181,22 @@ const SPECS: ToolSpec[] = [
     headAspect: 4.5,
   },
   {
+    // Bought from the Market for SWARM or Credits (`toolPurchases.ts`).
+    // An iron-tipped pick that chips gold out of the vein's host rock:
+    // the only tool that can work the Gold Vein.
+    id: 'tool_pick_prospector',
+    label: "Prospector's Pick",
+    actionKind: 'mine',
+    parts: [
+      { role: 'handle',  symbol: 'C',  count: 13 },
+      { role: 'head',    symbol: 'Fe', count: 6 },
+      { role: 'binding', symbol: 'C',  count: 3 },
+    ],
+    width: 0.12, depth: 0.04, height: 0.72,
+    headAspect: 6.0,
+    oreVeins: true,
+  },
+  {
     // Boundary marker — a stake (handle) with a pennant (head) tied on.
     // It never strikes; holding it claims land block by block.
     id: 'tool_boundary_marker',
@@ -221,6 +243,8 @@ export const STONE_HAND_TOOL_IDS: ReadonlySet<string> = new Set([
   'tool_axe_stone',
   'tool_shovel_stone',
   'tool_pick_stone',
+  // Not stone, but held the same way: it goes straight into the hand.
+  'tool_pick_prospector',
 ]);
 
 export function isStoneHandTool(id: string | null | undefined): boolean {

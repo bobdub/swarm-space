@@ -39,6 +39,8 @@ import {
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { subscribeHarvested } from '@/lib/remix/harvestedInventory';
 import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
+import { ToolPurchaseCard } from '@/components/brain/builder/ToolPurchaseCard';
+import { ownsTool, TOOL_PURCHASE_EVENT } from '@/lib/world/toolPurchases';
 import { subscribeMintedPrefabs, type MintedRecord } from '@/lib/remix/mintedPrefabsStore';
 import { subscribeForgedTools, type ForgedToolRecord } from '@/lib/brain/toolMintStore';
 import { labUrlFor } from '@/lib/remix/labProjectBridge';
@@ -98,6 +100,9 @@ export function BuilderInventory({
   // Honey, eggs, chickens, fish, sharks and gems: gathered goods that are not building materials.
   const [goods, setGoods] = useState(() => gatheredGoodTotals());
   useEffect(() => subscribeHarvested(() => setGoods(gatheredGoodTotals())), []);
+  // Market tools (a `priceSwarm` prefab) this player has bought.
+  const [owned, setOwned] = useState<Record<string, boolean>>({});
+  const [buying, setBuying] = useState<Prefab | null>(null);
 
   // Escape closes the panel.
   useEffect(() => {
@@ -141,9 +146,26 @@ export function BuilderInventory({
     return out;
   }, [mints, forged, projectId]);
 
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    const refresh = () => {
+      const sold = items.filter((p) => p.priceSwarm);
+      void Promise.all(sold.map(async (p) => [p.id, await ownsTool(selfId, p.id).catch(() => false)] as const))
+        .then((rows) => { if (live) setOwned(Object.fromEntries(rows)); });
+    };
+    refresh();
+    window.addEventListener(TOOL_PURCHASE_EVENT, refresh);
+    return () => { live = false; window.removeEventListener(TOOL_PURCHASE_EVENT, refresh); };
+  }, [open, items, selfId]);
+
   if (!open) return null;
 
   const pick = (prefab: Prefab) => {
+    if (prefab.priceSwarm && !owned[prefab.id]) {
+      setBuying(prefab);
+      return;
+    }
     if (getToolAny(prefab.id)) {
       onEquipTool?.(prefab.id);
       onClose();
@@ -280,12 +302,21 @@ export function BuilderInventory({
               </div>
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(132px,1fr))] gap-2">
+                {buying && (
+                  <ToolPurchaseCard
+                    prefab={buying}
+                    userId={selfId}
+                    onBought={() => { setOwned((o) => ({ ...o, [buying.id]: true })); setBuying(null); }}
+                    onCancel={() => setBuying(null)}
+                  />
+                )}
                 {items.map((p) => (
                   <InventoryTile
                     key={p.id}
                     prefab={p}
                     totals={totals}
                     selected={builder.selectedPrefabId === p.id}
+                    owned={owned[p.id]}
                     onPick={() => pick(p)}
                   />
                 ))}
@@ -311,14 +342,20 @@ function InventoryTile({
   prefab,
   totals,
   selected,
+  owned,
   onPick,
 }: {
   prefab: Prefab;
   totals: Record<MaterialId, number>;
   selected: boolean;
+  /** For a Market tool: whether this player has bought it. */
+  owned?: boolean;
   onPick: () => void;
 }) {
   const cost = useMemo(() => prefabCostFor(prefab), [prefab]);
+  const priceLine = prefab.priceSwarm
+    ? (owned ? 'Owned' : `${prefab.priceSwarm} SWARM or Credits`)
+    : formatCost(cost);
   const afford = useMemo(() => checkAffordable(cost, totals), [cost, totals]);
   const missing = describeMissing(afford.missing);
 
@@ -329,7 +366,7 @@ function InventoryTile({
       onClick={onPick}
       data-testid={`inventory-tile-${prefab.id}`}
       data-affordable={afford.ok ? 'true' : 'false'}
-      title={afford.ok ? `${prefab.label} — ${formatCost(cost)}` : `${prefab.label} — ${missing}`}
+      title={afford.ok ? `${prefab.label} — ${priceLine}` : `${prefab.label} — ${missing}`}
       className={[
         'flex flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-center transition-all',
         afford.ok
@@ -348,7 +385,7 @@ function InventoryTile({
       />
       <span className="w-full truncate text-[12px] font-medium">{prefab.label}</span>
       <span className="w-full text-[10px] leading-tight text-muted-foreground">
-        {formatCost(cost)}
+        {priceLine}
       </span>
       {!afford.ok && (
         <span className="w-full text-[9px] leading-tight text-amber-400/90">{missing}</span>

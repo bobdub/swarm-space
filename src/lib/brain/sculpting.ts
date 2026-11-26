@@ -70,8 +70,10 @@ function actionMatchesTarget(action: Tool['actionKind'], target: ImpactTarget): 
   return false;
 }
 
-function shellResistance(shell: EarthShell): { density: number; bond: number } {
-  const density = shell.density;
+function shellResistance(shell: EarthShell, tool: Tool): { density: number; bond: number } {
+  // An ore-vein tool chips the ore out of its host rock; any other tool
+  // strikes the full density of the vein.
+  const density = tool.oreVeins && shell.workDensity != null ? shell.workDensity : shell.density;
   // Bond term: n=2/3 mineral lattices bond more strongly; n=1 loose grains less.
   const bond = shell.n === 0 ? 0
     : shell.n === 1 ? 0.3
@@ -106,7 +108,7 @@ export function applyImpact(input: ImpactInput): ImpactResult {
   let densityTerm: number;
   let bondTerm: number;
   if (target.kind === 'shell') {
-    const { density, bond } = shellResistance(target.shell);
+    const { density, bond } = shellResistance(target.shell, tool);
     densityTerm = density;
     bondTerm = bond;
   } else {

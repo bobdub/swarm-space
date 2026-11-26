@@ -52,7 +52,9 @@ describe('player swing energy', () => {
   });
 
   it('hard shells still refuse', () => {
+    // A Stone Pick still bounces off the Gold Vein: that takes the Prospector's Pick.
     expect(dig(pick, 'gold').cut).toBe(false);
+    expect(dig(pick, 'platinum').cut).toBe(false);
     expect(dig(pick, 'diamond_upper').cut).toBe(false);
     expect(dig(pick, 'lava').cut).toBe(false);
   });

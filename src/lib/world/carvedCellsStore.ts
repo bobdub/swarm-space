@@ -13,14 +13,19 @@
  */
 
 import { EARTH_RADIUS, type Vec3 } from '@/lib/brain/earth';
-import { sampleShellAt, type EarthShell } from '@/lib/brain/earthShells';
+import { EARTH_SHELLS, sampleShellAt, type EarthShell } from '@/lib/brain/earthShells';
 
 /** Arc length of one dig cell (m) — matches the builder grid pitch. */
 export const DIG_CELL_M = 2.5;
 /** Depth removed by one successful cut (m). */
 export const DIG_STEP_M = 3.4;
-/** Hard floor so a player cannot tunnel into the mantle by hand. */
-export const DIG_MAX_DEPTH_M = EARTH_RADIUS * 0.06;
+/**
+ * Hard floor: the bottom of the Gold Vein. A player can dig down through
+ * dirt, clay and bedrock to reach the gold, but not tunnel past it into the
+ * platinum and the mantle by hand.
+ */
+const GOLD_INNER_FRAC = EARTH_SHELLS.find((s) => s.id === 'gold')?.rInnerFrac ?? 0.62;
+export const DIG_MAX_DEPTH_M = EARTH_RADIUS * (1 - GOLD_INNER_FRAC) - 0.5;
 
 export interface CarvedCell {
   /** Quantised cell key (stable across sessions and peers). */

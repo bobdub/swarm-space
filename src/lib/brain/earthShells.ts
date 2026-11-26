@@ -38,6 +38,13 @@ export interface EarthShell {
   rOuterFrac: number;
   /** Bulk density, g/cm³. Contributes to — does not define — resistance. */
   density: number;
+  /**
+   * Host-rock density of an ore vein. A tool with `oreVeins` (the
+   * Prospector's Pick) chips the ore out and works against this instead of
+   * `density`; every other tool still strikes the vein's full density, so
+   * a Stone Pick cannot cut the Gold Vein (19.3).
+   */
+  workDensity?: number;
   /** Minimum head-sharpness (0..1) a tool needs to make any cut here. */
   sharpnessThreshold: number;
   /** Real elements composing this layer. Validated against elements.ts. */
@@ -147,7 +154,7 @@ const OUTER_DESCENT: Omit<EarthShell, 'side'>[] = [
   {
     id: 'gold',      label: 'Gold Vein',   n: 2,
     rInnerFrac: 0.62, rOuterFrac: 0.68,
-    density: 19.3,  sharpnessThreshold: 0.50,
+    density: 19.3,  workDensity: 2.65, sharpnessThreshold: 0.50,
     elementSymbols: ['Fe'], // gold not in elements.ts; use Fe placeholder
   },
   {

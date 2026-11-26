@@ -63,6 +63,18 @@ export interface PrefabSpec {
    * one mineral compound: its carbon stays Wood in the material cost.
    */
   compositeCost?: boolean;
+  /**
+   * Costs gathered goods instead of the cost derived from `constituents`
+   * (a Salt Rock costs Salt shovelled off the beach). Keys are
+   * `GatheredGoodId`s from `src/lib/world/materials.ts`.
+   */
+  goodCost?: Partial<Record<string, number>>;
+  /**
+   * Bought from the Market rather than built: costs this much SWARM (or
+   * the same value in Credits at the live spot rate) once, then it is the
+   * player's to pick up. No material cost. See `src/lib/world/toolPurchases.ts`.
+   */
+  priceSwarm?: number;
 }
 
 export interface PrefabDerived {
@@ -242,6 +254,18 @@ const SPECS: PrefabSpec[] = [
     width: 0.12, depth: 0.04, height: 0.70,
     yawSnapStep: Math.PI / 4,
   },
+  {
+    // Iron-tipped: the only tool that works the Gold Vein. Bought, not built.
+    id: 'tool_pick_prospector',
+    label: "Prospector's Pick",
+    sectionId: 'tools',
+    formula: 'C₁₆·Fe₆',
+    constituents: [{ symbol: 'C', count: 16 }, { symbol: 'Fe', count: 6 }],
+    density: 2.4,
+    width: 0.12, depth: 0.04, height: 0.72,
+    yawSnapStep: Math.PI / 4,
+    priceSwarm: 30,
+  },
   // Fire Pit — a ring of fieldstones. Placed from the Tools tab like any
   // build; once standing, anyone nearby can light it with gathered Wood
   // (see `src/lib/world/fireStore.ts`). All mineral, so the pit itself
@@ -277,6 +301,8 @@ const SPECS: PrefabSpec[] = [
     sectionId: 'consumables',
     formula: 'NaCl',
     constituents: [{ symbol: 'Na', count: 1 }, { symbol: 'Cl', count: 1 }],
+    // Pressed from beach salt: shovel sand on the shore to gather it.
+    goodCost: { salt: 1 },
     density: 2.16,
     width: 0.10, depth: 0.10, height: 0.08,
     yawSnapStep: Math.PI / 2,

@@ -201,6 +201,10 @@ const KIND_MAP: Record<string, { symbol: string; count: number }[]> = {
   fish:   [{ symbol: 'good:fish', count: 1 }],
   shark:  [{ symbol: 'good:shark', count: 1 }],
   chicken: [{ symbol: 'good:chicken', count: 1 }],
+  dirt:   [{ symbol: 'good:dirt', count: 1 }],
+  clay:   [{ symbol: 'good:clay', count: 1 }],
+  gold:   [{ symbol: 'good:gold', count: 1 }],
+  salt:   [{ symbol: 'good:salt', count: 1 }],
 };
 
 /** Bag keys for goods that are not elements (honey, gems). */
