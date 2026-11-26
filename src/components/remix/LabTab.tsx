@@ -88,9 +88,20 @@ export function LabTab() {
   // Leaving the Lab with an unminted drawing returns its materials.
   const compositionRef = useRef<LabComposition>({});
   compositionRef.current = composition;
-  useEffect(() => () => {
-    for (const m of LAB_MATERIALS) refundLabMaterial(m.id, compositionRef.current[m.id] ?? 0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      for (const m of LAB_MATERIALS) refundLabMaterial(m.id, compositionRef.current[m.id] ?? 0);
+    };
   }, []);
+
+  /** A failed mint/forge gives its reserved drawing back (or its materials, if the Lab closed). */
+  const releaseReserved = (reserved: LabComposition) => {
+    if (mountedRef.current) setComposition(reserved);
+    else for (const m of LAB_MATERIALS) refundLabMaterial(m.id, reserved[m.id] ?? 0);
+  };
 
   useEffect(() => subscribeLab(setStats), []);
   useEffect(() => subscribeLabMaterialStocks(setStocks), []);
@@ -144,6 +155,11 @@ export function LabTab() {
   const handleMint = async () => {
     if (!molecule || busy) return;
     setBusy('mint');
+    // Reserve the drawing's materials now: leaving or clearing the Lab while
+    // this awaits must not refund them on top of the finished asset.
+    const reserved = composition;
+    setComposition({});
+    compositionRef.current = {};
     try {
       const who = actorId();
       if (onMainBrain) {
@@ -156,9 +172,10 @@ export function LabTab() {
         title: `Minted to ${onMainBrain ? 'the Main Brain' : 'your project'}`,
         description: `${molecule.name} is ready in the Builder's Lab tab.`,
       });
-      clearDrawing(false);
+      setClearSignal((n) => n + 1);
       setName('');
     } catch (err) {
+      releaseReserved(reserved);
       console.error('[LabTab] mint failed', err);
       toast({ title: 'Mint failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
@@ -169,6 +186,11 @@ export function LabTab() {
   const handleForge = async () => {
     if (!molecule || busy) return;
     setBusy('forge');
+    // Reserve the drawing's materials now: leaving or clearing the Lab while
+    // this awaits must not refund them on top of the finished asset.
+    const reserved = composition;
+    setComposition({});
+    compositionRef.current = {};
     try {
       const rec = await forgeMoleculeAsTool({
         molecule,
@@ -180,9 +202,10 @@ export function LabTab() {
         title: 'Tool forged',
         description: `${rec.tool.label} is in your Tools and Lab tabs. Equip it to ${FORGE_TOOL_ACTIONS.find((a) => a.id === toolAction)?.label.toLowerCase()}.`,
       });
-      clearDrawing(false);
+      setClearSignal((n) => n + 1);
       setName('');
     } catch (err) {
+      releaseReserved(reserved);
       console.error('[LabTab] forge failed', err);
       toast({ title: 'Forge failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
     } finally {
