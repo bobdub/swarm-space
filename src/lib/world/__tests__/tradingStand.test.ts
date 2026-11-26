@@ -21,6 +21,7 @@ import {
   sharedStandVaultState,
   spendableStandVaultState,
   donateToStandVault,
+  donateGoodsToStand,
   standScopeFor,
   standVaultScope,
   standStock,
@@ -232,6 +233,18 @@ describe("each stand is its own market", () => {
     const stand = { placementId: 'p1', ownerId: 'owner' };
     await expect(donateToStandVault('someone', own, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Only the stand's owner/);
     await expect(donateToStandVault('owner', own, stand, { kind: 'SWARM' }, 0)).rejects.toThrow(/above zero/);
+  });
+
+  it('lets only the owner stock their stand with goods, and takes nothing from anyone else', async () => {
+    _resetHarvestedForTest();
+    recordHarvestForResource('honey', 4);
+    const own = standVaultScope('p1', 'Ada');
+    const stand = { placementId: 'p1', ownerId: 'owner' };
+    await expect(donateGoodsToStand('someone', own, stand, 'honey', 2)).rejects.toThrow(/Only the stand's owner/);
+    await expect(donateGoodsToStand('someone', own, null, 'honey', 2)).rejects.toThrow(/Only the stand's owner/);
+    // The owner of one stand can't stock another stand's vault through it.
+    await expect(donateGoodsToStand('owner', standVaultScope('p2'), stand, 'honey', 2)).rejects.toThrow(/from that stand/);
+    expect(heldGood('honey')).toBe(4);
   });
 });
 
