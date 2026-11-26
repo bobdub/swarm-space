@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
@@ -10,6 +10,9 @@ import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors
 import { useActiveTableId } from '@/lib/pub/activeTableStore';
 import { PubLeaveHold } from '@/components/pub/PubLeaveHold';
 import { BarSignArt, DonorLeaderboardBoard, BAR_SIGN_ASPECT } from '@/components/brain/BarSignage';
+import { StarChartBoard } from '@/components/brain/StarChartBoard';
+import { setIndoors } from '@/lib/brain/starHuntStore';
+import { useFrame } from '@react-three/fiber';
 
 /**
  * SurfaceBar — minimal walkable bar: four walls, a flat roof, and an
@@ -89,6 +92,15 @@ const DONOR_H = 2.8;
 export const DONOR_RIGHT = -HALF_W + 2.75;
 /** Turns the board's face (local +Z) to −forward, south into the room. */
 export const DONOR_BOARD_YAW = Math.PI;
+/**
+ * The star chart (tonight's constellation for the star hunt) hangs on the
+ * east wall's inside face, between its two sconces, facing west into the
+ * room. Read it here, then go out after dark and find the figure.
+ */
+const STARS_W = 2.4;
+const STARS_H = 3.0;
+/** Turns the chart's face (local +Z) to −right, west into the room. */
+export const STAR_CHART_YAW = -Math.PI / 2;
 
 // One pub table + 2 stools in the middle of the room.
 const TABLE_R = 0.7;
@@ -339,6 +351,9 @@ export const SurfaceBar = memo(function SurfaceBar({
   // Donor leaderboard on the back wall behind the card table, facing the door.
   const donorBlockId = `${id}:donors:${anchorPeerId}`;
   const donorBodyId = `bar-donors:${donorBlockId}`;
+  // Star chart for the star hunt, on the east wall facing into the room.
+  const starsBlockId = `${id}:stars:${anchorPeerId}`;
+  const starsBodyId = `bar-stars:${starsBlockId}`;
 
   // ── Interior lighting state ───────────────────────────────────────
   // Driven by a plain external store toggled from a DOM overlay button
@@ -455,6 +470,17 @@ export const SurfaceBar = memo(function SurfaceBar({
       basin: 0,
       meta: { width: DONOR_W, height: DONOR_H },
     });
+    engine.placeBlock({
+      id: starsBlockId,
+      kind: 'bar-stars',
+      anchorPeerId,
+      rightOffset: rightOffset + HALF_W - WALL_T / 2 - 0.08,
+      forwardOffset,
+      upOffset: 2.0,
+      mass: 4,
+      basin: 0,
+      meta: { width: STARS_W, height: STARS_H },
+    });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
@@ -462,8 +488,9 @@ export const SurfaceBar = memo(function SurfaceBar({
       engine.removeBlock(signBlockId, 'bar-sign');
       engine.removeBlock(outSignBlockId, 'bar-sign');
       engine.removeBlock(donorBlockId, 'bar-donors');
+      engine.removeBlock(starsBlockId, 'bar-stars');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, outSignBlockId, donorBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, outSignBlockId, donorBlockId, starsBlockId]);
 
   return (
     <>
@@ -487,6 +514,7 @@ export const SurfaceBar = memo(function SurfaceBar({
       <BuilderBlockView bodyId={roofBodyId}>
         {() => (
           <group>
+            <IndoorsProbe />
             {/* Flat roof slab */}
             <mesh position={[0, 0, 0]} castShadow receiveShadow>
               <boxGeometry args={[HALF_W * 2 + WALL_T, 0.3, HALF_D * 2 + WALL_T]} />
@@ -788,9 +816,34 @@ export const SurfaceBar = memo(function SurfaceBar({
           </group>
         )}
       </BuilderBlockView>
+      <BuilderBlockView bodyId={starsBodyId}>
+        {() => (
+          <group rotation={[0, STAR_CHART_YAW, 0]}>
+            <StarChartBoard width={STARS_W} height={STARS_H} />
+          </group>
+        )}
+      </BuilderBlockView>
     </>
   );
 });
 
 // Silence unused-import warning when tree-shaking removes THREE.
 void THREE;
+
+/**
+ * Tells the star hunt whether the camera is under the bar's roof (you can't
+ * find stars through it). Lives in the roof block's local frame: origin at
+ * the roof's centre, x = right, z = forward, y = up.
+ */
+function IndoorsProbe() {
+  const ref = useRef<THREE.Group>(null);
+  const local = useMemo(() => new THREE.Vector3(), []);
+  useFrame(({ camera }) => {
+    if (!ref.current) return;
+    local.copy(camera.position);
+    ref.current.worldToLocal(local);
+    setIndoors(Math.abs(local.x) < HALF_W + WALL_T && Math.abs(local.z) < HALF_D + WALL_T && local.y < 0);
+  });
+  useEffect(() => () => setIndoors(false), []);
+  return <group ref={ref} />;
+}

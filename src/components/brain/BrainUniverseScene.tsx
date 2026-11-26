@@ -64,6 +64,7 @@ import { needsBoomClearance } from '@/lib/brain/cameraClearance';
 import { PortalDefect } from '@/components/brain/PortalDefect';
 import { StarField } from '@/components/brain/StarField';
 import { Constellations } from '@/components/brain/Constellations';
+import { StarHuntHud } from '@/components/brain/StarHuntHud';
 import { GalaxyVisual } from '@/components/brain/GalaxyVisual';
 import { EarthBody } from '@/components/brain/EarthBody';
 import { AtmosphereSky } from '@/components/brain/AtmosphereSky';
@@ -2659,6 +2660,9 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           </div>
         </div>
       </div>
+
+      {/* Star hunt: hold ring + find toast (constellations in the sky). */}
+      <StarHuntHud />
 
       {/* 3-D scene */}
       {ready && <Canvas
