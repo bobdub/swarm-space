@@ -42,10 +42,12 @@ interface CrewState {
   /** Boat-frame (x, z) of a station with more than one place (rods). */
   spot: [number, number] | null;
   input: CrewInput;
-  /** Metres rowed since the last Food was spent. */
+  /**
+   * Metres rowed and not yet paid for. A serving worth more than the leg
+   * it pays for (a cooked meal) leaves this negative: metres already paid
+   * for, which the oars may still row with an empty bag.
+   */
   rowedSinceFood: number;
-  /** Metres the last serving eaten is worth (the current leg's length). */
-  legMetres: number;
   outOfFood: boolean;
 }
 
@@ -56,7 +58,6 @@ const state: CrewState = {
   spot: null,
   input: { wheel: 0, sail: 0, row: 0, rowTurn: 0 },
   rowedSinceFood: 0,
-  legMetres: ROW_METRES_PER_FOOD,
   outOfFood: false,
 };
 
@@ -174,7 +175,8 @@ export function setFoodPurse(p: FoodPurse | null): void {
 
 /** Can the rower pull right now? Updates the out-of-food flag. */
 export function canRow(): boolean {
-  const ok = purse ? purse.has() : false;
+  // Metres already paid for by a cooked meal count as food in hand.
+  const ok = state.rowedSinceFood < 0 || (purse ? purse.has() : false);
   if (state.outOfFood !== !ok) {
     state.outOfFood = !ok;
     emit();
@@ -190,23 +192,22 @@ function servingMetres(spent: boolean | number): number {
 }
 
 /**
- * Account for `metres` the boat moved under this rower's stroke. Eats a
- * serving each time the tally passes the current leg; the serving eaten
- * sets how long the next leg is (a cooked meal lasts longer than raw
- * Food). Returns false once a spend fails (out of food).
+ * Account for `metres` the boat moved under this rower's stroke. Each time
+ * the unpaid tally reaches `ROW_METRES_PER_FOOD` a serving is eaten and
+ * its metres are taken off the tally: raw Food pays for exactly that leg,
+ * a cooked meal pays for it and leaves metres in hand for the legs after.
+ * Returns false once a spend fails (out of food).
  */
 export function chargeRowing(metres: number): boolean {
   state.rowedSinceFood += Math.max(0, metres);
-  while (state.rowedSinceFood >= state.legMetres) {
-    state.rowedSinceFood -= state.legMetres;
-    const leg = purse ? servingMetres(purse.spendOne()) : 0;
-    if (leg <= 0) {
+  while (state.rowedSinceFood >= ROW_METRES_PER_FOOD) {
+    const served = purse ? servingMetres(purse.spendOne()) : 0;
+    if (served <= 0) {
       state.rowedSinceFood = 0;
-      state.legMetres = ROW_METRES_PER_FOOD;
       if (!state.outOfFood) { state.outOfFood = true; emit(); }
       return false;
     }
-    state.legMetres = leg;
+    state.rowedSinceFood -= served;
   }
   return true;
 }
@@ -218,7 +219,6 @@ export function _resetCrewForTest(): void {
   state.spot = null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   state.rowedSinceFood = 0;
-  state.legMetres = ROW_METRES_PER_FOOD;
   state.outOfFood = false;
   purse = null;
   mastHold = null;

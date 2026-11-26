@@ -18,7 +18,7 @@
  * localStorage so a reload mid-cook does not lose the food.
  */
 import { getHarvested, recordHarvest, spendHarvested } from '@/lib/remix/harvestedInventory';
-import { isFireLit, litThrough } from '@/lib/world/fireStore';
+import { burnUntil, isFireLit, litThrough } from '@/lib/world/fireStore';
 
 export type RawFoodId = 'egg' | 'fish' | 'chicken' | 'shark';
 export type CookedFoodId = 'cooked_egg' | 'cooked_fish' | 'cooked_chicken' | 'cooked_shark';
@@ -113,6 +113,13 @@ export interface GrillJob {
   raw: RawFoodId;
   startedAt: number;
   doneAt: number;
+  /**
+   * The fire is known to have burned without a break from `startedAt` to
+   * here (ms). Kept on the job, so the outcome does not depend on fuel
+   * facts that may be pruned before the job is settled (after a long
+   * time away).
+   */
+  coveredUntil?: number;
 }
 
 export type GrillOutcome = 'cooked' | 'cold';
@@ -146,7 +153,8 @@ function isJob(v: unknown): v is GrillJob {
     && BY_RAW.has(j.raw)
     && Number.isFinite(j.startedAt)
     && Number.isFinite(j.doneAt)
-    && j.doneAt >= j.startedAt;
+    && j.doneAt >= j.startedAt
+    && (j.coveredUntil === undefined || Number.isFinite(j.coveredUntil));
 }
 
 function hydrate(): void {
@@ -200,6 +208,9 @@ export function startCooking(pitId: string, raw: string, now = Date.now()): Star
     raw: food.raw,
     startedAt: now,
     doneAt: now + food.cookMs,
+    // Fuel already on the fire can't be taken back, so it burns at least
+    // until its current end.
+    coveredUntil: burnUntil(pitId),
   };
   jobs.set(job.id, job);
   persist();
@@ -216,12 +227,19 @@ export function startCooking(pitId: string, raw: string, now = Date.now()): Star
 export function settleGrill(now = Date.now()): GrillResult[] {
   hydrate();
   const results: GrillResult[] = [];
+  let coverageGrew = false;
   for (const job of [...jobs.values()]) {
     const food = BY_RAW.get(job.raw);
     if (!food) { jobs.delete(job.id); continue; }
+    // Wood added since the job began may have kept the fire going longer.
+    const end = burnUntil(job.pitId);
+    if (end > (job.coveredUntil ?? 0) && litThrough(job.pitId, job.startedAt, end)) {
+      job.coveredUntil = end;
+      coverageGrew = true;
+    }
     let outcome: GrillOutcome | null = null;
     if (now >= job.doneAt) {
-      outcome = litThrough(job.pitId, job.startedAt, job.doneAt) ? 'cooked' : 'cold';
+      outcome = (job.coveredUntil ?? 0) >= job.doneAt || litThrough(job.pitId, job.startedAt, job.doneAt) ? 'cooked' : 'cold';
     } else if (!isFireLit(job.pitId, now)) {
       outcome = 'cold';
     }
@@ -230,6 +248,7 @@ export function settleGrill(now = Date.now()): GrillResult[] {
     recordHarvest(goodKey(outcome === 'cooked' ? food.cooked : food.raw), 1);
     results.push({ job, outcome });
   }
+  if (coverageGrew && results.length === 0) persist();
   if (results.length > 0) {
     persist();
     notify();

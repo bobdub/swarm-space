@@ -26,6 +26,7 @@ import { TRADING_GOODS, isTradingGood } from '@/lib/world/tradingStand/pricing';
 import {
   ROW_METRES_PER_FOOD,
   _resetCrewForTest,
+  canRow,
   chargeRowing,
   setFoodPurse,
 } from '@/lib/brain/sea/crew';
@@ -88,6 +89,17 @@ describe('grill', () => {
     expect(heldRaw('egg')).toBe(1);
   });
 
+  it('still cooks when the fuel facts were pruned before settling (long time away)', () => {
+    recordHarvestForResource('fish', 1);
+    recordFuel('pit', 'a', 1, T0);
+    expect(startCooking('pit', 'fish', T0).ok).toBe(true);
+    // A day later the fire log has been pruned; the job still knows.
+    _resetFireForTest();
+    const done = settleGrill(T0 + 25 * 60 * 60_000);
+    expect(done.map((d) => d.outcome)).toEqual(['cooked']);
+    expect(heldCooked('cooked_fish')).toBe(1);
+  });
+
   it('gives the food back raw when the fire goes out mid-cook', () => {
     recordHarvestForResource('shark', 1);
     recordFuel('pit', 'a', 1, T0);
@@ -128,6 +140,23 @@ describe('cooked food and rowing', () => {
     expect(rawFood).toBe(4);
     expect(chargeRowing(ROW_METRES_PER_FOOD)).toBe(true);
     expect(rawFood).toBe(3);
+  });
+
+  it('a lone cooked meal rows its whole distance, not just one leg', () => {
+    recordHarvestForResource('shark', 1);
+    recordFuel('pit', 'a', 1, T0);
+    startCooking('pit', 'shark', T0);
+    settleGrill(T0 + cookableFor('shark')!.cookMs);
+    setFoodPurse({ has: () => heldCooked('cooked_shark') > 0, spendOne: () => eatCookedServing() });
+    const steak = cookableFor('shark')!.rowMetres;
+    let rowed = 0;
+    while (canRow() && rowed < 10_000) {
+      if (!chargeRowing(1)) break;
+      rowed += 1;
+    }
+    // The first 60 m eat the steak; it carries the oars the rest of its way.
+    expect(rowed).toBe(steak);
+    expect(heldCooked('cooked_shark')).toBe(0);
   });
 
   it('eats the smallest cooked meal first, keeping the big ones', () => {
