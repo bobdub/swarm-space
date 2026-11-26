@@ -215,6 +215,14 @@ function setupMesh() {
   return { mesh, h, connect, conns, transport };
 }
 
+const hello = (from: string, ack = false) => JSON.stringify({ type: 'relay-hello', from, ...(ack ? { ack: true } : {}) });
+
+/** Let the stall fire and the peer answer over the relay. */
+async function stallAndAnswer(transport: ReturnType<typeof mockTransport>, peerId: string) {
+  await vi.advanceTimersByTimeAsync(DIAL_STALL_MS);
+  transport.deliver(peerId, hello(peerId, true));
+}
+
 describe('mesh relay fallback', () => {
   beforeEach(() => { localStorage.clear(); vi.useFakeTimers(); });
   afterEach(() => vi.useRealTimers());
@@ -225,9 +233,15 @@ describe('mesh relay fallback', () => {
     expect(mesh.isPeerRelayed('peer-b')).toBe(false);
 
     await vi.advanceTimersByTimeAsync(DIAL_STALL_MS);
+    expect(h.logStalledCandidatePairs).toHaveBeenCalled();
+    // Knocked over the relay, but not "connected" until they answer.
+    expect(transport.sent.some(([, to, raw]) => to === 'peer-b' && String(raw).includes('relay-hello'))).toBe(true);
+    expect(mesh.isPeerRelayed('peer-b')).toBe(false);
+    transport.deliver('peer-b', hello('peer-b'));
     expect(mesh.isPeerRelayed('peer-b')).toBe(true);
     expect(mesh.getRelayedPeerIds()).toEqual(['peer-b']);
-    expect(h.logStalledCandidatePairs).toHaveBeenCalled();
+    // A first knock is answered once (ack), so their side confirms too.
+    expect(transport.sent.some(([, to, raw]) => to === 'peer-b' && String(raw).includes('"ack":true'))).toBe(true);
 
     expect(await mesh.send('webrtc-signal', 'peer-b', { msgType: 'chat-message', roomId: 'r', data: 'hi' })).toBe(true);
     expect(transport.sent.at(-1)?.[0]).toBe(MESH_RELAY_CHANNEL);
@@ -247,7 +261,7 @@ describe('mesh relay fallback', () => {
     const changes: string[][] = [];
     mesh.onRelayChange(ids => changes.push(ids));
     h.dialPeer('peer-b', 'manual');
-    await vi.advanceTimersByTimeAsync(DIAL_STALL_MS);
+    await stallAndAnswer(transport, 'peer-b');
     expect(mesh.isPeerRelayed('peer-b')).toBe(true);
 
     conns[0].open = true;
@@ -278,8 +292,7 @@ describe('mesh relay fallback', () => {
     const handled = vi.fn();
     h.handleMessage = handled;
     h.dialPeer('peer-b', 'manual');
-    await vi.advanceTimersByTimeAsync(DIAL_STALL_MS);
-    await vi.advanceTimersByTimeAsync(0);
+    await stallAndAnswer(transport, 'peer-b');
 
     const chat = JSON.stringify({ type: 'channel:webrtc-signal', payload: { msgType: 'chat-message' }, from: 'peer-b' });
     transport.deliver('peer-b', chat);
@@ -289,11 +302,35 @@ describe('mesh relay fallback', () => {
     expect(handled).toHaveBeenCalledWith('peer-b', chat);
   });
 
-  it('ICE failure on a new dial starts the relay right away', () => {
-    const { mesh, h, conns } = setupMesh();
+  it('ICE failure on a new dial starts the relay right away', async () => {
+    const { mesh, h, conns, transport } = setupMesh();
     h.dialPeer('peer-b', 'manual');
     conns[0].emit('error', Object.assign(new Error('Negotiation failed'), { type: 'negotiation-failed' }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(transport.sent.some(([, to]) => to === 'peer-b')).toBe(true);
+    transport.deliver('peer-b', hello('peer-b', true));
     expect(mesh.isPeerRelayed('peer-b')).toBe(true);
+  });
+
+  it('never reports an unanswered relay route as connected', async () => {
+    const { mesh, h } = setupMesh();
+    h.dialPeer('peer-offline', 'manual');
+    await vi.advanceTimersByTimeAsync(DIAL_STALL_MS * 3);
+    expect(mesh.isPeerRelayed('peer-offline')).toBe(false);
+    expect(mesh.getRelayedPeerIds()).toEqual([]);
+  });
+
+  it('drops the watch when signaling reports the peer unavailable', async () => {
+    const { mesh, h, transport } = setupMesh();
+    const handlers = new Map<string, (err: unknown) => void>();
+    const peerObj = h.peer as { on?: unknown };
+    peerObj.on = (event: string, fn: (err: unknown) => void) => { handlers.set(event, fn); };
+    (mesh as unknown as { setupPeerHandlers(p: unknown): void }).setupPeerHandlers(peerObj);
+    h.dialPeer('peer-abc123', 'manual');
+    handlers.get('error')?.(Object.assign(new Error('Could not connect to peer peer-abc123'), { type: 'peer-unavailable' }));
+    await vi.advanceTimersByTimeAsync(DIAL_STALL_MS * 2);
+    transport.deliver('peer-abc123', hello('peer-abc123', true));
+    expect(mesh.isPeerRelayed('peer-abc123')).toBe(false);
   });
 });
 

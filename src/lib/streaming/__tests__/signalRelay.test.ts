@@ -123,3 +123,43 @@ describe('newcomer reachable only through a node outside the room', () => {
     expect(x.sent.filter((s) => s.to === 'A')).toHaveLength(0);
   });
 });
+
+describe('relay edges (stalled same-Wi-Fi dial)', () => {
+  function relayMesh(id: string, connected: string[], relayed: string[]) {
+    const sent: Sent[] = [];
+    let handler: ((from: string, p: unknown) => void) | null = null;
+    const reach = [...connected, ...relayed];
+    const mesh = {
+      broadcast: () => {},
+      send: async (_c: string, to: string, payload: unknown) => {
+        if (!reach.includes(to)) return false;
+        sent.push({ to, payload: payload as Record<string, unknown> });
+        return true;
+      },
+      onMessage: (c: string, h: (from: string, p: unknown) => void) => { if (c !== 'webrtc-signal') return () => {}; handler = h; return () => { handler = null; }; },
+      getConnectedPeerIds: () => connected,
+      getRelayedPeerIds: () => relayed,
+      getPeerId: () => id,
+    };
+    return { mesh, sent, deliver: (from: string, p: unknown) => handler?.(from, p) };
+  }
+
+  it('B forwards A’s room chat to C, whom it reaches only over the relay', async () => {
+    const b = relayMesh('B', ['A'], ['C']);
+    startSignalingBridge(b.mesh as never);
+    announceJoinRoom('r', 'uB', 'B');
+    b.sent.length = 0;
+    b.deliver('A', { msgType: 'chat-message', from: 'A', roomId: 'r', data: { id: 'm1', text: 'hi' }, ts: 9 });
+    await Promise.resolve();
+    expect(b.sent.some((s) => s.to === 'C' && s.payload.msgType === 'chat-message' && s.payload.hops === 1)).toBe(true);
+    announceLeaveRoom('r');
+  });
+
+  it('B passes a directed room-sync from A on to relayed C', async () => {
+    const b = relayMesh('B', ['A'], ['C']);
+    startSignalingBridge(b.mesh as never);
+    b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'C', roomId: 'r', participants: ['A', 'C'], ts: 10 });
+    await Promise.resolve();
+    expect(b.sent.some((s) => s.to === 'C' && s.payload.msgType === 'room-sync')).toBe(true);
+  });
+});

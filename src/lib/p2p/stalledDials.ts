@@ -47,6 +47,8 @@ export interface RelayRoute {
   since: number;
   lastRelayAt: number;
   reason: StallReason;
+  /** First time the peer answered over the relay; null until then. */
+  confirmedAt: number | null;
 }
 
 export class StalledDialTracker {
@@ -88,10 +90,23 @@ export class StalledDialTracker {
     this.stopWatching(peerId);
   }
 
-  /** Traffic crossed the relay for this peer: keep the route alive. */
-  noteRelayActivity(peerId: string): void {
+  /**
+   * The peer's traffic arrived over the relay: keep the route alive. Returns
+   * true the first time, when the route becomes confirmed (the peer is really
+   * there), which is what "Connected (relay)" requires.
+   */
+  noteRelayActivity(peerId: string): boolean {
     const route = this.routes.get(peerId);
-    if (route) route.lastRelayAt = this.deps.now();
+    if (!route) return false;
+    route.lastRelayAt = this.deps.now();
+    if (route.confirmedAt !== null) return false;
+    route.confirmedAt = route.lastRelayAt;
+    return true;
+  }
+
+  /** The route exists and the peer has answered over it. */
+  isConfirmed(peerId: string): boolean {
+    return (this.routes.get(peerId)?.confirmedAt ?? null) !== null;
   }
 
   /** Drop a peer's route (goodbye, block). */
@@ -150,7 +165,7 @@ export class StalledDialTracker {
     if (this.deps.isConnected(peerId)) return;
     if (this.routes.has(peerId)) return;
     const t = this.deps.now();
-    this.routes.set(peerId, { peerId, since: t, lastRelayAt: t, reason });
+    this.routes.set(peerId, { peerId, since: t, lastRelayAt: t, reason, confirmedAt: null });
     this.deps.onStall(peerId, reason);
   }
 }

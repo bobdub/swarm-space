@@ -2598,6 +2598,9 @@ export class StandaloneSwarmMesh {
           // out the pending-dial timeout.
           this.clearPendingDial(match[1]);
           this.recordHandshakeFailure(match[1]);
+          // Signaling says they are not there: no stall, no relay route.
+          this.dialConns.delete(match[1]);
+          this.stallTracker.drop(match[1]);
           console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable`);
         }
         return;
@@ -4939,13 +4942,18 @@ export class StandaloneSwarmMesh {
   // RELAY FALLBACK — per peer, only for stalled NEW dials
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Peers reached over the Gun relay because their direct dial stalled ("Connected (relay)"). */
+  /**
+   * Peers reached over the Gun relay because their direct dial stalled and
+   * who have answered over it ("Connected (relay)"). An unanswered route is
+   * still tried for sending but is never reported as connected.
+   */
   getRelayedPeerIds(): string[] {
-    return this.stallTracker.relayedPeerIds().filter(peerId => !this.connections.has(peerId));
+    return this.stallTracker.relayedPeerIds()
+      .filter(peerId => !this.connections.has(peerId) && this.stallTracker.isConfirmed(peerId));
   }
 
   isPeerRelayed(peerId: string): boolean {
-    return this.stallTracker.isRelayed(peerId) && !this.connections.has(peerId);
+    return this.stallTracker.isConfirmed(peerId) && !this.connections.has(peerId);
   }
 
   onRelayChange(handler: (relayedPeerIds: string[]) => void): () => void {
@@ -4982,8 +4990,9 @@ export class StandaloneSwarmMesh {
     void this.logStalledCandidatePairs(peerId, reason);
     this.ensureRelayListening();
     void this.relayLink.ensureStarted(this.peerId);
+    // Knock over the relay; the route counts as connected only once they answer.
+    this.relaySend(peerId, { type: 'relay-hello', from: this.peerId });
     this.sendRelayProfile(peerId);
-    this.emitRelayChange();
   }
 
   private handleRelayRouteEnded(peerId: string, why: 'direct' | 'idle' | 'dropped'): void {
@@ -5044,7 +5053,18 @@ export class StandaloneSwarmMesh {
     let msg: { type?: unknown; payload?: unknown };
     try { msg = JSON.parse(raw); } catch { return; }
     if (!isRelayableMessage(msg)) return;
-    this.stallTracker.noteRelayActivity(from);
+    if (this.stallTracker.noteRelayActivity(from)) {
+      console.log(`[SwarmMesh] 🛰️ ${from} answered over the relay — Connected (relay)`);
+      this.emitRelayChange();
+    }
+    if (msg.type === 'relay-hello') {
+      // Answer a first knock once so their side confirms the route too.
+      if ((msg as { ack?: unknown }).ack !== true) {
+        this.relaySend(from, { type: 'relay-hello', from: this.peerId, ack: true });
+        this.sendRelayProfile(from);
+      }
+      return;
+    }
     this.handleMessage(from, raw);
   }
 

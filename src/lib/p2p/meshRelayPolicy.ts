@@ -26,6 +26,8 @@ export const RELAYABLE_SIGNAL_TYPES: ReadonlySet<string> = new Set([
 
 /** Mesh message types (top level) allowed over the relay. */
 export const RELAYABLE_MESH_TYPES: ReadonlySet<string> = new Set([
+  // Route handshake: proves the peer is really there before we say "Connected (relay)".
+  'relay-hello',
   'profile-exchange',
   // New posts and comments are pushed; inventory and request replies look up
   // a direct channel, so they wait for one.
