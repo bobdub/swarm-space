@@ -54,7 +54,6 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { SovereignSecurityPanel } from "@/components/settings/SovereignSecurityPanel";
 import { ArchiveImportModal } from "@/components/settings/ArchiveImportModal";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
-import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
 import { ExternalTimestampsPanel } from "@/components/settings/ExternalTimestampsPanel";
@@ -687,7 +686,7 @@ const Settings = () => {
                 <AccountExportModal />
                 <ArchiveImportModal />
               </Card>
-              <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
+              <StorageTargetsPanel />
               <PersonalServersPanel />
               <GroupWarePanel />
             </TabsContent>
