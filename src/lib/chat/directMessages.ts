@@ -87,6 +87,13 @@ export interface DirectMessageIdentity {
   identityKey?: string;
   /** Signs handshakes while the account is unlocked; without it hellos are unproven. */
   signer?: () => Promise<DmSigner | null>;
+  /**
+   * True while the user has manually locked their wallet. Direct messages
+   * pause entirely until it is unlocked: nothing is sent, and incoming
+   * handshakes and lines are left unacknowledged so the sender re-sends
+   * them after the unlock.
+   */
+  isLocked?: () => boolean | Promise<boolean>;
 }
 
 /** What we know about the other side of a link once it has said hello. */
@@ -270,7 +277,17 @@ export class DirectMessenger {
    * Entangle with a connected peer: say hello and resolve once both sides
    * hold the conversation key (null if the peer does not answer in time).
    */
+  /** True while direct messages are paused by a manual wallet lock. */
+  async locked(): Promise<boolean> {
+    try {
+      return Boolean(await this.identity.isLocked?.());
+    } catch {
+      return false;
+    }
+  }
+
   async connect(peerId: string, timeoutMs = 8_000): Promise<DirectPeerSession | null> {
+    if (await this.locked()) return null;
     const existing = this.sessions.get(peerId);
     if (existing) {
       // Refresh: the peer answers, and any line still waiting is re-sent.
@@ -299,8 +316,20 @@ export class DirectMessenger {
    * makes us re-send ours.
    */
   async refresh(peerId: string): Promise<void> {
-    if (!this.sessions.has(peerId)) return;
+    if (!this.sessions.has(peerId) || (await this.locked())) return;
     await this.sendHello(peerId, false);
+  }
+
+  /**
+   * After an unlock: say hello again on every connected link we hold a
+   * session with, so both sides re-send what waited while we were locked.
+   */
+  async resume(): Promise<void> {
+    if (await this.locked()) return;
+    const connected = new Set(this.mesh.getConnectedPeerIds());
+    for (const peerId of this.sessions.keys()) {
+      if (connected.has(peerId)) await this.sendHello(peerId, false);
+    }
   }
 
   /** Re-send one of our lines that was not delivered. */
@@ -333,7 +362,7 @@ export class DirectMessenger {
   /** Encrypt and send a line; it is stored first, so it survives a failed send. */
   async send(peerId: string, text: string): Promise<DirectMessageRecord | null> {
     const body = text.trim().slice(0, CHAT_MESSAGE_MAX_LENGTH);
-    if (!body) return null;
+    if (!body || (await this.locked())) return null;
     const session = this.sessions.get(peerId) ?? (await this.connect(peerId).then(() => this.sessions.get(peerId)));
     if (!session) return null;
     const me = this.identity.userId;
@@ -360,12 +389,13 @@ export class DirectMessenger {
   }
 
   async setTyping(peerId: string, typing: boolean): Promise<void> {
-    if (!this.sessions.has(peerId)) return;
+    if (!this.sessions.has(peerId) || (await this.locked())) return;
     await this.mesh.send(DM_CHANNEL, peerId, { v: WIRE_VERSION, kind: 'typing', typing }).catch(() => false);
   }
 
   /** Mark received lines in a conversation read, and tell the sender. */
   async markRead(conversationId: string): Promise<void> {
+    if (await this.locked()) return; // sealed lines have not been read
     const rows = await this.store.byConversation(conversationId);
     const unread = rows.filter((r) => r.senderId !== this.identity.userId && !r.read);
     if (unread.length === 0) return;
@@ -468,6 +498,9 @@ export class DirectMessenger {
   private async handle(peerId: string, payload: unknown): Promise<void> {
     const wire = parseWire(payload);
     if (!wire) return;
+    // Locked: take no new handshakes or lines. Without our answer or ack the
+    // sender keeps them and re-sends once we unlock and say hello again.
+    if ((wire.kind === 'hello' || wire.kind === 'msg') && (await this.locked())) return;
     switch (wire.kind) {
       case 'hello':
         return this.onHello(peerId, wire);
@@ -825,7 +858,7 @@ export function startDirectMessages(mesh: DirectMessageMesh, identity: DirectMes
   active = new DirectMessenger(
     mesh,
     createIndexedDbDirectMessageStore(createHistoryKeyring(identity.userId, signer, identity.signer ? undefined : appWalletLocked)),
-    { ...identity, signer },
+    { ...identity, signer, isLocked: identity.isLocked ?? appWalletLocked },
   );
   active.start();
   for (const l of activeListeners) l(active);
