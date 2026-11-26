@@ -45,9 +45,11 @@ import {
   newDockVessel,
   onVesselReset,
   resolveHullContact,
+  rowersAllowed,
   seaStateFor,
   type Capsule,
 } from './vessel';
+import { HELM_SPOT, OARS_SPOT } from './boatLayout';
 import { ROD_SPOTS, updateFishing } from './fishing';
 import {
   canRow,
@@ -254,10 +256,7 @@ const SAIL_RATE = 0.4;
 /** Rower silence after which their stroke is dropped (s). */
 const ROWER_TIMEOUT_S = 1;
 
-/** Helm station: just aft of the wheel, facing the bow. */
-export const HELM_SPOT: [number, number] = [0, 3.0];
-/** Oar station: on the rowing bench. */
-export const OARS_SPOT: [number, number] = [0, 1.2];
+export { HELM_SPOT, OARS_SPOT, OAR_SPOTS } from './boatLayout';
 
 export interface BodyPlace {
   x: number;
@@ -690,14 +689,21 @@ export class Fleet {
           if (mineCrew === 'helm' && input.sail !== 0) {
             v.cmd.sail = approach(v.cmd.sail, input.sail > 0 ? 1 : 0, SAIL_RATE, dt);
           }
-          let row = 0;
-          let turn = 0;
+          // Every rower's stroke adds up, as many as the sea lets keep
+          // time together (all the benches on a calm day, one in a gale).
+          const strokes: { s: number; tn: number }[] = [];
           if (mineCrew === 'oars' && (Math.abs(input.row) > 0.05 || Math.abs(input.rowTurn) > 0.05) && canRow()) {
-            row += input.row; turn += input.rowTurn;
+            strokes.push({ s: input.row, tn: input.rowTurn });
           }
           for (const [peer, s] of b.rowers) {
             if (t - s.at > ROWER_TIMEOUT_S) { b.rowers.delete(peer); continue; }
-            row += s.s; turn += s.tn;
+            strokes.push(s);
+          }
+          let row = 0;
+          let turn = 0;
+          for (const s of strokes.slice(0, rowersAllowed(v.sea))) {
+            row += Math.max(-1, Math.min(1, s.s));
+            turn += Math.max(-1, Math.min(1, s.tn));
           }
           v.cmd.row = row;
           v.cmd.rowTurn = turn;
@@ -735,7 +741,7 @@ export class Fleet {
         let x = a.x;
         let z = a.z;
         const pinned = !!role && crewKey === b.key && a.id === selfId;
-        if (pinned) [x, z] = role === 'helm' ? HELM_SPOT : role === 'oars' ? OARS_SPOT : getCrewSpot() ?? ROD_SPOTS[0];
+        if (pinned) [x, z] = role === 'helm' ? HELM_SPOT : getCrewSpot() ?? (role === 'oars' ? OARS_SPOT : ROD_SPOTS[0]);
         if (!pinned && !moved) continue;
         const rx = body.pos[0] - pose.center[0];
         const ry = body.pos[1] - pose.center[1];

@@ -7,12 +7,19 @@ Status: **live** in the Brain world. The full design and build history is in
 
 - **The jetty.** A wooden jetty runs out from the village island on the side
   away from the volcano, with a boat moored alongside.
+- **The boat.** 11 m long and 3.8 m in the beam. Bow to stern: two rod
+  holders, the mast, a gate each side midships, three rowing benches, the
+  wheel and the stern ladder. An aisle runs down the middle for walking.
 - **Boarding.** On the jetty beside the boat, hold the ring ("Hold to
   board"), or walk in through a gate midships. From the water, swim to the
   stern ladder or a gate and hold "Hold to climb aboard".
-- **A party of 10.** A boat takes ten people at most, crew included. Once
-  she is full the ring says "Boat is full" and the gates shut to anyone
-  coming aboard. People already aboard can still walk off or jump.
+- **A party of 12.** A boat takes twelve people at most, crew included,
+  with room for all of them to move about. Once she is full the ring says
+  "Boat is full" and the gates shut to anyone coming aboard.
+- **Staying aboard.** The rail is waist high and holds you even mid-jump.
+  A gate only opens onto something you can step onto: the jetty, another
+  boat's deck alongside, or a beach. Out at sea both gates stay shut. To get
+  into the sea on purpose, go down the stern ladder.
 - **Your own boat.** Take the wheel or the oars of the boat at the jetty
   and she becomes yours. A fresh boat appears at the berth once yours is
   clear of it. You can't claim another while your old boat has people
@@ -33,9 +40,15 @@ Status: **live** in the Brain world. The full design and build history is in
   sail down so the wind can't drive her straight back on; then turn her and
   raise the sail. At the oars you can also row astern, and the oars can turn
   her where she lies.
-- **Rowing** (oars, at the bench):
+- **Rowing** (oars, at a bench):
+  - Three benches seat a rower each side, so six can row at once. Hold
+    "Take oars" by any free oar place.
   - W/S row ahead or back; A/D turn.
-  - The boat makes about 2 m/s.
+  - One rower makes about 2 m/s; every extra stroke adds to it.
+  - On a calm day (sea state up to 1.6, a calm or an ordinary breeze) all
+    six strokes count. As the swell builds, the oars catch the waves out of
+    time and fewer count, down to one rower from sea state 2.6 on. The
+    readout says "Rough sea: n oars pull" when not every bench can.
   - Rowing costs 1 Food per 60 m. With no Food the oars won't pull, and the readout says so.
   - The oars swing out when you take them and sweep with each stroke.
   - Anyone aboard can row anyone's boat; the rower pays the Food.
@@ -69,8 +82,9 @@ Status: **live** in the Brain world. The full design and build history is in
   to 2) and get shoved 2 m away, and that shark dives away for 30 s. Swing
   the Stone Knife with a shark's body within 1.5 m and it dives away for a
   minute.
-- **Swimming.** Space or the round arrow button jumps about a metre: clear
-  the rail and you're in the sea.
+- **Swimming.** Space or the round arrow button jumps about a metre. On the
+  jetty or from a gate that opens onto it, run and jump and you're in the
+  sea; from a boat at sea, take the stern ladder.
 - **Weather.** The boat feels the same wind the clouds ride. The swell
   builds with the wind and more under rain, from gentle in a calm to about
   3.5× in a squall. It builds and lies down over several seconds, and the
@@ -99,8 +113,9 @@ Status: **live** in the Brain world. The full design and build history is in
 | Piece | Where |
 | --- | --- |
 | Berth, jetty line, deck surfaces | `src/lib/brain/sea/dockSite.ts`, `deckSupport.ts` |
-| Hull shape, deck walls, gates | `boatHull.ts`, `boatDeck.ts` (`confineInBoatFrame`, `boardingShut`) |
-| Float, sea state, sailing, oars, hull contact | `vessel.ts` (`PARTY_SIZE`, `seaStateFor`, `stepMotion`, `sailFill`) |
+| Hull shape, deck walls, gates | `boatHull.ts`, `boatDeck.ts` (`confineInBoatFrame`, `boardingShut`, `gateOpen`) |
+| Where the mast, benches, oar places and helm stand | `boatLayout.ts` |
+| Float, sea state, sailing, oars, hull contact | `vessel.ts` (`PARTY_SIZE`, `rowersAllowed`, `seaStateFor`, `stepMotion`, `sailFill`) |
 | Every boat in this world, presence, dead reckoning | `fleet.ts` |
 | Hold-ring actions | `villageBoat.ts` (`boatActionFor`) |
 | Crew roles (helm, oars, rod) and Food | `crew.ts` |

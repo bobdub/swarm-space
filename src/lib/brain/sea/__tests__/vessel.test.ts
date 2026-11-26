@@ -41,18 +41,20 @@ describe('the boat floats', () => {
     expect(restSinkFor(4 * PERSON_KG)).toBeCloseTo(expected, 6);
   });
 
-  it('takes a party of 10, well inside what the hull floats', () => {
-    expect(BUOYANT_CAPACITY).toBe(48);
+  it('takes a party of 12, well inside what the hull floats', () => {
+    expect(BUOYANT_CAPACITY).toBeGreaterThan(PARTY_SIZE * 4);
     expect(freeboardFor(BUOYANT_CAPACITY)).toBeGreaterThanOrEqual(MIN_FREEBOARD);
     expect(freeboardFor(BUOYANT_CAPACITY + 1)).toBeLessThan(MIN_FREEBOARD);
     expect(BOAT_CAPACITY).toBe(PARTY_SIZE);
-    expect(PARTY_SIZE).toBe(10);
-    expect(canBoard(9)).toBe(true);
-    expect(canBoard(10)).toBe(false);
+    expect(PARTY_SIZE).toBe(12);
+    expect(canBoard(11)).toBe(true);
+    expect(canBoard(12)).toBe(false);
+    // A full party barely dents the freeboard.
+    expect(freeboardFor(PARTY_SIZE)).toBeGreaterThan(0.4);
   });
 
-  it('has a waterplane that matches a 7 m open boat', () => {
-    expect(WATERPLANE_AREA).toBeGreaterThan(8);
-    expect(WATERPLANE_AREA).toBeLessThan(16);
+  it('has a waterplane that matches an 11 m open boat', () => {
+    expect(WATERPLANE_AREA).toBeGreaterThan(22);
+    expect(WATERPLANE_AREA).toBeLessThan(36);
   });
 });
