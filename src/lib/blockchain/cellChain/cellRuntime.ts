@@ -29,7 +29,8 @@ export async function getLocalCellSigners(): Promise<CellSigners | null> {
   }
 }
 
-async function builderTransport(): Promise<{ transport: CellTransport; miningEnabled: () => boolean }> {
+/** The builder-mode connections a cell or coin chain session runs over, and its mining switch. */
+export async function builderTransport(): Promise<{ transport: CellTransport; miningEnabled: () => boolean }> {
   const { getStandaloneBuilderMode } = await import("@/lib/p2p/builderMode.standalone-archived");
   const bm = getStandaloneBuilderMode();
   return {

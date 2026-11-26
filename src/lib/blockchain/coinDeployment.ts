@@ -1,7 +1,7 @@
 /**
  * Coin Deployment System
  * ──────────────────────
- * Users can deploy their own coin (sub-chain) on the SWARM network.
+ * Each account can deploy one coin (sub-chain) on the SWARM network.
  * Cost: 10,000 SWARM total:
  *   - 5,000 SWARM locked as liquidity (gives the coin intrinsic floor value)
  *   - 5,000 SWARM sent to the community pool
@@ -31,6 +31,11 @@ export async function deployCoin(params: {
   const health = await validateMineHealth(params.userId);
   if (!health.healthy) {
     throw new Error(`MineHealth check failed: ${health.reason}`);
+  }
+
+  // One chain per account: a deployer mines and shares the chain they have.
+  if ((await getUserCoins(params.userId)).length > 0) {
+    throw new Error("You already have a chain. Each account can deploy one coin.");
   }
 
   // Validate ticker
@@ -149,6 +154,11 @@ export async function deployCoin(params: {
     window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
     window.dispatchEvent(new CustomEvent("coin-deployed", { detail: coin }));
   }
+
+  // Sign the coin's own chain genesis now, so "Start Mining my coin" is ready.
+  void import("./coinChainMining")
+    .then((m) => m.ensureOwnedCoinChain(coin))
+    .catch(() => { /* vault locked: signed when mining starts */ });
 
   console.log(
     `[CoinDeploy] 🪙 ${params.chainName} (${params.ticker}) deployed by ${params.userId} — ` +

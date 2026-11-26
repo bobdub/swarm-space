@@ -16,7 +16,8 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Link2, Rocket, AlertTriangle, CheckCircle2, Coins, Globe } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { Link2, Rocket, AlertTriangle, CheckCircle2, Coins, Globe, Pickaxe, Share2, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { getSwarmBalance } from "@/lib/blockchain/token";
@@ -24,6 +25,23 @@ import { deployCoin, getUserCoins, getActiveCoins } from "@/lib/blockchain/coinD
 import { COIN_DEPLOY_COST } from "@/lib/blockchain/types";
 import { getDeployPricing, type DeployPricing } from "@/lib/blockchain/deployPricing";
 import type { DeployedCoin } from "@/lib/blockchain/types";
+import {
+  COIN_MINING_EVENT,
+  getCoinChainStats,
+  getCoinMiningPreference,
+  setCoinMiningPreference,
+  type CoinChainStats,
+} from "@/lib/blockchain/coinChainMining";
+import {
+  acceptChainOffer,
+  COIN_OFFERS_EVENT,
+  dismissChainOffer,
+  listChainOffers,
+  shareMyChain,
+  type ChainOffer,
+} from "@/lib/blockchain/coinChainShare";
+
+const SHARE_COOLDOWN_MS = 60_000;
 
 export function CoinDeploymentPanel() {
   const { user } = useAuth();
@@ -33,6 +51,11 @@ export function CoinDeploymentPanel() {
   const [userCoins, setUserCoins] = useState<DeployedCoin[]>([]);
   const [networkCoins, setNetworkCoins] = useState<DeployedCoin[]>([]);
   const [pricing, setPricing] = useState<DeployPricing | null>(null);
+  const [miningCoinId, setMiningCoinId] = useState<string | null>(null);
+  const [chainStats, setChainStats] = useState<CoinChainStats | null>(null);
+  const [offers, setOffers] = useState<ChainOffer[]>([]);
+  const [sharing, setSharing] = useState(false);
+  const [sharedAt, setSharedAt] = useState(0);
 
   // Form state
   const [chainName, setChainName] = useState("");
@@ -52,7 +75,21 @@ export function CoinDeploymentPanel() {
     void loadData();
 
     const interval = setInterval(() => void loadData(), 15000);
-    return () => clearInterval(interval);
+    const refreshOffers = () => setOffers(listChainOffers(user.id));
+    const refreshMining = () => {
+      setMiningCoinId(getCoinMiningPreference(user.id));
+      void loadData();
+    };
+    const refreshCoins = () => void loadData();
+    window.addEventListener(COIN_OFFERS_EVENT, refreshOffers);
+    window.addEventListener(COIN_MINING_EVENT, refreshMining);
+    window.addEventListener("coin-deployed", refreshCoins);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener(COIN_OFFERS_EVENT, refreshOffers);
+      window.removeEventListener(COIN_MINING_EVENT, refreshMining);
+      window.removeEventListener("coin-deployed", refreshCoins);
+    };
   }, [user]);
 
   const loadData = async () => {
@@ -67,10 +104,54 @@ export function CoinDeploymentPanel() {
     setUserCoins(mine);
     setNetworkCoins(all);
     setPricing(price);
+    setOffers(listChainOffers(user.id));
+    setMiningCoinId(getCoinMiningPreference(user.id));
+    setChainStats(mine[0] ? await getCoinChainStats(mine[0].coinId, user.id) : null);
+  };
+
+  const myCoin = userCoins[0] ?? null;
+  const miningMyCoin = !!myCoin && miningCoinId === myCoin.coinId;
+
+  const handleMiningToggle = (on: boolean) => {
+    if (!user || !myCoin) return;
+    setCoinMiningPreference(user.id, on ? myCoin.coinId : null);
+    setMiningCoinId(on ? myCoin.coinId : null);
+    toast.success(on ? `Mining ${myCoin.ticker} on its own chain` : `Stopped mining ${myCoin.ticker}`);
+  };
+
+  const handleShare = async () => {
+    if (!myCoin) return;
+    setSharing(true);
+    try {
+      const sent = await shareMyChain(myCoin);
+      if (sent === 0) {
+        toast.error("No peers connected right now. Connect to the mesh, then share again.");
+      } else {
+        setSharedAt(Date.now());
+        toast.success(`Shared ${myCoin.ticker} with ${sent} peer${sent === 1 ? "" : "s"}`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't share your chain");
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  const handleAddOffer = async (coinId: string) => {
+    if (!user) return;
+    const coin = await acceptChainOffer(user.id, coinId);
+    if (coin) toast.success(`${coin.chainName} (${coin.ticker}) added to your wallet`);
+    await loadData();
+  };
+
+  const handleDismissOffer = (coinId: string) => {
+    if (!user) return;
+    dismissChainOffer(user.id, coinId);
+    setOffers(listChainOffers(user.id));
   };
 
   const handleDeploy = async () => {
-    if (!user || !formValid) return;
+    if (!user || !formValid || myCoin) return;
     setDeploying(true);
     try {
       const { coin } = await deployCoin({
@@ -101,16 +182,44 @@ export function CoinDeploymentPanel() {
       {/* Your Coins */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Globe className="h-5 w-5 text-primary" />
                 Your Chains
               </CardTitle>
               <CardDescription>
-                Chains you've deployed — each is its own sub-chain cross-linked to SWARM
+                {myCoin
+                  ? "Your chain: its own sub-chain cross-linked to SWARM. Each account deploys one."
+                  : "Deploy your chain: its own sub-chain cross-linked to SWARM. Each account deploys one."}
               </CardDescription>
             </div>
+            {myCoin ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="mine-my-coin"
+                    checked={miningMyCoin}
+                    onCheckedChange={handleMiningToggle}
+                    disabled={myCoin.status !== "active"}
+                  />
+                  <Label htmlFor="mine-my-coin" className="flex items-center gap-1.5 text-sm cursor-pointer">
+                    <Pickaxe className="h-4 w-4" />
+                    Start Mining my coin
+                  </Label>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  onClick={() => void handleShare()}
+                  disabled={sharing || Date.now() - sharedAt < SHARE_COOLDOWN_MS}
+                >
+                  <Share2 className="h-4 w-4" />
+                  {sharing ? "Sharing..." : "Share my Chain"}
+                </Button>
+              </div>
+            ) : (
             <Dialog open={deployOpen} onOpenChange={setDeployOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" className="gap-2">
@@ -226,6 +335,7 @@ export function CoinDeploymentPanel() {
                 </div>
               </DialogContent>
             </Dialog>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -245,10 +355,66 @@ export function CoinDeploymentPanel() {
               {userCoins.map((coin) => (
                 <CoinCard key={coin.coinId} coin={coin} isOwner />
               ))}
+              {myCoin && (
+                <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium text-foreground/80 flex items-center gap-1.5">
+                    <Pickaxe className="h-3.5 w-3.5" />
+                    {miningMyCoin ? `Mining ${myCoin.ticker}` : `${myCoin.ticker} mining is off`}
+                  </p>
+                  {chainStats ? (
+                    <p className="tabular-nums">
+                      Height {chainStats.height.toLocaleString()} · Mined {chainStats.supply.toLocaleString(undefined, { maximumFractionDigits: 2 })} {myCoin.ticker}
+                      {" "}· Yours {chainStats.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      {chainStats.maturing > 0 && ` (+${chainStats.maturing.toLocaleString(undefined, { maximumFractionDigits: 2 })} maturing)`}
+                    </p>
+                  ) : (
+                    <p>Your chain starts with its first block once mining is on and your wallet is unlocked.</p>
+                  )}
+                  <p>One block per 30-second beat while this app is open, under the SWARM chain's rules. Mining your coin never creates SWARM.</p>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Chains peers shared */}
+      {offers.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-primary" />
+              Shared with you
+            </CardTitle>
+            <CardDescription>Peers shared their chains. Add one to see it in your wallet's networks.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {offers.map((offer) => (
+              <div key={offer.coin.coinId} className="rounded-lg border border-border/60 p-4 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <span className="font-bold">{offer.coin.ticker}</span>{" "}
+                    <span className="text-sm">{offer.coin.chainName}</span>
+                    <p className="text-xs text-muted-foreground">
+                      Shared by {offer.sharerName || "a peer"} · {new Date(offer.receivedAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button size="sm" className="gap-1" onClick={() => void handleAddOffer(offer.coin.coinId)}>
+                      <Plus className="h-4 w-4" />
+                      Add to wallet
+                    </Button>
+                    <Button size="sm" variant="ghost" aria-label="Dismiss" onClick={() => handleDismissOffer(offer.coin.coinId)}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{offer.coin.projectGoal}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Network Chains */}
       {networkCoins.filter((c) => c.deployerUserId !== user.id).length > 0 && (

@@ -15,7 +15,7 @@ import {
   Trophy, Pickaxe, Globe, ArrowDownUp,
   Link2, Repeat, ImagePlus, Trash2, Store, BookOpen, ArrowRight,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getCurrentUser } from "@/lib/auth";
@@ -78,7 +78,13 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
   const [loading, setLoading] = useState(true);
-  const [walletTab, setWalletTab] = useState("assets");
+  const [searchParams] = useSearchParams();
+  const [walletTab, setWalletTab] = useState(() => searchParams.get("tab") || "assets");
+  // Notification links (e.g. Share my Chain → /wallet?tab=coins) open a tab.
+  const linkedTab = searchParams.get("tab");
+  useEffect(() => {
+    if (linkedTab) setWalletTab(linkedTab);
+  }, [linkedTab]);
   const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(
     () => loadWalletNetwork(user?.id),
   );
