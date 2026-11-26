@@ -134,7 +134,7 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
             setToolTarget({
               kind: 'surface',
               id: `surface:water:${hit.map((v) => v.toFixed(2)).join(':')}`,
-              label: 'Water surface',
+              label: surfaceClass === 'shore' ? 'Beach · sand and water' : 'Water surface',
               surfaceKind: 'water',
               point: hit,
             });

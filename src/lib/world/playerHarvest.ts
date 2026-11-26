@@ -31,6 +31,10 @@ export const HARVEST_LABOUR_PER_UNIT: Record<string, number> = {
   fish: 0.04,
   shark: 0.2,
   chicken: 0.12,
+  dirt: 0.03,
+  clay: 0.05,
+  gold: 0.25,
+  salt: 0.03,
 };
 
 function localUserId(): string | null {

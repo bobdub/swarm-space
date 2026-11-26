@@ -107,6 +107,34 @@ function materialForShell(shellId: string): ImpactMaterial {
   return 'soil';
 }
 
+/** The beach band between sea and land, where the sand is salty. */
+function isBeachSand(point: Vec3): boolean {
+  const r = Math.hypot(point[0], point[1], point[2]) || 1;
+  return sampleSurfaceClass([point[0] / r, point[1] / r, point[2] / r]) === 'shore';
+}
+
+/**
+ * What one successful dig step puts in the bag, by the shell the cut went
+ * through: the topsoil gives Dirt, the mixed earth below it gives Clay and
+ * the Gold Vein gives Gold. Bedrock and the seams in between give nothing.
+ */
+export function digYieldForShell(shellId: string): 'dirt' | 'clay' | 'gold' | null {
+  const id = shellId.replace(/_mirror$/, '');
+  if (id === 'grass' || id === 'soil' || id === 'dirt') return 'dirt';
+  if (id === 'mixed_earth') return 'clay';
+  if (id === 'gold') return 'gold';
+  return null;
+}
+
+const DIG_YIELD_LABEL = { dirt: 'Dirt', clay: 'Clay', gold: 'Gold' } as const;
+
+/** Gold is pick work: refuse every other tool at the vein. */
+export function goldToolRefusal(toolPrefabId: string, shellId: string, toolLabel: string): string | null {
+  if (digYieldForShell(shellId) !== 'gold') return null;
+  if (verbFor(toolPrefabId) === 'mine') return null;
+  return `${toolLabel} can't work the Gold Vein. Use a Stone Pick.`;
+}
+
 function isSurfaceGatherable(point: Vec3): boolean {
   const r = Math.hypot(point[0], point[1], point[2]) || 1;
   const localNormal: Vec3 = [point[0] / r, point[1] / r, point[2] / r];
@@ -383,6 +411,14 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   if (target.kind === 'surface') {
     const up = unitFrom(target.point);
     const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
+    // A shovel on the beach takes up salty sand: it counts as Salt, the
+    // stuff a Salt Rock is pressed from.
+    if (verb === 'dig' && isBeachSand(target.point)) {
+      emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'collect', true, 'soil');
+      recordPlayerHarvest('salt', 1);
+      swingSuccess(toolPrefabId, prefab.label, 'Scooped beach sand · +1 Salt.');
+      return true;
+    }
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
     emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
@@ -886,6 +922,13 @@ async function digShell(
     return false;
   }
 
+  const goldRefusal = goldToolRefusal(toolPrefabId, shell.id, prefab.label);
+  if (goldRefusal) {
+    emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'resist', false, 'stone');
+    swingResisted(toolPrefabId, prefab.label, shell.label, 'gold needs a Stone Pick');
+    return true;
+  }
+
   const material = materialForShell(shell.id);
   const swing = applyImpact({
     tool,
@@ -930,6 +973,13 @@ async function digShell(
   }
 
   emitCellCarved({ cellKey: carved.cellKey, shellId: carved.shellId, swing });
+
+  // The earth the cut went through comes up on the spade.
+  const dug = digYieldForShell(shell.id);
+  if (dug) {
+    recordPlayerHarvest(dug, 1);
+    swingSuccess(toolPrefabId, prefab.label, `Dug into the ${shell.label.toLowerCase()} · +1 ${DIG_YIELD_LABEL[dug]}.`);
+  }
 
   const floor = shellAtDepth(carved.depth);
 

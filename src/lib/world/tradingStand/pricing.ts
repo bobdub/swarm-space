@@ -35,7 +35,8 @@ import {
 export { MARKET_VAULT_FLOOR_SHARE as STAND_FLOOR_SHARE, MARKET_VAULT_MAX_TRADE_SHARE as STAND_MAX_TRADE_SHARE };
 
 export type TradingGood =
-  | 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'egg' | 'chicken' | 'fish' | 'shark' | 'honey' | 'fibre';
+  | 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'egg' | 'chicken' | 'fish' | 'shark' | 'honey' | 'fibre'
+  | 'dirt' | 'clay' | 'gold' | 'salt';
 export type StandCurrency = 'SWARM' | 'CREDITS';
 
 export interface TradingGoodSpec {
@@ -61,6 +62,12 @@ export const TRADING_GOODS: readonly TradingGoodSpec[] = [
   { id: 'shark', label: 'Sharks', icon: '🦈', baseSwarm: 0.4,  virtualReserve: 12 },
   { id: 'honey', label: 'Honey', icon: '🍯', baseSwarm: 0.05,  virtualReserve: 80 },
   { id: 'fibre', label: 'Fibre', icon: '🧵', baseSwarm: 0.015, virtualReserve: 200 },
+  // Dug from the Earth's shells; Gold only with a Stone Pick at the vein.
+  { id: 'dirt',  label: 'Dirt',  icon: '🟫', baseSwarm: 0.01,  virtualReserve: 400 },
+  { id: 'clay',  label: 'Clay',  icon: '🧱', baseSwarm: 0.012, virtualReserve: 250 },
+  { id: 'gold',  label: 'Gold',  icon: '🪙', baseSwarm: 0.6,   virtualReserve: 10 },
+  // Shovelled from beach sand on the shore.
+  { id: 'salt',  label: 'Salt',  icon: '🧂', baseSwarm: 0.015, virtualReserve: 200 },
 ];
 
 const GOOD_BY_ID = new Map(TRADING_GOODS.map((g) => [g.id, g]));

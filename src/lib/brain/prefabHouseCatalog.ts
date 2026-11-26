@@ -63,6 +63,12 @@ export interface PrefabSpec {
    * one mineral compound: its carbon stays Wood in the material cost.
    */
   compositeCost?: boolean;
+  /**
+   * Costs gathered goods instead of the cost derived from `constituents`
+   * (a Salt Rock costs Salt shovelled off the beach). Keys are
+   * `GatheredGoodId`s from `src/lib/world/materials.ts`.
+   */
+  goodCost?: Partial<Record<string, number>>;
 }
 
 export interface PrefabDerived {
@@ -277,6 +283,8 @@ const SPECS: PrefabSpec[] = [
     sectionId: 'consumables',
     formula: 'NaCl',
     constituents: [{ symbol: 'Na', count: 1 }, { symbol: 'Cl', count: 1 }],
+    // Pressed from beach salt: shovel sand on the shore to gather it.
+    goodCost: { salt: 1 },
     density: 2.16,
     width: 0.10, depth: 0.10, height: 0.08,
     yawSnapStep: Math.PI / 2,

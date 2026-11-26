@@ -41,7 +41,9 @@ export const MATERIALS: MaterialDef[] = [
  * `good:` keys (see `harvestedInventory`), shown in the Gathered tally and
  * traded at the Trading Stand, never spent on builds.
  */
-export type GatheredGoodId = 'honey' | 'egg' | 'chicken' | 'fish' | 'shark' | 'gem';
+export type GatheredGoodId =
+  | 'honey' | 'egg' | 'chicken' | 'fish' | 'shark' | 'gem'
+  | 'dirt' | 'clay' | 'gold' | 'salt';
 
 export const GATHERED_GOODS: { id: GatheredGoodId; label: string; icon: string }[] = [
   { id: 'honey', label: 'Honey', icon: '🍯' },
@@ -50,7 +52,19 @@ export const GATHERED_GOODS: { id: GatheredGoodId; label: string; icon: string }
   { id: 'fish', label: 'Fish', icon: '🐟' },
   { id: 'shark', label: 'Sharks', icon: '🦈' },
   { id: 'gem', label: 'Gems', icon: '💎' },
+  // Dug out of the Earth's shells (see `toolActions.digShell`).
+  { id: 'dirt', label: 'Dirt', icon: '🟫' },
+  { id: 'clay', label: 'Clay', icon: '🧱' },
+  { id: 'gold', label: 'Gold', icon: '🪙' },
+  // Beach sand shovelled up on the shore. It is what a Salt Rock costs.
+  { id: 'salt', label: 'Salt', icon: '🧂' },
 ];
+
+const GATHERED_GOOD_IDS = new Set<string>(GATHERED_GOODS.map((g) => g.id));
+
+export function isGatheredGood(id: string): id is GatheredGoodId {
+  return GATHERED_GOOD_IDS.has(id);
+}
 
 export function gatheredGoodTotals(): Record<GatheredGoodId, number> {
   const out = {} as Record<GatheredGoodId, number>;
@@ -82,7 +96,12 @@ function materialOf(symbol: string): MaterialId {
   return ELEMENT_MATERIAL[symbol] ?? 'stone';
 }
 
-export type MaterialCost = Partial<Record<MaterialId, number>>;
+/**
+ * A cost line: one of the five materials, or a gathered good (a Salt Rock
+ * costs Salt). Goods are drawn from their own `good:<id>` bag key.
+ */
+export type CostId = MaterialId | GatheredGoodId;
+export type MaterialCost = Partial<Record<CostId, number>>;
 
 function emptyTotals(): Record<MaterialId, number> {
   return { wood: 0, stone: 0, water: 0, fibre: 0, food: 0 };
@@ -137,6 +156,8 @@ export function isStarterTool(prefabId: string): boolean {
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
   if (isStarterTool(prefab.id)) return {};
+  // A piece made from a gathered good costs that good, not derived atoms.
+  if (prefab.goodCost) return { ...prefab.goodCost } as MaterialCost;
   const hasMineral = !prefab.compositeCost && prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));
   const atoms = emptyTotals();
   for (const c of prefab.constituents) {
@@ -158,8 +179,8 @@ export function prefabCost(prefabId: string): MaterialCost {
   return prefab ? prefabCostFor(prefab) : {};
 }
 
-export function costEntries(cost: MaterialCost): { id: MaterialId; label: string; qty: number }[] {
-  return MATERIALS
+export function costEntries(cost: MaterialCost): { id: CostId; label: string; qty: number }[] {
+  return [...MATERIALS, ...GATHERED_GOODS]
     .filter((m) => (cost[m.id] ?? 0) > 0)
     .map((m) => ({ id: m.id, label: m.label, qty: cost[m.id] as number }));
 }
@@ -172,13 +193,16 @@ export function formatCost(cost: MaterialCost): string {
 
 export interface Affordability {
   ok: boolean;
-  missing: { id: MaterialId; label: string; short: number }[];
+  missing: { id: CostId; label: string; short: number }[];
 }
 
 export function checkAffordable(cost: MaterialCost, totals = materialTotals()): Affordability {
   const missing: Affordability['missing'] = [];
   for (const e of costEntries(cost)) {
-    const short = e.qty - (totals[e.id] ?? 0);
+    const held = isGatheredGood(e.id)
+      ? Math.floor(getHarvested(`good:${e.id}`))
+      : (totals[e.id] ?? 0);
+    const short = e.qty - held;
     if (short > 0) missing.push({ id: e.id, label: e.label, short });
   }
   return { ok: missing.length === 0, missing };
@@ -208,6 +232,10 @@ export function spendMaterials(cost: MaterialCost): boolean {
 
   const parts: { symbol: string; count: number }[] = [];
   for (const e of costEntries(cost)) {
+    if (isGatheredGood(e.id)) {
+      parts.push({ symbol: `good:${e.id}`, count: e.qty });
+      continue;
+    }
     let need = e.qty * ATOMS_PER_UNIT[e.id];
     const pool = (pools.get(e.id) ?? []).sort((a, b) => b.count - a.count);
     for (const p of pool) {
