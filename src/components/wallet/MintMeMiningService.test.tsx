@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   peers: ["host"], enabled: true, bridge: "wss://files.example.org/mintme-bridge" as string | null,
   peerListener: () => {}, preferenceListener: () => {}, serverListener: () => {},
   start: vi.fn(), stop: vi.fn(),
-  nativeSync: vi.fn(), customSync: vi.fn(), notify: vi.fn(),
+  nativeSync: vi.fn(), ethSync: vi.fn(), customSync: vi.fn(), notify: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthReady", () => ({ useAuthReady: () => ({ isReady: true, user: { id: "member" } }) }));
 vi.mock("@/lib/preview/guestAccess", () => ({ isGuestUser: () => false }));
@@ -22,7 +22,10 @@ vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () =>
 }) }));
 vi.mock("@/lib/blockchain/mintmeMiner/miner", () => ({ getMintMeMiner: () => ({ start: state.start, stop: state.stop }) }));
 vi.mock("@/lib/blockchain/wallets/nativeMintmeDirect", () => ({ syncNativeMintMeDeposits: state.nativeSync }));
+vi.mock("@/lib/blockchain/wallets/nativeEth", () => ({ syncNativeEthDeposits: state.ethSync }));
 vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
+  customTokenRef: (t: { address: string; network?: string }) => (t.network === "ethereum" ? `eth:${t.address}` : t.address).toLowerCase(),
+  customTokenNetwork: (t: { network?: string }) => t.network ?? "mintme",
   hydrateCustomTokens: async () => [],
   listCustomTokens: () => [{ address: "dreams", symbol: "DREAMS", decimals: 12 }, { address: "other", symbol: "OTHER", decimals: 18 }],
   syncCustomTokenDeposits: state.customSync,
@@ -34,7 +37,7 @@ vi.mock("@/lib/storage/providers/personalServerStore", () => ({
   subscribePersonalServers: (listener: () => void) => { state.serverListener = listener; return () => {}; },
 }));
 
-beforeEach(() => { vi.clearAllMocks(); state.peers = ["host"]; state.enabled = true; state.bridge = "wss://files.example.org/mintme-bridge"; state.nativeSync.mockResolvedValue(0); state.customSync.mockResolvedValue(0); });
+beforeEach(() => { vi.clearAllMocks(); state.peers = ["host"]; state.enabled = true; state.bridge = "wss://files.example.org/mintme-bridge"; state.nativeSync.mockResolvedValue(0); state.ethSync.mockResolvedValue(0); state.customSync.mockResolvedValue(0); });
 afterEach(() => vi.useRealTimers());
 describe("app-wide MintMe lifecycle", () => {
   it("checks every imported contract every two minutes, even when native sync fails", async () => {
@@ -46,6 +49,7 @@ describe("app-wide MintMe lifecycle", () => {
     });
     const view = render(<MintMeMiningService />);
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(state.ethSync).toHaveBeenCalledWith("member");
     expect(state.customSync).toHaveBeenCalledWith("member", "dreams");
     expect(state.customSync).toHaveBeenCalledWith("member", "other");
     expect(state.notify).toHaveBeenCalledWith(expect.objectContaining({ type: "wallet_deposit", title: "10 DREAMS arrived.", link: "/wallet" }));

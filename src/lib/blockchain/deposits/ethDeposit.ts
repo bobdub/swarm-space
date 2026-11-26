@@ -10,6 +10,7 @@ import type { SwarmTransaction } from "../types";
 import { getMetaMaskAccount, getMetaMaskChainId, requestMetaMask } from "../wallets/metaMaskBridge";
 import { ethToWeiHex, weiHexToEth } from "../wallets/mintmeBridge";
 import { getLinkedWallet, _allTransactionsForExternalLedger as allTransactions } from "../wallets/walletLink";
+import { ethAmount, nativeEthBalanceUnits } from "../wallets/nativeEth";
 
 export const ETH = "ETH";
 export const ETHEREUM_CHAIN_ID_HEX = "0x1";
@@ -31,15 +32,19 @@ export async function readEthBalance(address?: string): Promise<number | null> {
   } catch { return null; }
 }
 
+/** ETH recorded on the SWARM ledger: legacy MetaMask records plus native custody. */
 export function getChainEthBalance(swarmId: string): number {
   if (!swarmId) return 0;
   let total = 0;
   for (const tx of allTransactions()) {
     const meta = (tx.meta ?? {}) as Record<string, unknown>;
-    if (meta.currency !== ETH) continue;
+    // Native ETH custody (cold-key deposits) is counted separately, with tips, by nativeEth.
+    if (meta.currency !== ETH || meta.custody !== undefined) continue;
     if (tx.type === "external_deposit" && tx.to === swarmId) total += Number(tx.amount ?? 0);
     else if (tx.type === "external_withdraw" && tx.from === swarmId) total -= Number(tx.amount ?? 0);
   }
+  // Plus ETH deposited to the cold-key receiving address, net of tips and withdrawals.
+  total += ethAmount(nativeEthBalanceUnits(allTransactions(), swarmId));
   return Math.max(0, round8(total));
 }
 

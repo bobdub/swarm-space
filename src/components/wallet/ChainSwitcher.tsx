@@ -75,7 +75,7 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
   };
 
   const handleSwitch = async (chainId: string) => {
-    if (chainId === "mintme" || chainId.startsWith("cell:")) {
+    if (chainId === "mintme" || chainId === "ethereum" || chainId.startsWith("cell:")) {
       onNetworkChanged?.(chainId);
       return;
     }
@@ -93,7 +93,8 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
   if (loading) return null;
 
   const isCell = !!network?.startsWith("cell:");
-  const selectValue = network === "mintme" || isCell ? network! : active.chainId;
+  const isEvm = network === "mintme" || network === "ethereum";
+  const selectValue = isEvm || isCell ? network! : active.chainId;
 
   return (
     <div className="border-y border-border py-2 flex items-center gap-2 flex-wrap">
@@ -108,6 +109,7 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
         </SelectTrigger>
         <SelectContent>
           {onNetworkChanged && <SelectItem value="mintme">MintMe</SelectItem>}
+          {onNetworkChanged && <SelectItem value="ethereum">Ethereum</SelectItem>}
           {chains.map((c) => (
             <SelectItem key={c.chainId} value={c.chainId}>
               <span className="flex items-center gap-2">
@@ -142,10 +144,10 @@ export function ChainSwitcher({ onChainChanged, network, onNetworkChanged }: Pro
         variant={active.isMainChain ? "default" : "outline"}
         className="text-[10px] px-1.5 py-0 shrink-0"
       >
-        {network === "mintme" ? "EVM" : isCell ? "Cell Chain" : active.isMainChain ? "Main Network" : "Sub-Chain"}
+        {isEvm ? "EVM" : isCell ? "Cell Chain" : active.isMainChain ? "Main Network" : "Sub-Chain"}
       </Badge>
 
-      {network !== "mintme" && (isCell || !active.isMainChain) && (
+      {!isEvm && (isCell || !active.isMainChain) && (
         <Button
           variant="ghost"
           size="sm"

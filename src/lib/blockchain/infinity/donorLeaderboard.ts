@@ -19,7 +19,9 @@
 import type { SwarmTransaction } from "../types";
 import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
+import { isNativeEthTip } from "../wallets/nativeEth";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
+import { parseTokenRef, tokenRefFromCurrency } from "../deposits/tokenNetworks";
 
 const NATIVE_TICKERS = new Set(["SWARM", "MINTME", "CREDITS"]);
 /** The Market Vault's ledger account. */
@@ -84,6 +86,7 @@ export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
   if (tx.type === "wallet_tip" && tx.to === INFINITY_GIFT_VAULT) {
     // The settled asset decides the currency, never the sender's display ticker.
     if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount };
+    if (isNativeEthTip(tx)) return { ticker: "ETH", amount };
     const assetId = typeof tx.meta?.assetId === "string" ? tx.meta.assetId : "";
     if (assetId === "chain:SWARM") return { ticker: "SWARM", amount };
     if (!assetId) return null;
@@ -94,9 +97,10 @@ export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
     const currency = typeof tx.meta.currency === "string" ? tx.meta.currency.trim() : "";
     if (!currency) return null;
     if (currency.toUpperCase() === "CREDITS") return { ticker: "Credits", amount };
-    // A synced MintMe token, counted per contract (addresses are case-insensitive).
-    const contract = currency.replace(/^MINTME:/i, "").toLowerCase();
-    return { ticker: tokenKey(`mintme:${contract}`), amount, label: tokenLabel(tx.meta.ticker) };
+    // A synced MintMe or Ethereum token, counted per chain + contract (addresses are case-insensitive).
+    const token = parseTokenRef(tokenRefFromCurrency(currency) ?? "");
+    if (!token) return null;
+    return { ticker: tokenKey(`${token.network}:${token.contract}`), amount, label: tokenLabel(tx.meta.ticker) };
   }
   return null;
 }
@@ -107,7 +111,13 @@ export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
  * look-alike can never merge with or pass for another asset.
  */
 function tokenDisplayNames(labels: Map<string, string | undefined>, otherKeys: Iterable<string>): Map<string, string> {
-  const fallback = (key: string) => shortId(key.slice(TOKEN_KEY.length).replace(/^(mintme|token):/i, ""));
+  // Ethereum tokens name their chain, so the same contract on MintMe and Ethereum never shares a name.
+  const fallback = (key: string) => {
+    const id = key.slice(TOKEN_KEY.length);
+    const eth = /^(ethereum:|custom:eth:)/i.exec(id);
+    if (eth) return `Ethereum ${shortId(id.slice(eth[0].length))}`;
+    return shortId(id.replace(/^(mintme|token|custom):/i, ""));
+  };
   const claims = new Map<string, number>();
   const claim = (name: string) => claims.set(name.toUpperCase(), (claims.get(name.toUpperCase()) ?? 0) + 1);
   for (const k of otherKeys) claim(k);

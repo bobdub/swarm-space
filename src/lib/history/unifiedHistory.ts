@@ -296,6 +296,7 @@ function chainSettlement(tx: SwarmTransaction): HistorySettlement {
   if (tx.type !== "external_deposit" && tx.type !== "external_withdraw" && tx.type !== "external_reconcile") return "swarm-ledger";
   const currency = metaString(tx, "currency")?.toUpperCase();
   if (currency === "SWARM") return "swarm-ledger";
+  if (currency?.startsWith("ETHEREUM:")) return "external";
   if (tx.meta?.custody === NATIVE_MINTME_CUSTODY || currency === "MINTME" || metaString(tx, "contract")) return "mintme";
   return "external";
 }

@@ -9,7 +9,9 @@ const short = (value: string) => (value.length > 18 ? `${value.slice(0, 10)}…$
 
 export function NativeWalletAddress({ userId, network = "swarm" }: { userId: string; network?: string }) {
   const nativeAddress = useNativeWalletAddress(userId);
-  const isMintMe = network === "mintme";
+  // MintMe and Ethereum share one cold-key receiving address.
+  const isMintMe = network === "mintme" || network === "ethereum";
+  const chainName = network === "ethereum" ? "Ethereum" : "MintMe";
   const [evmAddress, setEvmAddress] = useState<string | null>(null);
   useEffect(() => {
     if (!isMintMe || !userId) return;
@@ -21,9 +23,9 @@ export function NativeWalletAddress({ userId, network = "swarm" }: { userId: str
   }, [isMintMe, userId]);
 
   const address = (isMintMe ? evmAddress : nativeAddress) || "";
-  const heading = isMintMe ? "MintMe receiving address" : "Native SWARM wallet address";
+  const heading = isMintMe ? `${chainName} receiving address` : "Native SWARM wallet address";
   const hint = isMintMe
-    ? "Only send from wallets that support the MintMe chain."
+    ? `Only send from wallets that support the ${chainName} chain.`
     : "Only transfer to online peers on SWARM.";
   const copy = (value: string) => {
     void navigator.clipboard.writeText(value).then(() => toast.success("Wallet address copied"))

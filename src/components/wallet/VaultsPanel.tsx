@@ -16,7 +16,7 @@ import { creatorVaultAddress, getCreatorVaultCoin } from "@/lib/blockchain/creat
 import { addVaultLiquidity } from "@/lib/blockchain/creatorVaultLiquidity";
 import { getSwarmBalance } from "@/lib/blockchain/token";
 import { depositAssetToCreatorVault, type StagedVault } from "@/lib/blockchain/creatorVaultAssets";
-import { listCustomTokens, getRecordedTokenBalance } from "@/lib/blockchain/deposits/customTokens";
+import { listCustomTokens, getRecordedTokenBalance, customTokenRef } from "@/lib/blockchain/deposits/customTokens";
 import { getCreditBalance } from "@/lib/credits";
 import { CREDIT_TO_SWARM_RATIO } from "@/lib/blockchain/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -111,8 +111,8 @@ export function VaultsPanel() {
 
   const vaultAddr = creatorVaultAddress(token.tokenId);
   const tokens = user?.id ? listCustomTokens(user.id) : [];
-  const ownedTokens = tokens.map((t) => ({ t, bal: getRecordedTokenBalance(user!.id, t.address) })).filter((x) => x.bal > 0);
-  const heldTokens = tokens.map((t) => ({ t, bal: getRecordedTokenBalance(vaultAddr, t.address) })).filter((x) => x.bal > 0);
+  const ownedTokens = tokens.map((t) => ({ t, bal: getRecordedTokenBalance(user!.id, customTokenRef(t)) })).filter((x) => x.bal > 0);
+  const heldTokens = tokens.map((t) => ({ t, bal: getRecordedTokenBalance(vaultAddr, customTokenRef(t)) })).filter((x) => x.bal > 0);
   const staged = (vault as StagedVault | null)?.stagedCredits ?? 0;
   const ladder = ladderState(vault);
   const total = vault?.totalDeposited ?? 0;
@@ -181,7 +181,7 @@ export function VaultsPanel() {
                 {(staged > 0 || heldTokens.length > 0) && (
                   <div className="space-y-1 text-xs">
                     {staged > 0 && <div>Held credits: {fmt(staged, 2)} / {CREDIT_TO_SWARM_RATIO} to wrap <Progress value={pct(staged % CREDIT_TO_SWARM_RATIO, CREDIT_TO_SWARM_RATIO)} className="mt-1 h-1.5" /></div>}
-                    {heldTokens.map(({ t, bal }) => <div key={t.address}>Held {t.symbol}: {fmt(bal)} / 5,000,000</div>)}
+                    {heldTokens.map(({ t, bal }) => <div key={customTokenRef(t)}>Held {t.symbol}: {fmt(bal)} / 5,000,000</div>)}
                   </div>
                 )}
                 {(!backing.backed) && <p className="text-xs text-destructive">Recorded layers exceed held SWARM. Claims remain unavailable until all layers are backed; sync or reconcile before retrying.</p>}
@@ -198,7 +198,7 @@ export function VaultsPanel() {
                   <SelectContent>
                     <SelectItem value="swarm">SWARM · {fmt(swarmBal)}</SelectItem>
                     {credits > 0 && <SelectItem value="credits">Credits · {fmt(credits, 0)}</SelectItem>}
-                    {ownedTokens.map(({ t, bal }) => <SelectItem key={t.address} value={t.address.toLowerCase()}>{t.symbol} · {fmt(bal)}</SelectItem>)}
+                    {ownedTokens.map(({ t, bal }) => <SelectItem key={customTokenRef(t)} value={customTokenRef(t)}>{t.symbol} · {fmt(bal)}</SelectItem>)}
                   </SelectContent>
                 </Select>
                 {asset !== "swarm" && <p className="text-[11px] text-muted-foreground">{asset === "credits" ? `Every ${CREDIT_TO_SWARM_RATIO} credits wrap into 1 SWARM across the layers; the rest is held.` : "Custom tokens are held in the vault (max 5,000,000 per token), not counted as liquid SWARM. Refused amounts stay in your wallet."}</p>}

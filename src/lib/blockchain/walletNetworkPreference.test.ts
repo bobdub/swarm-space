@@ -11,6 +11,9 @@ describe("wallet network preference", () => {
   it("remembers the selected network across loads, per user", () => {
     rememberWalletNetwork("alice", "mintme");
     expect(loadWalletNetwork("alice")).toBe("mintme");
+    rememberWalletNetwork("alice", "ethereum");
+    expect(loadWalletNetwork("alice")).toBe("ethereum");
+    rememberWalletNetwork("alice", "mintme");
     expect(loadWalletNetwork("bob")).toBe("swarm");
     rememberWalletNetwork("alice", "chain:abc");
     expect(loadWalletNetwork("alice")).toBe("chain:abc");

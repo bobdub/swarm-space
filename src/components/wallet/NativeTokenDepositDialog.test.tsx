@@ -7,6 +7,8 @@ const contract = "0x634340447220bcaaa09a5505d71ca62b644a1a82";
 vi.mock("@/lib/blockchain/wallets/coldKey", () => ({ getColdKeyReceivingAddress: async () => "0x34ddae73cf1dae783f043460f0ce6adebf8bb722" }));
 vi.mock("@/lib/blockchain/deposits/customTokens", () => ({
   listCustomTokens: () => [{ address: contract, symbol: "DREAMS", decimals: 12 }], syncCustomTokenDeposits: mocks.custom,
+  customTokenRef: (t: { address: string; network?: string }) => (t.network === "ethereum" ? `eth:${t.address}` : t.address).toLowerCase(),
+  customTokenNetwork: (t: { network?: string }) => t.network ?? "mintme",
 }));
 vi.mock("@/lib/blockchain/wallets/nativeMintmeDirect", () => ({ syncNativeMintMeDeposits: mocks.native }));
 vi.mock("sonner", () => ({ toast: { success: mocks.success, info: mocks.info, error: mocks.error } }));

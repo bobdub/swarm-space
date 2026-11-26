@@ -19,6 +19,7 @@ import { evaluateVaultInflow, type VaultInflowAsset } from "./creatorVaultInflow
 import { creatorVaultAddress, ensureCreatorVaultCoin } from "./creatorVaultCustody";
 import { withCreatorMarketOperation } from "./creatorMarketOperation";
 import { put } from "../store";
+import { tokenRefFromCurrency } from "./deposits/tokenNetworks";
 
 export type StagedVault = CreatorVault & { stagedCredits?: number };
 
@@ -37,12 +38,12 @@ async function ledger(): Promise<SwarmTransaction[]> {
   return _allTransactionsForExternalLedger();
 }
 
-/** Contracts that have ever been deposited onto the native ledger. */
+/** Tokens (by ref: chain + contract) that have ever been deposited onto the native ledger. */
 export function knownContractsFrom(txs: SwarmTransaction[]): Set<string> {
   const set = new Set<string>();
   for (const tx of txs) {
-    const cur = String(tx.meta?.currency ?? "").toLowerCase();
-    if (tx.type === "external_deposit" && /^mintme:0x[\da-f]{40}$/.test(cur)) set.add(cur.slice(7));
+    const ref = tx.type === "external_deposit" ? tokenRefFromCurrency(tx.meta?.currency) : null;
+    if (ref) set.add(ref);
   }
   return set;
 }

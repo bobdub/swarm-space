@@ -1,6 +1,7 @@
 import { positiveBalanceAssets, type OwnedAsset } from "./ownedAssets";
 import type { ProfileTokenHolding } from "../profileTokenBalance";
-import type { CustomToken } from "../deposits/customTokens";
+import { customTokenNetwork, customTokenRef, type CustomToken } from "../deposits/customTokens";
+import { TOKEN_NETWORKS } from "../deposits/tokenNetworks";
 
 export interface NativeAsset extends OwnedAsset {
   symbol: string;
@@ -41,8 +42,8 @@ function buildAssets(snapshot: NativeAssetSnapshot): NativeAsset[] {
     { id: "ETH", label: "ETH", symbol: "ETH", kind: "external", amount: snapshot.eth, available: snapshot.eth },
     { id: "BTC", label: "BTC", symbol: "BTC", kind: "external", amount: snapshot.btc, available: snapshot.btc },
     ...snapshot.custom.map(({ token, amount, available }): NativeAsset => ({
-      id: `custom:${token.address}`, label: `${token.symbol} · MintMe`, symbol: token.symbol,
-      kind: "custom", contract: token.address, amount, available,
+      id: `custom:${customTokenRef(token)}`, label: `${token.symbol} · ${TOKEN_NETWORKS[customTokenNetwork(token)].label}`, symbol: token.symbol,
+      kind: "custom", contract: customTokenRef(token), amount, available,
     })),
     ...snapshot.holdings.map((holding): NativeAsset => ({
       id: `creator:${holding.tokenId}`, label: `${holding.ticker} · Creator`, symbol: holding.ticker,

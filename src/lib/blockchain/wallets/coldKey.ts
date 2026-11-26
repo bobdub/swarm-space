@@ -24,6 +24,7 @@ import { get, put } from "../../store";
 import type { SwarmCoin } from "../types";
 import { COIN_MAX_WEIGHT } from "../types";
 import { mintMeFallbackProvider } from "./mintmeRpc";
+import { ethereumFallbackProvider } from "./ethereumRpc";
 
 /** Mined SWARM locked to engrave a standalone cold-key container. */
 export const COLD_KEY_ENGRAVING_SWARM = 1;
@@ -144,15 +145,16 @@ export async function deriveColdKey(userId: string): Promise<DerivedColdKey> {
 
 const ERC20 = new Interface(["function balanceOf(address) view returns (uint256)", "function transfer(address,uint256) returns (bool)"]);
 
-function mintMeProvider(): FallbackProvider {
-  return mintMeFallbackProvider();
+function tokenChainProvider(network: "mintme" | "ethereum"): FallbackProvider {
+  return network === "ethereum" ? ethereumFallbackProvider() : mintMeFallbackProvider();
 }
 
 /**
- * Move bridged tokens out of cold-wallet custody on the MintMe chain.
- * Verifies on-chain that the key actually holds the tokens and enough
- * MINTME gas before signing — a refusal here means the SWARM ledger is
- * never touched, so the native balance stays intact.
+ * Move bridged tokens out of cold-wallet custody on the token's chain
+ * (MintMe by default, or Ethereum mainnet). The same cold key controls the
+ * same address on both chains. Verifies on-chain that the key actually holds
+ * the tokens and some native gas (MINTME or ETH) before signing — a refusal
+ * here means the SWARM ledger is never touched, so the native balance stays intact.
  */
 export async function sendColdKeyTokenTransfer(p: {
   wallet: Wallet;
@@ -160,8 +162,12 @@ export async function sendColdKeyTokenTransfer(p: {
   symbol: string;
   to: string;
   units: bigint;
+  network?: "mintme" | "ethereum";
 }): Promise<string> {
-  const provider = mintMeProvider();
+  const network = p.network ?? "mintme";
+  const chainName = network === "ethereum" ? "Ethereum" : "MintMe";
+  const gasSymbol = network === "ethereum" ? "ETH" : "MINTME";
+  const provider = tokenChainProvider(network);
   const wallet = p.wallet.connect(provider);
   const token = new Contract(p.tokenAddress, ERC20.fragments, wallet);
   let held: bigint;
@@ -172,18 +178,18 @@ export async function sendColdKeyTokenTransfer(p: {
       provider.getBalance(wallet.address),
     ]);
   } catch {
-    throw new Error("Could not reach the MintMe network to verify the cold-wallet key. Check your connection and try again.");
+    throw new Error(`Could not reach the ${chainName} network to verify the cold-wallet key. Check your connection and try again.`);
   }
   if (held < p.units) {
     throw new Error(
-      `The cold-wallet key holds less ${p.symbol} on MintMe than your native balance records. ` +
+      `The cold-wallet key holds less ${p.symbol} on ${chainName} than your native balance records. ` +
         `Tokens deposited before the cold-wallet key existed sit at an older address this key cannot move.`,
     );
   }
   if (gas <= 0n) {
     throw new Error(
-      `Your cold-wallet key address (${wallet.address}) holds the tokens but has no MINTME for gas. ` +
-        `Send MINTME to this receiving address from any MintMe wallet, then retry.`,
+      `Your cold-wallet key address (${wallet.address}) holds the tokens but has no ${gasSymbol} for gas. ` +
+        `Send ${gasSymbol} to this receiving address from any ${chainName} wallet, then retry.`,
     );
   }
   const tx = (await token.transfer(p.to, p.units)) as { hash: string };

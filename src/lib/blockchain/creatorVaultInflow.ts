@@ -3,9 +3,11 @@
 // Pure decisions only: settlement still goes through creatorVaultCustody.ts.
 import { CREDIT_TO_SWARM_RATIO } from "./types";
 import { CUSTOM_TOKEN_DEPOSIT_MAX } from "./deposits/customTokenLimits";
+import { isTokenRef } from "./deposits/tokenNetworks";
 
 export type VaultInflowAsset =
   | { kind: "swarm" }
+  /** `contract` is the token ref: the bare contract for MintMe, `eth:0x…` for Ethereum. */
   | { kind: "custom"; contract: string }
   | { kind: "credits" };
 
@@ -23,8 +25,6 @@ export type VaultInflowDecision =
   | { action: "hold"; liquidSwarm: number; next: VaultInflowState; reason: string }
   | { action: "refund"; reason: string };
 
-const CONTRACT = /^0x[\da-f]{40}$/;
-
 export function evaluateVaultInflow(
   state: VaultInflowState,
   asset: VaultInflowAsset,
@@ -36,7 +36,7 @@ export function evaluateVaultInflow(
 
   if (asset.kind === "custom") {
     const contract = asset.contract.trim().toLowerCase();
-    if (!CONTRACT.test(contract) || !state.knownContracts.has(contract)) {
+    if (!isTokenRef(contract) || !state.knownContracts.has(contract)) {
       return { action: "refund", reason: "Token is not held on the native blockchain" };
     }
     const held = state.heldCustom[contract] ?? 0;

@@ -17,7 +17,8 @@ vi.mock("../wallets/metaMaskBridge", () => ({
   connectMetaMask: mocks.connect,
   requestMetaMask: vi.fn(),
 }));
-vi.mock("../wallets/mintmeNetwork", () => ({
+vi.mock("../wallets/mintmeNetwork", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../wallets/mintmeNetwork")>()),
   MINTME_CHAIN_ID_HEX: "0x609e", isMintMeChain: (id: string) => id === "0x609e", readMintMeChainId: async () => "0x609e", switchToMintMeNetwork: async () => {},
 }));
 vi.mock("../wallets/coldKey", () => ({

@@ -1,6 +1,7 @@
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "@/lib/crypto";
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeTip } from "./nativeMintmeLedger";
+import { isNativeEthTip } from "./nativeEth";
 import { isCustomTokenTip } from "../deposits/customTokenTips";
 import { hasValidTipWeight } from "./tipWeight";
 import { INFINITY_GIFT_VAULT } from "../infinity/vaults";
@@ -48,7 +49,7 @@ export async function verifyWalletTip(tx: SwarmTransaction): Promise<boolean> {
     if (tx.type !== "wallet_tip" || await computeUserId(tx.publicKey) !== tx.from) return false;
     if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || tx.from === tx.to || tx.fee !== 0) return false;
     if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
-    if (tx.meta?.assetId !== "chain:SWARM" && !isNativeMintMeTip(tx) && !isCustomTokenTip(tx)) return false;
+    if (tx.meta?.assetId !== "chain:SWARM" && !isNativeMintMeTip(tx) && !isNativeEthTip(tx) && !isCustomTokenTip(tx)) return false;
     if (tx.meta?.assetId === "chain:SWARM" && tx.meta?.currency === "MINTME") return false;
     // The weight is inside the signed meta; format 2 must name a known tier and only SWARM carries one.
     if (!hasValidTipWeight(tx)) return false;
