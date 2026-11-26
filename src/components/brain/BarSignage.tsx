@@ -132,6 +132,18 @@ function shrinkToFit(ctx: CanvasRenderingContext2D, text: string, maxW: number, 
   }
 }
 
+/** Split " · "-joined amounts into lines no wider than `maxW` at the current font. */
+function wrapAmounts(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const piece of text.split(' · ')) {
+    const next = line ? `${line} · ${piece}` : piece;
+    if (line && ctx.measureText(next).width > maxW) { lines.push(line); line = piece; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines.map((l) => fit(ctx, l, maxW));
+}
+
 function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardState) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -169,19 +181,31 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardSta
   // in pride of place. Empty rows wait for the next patron.
   const footY = H - 90;
   const rowH = 76;
-  // As many places as fit above the total, one kept for the next patron.
-  const maxRows = Math.max(3, Math.floor((footY - 90 - 262) / rowH));
-  const rows = board.donors.slice(0, maxRows);
+  const lineH = 40;
+  // Room for rows above the total, keeping one place for the next patron.
+  const bottom = footY - 90 - rowH;
   let y = 262;
-  if (rows.length === 0 && status !== 'ready') {
+  if (board.donors.length === 0 && status !== 'ready') {
     ctx.fillStyle = '#e8dcc0';
     ctx.font = '38px Georgia, serif';
     ctx.fillText(status === 'loading' ? 'Reading the ledger…' : 'Could not read the ledger.', W / 2, y + 120);
     return;
   }
   const medals = ['#ffd35a', '#d9d9d9', '#d08a4a'];
-  rows.forEach((d, i) => {
+  let shown = 0;
+  for (const [i, d] of board.donors.entries()) {
     const top = i === 0;
+    ctx.font = `${i < 3 ? 'bold ' : ''}${top ? 50 : 44}px Georgia, serif`;
+    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 460);
+    const nameW = ctx.measureText(name).width;
+    // Every coin they gave is listed: shrink a little, then wrap onto more lines.
+    const gave = formatDonationAmounts(d.amounts);
+    const room = right - (left + 80 + nameW + 40);
+    shrinkToFit(ctx, gave, room, top ? 46 : 40, 30, i < 3 ? 'bold ' : '');
+    const lines = wrapAmounts(ctx, gave, room);
+    const height = rowH + (lines.length - 1) * lineH;
+    if (shown > 0 && y + height - rowH > bottom) break;
+    const amountFont = ctx.font;
     if (top) {
       // Pride of place: a gilded band behind the top patron.
       const glow = ctx.createLinearGradient(left - 20, 0, right + 20, 0);
@@ -189,7 +213,7 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardSta
       glow.addColorStop(0.5, 'rgba(255,211,90,0.16)');
       glow.addColorStop(1, 'rgba(255,211,90,0)');
       ctx.fillStyle = glow;
-      ctx.fillRect(left - 20, y - rowH / 2 + 4, right - left + 40, rowH - 8);
+      ctx.fillRect(left - 20, y - rowH / 2 + 4, right - left + 40, height - 8);
     }
     ctx.textAlign = 'left';
     ctx.fillStyle = medals[i] ?? '#c9a24a';
@@ -197,16 +221,15 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardSta
     ctx.fillText(top ? '♛' : `${i + 1}.`, left, y);
     ctx.fillStyle = top ? '#ffe9a8' : '#f2e6c9';
     ctx.font = `${i < 3 ? 'bold ' : ''}${top ? 50 : 44}px Georgia, serif`;
-    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 460);
     ctx.fillText(name, left + 80, y);
     ctx.textAlign = 'right';
     ctx.fillStyle = medals[i] ?? '#f4c46a';
-    const gave = formatDonationAmounts(d.amounts);
-    const room = right - (left + 80 + ctx.measureText(name).width + 40);
-    shrinkToFit(ctx, gave, room, top ? 46 : 40, 22, i < 3 ? 'bold ' : '');
-    ctx.fillText(fit(ctx, gave, room), right, y);
-    y += rowH;
-  });
+    ctx.font = amountFont;
+    lines.forEach((line, n) => ctx.fillText(line, right, y + n * lineH));
+    y += height;
+    shown++;
+  }
+  const maxRows = shown;
   if (board.donors.length > maxRows) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#b8a888';
@@ -214,7 +237,7 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardSta
     ctx.fillText(`…and ${board.donors.length - maxRows} more generous patrons`, W / 2, y);
   } else {
     // The next open place on the board, inviting the next patron in.
-    const place = rows.length + 1;
+    const place = shown + 1;
     ctx.textAlign = 'left';
     ctx.fillStyle = 'rgba(201,162,74,0.55)';
     ctx.font = `bold ${place === 1 ? 52 : 44}px Georgia, serif`;
@@ -232,8 +255,9 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardSta
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffd35a';
   const total = `Total raised: ${formatDonationAmounts(board.totals) || '0 SWARM'}`;
-  shrinkToFit(ctx, total, W - 200, 54, 28, 'bold ');
-  ctx.fillText(fit(ctx, total, W - 200), W / 2, footY + 4);
+  shrinkToFit(ctx, total, W - 200, 54, 30, 'bold ');
+  const totalLines = wrapAmounts(ctx, total, W - 200).slice(0, 2);
+  totalLines.forEach((line, n) => ctx.fillText(line, W / 2, footY + 4 + (n - (totalLines.length - 1) / 2) * 38));
 }
 
 /** Wall-mounted board listing every donor, their amount, and the total raised. */
