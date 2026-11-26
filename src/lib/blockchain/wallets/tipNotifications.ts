@@ -10,6 +10,7 @@ import { get, put } from "@/lib/store";
 import type { SwarmTransaction } from "../types";
 import { isNativeMintMeTip } from "./nativeMintmeLedger";
 import { isCustomTokenTip } from "../deposits/customTokenTips";
+import { isNativeEthTip } from "./nativeEth";
 
 const SINCE_KEY = (uid: string) => `swarm-tip-notices-since:${uid}`;
 export const tipNoticeId = (txId: string) => `wallet-tip:${txId}`;
@@ -34,6 +35,7 @@ async function senderName(userId: string): Promise<string> {
 
 function tickerOf(tx: SwarmTransaction): string {
   if (isNativeMintMeTip(tx)) return "MINTME";
+  if (isNativeEthTip(tx)) return "ETH";
   if (tx.meta?.assetId === "chain:SWARM") return "SWARM";
   if (isCustomTokenTip(tx)) return String(tx.meta?.ticker ?? "tokens").slice(0, 16);
   return "";

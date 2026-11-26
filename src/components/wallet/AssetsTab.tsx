@@ -36,7 +36,7 @@ const TRANSFER_ASSET_ID: Record<string, string> = {
   SWARM: "chain:SWARM",
   CREDIT: "credits",
   MINTME: "external:MINTME",
-  ETH: "external:ETH",
+  ETH: "native:ETH",
   BTC: "external:BTC",
 };
 
@@ -198,7 +198,7 @@ function AssetActions({ code, label, amount, userId, layer, network, onHide }: {
   }
   // The Ethereum view only moves ETH and Ethereum tokens; SWARM, Credits, MINTME and BTC are greyed out.
   if (layer === "native" && network === "ethereum") {
-    if (code === "ETH") return <div className={cls}><EthereumEthActions userId={userId} />{hideButton}</div>;
+    if (code === "ETH") return <div className={cls}><EthereumEthActions userId={userId} amount={amount} />{hideButton}</div>;
     return <div className={`${cls} opacity-50`}><SwarmOnlyButtons hint={code === "MINTME" ? "MINTME lives on MintMe. Switch the network to MintMe to deposit or withdraw it." : `Not supported on Ethereum`} />{hideButton}</div>;
   }
   if (layer === "native" && code === "SWARM") {

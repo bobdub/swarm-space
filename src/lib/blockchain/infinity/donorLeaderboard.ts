@@ -19,6 +19,7 @@
 import type { SwarmTransaction } from "../types";
 import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
+import { isNativeEthTip } from "../wallets/nativeEth";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
 import { parseTokenRef, tokenRefFromCurrency } from "../deposits/tokenNetworks";
 
@@ -85,6 +86,7 @@ export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
   if (tx.type === "wallet_tip" && tx.to === INFINITY_GIFT_VAULT) {
     // The settled asset decides the currency, never the sender's display ticker.
     if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount };
+    if (isNativeEthTip(tx)) return { ticker: "ETH", amount };
     const assetId = typeof tx.meta?.assetId === "string" ? tx.meta.assetId : "";
     if (assetId === "chain:SWARM") return { ticker: "SWARM", amount };
     if (!assetId) return null;

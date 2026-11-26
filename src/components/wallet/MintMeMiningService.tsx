@@ -105,6 +105,8 @@ export function MintMeMiningService() {
         if (cancelled) return;
         await native.syncNativeMintMeDeposits(uid).then(n => notify(n, "MINTME"))
           .catch(e => console.warn("[wallet] MINTME deposit check failed", e));
+        await import("@/lib/blockchain/wallets/nativeEth").then(m => m.syncNativeEthDeposits(uid)).then(n => notify(n, "ETH"))
+          .catch(e => console.warn("[wallet] ETH deposit check failed", e));
         await custom.hydrateCustomTokens(uid);
         for (const token of custom.listCustomTokens(uid)) {
           if (cancelled) break;

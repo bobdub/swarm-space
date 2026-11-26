@@ -10,6 +10,7 @@ import { verifyWalletTip } from "./wallets/tipSignature";
 import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
+import { isNativeEthCustody, isNativeEthTip, isNativeEthWithdraw, nativeEthBalanceUnits, nativeEthUnits, verifyNativeEthCustody } from "./wallets/nativeEth";
 import { assertCustomTokenDepositCapacity, validCustomTokenDepositLedger } from "./deposits/customTokenLimits";
 import { isCustomTokenSync, verifyCustomTokenSync, customTokenCustodyFlows, syncRecordRef } from "./deposits/customTokenCustody";
 import { tokenRefFromCurrency } from "./deposits/tokenNetworks";
@@ -221,6 +222,7 @@ export class SwarmChain {
   addTransaction(transaction: SwarmTransaction): void {
     if (transaction.type === "wallet_tip") throw new Error("Wallet tips require verified acceptance");
     if (isNativeMintMeDeposit(transaction)) throw new Error("MINTME custody requires verified acceptance");
+    if (isNativeEthCustody(transaction)) throw new Error("ETH custody requires verified acceptance");
     if (isCustomTokenSync(transaction)) throw new Error("Custom token custody requires verified acceptance");
     if (!this.isValidTransaction(transaction)) {
       throw new Error("Invalid transaction");
@@ -258,6 +260,9 @@ export class SwarmChain {
     if (isNativeMintMeTip(transaction)) {
       const units = nativeMintMeUnits(transaction);
       if (units === null || nativeMintMeBalanceUnits(transactions, transaction.from) < units) return false;
+    } else if (isNativeEthTip(transaction)) {
+      const units = nativeEthUnits(transaction);
+      if (units === null || nativeEthBalanceUnits(transactions, transaction.from) < units) return false;
     } else if (isCustomTokenTip(transaction)) {
       if (!canSettleCustomTokenTip(transactions, transaction)) return false;
     } else if (this.getSpendableBalance(transaction.from) < (transaction.amount ?? 0)) return false;
@@ -278,6 +283,28 @@ export class SwarmChain {
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
     return true;
+  }
+
+  /** Native ETH custody: verified on Ethereum before a synchronous balance check and append. */
+  async acceptNativeEthCustody(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    const ledger = () => [...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions];
+    if (this.hasTransaction(transaction.id)) return true;
+    if (!await verifyNativeEthCustody(transaction, ledger(), true)) return false;
+    if (this.hasTransaction(transaction.id)) return true;
+    // Recheck against the ledger as it is now, after the asynchronous RPC.
+    if (!await verifyNativeEthCustody(transaction, ledger(), false)) return false;
+    if (isNativeEthWithdraw(transaction)) {
+      const units = nativeEthUnits(transaction);
+      if (units === null || nativeEthBalanceUnits(ledger(), transaction.from) < units) return false;
+    }
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    return true;
+  }
+
+  getNativeEthBalanceUnits(userId: string): bigint {
+    return nativeEthBalanceUnits([...this.chain.flatMap(b => b.transactions), ...this.pendingTransactions], userId);
   }
 
   async acceptCustomTokenDeposit(transaction: SwarmTransaction): Promise<boolean> {
@@ -510,7 +537,7 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
-    if (isNativeMintMeTip(tx) || isCustomTokenTip(tx)) return 0;
+    if (isNativeMintMeTip(tx) || isNativeEthTip(tx) || isCustomTokenTip(tx)) return 0;
     if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     // SWARM moved between a native identity and its MetaMask-key-controlled ledger slot.
     const swarmExternal = (tx.type === "external_withdraw" || tx.type === "external_deposit")
@@ -742,6 +769,7 @@ export class SwarmChain {
       if (tx.type === "mining_reward") return false;
       if (tx.type === "wallet_tip") return await this.acceptWalletTip(tx);
       if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
+      if (isNativeEthCustody(tx)) return await this.acceptNativeEthCustody(tx);
       if (isCustomTokenSync(tx)) return await this.acceptCustomTokenDeposit(tx);
       this.addTransaction(tx);
       return this.hasTransaction(tx.id);
@@ -865,6 +893,11 @@ export class SwarmChain {
       for (const tx of block.transactions) {
         if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return false;
         if (isCustomTokenSync(tx) && (seen.has(tx.id) || !await verifyCustomTokenSync(tx, accepted))) return false;
+        if (isNativeEthCustody(tx)) {
+          if (seen.has(tx.id) || !await verifyNativeEthCustody(tx, accepted)) return false;
+          const units = nativeEthUnits(tx);
+          if (isNativeEthWithdraw(tx) && (units === null || nativeEthBalanceUnits(accepted, tx.from) < units)) return false;
+        }
         if (tx.type === "wallet_tip") {
           if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
           const nonceKey = `${tx.from}:${tx.meta?.assetId}:${tx.nonce}`;
@@ -873,6 +906,9 @@ export class SwarmChain {
           if (isNativeMintMeTip(tx)) {
             const units = nativeMintMeUnits(tx);
             if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return false;
+          } else if (isNativeEthTip(tx)) {
+            const units = nativeEthUnits(tx);
+            if (units === null || nativeEthBalanceUnits(accepted, tx.from) < units) return false;
           } else if (isCustomTokenTip(tx)) {
             if (!canSettleCustomTokenTip(accepted, tx)) return false;
           } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
