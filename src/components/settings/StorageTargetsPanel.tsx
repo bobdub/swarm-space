@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { isBrowserStorageHigh } from './storageUsage';
 import { Card } from '@/components/ui/card';
@@ -9,9 +9,6 @@ import {
   HardDrive,
   FolderOpen,
   Unplug,
-  Download,
-  Upload,
-  RefreshCw,
   AlertTriangle,
   Check,
 } from 'lucide-react';
@@ -31,7 +28,6 @@ import {
   getCapabilityLevel,
   getCapabilityLabel,
 } from '@/lib/storage/providers/capabilities';
-import { downloadArchive, importArchive } from '@/lib/storage/providers/archiveFallback';
 import type { StorageCapacity, StorageThresholds } from '@/lib/storage/providers/types';
 import { toast } from 'sonner';
 
@@ -43,12 +39,11 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
-export function StorageTargetsPanel({ afterBrowserStorage }: { afterBrowserStorage?: ReactNode }) {
+export function StorageTargetsPanel() {
   const [browserCapacity, setBrowserCapacity] = useState<StorageCapacity | null>(null);
   const [externalConnected, setExternalConnected] = useState(false);
   const [externalProvider, setExternalProvider] = useState<ExternalDeviceProvider | null>(null);
   const [loading, setLoading] = useState(false);
-  const [migrating, setMigrating] = useState(false);
 
   const capability = getCapabilityLevel();
 
@@ -117,35 +112,6 @@ export function StorageTargetsPanel({ afterBrowserStorage }: { afterBrowserStora
     }
   };
 
-  const handleExportArchive = async () => {
-    setMigrating(true);
-    try {
-      await downloadArchive();
-      toast.success('Archive downloaded');
-    } catch (error) {
-      console.error('[StorageTargets] Export failed:', error);
-      toast.error('Failed to export archive');
-    } finally {
-      setMigrating(false);
-    }
-  };
-
-  const handleImportArchive = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setMigrating(true);
-    try {
-      const result = await importArchive(file);
-      toast.success(`Imported ${result.manifests} manifests and ${result.chunks} chunks`);
-    } catch (error) {
-      console.error('[StorageTargets] Import failed:', error);
-      toast.error('Failed to import archive');
-    } finally {
-      setMigrating(false);
-      e.target.value = '';
-    }
-  };
-
   const usagePercent =
     browserCapacity && browserCapacity.total > 0
       ? Math.round((browserCapacity.used / browserCapacity.total) * 100)
@@ -188,8 +154,6 @@ export function StorageTargetsPanel({ afterBrowserStorage }: { afterBrowserStora
           </div>
         )}
       </Card>
-
-      {afterBrowserStorage}
 
       {/* External Device */}
       <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
@@ -247,38 +211,6 @@ export function StorageTargetsPanel({ afterBrowserStorage }: { afterBrowserStora
             </AlertDescription>
           </Alert>
         )}
-      </Card>
-
-      {/* Archive Export/Import */}
-      <Card className="rounded-3xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,8%,0.45)] p-6">
-        <h2 className="text-xl font-bold mb-2">Data Archive</h2>
-        <p className="text-sm text-foreground/60 mb-4">
-          Export or import your manifests and chunks as a portable archive file.
-        </p>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button
-            variant="outline"
-            className="gap-2 flex-1"
-            onClick={handleExportArchive}
-            disabled={migrating}
-          >
-            <Download className="h-4 w-4" />
-            {migrating ? 'Exporting...' : 'Export Archive'}
-          </Button>
-          <label className="flex-1">
-            <div className="flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground">
-              <Upload className="h-4 w-4" />
-              Import Archive
-            </div>
-            <input
-              type="file"
-              accept=".json,.gz"
-              className="hidden"
-              onChange={handleImportArchive}
-              disabled={migrating}
-            />
-          </label>
-        </div>
       </Card>
     </div>
   );

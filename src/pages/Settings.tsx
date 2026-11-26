@@ -54,7 +54,6 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { SovereignSecurityPanel } from "@/components/settings/SovereignSecurityPanel";
 import { ArchiveImportModal } from "@/components/settings/ArchiveImportModal";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
-import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
 import { ExternalTimestampsPanel } from "@/components/settings/ExternalTimestampsPanel";
@@ -687,10 +686,10 @@ const Settings = () => {
                     Take your posts, conversations and media with you as a .zip you can read offline, and restore it on any device.
                   </p>
                 </div>
-                <AccountExportModal />
+                <AccountExportModal defaultOpen={searchParams.get("export") === "1"} />
                 <ArchiveImportModal />
               </Card>
-              <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
+              <StorageTargetsPanel />
               <PersonalServersPanel />
               <GroupWarePanel />
             </TabsContent>

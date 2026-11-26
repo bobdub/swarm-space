@@ -49,6 +49,13 @@ export interface ExportSummary {
     mime?: string;
     createdAt?: string;
   }>;
+  /** Exactly what went into the zip; Free up space clears only these. */
+  contents: {
+    postIds: string[];
+    commentIds: string[];
+    manifestIds: string[];
+    chunkRefs: string[];
+  };
   warnings: string[];
 }
 
@@ -185,6 +192,7 @@ export async function createAccountExportStream(
   }
 
   let commentTotal = 0;
+  const includedCommentIds: string[] = [];
   if (includePosts) {
     const postIds = new Set(postsToInclude.map((p) => p.id));
     const commentsByPost = new Map<string, Comment[]>();
@@ -198,6 +206,7 @@ export async function createAccountExportStream(
       const media = (post.manifestIds ?? []).map((id) => mediaByManifest.get(id)).filter((m): m is ArchiveMediaRef => !!m);
       const comments = commentsByPost.get(post.id) ?? [];
       commentTotal += comments.length;
+      for (const c of comments) includedCommentIds.push(c.id);
       let path = postPath(post);
       for (let n = 2; usedPaths.has(path); n++) path = postPath(post).replace(/\.md$/, `_${n}.md`);
       usedPaths.add(path);
@@ -230,6 +239,12 @@ export async function createAccountExportStream(
       mime: manifest.mime,
       createdAt: manifest.createdAt,
     })),
+    contents: {
+      postIds: postsToInclude.map((p) => p.id),
+      commentIds: includedCommentIds,
+      manifestIds: attachments.map(({ manifest }) => manifest.fileId),
+      chunkRefs: attachments.flatMap(({ manifest }) => manifest.chunks ?? []),
+    },
     warnings,
   };
 

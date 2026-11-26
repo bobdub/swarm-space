@@ -16,7 +16,6 @@ import {
 } from "@/lib/backup/exportFullState";
 import { BrowserGuardrailsCard } from "@/components/diagnostics/BrowserGuardrailsCard";
 import { SyncVaultsPanel } from "@/components/diagnostics/SyncVaultsPanel";
-import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 
 interface StoreReport {
   name: string;
@@ -309,7 +308,6 @@ export default function StorageDiagnostics() {
               </Card>
             )}
 
-            <FreeUpSpacePanel />
             <BrowserGuardrailsCard />
             <SyncVaultsPanel />
           </>
