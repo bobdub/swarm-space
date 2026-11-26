@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import barSignUrl from '@/assets/bar/green-cat-red-dragon-sign.webp';
 import { get } from '@/lib/store';
 import { getCurrentUser } from '@/lib/auth';
+import { peerGiftSummary, type PeerGiftSummary } from '@/lib/p2p/peerGiftLog';
 import type { User } from '@/types';
 import {
   formatDonationAmounts,
@@ -51,7 +52,7 @@ export function BarSignArt({ width, glow = 0.25 }: { width: number; glow?: numbe
 
 // ── Donor leaderboard ────────────────────────────────────────────────
 
-const REFRESH_EVENTS = ['blockchain-transaction', 'wallet-tip-updated', 'reward-pool-update', 'swarm-block-mined'];
+const REFRESH_EVENTS = ['blockchain-transaction', 'wallet-tip-updated', 'reward-pool-update', 'swarm-block-mined', 'peer-gift-outcome'];
 const EMPTY: DonorLeaderboard = { donors: [], totals: {}, totalValue: 0, donationCount: 0 };
 
 const NAME_TIMEOUT_MS = 3000;
@@ -77,6 +78,10 @@ export interface BoardState {
   ledgerSize: number;
   /** When the board last read the ledger (ISO), or null before the first read. */
   readAt: string | null;
+  /** Newest block on this device's chain, to compare with a peer's board. */
+  tip?: { height: number; hash: string };
+  /** What this device did with donations peers sent it. */
+  peerGifts?: PeerGiftSummary;
 }
 
 function useDonorLeaderboard(): BoardState {
@@ -85,13 +90,15 @@ function useDonorLeaderboard(): BoardState {
     let alive = true;
     const refresh = async () => {
       try {
-        const { ledgerSize, ...board } = await loadDonorLeaderboard();
+        const { ledgerSize, tipHeight, tipHash, ...board } = await loadDonorLeaderboard();
+        const tip = { height: tipHeight, hash: tipHash };
+        const peerGifts = peerGiftSummary();
         const readAt = new Date().toISOString();
         if (!alive) return;
         // Show the donors straight away with whatever names are known, then
         // fill in profile names as they arrive.
         const known = Object.fromEntries(board.donors.flatMap((d) => (d.name ? [[d.userId, d.name]] : [])));
-        setState((prev) => ({ board, names: { ...prev.names, ...known }, status: 'ready', ledgerSize, readAt }));
+        setState((prev) => ({ board, names: { ...prev.names, ...known }, status: 'ready', ledgerSize, readAt, tip, peerGifts }));
         console.info(`[DonorBoard] ${board.donors.length} donor(s), ${board.donationCount} donation(s) from ${ledgerSize} ledger entries`);
         const entries = await Promise.all(board.donors.map(async (d) =>
           [d.userId, d.name ?? await donorName(d.userId)] as const));
@@ -115,7 +122,7 @@ function useDonorLeaderboard(): BoardState {
 }
 
 const CANVAS_W = 1280;
-const MAX_ROWS = 7;
+const MAX_ROWS = 6;
 
 function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
@@ -134,7 +141,7 @@ function shrinkToFit(ctx: CanvasRenderingContext2D, text: string, maxW: number, 
   }
 }
 
-function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize, readAt }: BoardState) {
+function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize, readAt, tip, peerGifts }: BoardState) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const W = canvas.width;
@@ -222,12 +229,22 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
   shrinkToFit(ctx, total, W - 200, 58, 32, 'bold ');
   ctx.fillText(fit(ctx, total, W - 200), W / 2, footY + 48);
 
-  // Small print: how much ledger the board read, so an empty board can be told apart from an unread one.
+  // Readable small print: which ledger this board read, and what became of
+  // donations peers sent, so a missing gift says why it is missing.
   if (readAt) {
     const time = new Date(readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    ctx.fillStyle = 'rgba(184,168,136,0.7)';
-    ctx.font = '22px Georgia, serif';
-    ctx.fillText(`Read ${ledgerSize.toLocaleString()} ledger entries · ${time}`, W / 2, footY - 74);
+    const block = tip?.hash ? `Block #${tip.height.toLocaleString()} (${tip.hash.slice(0, 6)})` : 'No blocks yet';
+    ctx.fillStyle = '#cbbd9c';
+    shrinkToFit(ctx, `${block} · ${ledgerSize.toLocaleString()} ledger entries · read ${time}`, W - 200, 30, 20, '');
+    ctx.fillText(fit(ctx, `${block} · ${ledgerSize.toLocaleString()} ledger entries · read ${time}`, W - 200), W / 2, footY - 116);
+    const g = peerGifts;
+    const peers = !g || g.heard === 0
+      ? 'No donations received from peers since the app opened'
+      : `From peers: ${g.taken} donation${g.taken === 1 ? '' : 's'} taken, ${g.refused} refused`
+        + (g.lastRefusal ? ` · last refused ${g.lastRefusal.what}: ${g.lastRefusal.refused}` : '');
+    ctx.fillStyle = g?.lastRefusal ? '#e8a07a' : '#cbbd9c';
+    shrinkToFit(ctx, peers, W - 200, 30, 18, '');
+    ctx.fillText(fit(ctx, peers, W - 200), W / 2, footY - 80);
   }
 }
 

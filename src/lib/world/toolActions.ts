@@ -278,16 +278,17 @@ export async function applyToolToPlacement(toolPrefabId: string, target: Placeme
 }
 
 /** What one bucket/hand gather of a nature block adds to the Gathered tally. */
-export const GATHER_YIELD: Record<string, 'water' | 'food' | 'fibre'> = {
+export const GATHER_YIELD: Record<string, 'water' | 'fish' | 'fibre'> = {
   water: 'water',
-  fish: 'food',
+  // A pond fish is Fish, the same good a fish caught at sea is.
+  fish: 'fish',
   flower: 'fibre',
   grass: 'fibre',
 };
 
-const GATHER_LABEL: Record<'water' | 'food' | 'fibre', string> = {
+const GATHER_LABEL: Record<'water' | 'fish' | 'fibre', string> = {
   water: 'Water',
-  food: 'Food',
+  fish: 'Fish',
   fibre: 'Fibre',
 };
 

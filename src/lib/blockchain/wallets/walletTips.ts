@@ -10,6 +10,7 @@ import { customTipAssetId, customTipUnits, CUSTOM_TIP_ASSET_PREFIX } from "../de
 import { nativeWalletAddress, resolveNativeWalletRecipient } from "./nativeAddress";
 import { signWalletTip, verifyWalletTip } from "./tipSignature";
 import { validateWalletTip, type TipAsset } from "./tipRules";
+import { INFINITY_GIFT_VAULT } from "../infinity/vaults";
 import { availableTipWeights, resolveTipWeight, TIP_FORMAT_VERSION, type TipWeight } from "./tipWeight";
 import { getAll } from "@/lib/store";
 import type { SwarmCoin } from "../types";
@@ -72,10 +73,20 @@ export async function getTipWeights(userId: string): Promise<TipWeight[]> {
 }
 
 export async function receiveWalletTip(tx: SwarmTransaction): Promise<boolean> {
-  if (!await verifyWalletTip(tx)) return false;
+  // A peer's gift to the donations vault: note what happened to it for the donor board.
+  const peerGift = tx?.to === INFINITY_GIFT_VAULT && tx.from !== getCurrentUser()?.id;
+  const note = (refused: string | null) => {
+    if (!peerGift) return;
+    void import("@/lib/p2p/peerGiftLog").then(({ recordPeerGift }) => recordPeerGift({
+      txId: tx.id, from: tx.from, what: `${Number(tx.amount).toLocaleString()} ${String(tx.meta?.ticker ?? "")}`.trim(), refused,
+    })).catch(() => {});
+  };
+  if (!await verifyWalletTip(tx)) { note("its signature doesn't match the sender"); return false; }
   const chain = getSwarmChain();
   await chain.whenReady();
-  if (!await chain.acceptWalletTip(tx)) return false;
+  const known = chain.hasTransaction(tx.id);
+  if (!await chain.acceptWalletTip(tx)) { note("the sender's balance on this ledger doesn't cover it"); return false; }
+  if (!known) note(null);
   window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
   window.dispatchEvent(new Event("wallet-tip-updated"));
   return true;

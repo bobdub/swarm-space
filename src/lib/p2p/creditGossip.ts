@@ -23,6 +23,7 @@ import { isVaultDonationRecord } from "@/lib/blockchain/wallets/tipSignature";
 import type { CreditTransaction } from "@/types";
 import type { SwarmTransaction } from "@/lib/blockchain/types";
 import { isSelfIssuedSwarmMint } from "@/lib/blockchain/issuance";
+import { recordPeerGift } from "./peerGiftLog";
 
 export const CREDIT_CHANNEL = "credits";
 export const CHAIN_TX_CHANNEL = "chain-tx";
@@ -339,8 +340,17 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
           // New coins come only from block rewards: a peer's self-issued mint is unverifiable.
           if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
-          if (tx.type === "pool_donate" && !await acceptablePeerDonation(tx, (id) => chain.getSpendableBalance(id))) return false;
-          if (tx.type === "custom_token_transfer" && !await acceptablePeerVaultGift(tx)) return false;
+          if (tx.type === "pool_donate" || tx.type === "custom_token_transfer") {
+            const problem = tx.type === "pool_donate"
+              ? await peerDonationProblem(tx, (id) => chain.getSpendableBalance(id))
+              : await peerVaultGiftProblem(tx);
+            const ticker = tx.type === "pool_donate" ? "SWARM" : String(tx.meta?.ticker ?? (String(tx.meta?.currency).toUpperCase() === "CREDITS" ? "Credits" : "tokens"));
+            recordPeerGift({ txId: tx.id, from: tx.from, what: `${fmt(tx.amount ?? 0)} ${ticker}`, refused: problem });
+            if (problem) {
+              console.warn(`[CreditGossip] Refused a peer's vault donation ${tx.id}: ${problem}`);
+              return false;
+            }
+          }
           chain.addTransaction(tx);
           if (tx.type === "pool_donate") {
             // Keep the Market Vault balance in step with the donation we just learned about.
@@ -381,10 +391,19 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
  * the same bar a native SWARM tip has to clear.
  */
 export async function acceptablePeerDonation(tx: SwarmTransaction, spendable: (userId: string) => number): Promise<boolean> {
-  const { verifyPoolDonation } = await import("@/lib/blockchain/wallets/tipSignature");
-  if (!await verifyPoolDonation(tx)) return false;
-  return spendable(tx.from) >= (tx.amount ?? 0);
+  return (await peerDonationProblem(tx, spendable)) === null;
 }
+
+/** Why a peer's vault SWARM donation can't be taken in, or null when it can. */
+export async function peerDonationProblem(tx: SwarmTransaction, spendable: (userId: string) => number): Promise<string | null> {
+  const { verifyPoolDonation } = await import("@/lib/blockchain/wallets/tipSignature");
+  if (!await verifyPoolDonation(tx)) return tx.signature ? "its signature doesn't match the donor" : "it isn't signed yet (the donor needs the new version, unlocked)";
+  const have = spendable(tx.from);
+  const need = tx.amount ?? 0;
+  return have >= need ? null : `the donor has ${fmt(have)} spendable SWARM on this ledger, needs ${fmt(need)}`;
+}
+
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 /**
  * A peer's Credits or token gift to the Market Vault: signed by the donor.
@@ -396,12 +415,22 @@ export async function acceptablePeerVaultGift(
   tx: SwarmTransaction,
   tokenBalance?: (userId: string, currency: string) => number,
 ): Promise<boolean> {
+  return (await peerVaultGiftProblem(tx, tokenBalance)) === null;
+}
+
+/** Why a peer's Credits or token gift to the vault can't be taken in, or null when it can. */
+export async function peerVaultGiftProblem(
+  tx: SwarmTransaction,
+  tokenBalance?: (userId: string, currency: string) => number,
+): Promise<string | null> {
   const { verifyVaultDonation } = await import("@/lib/blockchain/wallets/tipSignature");
-  if (!await verifyVaultDonation(tx)) return false;
+  if (!await verifyVaultDonation(tx)) return tx.signature ? "its signature doesn't match the donor" : "it isn't signed yet (the donor needs the new version, unlocked)";
   const currency = String(tx.meta?.currency ?? "");
-  if (currency.toUpperCase() === "CREDITS") return true;
+  if (currency.toUpperCase() === "CREDITS") return null;
   const balance = tokenBalance ?? (await import("@/lib/blockchain/deposits/customTokens")).recordedBalanceForCurrency;
-  return balance(tx.from, currency) >= (tx.amount ?? 0);
+  const have = balance(tx.from, currency);
+  const need = tx.amount ?? 0;
+  return have >= need ? null : `the donor holds ${fmt(have)} of that token on this ledger, needs ${fmt(need)}`;
 }
 
 /**
