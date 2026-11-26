@@ -244,7 +244,7 @@ export function LabTab() {
         {/* One wrapper either way, so going fullscreen keeps the drawing. */}
         <div
           className={expanded
-            ? 'fixed inset-0 z-50 flex flex-col gap-2 bg-background/95 p-3 backdrop-blur'
+            ? 'fixed inset-0 z-50 flex flex-col gap-2 bg-background p-3'
             : 'flex h-[55vh] min-h-[260px] flex-col md:h-auto md:flex-1'}
           role={expanded ? 'dialog' : undefined}
           aria-label={expanded ? 'Fullscreen Lab canvas' : undefined}
