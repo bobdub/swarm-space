@@ -163,11 +163,12 @@ describe('collecting water and food', () => {
     expect(materialTotals().fibre).toBe(0);
   });
 
-  it('water block → +1 Water, fish → +1 Food, grass → +1 Fibre', async () => {
+  it('water block → +1 Water, pond fish → +1 Fish, grass → +1 Fibre', async () => {
     await applyToolToTarget(BUCKET, nature('w', 'water'));
     await applyToolToTarget(BUCKET, nature('f', 'fish'));
     await applyToolToTarget(BUCKET, nature('g', 'grass'));
-    expect(materialTotals()).toEqual({ wood: 0, stone: 0, water: 1, fibre: 1, food: 1 });
+    expect(materialTotals()).toEqual({ wood: 0, stone: 0, water: 1, fibre: 1, food: 0 });
+    expect(getHarvested('good:fish')).toBe(1);
   });
 
   it('a stale target that was already collected does not pay out again', async () => {
@@ -176,7 +177,7 @@ describe('collecting water and food', () => {
     expect(await applyToolToTarget(BUCKET, fish)).toBe(true);
     expect(getToolTarget()).toBeNull();
     expect(await applyToolToTarget(BUCKET, fish)).toBe(false);
-    expect(materialTotals().food).toBe(1);
+    expect(getHarvested('good:fish')).toBe(1);
   });
 });
 
