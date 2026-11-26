@@ -24,7 +24,7 @@ import { spotCreditsPerSwarm } from '@/lib/blockchain/marketVaultPricing';
 import { VAULT_CREDITS_CURRENCY } from '@/lib/blockchain/poolLedger';
 import type { SwarmBlock, SwarmTransaction } from '@/lib/blockchain/types';
 import { getPrefab, TRADING_STAND_ID } from '@/lib/brain/prefabHouseCatalog';
-import { prefabCost, materialTotals } from '@/lib/world/materials';
+import { gatheredGoodTotals, prefabCost, materialTotals } from '@/lib/world/materials';
 import {
   _resetHarvestedForTest,
   getHarvested,
@@ -37,7 +37,7 @@ function vault(over: Partial<StandVaultState> = {}): StandVaultState {
   return {
     swarmPool: 1000,
     creditReserve: 50_000,
-    stock: { wood: 100, stone: 100, water: 100, fibre: 100, food: 100, honey: 40, gem: 10 },
+    stock: { wood: 100, stone: 100, water: 100, fibre: 100, food: 100, egg: 50, chicken: 20, fish: 40, shark: 5, honey: 40, gem: 10 },
     market: { poolBalance: 1000, knownMined: 4000 },
     ...over,
   };
@@ -134,7 +134,9 @@ describe('Trading Stand pricing', () => {
 
   it('lists live Buy and Sell prices for every good', () => {
     const board = standPriceBoard(vault());
-    expect(board.map((r) => r.good.id).sort()).toEqual(['fibre', 'food', 'gem', 'honey', 'stone', 'water', 'wood']);
+    expect(board.map((r) => r.good.id).sort()).toEqual(['chicken', 'egg', 'fibre', 'fish', 'food', 'gem', 'honey', 'shark', 'stone', 'water', 'wood']);
+    // Food is sold as Fruit at the stand.
+    expect(board.find((r) => r.good.id === 'food')?.good.label).toBe('Fruit');
     for (const row of board) {
       expect(row.buySwarm).not.toBeNull();
       expect(row.buySwarm!).toBeGreaterThan(row.sellSwarm);
@@ -218,6 +220,13 @@ describe('Trading Stand in the Brain', () => {
     const stands = [{ placementId: 'a', pos: [0, 0, 3.4] as const }, { placementId: 'b', pos: [0, 0, 9] as const }];
     expect(nearestStandWithin([0, 0, 0], stands)?.placementId).toBe('a');
     expect(nearestStandWithin([0, 0, -1], stands, STAND_PROMPT_RADIUS_M)).toBeNull();
+  });
+
+  it('counts honey, eggs, chickens, fish, sharks and gems in the Gathered tally', () => {
+    for (const kind of ['honey', 'egg', 'chicken', 'fish', 'shark', 'gem']) recordHarvestForResource(kind, 2);
+    expect(gatheredGoodTotals()).toEqual({ honey: 2, egg: 2, chicken: 2, fish: 2, shark: 2, gem: 2 });
+    expect(heldGood('shark')).toBe(2);
+    expect(materialTotals().food).toBe(0);
   });
 
   it('keeps honey and gems as their own goods in the bag', () => {

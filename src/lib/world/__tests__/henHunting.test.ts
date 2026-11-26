@@ -9,12 +9,12 @@ vi.mock('@/lib/world/swingFxBus', () => ({ emitImpactFx: vi.fn(), emitSwingFx: v
 
 import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import { groundElevationAt } from '@/lib/brain/groundHeight';
-import { FOOD_PER_HEN, FOOD_PER_ROOSTER, _resetChickensForTest, getHens, henPoseAt, isHenAway } from '@/lib/brain/land/chickens';
+import { _resetChickensForTest, getHens, henPoseAt, isHenAway } from '@/lib/brain/land/chickens';
 import { _resetHarvestedForTest } from '@/lib/remix/harvestedInventory';
-import { materialTotals } from '@/lib/world/materials';
+import { gatheredGoodTotals, materialTotals } from '@/lib/world/materials';
 import { _resetNatureEventsForTest, listNatureEvents } from '@/lib/world/natureEventsStore';
-import { tryCatchNearbyHen, tryTakeNestEgg } from '@/lib/world/henHunting';
-import { flockOf, nestEggs, FOOD_PER_EGG } from '@/lib/brain/land/chickens';
+import { CHICKENS_PER_CATCH, EGGS_PER_TAKE, tryCatchNearbyHen, tryTakeNestEgg } from '@/lib/world/henHunting';
+import { flockOf, nestEggs } from '@/lib/brain/land/chickens';
 
 function standAt(n: Vec3): void {
   const pose = getEarthPose();
@@ -31,12 +31,13 @@ beforeEach(() => {
 
 describe('hunting hens with a knife', () => {
   for (const rooster of [false, true]) {
-    it(`a knife next to a ${rooster ? 'rooster' : 'hen'} catches it for Food, and it is gone for everyone`, () => {
+    it(`a knife next to a ${rooster ? 'rooster' : 'hen'} catches it as a Chicken, and it is gone for everyone`, () => {
       const hen = getHens().find((h) => h.rooster === rooster)!;
       standAt(henPoseAt(hen, getEarthPoseTime()).n);
       const before = materialTotals().food ?? 0;
       expect(tryCatchNearbyHen('tool_knife_stone', 'me')).toBe(true);
-      expect((materialTotals().food ?? 0) - before).toBe(rooster ? FOOD_PER_ROOSTER : FOOD_PER_HEN);
+      expect(gatheredGoodTotals().chicken).toBe(CHICKENS_PER_CATCH);
+      expect(materialTotals().food ?? 0).toBe(before);
       const caught = listNatureEvents('chickens');
       expect(caught.length).toBe(1);
       expect(caught[0].kind).toBe('hen-caught');
@@ -54,14 +55,15 @@ describe('hunting hens with a knife', () => {
     expect(listNatureEvents('chickens').length).toBe(0);
   });
 
-  it('standing at a nest with an egg, any tool takes it for Food', () => {
+  it('standing at a nest with an egg, any tool takes it as an Egg', () => {
     const hen = getHens().find((h) => !h.rooster)!;
     let now = Date.UTC(2026, 10, 21, 12);
     while (nestEggs(flockOf(hen), now).length === 0) now += 10_000;
     standAt(hen.nest);
     const before = materialTotals().food ?? 0;
     expect(tryTakeNestEgg('tool_axe_stone', 'me', now)).toBe(true);
-    expect((materialTotals().food ?? 0) - before).toBe(FOOD_PER_EGG);
+    expect(gatheredGoodTotals().egg).toBe(EGGS_PER_TAKE);
+    expect(materialTotals().food ?? 0).toBe(before);
     const taken = listNatureEvents('chickens');
     expect(taken.length).toBe(1);
     expect(taken[0].kind).toBe('egg-taken');

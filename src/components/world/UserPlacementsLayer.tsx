@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Html } from '@react-three/drei';
+import { getCurrentUser } from '@/lib/auth';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import {
   listPlacements,
@@ -59,6 +60,8 @@ export function UserPlacementsLayer({
   suppressActionChip = false,
 }: UserPlacementsLayerProps) {
   const [records, setRecords] = useState<PlacementRecord[]>(() => listPlacements());
+  // Stands placed before builders' names were stamped show the viewer's own name on their own stand.
+  const selfName = (() => { try { const u = getCurrentUser(); return u?.displayName || u?.username || undefined; } catch { return undefined; } })();
   useEffect(() => subscribePlacements(setRecords), []);
   // Muted (or blocked) peers' building items are hidden on this device.
   const mutedPeers = useMutedPeers();
@@ -134,6 +137,7 @@ export function UserPlacementsLayer({
                     />
                   ) : isStand ? (
                     <TradingStandView
+                      ownerName={rec.ownerName ?? (owned ? selfName : undefined)}
                       width={prefab.width}
                       depth={prefab.depth}
                       height={prefab.height}

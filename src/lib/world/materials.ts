@@ -11,6 +11,7 @@
  * `spendHarvested`, so existing amounts carry over untouched.
  */
 import {
+  getHarvested,
   listHarvested,
   subscribeHarvested,
   spendHarvested,
@@ -34,6 +35,28 @@ export const MATERIALS: MaterialDef[] = [
   { id: 'fibre', label: 'Fibre', icon: '🧵', color: 'hsl(48, 62%, 60%)' },
   { id: 'food', label: 'Food', icon: '🍎', color: 'hsl(348, 70%, 60%)' },
 ];
+
+/**
+ * Gathered goods that are not building materials: kept in the bag under
+ * `good:` keys (see `harvestedInventory`), shown in the Gathered tally and
+ * traded at the Trading Stand, never spent on builds.
+ */
+export type GatheredGoodId = 'honey' | 'egg' | 'chicken' | 'fish' | 'shark' | 'gem';
+
+export const GATHERED_GOODS: { id: GatheredGoodId; label: string; icon: string }[] = [
+  { id: 'honey', label: 'Honey', icon: '🍯' },
+  { id: 'egg', label: 'Eggs', icon: '🥚' },
+  { id: 'chicken', label: 'Chickens', icon: '🐔' },
+  { id: 'fish', label: 'Fish', icon: '🐟' },
+  { id: 'shark', label: 'Sharks', icon: '🦈' },
+  { id: 'gem', label: 'Gems', icon: '💎' },
+];
+
+export function gatheredGoodTotals(): Record<GatheredGoodId, number> {
+  const out = {} as Record<GatheredGoodId, number>;
+  for (const g of GATHERED_GOODS) out[g.id] = Math.floor(getHarvested(`good:${g.id}`));
+  return out;
+}
 
 export const MATERIAL_LABEL: Record<MaterialId, string> = {
   wood: 'Wood', stone: 'Stone', water: 'Water', fibre: 'Fibre', food: 'Food',

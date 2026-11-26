@@ -197,6 +197,10 @@ const KIND_MAP: Record<string, { symbol: string; count: number }[]> = {
   // `good:` key, one per unit, and left out of the element lists below.
   honey:  [{ symbol: 'good:honey', count: 1 }],
   gem:    [{ symbol: 'good:gem', count: 1 }],
+  egg:    [{ symbol: 'good:egg', count: 1 }],
+  fish:   [{ symbol: 'good:fish', count: 1 }],
+  shark:  [{ symbol: 'good:shark', count: 1 }],
+  chicken: [{ symbol: 'good:chicken', count: 1 }],
 };
 
 /** Bag keys for goods that are not elements (honey, gems). */

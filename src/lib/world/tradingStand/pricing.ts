@@ -30,7 +30,8 @@ import {
 
 export { MARKET_VAULT_FLOOR_SHARE as STAND_FLOOR_SHARE, MARKET_VAULT_MAX_TRADE_SHARE as STAND_MAX_TRADE_SHARE };
 
-export type TradingGood = 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'honey' | 'fibre';
+export type TradingGood =
+  | 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'egg' | 'chicken' | 'fish' | 'shark' | 'honey' | 'fibre';
 export type StandCurrency = 'SWARM' | 'CREDITS';
 
 export interface TradingGoodSpec {
@@ -48,7 +49,12 @@ export const TRADING_GOODS: readonly TradingGoodSpec[] = [
   { id: 'water', label: 'Water', icon: '💧', baseSwarm: 0.01,  virtualReserve: 300 },
   { id: 'stone', label: 'Stone', icon: '🪨', baseSwarm: 0.025, virtualReserve: 200 },
   { id: 'gem',   label: 'Gems',  icon: '💎', baseSwarm: 0.25,  virtualReserve: 25 },
-  { id: 'food',  label: 'Food',  icon: '🍎', baseSwarm: 0.02,  virtualReserve: 200 },
+  // `food` is the bag's Food material; at the stand it is sold as Fruit.
+  { id: 'food',  label: 'Fruit', icon: '🍎', baseSwarm: 0.02,  virtualReserve: 200 },
+  { id: 'egg',   label: 'Eggs',  icon: '🥚', baseSwarm: 0.03,  virtualReserve: 120 },
+  { id: 'chicken', label: 'Chickens', icon: '🐔', baseSwarm: 0.09, virtualReserve: 60 },
+  { id: 'fish',  label: 'Fish',  icon: '🐟', baseSwarm: 0.04,  virtualReserve: 120 },
+  { id: 'shark', label: 'Sharks', icon: '🦈', baseSwarm: 0.4,  virtualReserve: 12 },
   { id: 'honey', label: 'Honey', icon: '🍯', baseSwarm: 0.05,  virtualReserve: 80 },
   { id: 'fibre', label: 'Fibre', icon: '🧵', baseSwarm: 0.015, virtualReserve: 200 },
 ];
