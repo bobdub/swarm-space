@@ -9,9 +9,10 @@
  * Inputs are written by the on-screen controls and keyboard
  * (`ShipWheel.tsx`) and read by the boat each tick (`villageBoat.ts`).
  *
- * Rowing burns Food: one unit per `ROW_METRES_PER_FOOD` metres the boat
- * moves while you pull. The spend goes through `spendMaterials`, on this
- * device only. With no Food the oars stop pushing.
+ * Rowing burns food. Each serving eaten carries the oars a set distance:
+ * one unit of raw Food `ROW_METRES_PER_FOOD` metres, a cooked meal from
+ * the fire pit's grill (`world/cooking.ts`) much further. The spend goes
+ * through the bag, on this device only. With no food the oars stop pushing.
  */
 
 import { stopFishing } from './fishing';
@@ -31,7 +32,7 @@ export interface CrewInput {
 
 /** Metres of rowing per unit of Food. */
 export const ROW_METRES_PER_FOOD = 60;
-export const OUT_OF_FOOD_NOTE = 'Out of Food, so the oars won\'t pull. Fish from a rod, or gather fruit or honey.';
+export const OUT_OF_FOOD_NOTE = 'Out of Food, so the oars won\'t pull. Fish from a rod and cook the catch on a fire pit, or gather fruit or honey.';
 
 interface CrewState {
   role: CrewRole | null;
@@ -43,6 +44,8 @@ interface CrewState {
   input: CrewInput;
   /** Metres rowed since the last Food was spent. */
   rowedSinceFood: number;
+  /** Metres the last serving eaten is worth (the current leg's length). */
+  legMetres: number;
   outOfFood: boolean;
 }
 
@@ -53,6 +56,7 @@ const state: CrewState = {
   spot: null,
   input: { wheel: 0, sail: 0, row: 0, rowTurn: 0 },
   rowedSinceFood: 0,
+  legMetres: ROW_METRES_PER_FOOD,
   outOfFood: false,
 };
 
@@ -154,7 +158,12 @@ export function isOutOfFood(): boolean {
 /** How Food is spent and checked; swapped in tests. */
 export interface FoodPurse {
   has(): boolean;
-  spendOne(): boolean;
+  /**
+   * Eat one serving. `true` is one unit of raw Food (`ROW_METRES_PER_FOOD`
+   * metres); a number is the metres of rowing the serving is worth (a
+   * cooked meal); `false` or 0 means nothing could be eaten.
+   */
+  spendOne(): boolean | number;
 }
 
 let purse: FoodPurse | null = null;
@@ -173,20 +182,31 @@ export function canRow(): boolean {
   return ok;
 }
 
+/** Metres of rowing a purse spend is worth (0 = nothing eaten). */
+function servingMetres(spent: boolean | number): number {
+  if (spent === true) return ROW_METRES_PER_FOOD;
+  if (typeof spent === 'number' && Number.isFinite(spent) && spent > 0) return spent;
+  return 0;
+}
+
 /**
- * Account for `metres` the boat moved under this rower's stroke. Spends a
- * Food each time the tally passes `ROW_METRES_PER_FOOD`. Returns false
- * once a spend fails (out of food).
+ * Account for `metres` the boat moved under this rower's stroke. Eats a
+ * serving each time the tally passes the current leg; the serving eaten
+ * sets how long the next leg is (a cooked meal lasts longer than raw
+ * Food). Returns false once a spend fails (out of food).
  */
 export function chargeRowing(metres: number): boolean {
   state.rowedSinceFood += Math.max(0, metres);
-  while (state.rowedSinceFood >= ROW_METRES_PER_FOOD) {
-    state.rowedSinceFood -= ROW_METRES_PER_FOOD;
-    if (!purse || !purse.spendOne()) {
+  while (state.rowedSinceFood >= state.legMetres) {
+    state.rowedSinceFood -= state.legMetres;
+    const leg = purse ? servingMetres(purse.spendOne()) : 0;
+    if (leg <= 0) {
       state.rowedSinceFood = 0;
+      state.legMetres = ROW_METRES_PER_FOOD;
       if (!state.outOfFood) { state.outOfFood = true; emit(); }
       return false;
     }
+    state.legMetres = leg;
   }
   return true;
 }
@@ -198,6 +218,7 @@ export function _resetCrewForTest(): void {
   state.spot = null;
   state.input = { wheel: 0, sail: 0, row: 0, rowTurn: 0 };
   state.rowedSinceFood = 0;
+  state.legMetres = ROW_METRES_PER_FOOD;
   state.outOfFood = false;
   purse = null;
   mastHold = null;
