@@ -20,13 +20,36 @@ const COIN_STORE = "deployedCoins";
 
 // ── Deploy a new Coin ──────────────────────────────────────────────────
 
-export async function deployCoin(params: {
+type DeployParams = {
   userId: string;
   chainName: string;
   ticker: string;
   projectGoal: string;
   maxSupply?: number;
-}): Promise<{ coin: DeployedCoin; transaction: SwarmTransaction }> {
+};
+type DeployResult = { coin: DeployedCoin; transaction: SwarmTransaction };
+
+const deploying = new Map<string, Promise<unknown>>();
+
+/**
+ * Deploy the account's one coin. Check-through-persist runs under an
+ * account-scoped lock (cross-tab via Web Locks when available), so two
+ * tabs can't both see "no chain yet" and both charge.
+ */
+export function deployCoin(params: DeployParams): Promise<DeployResult> {
+  const task = () => deployCoinNow(params);
+  const previous = deploying.get(params.userId) ?? Promise.resolve();
+  const work = previous.catch(() => undefined).then(() =>
+    typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(`coin-deploy:${params.userId}`, task)
+      : task(),
+  );
+  deploying.set(params.userId, work);
+  void work.finally(() => { if (deploying.get(params.userId) === work) deploying.delete(params.userId); }).catch(() => undefined);
+  return work;
+}
+
+async function deployCoinNow(params: DeployParams): Promise<DeployResult> {
   // ── MineHealth Gate ──────────────────────────────────────────────────
   const health = await validateMineHealth(params.userId);
   if (!health.healthy) {

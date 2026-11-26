@@ -140,6 +140,13 @@ export async function getChainBalance(address: string, chainId: string): Promise
     return chain.getSpendableBalance(address);
   }
 
+  // A mined coin keeps its balances on its own chain.
+  const { hasCoinChain, openCoinChain } = await import("./coinChainMining");
+  if (hasCoinChain(chainId)) {
+    const coinChain = await openCoinChain(chainId).catch(() => null);
+    return coinChain ? coinChain.getBalance(address) : 0;
+  }
+
   for (const block of chain.getChain()) {
     for (const tx of block.transactions) scan(tx);
   }
@@ -177,6 +184,12 @@ export async function swapCrossChain(params: SwapParams): Promise<SwapResult> {
   const { userId, fromChainId, fromTicker, toChainId, toTicker, amount } = params;
 
   if (fromChainId === toChainId) throw new Error("Cannot swap to the same chain");
+  // A mined coin's balance lives on its own chain, which a bridge record on
+  // SWARM can't debit or credit: refuse rather than simulate settlement.
+  const { hasCoinChain } = await import("./coinChainMining");
+  if (hasCoinChain(fromChainId) || hasCoinChain(toChainId)) {
+    throw new Error("Swaps aren't available yet for coins mined on their own chain");
+  }
   if (amount <= 0) throw new Error("Amount must be positive");
 
   // Determine ratio

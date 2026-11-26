@@ -17,7 +17,7 @@ vi.mock("../../store", () => ({
 }));
 
 import { acceptChainOffer, listChainOffers, receiveCoinShare, signCoinShare, verifyCoinShare } from "../coinChainShare";
-import { coinChainCellId, ensureOwnedCoinChain } from "../coinChainMining";
+import { admitHelper, coinChainCellId, coinMiningAllowed, connectedCompanions, ensureOwnedCoinChain, signCoinJoin, verifyCoinJoin } from "../coinChainMining";
 
 async function newAccount() {
   const keys = await genIdentityKeyPair();
@@ -93,6 +93,14 @@ describe("one chain per account", () => {
 });
 
 describe("Start Mining my coin", () => {
+  it("never mines alone: needs the switch and at least one member or guest", () => {
+    expect(coinMiningAllowed(true, 0)).toBe(false);
+    expect(coinMiningAllowed(false, 2)).toBe(false);
+    expect(coinMiningAllowed(true, 1)).toBe(true);
+    // No mesh attached (offline): nobody counts as connected.
+    expect(connectedCompanions()).toBe(0);
+  });
+
   it("signs a genesis with the coin's ticker that only the deployer can mine", async () => {
     const alice = await newAccount();
     const bob = await newAccount();
@@ -111,5 +119,46 @@ describe("Start Mining my coin", () => {
     const block = await chain.mine(signerFromKeys(alice.userId, alice.keys.publicKey, alice.keys.privateKey));
     expect(block).not.toBeNull();
     expect(chain.getTotalSupply()).toBeGreaterThan(0);
+  });
+});
+
+describe("helping mine a shared coin", () => {
+  it("admits a peer who asks, so their blocks count on the coin's chain", async () => {
+    const alice = await newAccount();
+    const bob = await newAccount();
+    const T0 = Date.parse("2026-12-01T00:00:00Z");
+    const clock = { t: T0 + 60_000 };
+    const opts = { storage: memoryCellChainStorage(), difficulty: 1, now: () => clock.t };
+    const aliceChains = new CellChains(memoryStore(), opts);
+    const bobChains = new CellChains(memoryStore(), { ...opts, storage: memoryCellChainStorage() });
+    const coin = coinFor(alice.userId);
+    const aliceChain = (await ensureOwnedCoinChain(coin, aliceChains, alice.text))!;
+    const cellId = coinChainCellId(coin.coinId);
+
+    // A forged request (Bob's key naming Alice) is refused; Bob's own is admitted once.
+    const request = await signCoinJoin(coin.coinId, bob.text, clock.t);
+    expect(await verifyCoinJoin({ ...request, userId: alice.userId }, clock.t)).toBeNull();
+    expect(await verifyCoinJoin(request, clock.t)).not.toBeNull();
+    const invite = (await admitHelper(coin, request, aliceChains, alice.text))!;
+    expect(invite.record.kind).toBe("invite");
+    expect(await admitHelper(coin, request, aliceChains, alice.text)).toBeNull();
+    // Only the deployer signs invites.
+    expect(await admitHelper(coin, request, aliceChains, bob.text)).toBeNull();
+
+    // Bob gets the genesis and the invite, accepts; Alice mines both into a block.
+    expect(await bobChains.setGenesis(cellId, aliceChains.genesis(cellId)!)).toBe(true);
+    const accept = (await bobChains.accept(cellId, invite, bob.text, clock.t))!;
+    expect(accept).not.toBeNull();
+    const acceptTx = (await bobChains.chain(cellId))!.getPendingTransactions().find((tx) => (tx.meta?.roster as { signature?: string })?.signature === accept.signature)!;
+    expect(await aliceChain.queue(acceptTx)).toBe(true);
+    const aliceSigner = signerFromKeys(alice.userId, alice.keys.publicKey, alice.keys.privateKey);
+    expect(await aliceChain.mine(aliceSigner)).not.toBeNull();
+    expect(aliceChain.getRoster().isMember(bob.userId)).toBe(true);
+
+    // Bob, now on the roster, can mine the next beat.
+    clock.t += 60_000;
+    const bobSigner = signerFromKeys(bob.userId, bob.keys.publicKey, bob.keys.privateKey);
+    expect(await aliceChain.mine(bobSigner)).not.toBeNull();
+    expect(aliceChain.getBalance(bob.userId) + aliceChain.getImmatureRewards(bob.userId)).toBeGreaterThan(0);
   });
 });

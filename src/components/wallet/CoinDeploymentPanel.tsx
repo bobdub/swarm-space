@@ -119,6 +119,15 @@ export function CoinDeploymentPanel() {
     toast.success(on ? `Mining ${myCoin.ticker} on its own chain` : `Stopped mining ${myCoin.ticker}`);
   };
 
+  const handleHelpToggle = (coin: DeployedCoin, on: boolean) => {
+    if (!user) return;
+    setCoinMiningPreference(user.id, on ? coin.coinId : null);
+    setMiningCoinId(on ? coin.coinId : null);
+    toast.success(on
+      ? `Helping mine ${coin.ticker}. You'll join its miners once ${coin.ticker}'s deployer is online with you.`
+      : `Stopped helping mine ${coin.ticker}`);
+  };
+
   const handleShare = async () => {
     if (!myCoin) return;
     setSharing(true);
@@ -359,7 +368,11 @@ export function CoinDeploymentPanel() {
                 <div className="rounded-lg bg-muted/40 border border-border/40 p-3 text-xs text-muted-foreground space-y-1">
                   <p className="font-medium text-foreground/80 flex items-center gap-1.5">
                     <Pickaxe className="h-3.5 w-3.5" />
-                    {miningMyCoin ? `Mining ${myCoin.ticker}` : `${myCoin.ticker} mining is off`}
+                    {!miningMyCoin
+                      ? `${myCoin.ticker} mining is off`
+                      : chainStats && chainStats.companions < 1
+                        ? `Waiting for a member or guest to connect before mining ${myCoin.ticker}`
+                        : `Mining ${myCoin.ticker}`}
                   </p>
                   {chainStats ? (
                     <p className="tabular-nums">
@@ -370,7 +383,7 @@ export function CoinDeploymentPanel() {
                   ) : (
                     <p>Your chain starts with its first block once mining is on and your wallet is unlocked.</p>
                   )}
-                  <p>One block per 30-second beat while this app is open, under the SWARM chain's rules. Mining your coin never creates SWARM.</p>
+                  <p>Nobody mines alone: blocks are mined only while you're online with at least one member or guest connected, one per 30-second beat under the SWARM chain's rules. Peers you share your chain with can switch to it and help mine while you're online together. Mining your coin never creates SWARM.</p>
                 </div>
               )}
             </div>
@@ -429,7 +442,12 @@ export function CoinDeploymentPanel() {
                 {networkCoins
                   .filter((c) => c.deployerUserId !== user.id)
                   .map((coin) => (
-                    <CoinCard key={coin.coinId} coin={coin} />
+                    <CoinCard
+                      key={coin.coinId}
+                      coin={coin}
+                      helping={miningCoinId === coin.coinId}
+                      onHelpToggle={(on) => handleHelpToggle(coin, on)}
+                    />
                   ))}
               </div>
             </ScrollArea>
@@ -440,7 +458,17 @@ export function CoinDeploymentPanel() {
   );
 }
 
-function CoinCard({ coin, isOwner }: { coin: DeployedCoin; isOwner?: boolean }) {
+function CoinCard({
+  coin,
+  isOwner,
+  helping,
+  onHelpToggle,
+}: {
+  coin: DeployedCoin;
+  isOwner?: boolean;
+  helping?: boolean;
+  onHelpToggle?: (on: boolean) => void;
+}) {
   return (
     <div className="rounded-lg border border-border/60 p-4 space-y-3 transition-colors hover:bg-accent/20">
       <div className="flex items-start justify-between gap-3">
@@ -482,6 +510,16 @@ function CoinCard({ coin, isOwner }: { coin: DeployedCoin; isOwner?: boolean }) 
           <span className="font-semibold">{new Date(coin.deployedAt).toLocaleDateString()}</span>
         </div>
       </div>
+
+      {onHelpToggle && coin.status === "active" && (
+        <div className="flex items-center gap-2 pt-1">
+          <Switch id={`help-mine-${coin.coinId}`} checked={!!helping} onCheckedChange={onHelpToggle} />
+          <Label htmlFor={`help-mine-${coin.coinId}`} className="flex items-center gap-1.5 text-xs cursor-pointer">
+            <Pickaxe className="h-3.5 w-3.5" />
+            Help mine {coin.ticker}
+          </Label>
+        </div>
+      )}
     </div>
   );
 }
