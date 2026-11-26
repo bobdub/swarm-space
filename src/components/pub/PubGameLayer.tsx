@@ -18,6 +18,7 @@ import { HoldProgressRing } from '@/components/ui/HoldProgressRing';
 import { setActiveTable } from '@/lib/pub/activeTableStore';
 import { DartsPanel } from '@/components/pub/DartsPanel';
 import { CardTablePanel } from '@/components/pub/CardTablePanel';
+import { BarMenuPanel } from '@/components/pub/BarMenuPanel';
 import { isSeated, leaveSeat } from '@/lib/pub/seating';
 import { leaveTable, setLocalPeerAliasResolver, setLocalPeerId } from '@/lib/pub/gameTableStore';
 import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
@@ -68,7 +69,8 @@ export function PubGameLayer({
 
   const close = useCallback(() => {
     setOpenTableId((prev) => {
-      if (prev) leaveTable(prev, selfId);
+      // The bar counter is not a game table: there is no seat to give up.
+      if (prev && !prev.startsWith('pub:bar:')) leaveTable(prev, selfId);
       leaveSeat();
       return null;
     });
@@ -144,7 +146,9 @@ export function PubGameLayer({
 
       {openTableId && (
         <div className="pointer-events-none fixed right-3 top-20 z-[60] flex justify-end">
-          {openTableId.startsWith('pub:cards:') ? (
+          {openTableId.startsWith('pub:bar:') ? (
+            <BarMenuPanel selfId={selfId} username={username} onClose={close} />
+          ) : openTableId.startsWith('pub:cards:') ? (
             <CardTablePanel
               tableId={openTableId}
               selfId={selfId}

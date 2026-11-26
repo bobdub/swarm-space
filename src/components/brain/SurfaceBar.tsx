@@ -9,7 +9,7 @@ import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
 import { useActiveTableId } from '@/lib/pub/activeTableStore';
 import { PubLeaveHold } from '@/components/pub/PubLeaveHold';
-import { BarSignArt, DonorLeaderboardBoard, BAR_SIGN_ASPECT } from '@/components/brain/BarSignage';
+import { BarSignArt, DonorLeaderboardBoard, DrinksMenuBoard, BAR_SIGN_ASPECT } from '@/components/brain/BarSignage';
 import { StarChartBoard } from '@/components/brain/StarChartBoard';
 import { setIndoors } from '@/lib/brain/starHuntStore';
 import { useFrame } from '@react-three/fiber';
@@ -62,6 +62,9 @@ const COUNTER_DEPTH = 1.0;
 const COUNTER_H = 1.1;
 const COUNTER_FORWARD = HALF_D - 2.5; // 2.5m clearance from back wall
 const COUNTER_SEGS = 5; // basin coverage along the counter
+/** The drinks chalkboard stands on the middle counter segment, facing the room. */
+const MENU_W = 0.9;
+const MENU_H = 0.75;
 
 // Stool layout — 4 stools along the customer side of the counter.
 const STOOL_COUNT = 4;
@@ -308,6 +311,17 @@ export const SurfaceBar = memo(function SurfaceBar({
   // the rest. Tags match src/lib/world/barInteractions.ts.
   useEffect(() => {
     const cleanups: Array<() => void> = [];
+    // The whole counter is the bar: walk up anywhere along it to order.
+    furniture
+      .filter((f) => f.kind === 'bar-counter')
+      .forEach((seg) => {
+        cleanups.push(registerPubAnchor({
+          key: seg.bodyId,
+          tag: 'bar-counter',
+          bodyId: seg.bodyId,
+          tableId: `pub:bar:${id}`,
+        }));
+      });
     const dart = furniture.find((f) => f.kind === 'darts-board');
     if (dart) {
       cleanups.push(registerPubAnchor({
@@ -612,6 +626,14 @@ export const SurfaceBar = memo(function SurfaceBar({
                     <boxGeometry args={[len, 0.06, COUNTER_DEPTH + 0.15]} />
                     <meshStandardMaterial color={COUNTER_TOP_COLOR} roughness={0.3} metalness={0.2} />
                   </mesh>
+                  {f.blockId.includes(':counter-2:') && (
+                    // Turned like the sign above it to face south, leaning back a touch.
+                    <group position={[0, COUNTER_H / 2 + 0.06 + MENU_H / 2, 0.1]} rotation={[0, Math.PI, 0]}>
+                      <group rotation={[-0.18, 0, 0]}>
+                        <DrinksMenuBoard width={MENU_W} height={MENU_H} />
+                      </group>
+                    </group>
+                  )}
                 </group>
               );
             }
