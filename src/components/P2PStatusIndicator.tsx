@@ -14,7 +14,7 @@ import { useP2PContext } from "@/contexts/P2PContext";
 import { useAuth } from "@/hooks/useAuth";
 import { getFeatureFlags, setFeatureFlag } from "@/config/featureFlags";
 import { getKnownNodeIds, getKnownPeerIds } from "@/lib/p2p/knownPeers";
-import { NetworkModeToggle } from "./NetworkModeToggle";
+import { CellNetworkSwitcher } from "./p2p/CellNetworkSwitcher";
 import { isValidNetworkId } from "@/lib/p2p/idResolver";
 import {
   BootstrapFallbackMonitor,
@@ -502,8 +502,8 @@ export function P2PStatusIndicator() {
             </Button>
           </div>
 
-          {/* Mode switcher */}
-          <NetworkModeToggle variant="compact" className="w-full justify-center" />
+          {/* Mode switcher: Main Mesh ⇄ Cell once the user has a cell */}
+          <CellNetworkSwitcher />
 
           <p className="text-xs text-muted-foreground">{statusText}</p>
 

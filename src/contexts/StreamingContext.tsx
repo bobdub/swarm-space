@@ -779,8 +779,9 @@ export function StreamingProvider({
         // Broadcast promoted post to all peers so it appears in their feeds
         try {
           const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
+          const { cellAllowsMeshBroadcast } = await import("@/lib/p2p/userCell");
           const sm = getSwarmMeshStandalone();
-          if (sm.getPhase() === "online") {
+          if (sm.getPhase() === "online" && cellAllowsMeshBroadcast()) {
             sm.broadcastNewPost(nextPost as unknown as Record<string, unknown>);
           }
         } catch { /* non-critical */ }

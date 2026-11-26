@@ -20,6 +20,7 @@ vi.mock('@/lib/p2p/brainInvite', () => ({
   getBrainInviteState: () => invite.state,
   subscribeBrainInvite: () => () => {},
   retryBrainInvite: vi.fn(),
+  parseCellInvite: () => null,
 }));
 vi.mock('@/contexts/P2PContext', () => ({
   useP2PContext: () => ({ getActivePeerConnections: () => mesh.active, getDiscoveredPeers: () => [] }),

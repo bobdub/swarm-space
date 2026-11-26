@@ -85,6 +85,9 @@ export function canonicalInviteHref(pathname: string, hash: string, search = '')
   const invite = resolveInviteLocation(pathname, hash, search);
   if (!invite?.peerId) return null;
   const params = new URLSearchParams(search);
+  // Keep query params from a hash-routed link (e.g. `#/connect?cell=…#peer-…`).
+  const routedQuery = /^#!?\/[^#?]*(\?[^#]*)/.exec(hash)?.[1];
+  if (routedQuery) new URLSearchParams(routedQuery).forEach((v, k) => { if (!params.has(k)) params.set(k, v); });
   params.delete('peer');
   const rest = params.toString();
   const canonical = `${invite.path}${rest ? `?${rest}` : ''}#${encodeURIComponent(invite.peerId)}`;
@@ -102,6 +105,28 @@ export function brainInviteUrl(origin: string, peerId: string): string {
 /** A plain peer-connect link: opening it only dials the sharer's node. */
 export function peerConnectUrl(origin: string, peerId: string): string {
   return `${origin}${PEER_CONNECT_PATH}#${encodeURIComponent(peerId)}`;
+}
+
+const CELL_ID_PATTERN = /^u\/[^/\s#?]{1,64}\/[^/\s#?]{1,32}$/;
+
+/**
+ * A cell invite link. It opens `/connect`, dials the sharer's node (when
+ * their peerId is known) and joins the cell, so the guest lands connected
+ * to both the cell and the person who shared it.
+ */
+export function cellInviteUrl(origin: string, cellId: string, sharerPeerId?: string | null): string {
+  const peer = sharerPeerId && PEER_ID_PATTERN.test(sharerPeerId) ? `#${encodeURIComponent(sharerPeerId)}` : '';
+  return `${origin}${PEER_CONNECT_PATH}?cell=${encodeURIComponent(cellId)}${peer}`;
+}
+
+/** The cell ID a `/connect?cell=…` link carries (also inside hash routing), or null. */
+export function parseCellInvite(pathname: string, hash: string, search = ''): string | null {
+  const invite = resolveInviteLocation(pathname, hash, search);
+  if (!invite || invite.path !== PEER_CONNECT_PATH) return null;
+  const routedQuery = /^#!?\/[^#?]*(\?[^#]*)/.exec(hash)?.[1] ?? '';
+  const raw = new URLSearchParams(search).get('cell') ?? new URLSearchParams(routedQuery).get('cell');
+  const cellId = raw?.trim() ?? '';
+  return CELL_ID_PATTERN.test(cellId) ? cellId : null;
 }
 
 export function prepareBrainInvite(pathname: string, hash: string) {

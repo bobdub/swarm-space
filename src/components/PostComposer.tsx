@@ -327,8 +327,10 @@ export const PostComposer = ({
       } catch { /* non-critical */ }
       try {
         const { getSwarmMeshStandalone } = await import('@/lib/p2p/swarmMesh.standalone');
+        const { cellAllowsMeshBroadcast } = await import('@/lib/p2p/userCell');
         const sm = getSwarmMeshStandalone();
-        if (sm.getPhase() === 'online') {
+        // Inside a private cell the post stays in the cell (sync boundary).
+        if (sm.getPhase() === 'online' && cellAllowsMeshBroadcast()) {
           sm.broadcastNewPost(signedPost as unknown as Record<string, unknown>);
         }
       } catch { /* non-critical */ }

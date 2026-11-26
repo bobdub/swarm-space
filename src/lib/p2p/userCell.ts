@@ -24,6 +24,13 @@ export interface UserCell {
   ownerPeerId: string;
   createdAt: number;
   lastEnteredAt: number | null;
+  /**
+   * Public cells are announced on the global `public-cells` registry and
+   * relay their live content to the main mesh. Private (default) cells never do.
+   */
+  isPublic?: boolean;
+  /** When the cell last went public; content older than this stays in the cell. */
+  publicSince?: number;
 }
 
 const CELLS_KEY = 'user-cells';
@@ -98,7 +105,17 @@ function isLegacyCellId(cellId: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}$/i.test(cellId.trim());
 }
 
-export async function createUserCell(name?: string): Promise<UserCell> {
+export const CELL_NAME_MAX = 48;
+
+/** Trimmed, length-capped cell name; throws when blank (pure — exported for tests). */
+export function normalizeCellName(name: string | null | undefined): string {
+  const trimmed = (name ?? '').replace(/\s+/g, ' ').trim();
+  if (!trimmed) throw new Error('Cell name is required');
+  return trimmed.slice(0, CELL_NAME_MAX);
+}
+
+export async function createUserCell(name: string): Promise<UserCell> {
+  const cellName = normalizeCellName(name);
   const me = getCurrentUser();
   if (!me) {
     throw new Error('No local account — sign in before creating a cell.');
@@ -108,7 +125,7 @@ export async function createUserCell(name?: string): Promise<UserCell> {
   const cellId = `${CELL_ID_PREFIX}${me.username}/${suffix}`;
   const cell: UserCell = {
     cellId,
-    name: name?.trim() || `Cell ${suffix}`,
+    name: cellName,
     ownerUserId: me.id,
     ownerUsername: me.username,
     ownerPeerId,
@@ -146,8 +163,11 @@ export function getUserCell(cellId: string): UserCell | null {
 export function deleteUserCell(cellId: string): void {
   const record = readCells();
   if (!record[cellId]) return;
+  const wasPublic = record[cellId].isPublic && isOwnedCell(record[cellId]);
+  const removed = record[cellId];
   delete record[cellId];
   writeCells(record);
+  if (wasPublic) void announcePublicCell(removed, true);
   void import('../blockchain/cellChain/cellChains')
     .then(({ getCellChains }) => getCellChains().forget(cellId))
     .catch(() => { /* best effort */ });
@@ -198,6 +218,7 @@ export async function enterUserCell(cellId: string): Promise<UserCell> {
     void ensureCellGenesis(cell);
   }
   notifyActive(cell);
+  syncPublicRelay();
   return cell;
 }
 
@@ -209,6 +230,7 @@ export async function exitUserCell(): Promise<void> {
   } catch { /* ignore */ }
   updateConnectionState({ mode: 'swarm' });
   notifyActive(null);
+  syncPublicRelay();
 }
 
 /**
@@ -235,7 +257,7 @@ export async function joinUserCellById(cellId: string, name?: string): Promise<U
     const { ownerUserId, ownerPeerId } = await resolveOwnerByUsername(username);
     const cell: UserCell = {
       cellId: trimmed,
-      name: name?.trim() || `Cell ${username}`,
+      name: name?.trim().slice(0, CELL_NAME_MAX) || `Cell ${username}`,
       ownerUserId,
       ownerUsername: username,
       ownerPeerId,
@@ -399,6 +421,147 @@ export function onActiveCellChange(fn: ActiveListener): () => void {
 export function isCellMode(): boolean {
   const state = loadConnectionState();
   return state.mode === 'builder' && getActiveUserCellId() !== null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PUBLIC CELLS
+// ═══════════════════════════════════════════════════════════════════
+
+function isOwnedCell(cell: UserCell): boolean {
+  const me = getCurrentUser();
+  return !!me && !!cell.ownerUserId && cell.ownerUserId === me.id;
+}
+
+/** Owners only: open a cell to the global directory, or make it private again. */
+export function toggleCellPublic(cellId: string, isPublic: boolean): UserCell {
+  const record = readCells();
+  const cell = record[cellId];
+  if (!cell) throw new Error(`Cell ${cellId} not found`);
+  if (!isOwnedCell(cell)) throw new Error('Only the cell owner can change its visibility.');
+  if (!!cell.isPublic === isPublic) return cell;
+  cell.isPublic = isPublic;
+  cell.publicSince = isPublic ? Date.now() : undefined;
+  writeCells(record);
+  void announcePublicCell(cell, !isPublic);
+  if (isPublic) ensurePublicAnnouncer();
+  syncPublicRelay();
+  return cell;
+}
+
+/**
+ * Sync boundary for the main mesh. Outside any cell, or inside a public
+ * cell, content may broadcast to the main mesh. Inside a private cell it
+ * stays in the cell, and is not marked as synced to the mesh.
+ */
+export function cellAllowsMeshBroadcast(): boolean {
+  if (!isCellMode()) return true;
+  return !!getActiveUserCell()?.isPublic;
+}
+
+async function announcePublicCell(cell: UserCell, withdrawn = false): Promise<void> {
+  let ownerMeshPeerId = '';
+  let members = 1;
+  try {
+    const { getSwarmMeshStandalone } = await import('./swarmMesh.standalone');
+    ownerMeshPeerId = getSwarmMeshStandalone().getPeerId() || '';
+  } catch { /* mesh not loaded */ }
+  if (getActiveUserCellId() === cell.cellId) {
+    try {
+      const m = await import('./builderMode.standalone-archived');
+      members += m.getStandaloneBuilderMode().getStats().connectedPeers;
+    } catch { /* engine not loaded */ }
+  }
+  const { publishPublicCellListing } = await import('./publicCells');
+  await publishPublicCellListing({
+    cellId: cell.cellId,
+    name: cell.name,
+    ownerUsername: cell.ownerUsername,
+    ownerUserId: cell.ownerUserId,
+    ownerPeerId: cell.ownerPeerId,
+    ownerMeshPeerId,
+    members,
+    announcedAt: Date.now(),
+    ...(withdrawn ? { withdrawn: true } : {}),
+  });
+}
+
+let announceTimer: ReturnType<typeof setInterval> | null = null;
+
+function ownedPublicCells(): UserCell[] {
+  return listUserCells().filter(c => c.isPublic && isOwnedCell(c));
+}
+
+/** Re-announce every owned public cell while the app is open. */
+function ensurePublicAnnouncer(): void {
+  if (announceTimer || typeof window === 'undefined') return;
+  void import('./publicCells').then(({ PUBLIC_CELL_REANNOUNCE_MS }) => {
+    if (announceTimer) return;
+    const tick = () => {
+      const owned = ownedPublicCells();
+      if (owned.length === 0) {
+        if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
+        return;
+      }
+      owned.forEach(c => { void announcePublicCell(c); });
+    };
+    announceTimer = setInterval(tick, PUBLIC_CELL_REANNOUNCE_MS);
+    tick();
+  }).catch(() => { /* ignore */ });
+}
+
+/** How far back an item may be stamped and still count as "live". */
+export const LIVE_RELAY_WINDOW_MS = 2 * 60_000;
+
+/**
+ * Relay decision for one cell item (pure — exported for tests). Only live
+ * items, made after the cell went public and within the live window, cross
+ * to the main mesh; inventory catch-up and the offline backlog stay in the cell.
+ */
+export function shouldRelayCellItem(
+  item: { timestamp: number },
+  cell: Pick<UserCell, 'isPublic' | 'publicSince'> | null,
+  nowTs = Date.now(),
+): boolean {
+  if (!cell?.isPublic || !cell.publicSince) return false;
+  if (!Number.isFinite(item.timestamp)) return false;
+  return item.timestamp >= cell.publicSince && nowTs - item.timestamp <= LIVE_RELAY_WINDOW_MS;
+}
+
+let relayUnsub: (() => void) | null = null;
+
+/** Attach the cell → main mesh live relay only while a public cell is active. */
+function syncPublicRelay(): void {
+  const active = isCellMode() ? getActiveUserCell() : null;
+  if (!active?.isPublic) {
+    relayUnsub?.();
+    relayUnsub = null;
+    return;
+  }
+  if (relayUnsub) return;
+  relayUnsub = () => { /* pending attach */ };
+  void Promise.all([
+    import('./builderMode.standalone-archived'),
+    import('./swarmMesh.standalone'),
+  ]).then(([bmMod, smMod]) => {
+    if (!relayUnsub) return; // detached while loading
+    const off = bmMod.getStandaloneBuilderMode().onContent((item) => {
+      const cell = getActiveUserCell();
+      if (!isCellMode() || !shouldRelayCellItem(item, cell)) return;
+      const sm = smMod.getSwarmMeshStandalone();
+      if (sm.getPhase() !== 'online' || !item.data || typeof item.data !== 'object') return;
+      const data = item.data as Record<string, unknown>;
+      if (item.type === 'post') sm.broadcastNewPost(data);
+      else if (item.type === 'comment') sm.broadcastComment(data);
+    });
+    relayUnsub = off;
+  }).catch(() => { relayUnsub = null; });
+}
+
+if (typeof window !== 'undefined' && import.meta.env?.MODE !== 'test') {
+  setTimeout(() => {
+    if (ownedPublicCells().length > 0) ensurePublicAnnouncer();
+    syncPublicRelay();
+  }, 5_000);
 }
 
 // Run the active cell's chain (blocks, endorsements, catch-up) over the cell engine.

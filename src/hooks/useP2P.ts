@@ -64,6 +64,7 @@ import {
 } from '@/lib/p2p/connectionState';
 import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archived';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
+import { cellAllowsMeshBroadcast } from '@/lib/p2p/userCell';
 import { peerWalletConnections } from '@/lib/p2p/peerWalletConnections';
 import { getTestMode } from '@/lib/p2p/testMode.standalone';
 import { useAuthReady } from '@/hooks/useAuthReady';
@@ -1593,11 +1594,14 @@ export function useP2P() {
 
   const broadcastPost = useCallback((post: Post) => {
     let sentToAny = false;
+    // Sync boundary: inside a private cell, content stays in the cell and is
+    // left unsynced so it is not mistaken for something the main mesh has.
+    const meshAllowed = cellAllowsMeshBroadcast();
 
     // Primary path: SWARM Mesh standalone (the active production network)
     try {
       const sm = getSwarmMeshStandalone();
-      if (sm.getPhase() === 'online') {
+      if (meshAllowed && sm.getPhase() === 'online') {
         sm.broadcastNewPost(post as unknown as Record<string, unknown>);
         sentToAny = true;
       }
@@ -1613,13 +1617,13 @@ export function useP2P() {
     } catch { /* ignore */ }
 
     // Legacy adapter/manager fallback
-    if (p2pManager) {
+    if (p2pManager && meshAllowed) {
       void p2pManager.broadcastPost(post);
       sentToAny = true;
     }
 
-    // Mark as synced once broadcast to at least one peer
-    if (sentToAny && post.id && !post._syncedToMesh) {
+    // Mark as synced once broadcast to at least one peer (never from a private cell)
+    if (sentToAny && meshAllowed && post.id && !post._syncedToMesh) {
       import("@/lib/store").then(({ get: getRecord, put: putRecord }) => {
         getRecord<Post>("posts", post.id).then(fresh => {
           if (fresh && !fresh._syncedToMesh) {
@@ -1633,10 +1637,11 @@ export function useP2P() {
   }, []);
 
   const broadcastComment = useCallback((comment: Comment) => {
-    // Broadcast through SWARM Mesh standalone
+    const meshAllowed = cellAllowsMeshBroadcast();
+    // Broadcast through SWARM Mesh standalone (not from inside a private cell)
     try {
       const sm = getSwarmMeshStandalone();
-      if (sm.getPhase() === 'online') {
+      if (meshAllowed && sm.getPhase() === 'online') {
         sm.broadcastComment(comment as unknown as Record<string, unknown>);
       }
     } catch { /* ignore */ }
@@ -1651,7 +1656,7 @@ export function useP2P() {
     } catch { /* ignore */ }
 
     // Legacy manager
-    if (p2pManager) {
+    if (p2pManager && meshAllowed) {
       p2pManager.broadcastComment(comment);
     }
   }, []);
