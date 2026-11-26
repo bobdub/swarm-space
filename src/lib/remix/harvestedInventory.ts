@@ -193,7 +193,14 @@ const KIND_MAP: Record<string, { symbol: string; count: number }[]> = {
   fibre:  [{ symbol: 'H', count: 4 }],
   food:   [{ symbol: 'N', count: 2 }],
   animal: [{ symbol: 'N', count: 2 }],
+  // Trading goods that are not elements: kept in the same bag under a
+  // `good:` key, one per unit, and left out of the element lists below.
+  honey:  [{ symbol: 'good:honey', count: 1 }],
+  gem:    [{ symbol: 'good:gem', count: 1 }],
 };
+
+/** Bag keys for goods that are not elements (honey, gems). */
+export const GOOD_KEY_PREFIX = 'good:';
 
 export function recordHarvestForResource(kind: string, qty: number): void {
   const parts = KIND_MAP[kind];
@@ -205,9 +212,10 @@ export function getHarvested(symbol: string): number {
   return counts.get(symbol) ?? 0;
 }
 
+/** Held elements. Non-element goods (`good:` keys) are read with getHarvested. */
 export function listHarvested(): { symbol: string; count: number }[] {
   return [...counts.entries()]
-    .filter(([, v]) => v > 0)
+    .filter(([k, v]) => v > 0 && !k.startsWith(GOOD_KEY_PREFIX))
     .map(([symbol, count]) => ({ symbol, count }))
     .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }

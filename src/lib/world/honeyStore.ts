@@ -6,7 +6,7 @@
  * not refill the comb; falls back to memory where storage is blocked.
  */
 
-/** Honey a player takes from a hive in one visit (each counts as 1 Food). */
+/** Honey a player takes from a hive in one visit (its own good, traded at the Trading Stand). */
 export const HONEY_PER_DAY = 3;
 
 const KEY_PREFIX = 'swarm.honey.lastDay.';

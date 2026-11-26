@@ -18,7 +18,8 @@ import {
 import { useBuilderRenderMode } from '@/lib/brain/builderRenderModeStore';
 import { useUnsupportedPosts } from '@/lib/content/unsupportedPostsStore';
 import { idleDays, isMainBrainScope, MAIN_BRAIN_IDLE_MS } from '@/lib/world/placementActivity';
-import { getPrefab, FIRE_PIT_ID } from '@/lib/brain/prefabHouseCatalog';
+import { getPrefab, FIRE_PIT_ID, TRADING_STAND_ID } from '@/lib/brain/prefabHouseCatalog';
+import { TradingStandView } from '@/components/world/TradingStandView';
 import { FirePitView, FirePitControls } from '@/components/world/FirePitView';
 import {
   getHeldTool,
@@ -98,9 +99,10 @@ export function UserPlacementsLayer({
         const bodyId = `${prefab.id}:${rec.placementId}`;
         const owned = ownsPlacement(rec, selfId);
         const isFirePit = prefab.id === FIRE_PIT_ID;
-        // The fire pit lives in the Tools tab but is built, not carried.
+        const isStand = prefab.id === TRADING_STAND_ID;
+        // The fire pit and the Trading Stand live in the Tools tab but are built, not carried.
         const isHoldable =
-          !isFirePit && (prefab.sectionId === 'tools' || prefab.sectionId === 'consumables');
+          !isFirePit && !isStand && (prefab.sectionId === 'tools' || prefab.sectionId === 'consumables');
         const isWall = prefab.sectionId === 'walls';
         const decorationPostId = rec.decoration?.postId ?? null;
         const visitor = isWall && canViewerInteract(rec, selfId);
@@ -127,6 +129,13 @@ export function UserPlacementsLayer({
                     <FirePitView
                       pitId={rec.placementId}
                       width={prefab.width}
+                      height={prefab.height}
+                      highlight={selected || targeted}
+                    />
+                  ) : isStand ? (
+                    <TradingStandView
+                      width={prefab.width}
+                      depth={prefab.depth}
                       height={prefab.height}
                       highlight={selected || targeted}
                     />
