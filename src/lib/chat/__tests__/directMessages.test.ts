@@ -344,3 +344,42 @@ describe('direct message identity', () => {
     await expect(openHistoryKey({ ...a, namespaceId: b.namespaceId }, first.wrapped)).rejects.toBeTruthy();
   });
 });
+
+describe('direct message identity over time', () => {
+  it('upgrades a session when a locked peer unlocks and proves itself', async () => {
+    const [a, b] = await Promise.all([account(), account()]);
+    const net = hub(['peer-a', 'peer-b']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    let bobSigner: DmSigner | null = null;
+    const bob = new DirectMessenger(net.mesh('peer-b'), memoryStore(), {
+      userId: b.userId, displayName: 'Bob', signer: async () => bobSigner,
+    });
+    alice.start();
+    bob.start();
+    expect((await alice.connect('peer-b'))?.verified).toBe(false);
+    bobSigner = b; // Bob unlocks
+    await bob.refresh('peer-a');
+    await settle(80);
+    expect(alice.getSession('peer-b')?.verified).toBe(true);
+    expect(alice.getSession('peer-b')?.discriminator).toBe(b.discriminator);
+  });
+
+  it('enforces a pin set later against an existing unverified link', async () => {
+    const [a, b] = await Promise.all([account(), account()]);
+    const net = hub(['peer-a', 'peer-b', 'peer-x']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    const impostor = messengerFor(net.mesh('peer-x'), null, b.userId);
+    const bob = messengerFor(net.mesh('peer-b'), b);
+    alice.start();
+    impostor.start();
+    bob.start();
+    expect((await impostor.connect('peer-a'))?.userId).toBe(a.userId);
+    await settle();
+    expect(alice.getSession('peer-x')?.verified).toBe(false);
+    await alice.connect('peer-b'); // the real Bob proves and pins his namespace
+    await settle();
+    await impostor.refresh('peer-a');
+    await settle(80);
+    expect(alice.getSession('peer-x')).toBeUndefined();
+  });
+});

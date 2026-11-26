@@ -489,15 +489,10 @@ export class DirectMessenger {
     if (hello.userId === this.identity.userId) return;
     const prior = this.sessions.get(peerId);
     const changed = !prior || prior.peerPub !== hello.pub || prior.userId !== hello.userId;
-    if (changed) {
-      const { privateKey, pub } = await this.keyPair;
-      const conversationId = conversationIdFor(this.identity.userId, hello.userId);
-      let key: CryptoKey;
-      try {
-        key = await deriveConversationKey(privateKey, pub, hello.pub, conversationId);
-      } catch {
-        return; // not a valid P-256 point
-      }
+    // Check identity on every hello unless this exact session key is
+    // already proven: a peer that was locked may unlock and prove itself
+    // later, and a pin set meanwhile must still be enforced.
+    if (changed || !prior?.verified) {
       const proven = hello.proof
         ? await verifyHelloProof(hello.proof, {
           userId: hello.userId,
@@ -515,21 +510,40 @@ export class DirectMessenger {
         return;
       }
       if (proven && !pin) await this.store.putPin(proven).catch(() => undefined);
-      const session: InternalSession = {
-        peerId,
-        userId: hello.userId,
-        displayName: hello.displayName || hello.userId.slice(0, 8),
-        conversationId,
-        verified: Boolean(proven),
-        namespaceId: proven?.namespaceId,
-        discriminator: proven?.discriminator,
-        fingerprint: await keyFingerprint(pub, hello.pub),
-        establishedAt: Date.now(),
-        peerPub: hello.pub,
-        key,
-      };
-      this.sessions.set(peerId, session);
-      this.emit({ type: 'session', session: publicSession(session) });
+
+      let session: InternalSession;
+      if (changed) {
+        const { privateKey, pub } = await this.keyPair;
+        const conversationId = conversationIdFor(this.identity.userId, hello.userId);
+        let key: CryptoKey;
+        try {
+          key = await deriveConversationKey(privateKey, pub, hello.pub, conversationId);
+        } catch {
+          return; // not a valid P-256 point
+        }
+        session = {
+          peerId,
+          userId: hello.userId,
+          displayName: hello.displayName || hello.userId.slice(0, 8),
+          conversationId,
+          verified: Boolean(proven),
+          namespaceId: proven?.namespaceId,
+          discriminator: proven?.discriminator,
+          fingerprint: await keyFingerprint(pub, hello.pub),
+          establishedAt: Date.now(),
+          peerPub: hello.pub,
+          key,
+        };
+      } else if (proven) {
+        // Same key, now proven: upgrade the session in place.
+        session = { ...prior!, verified: true, namespaceId: proven.namespaceId, discriminator: proven.discriminator };
+      } else {
+        session = prior!;
+      }
+      if (changed || session !== prior) {
+        this.sessions.set(peerId, session);
+        this.emit({ type: 'session', session: publicSession(session) });
+      }
       const waiters = this.sessionWaiters.get(peerId);
       this.sessionWaiters.delete(peerId);
       for (const w of waiters ?? []) w(publicSession(session));
@@ -654,29 +668,70 @@ type StoredRecord = Omit<DirectMessageRecord, 'locked'> & { sealed?: SealedText 
 const PIN_KEY = (userId: string) => `dm-namespace-pin:${userId}`;
 const HISTORY_KEY = (userId: string) => `dm-history-key:${userId}`;
 
+/** Same-tab fallback for when the Web Locks API is missing. */
+const localLocks = new Map<string, Promise<unknown>>();
+
+/** Run `fn` while holding a lock shared by every tab of this origin. */
+async function exclusive<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManager }).locks : undefined;
+  if (locks?.request) return locks.request(name, fn) as Promise<T>;
+  const prev = localLocks.get(name) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  localLocks.set(name, run.catch(() => undefined));
+  return run;
+}
+
 /**
  * The account's DM history key, unwrapped from its AES-KW wrap under the
- * namespace-bound KEK. Null while the account is locked.
+ * namespace-bound KEK. Null while the account is locked: the key is
+ * dropped the moment the wallet locks and reopened only after it unlocks.
  */
-export function createHistoryKeyring(userId: string, signer: () => Promise<DmSigner | null>): () => Promise<CryptoKey | null> {
+export function createHistoryKeyring(
+  userId: string,
+  signer: () => Promise<DmSigner | null>,
+  isLocked: () => boolean | Promise<boolean> = () => false,
+): () => Promise<CryptoKey | null> {
   let opened: Promise<CryptoKey | null> | null = null;
-  return () => {
+  return async () => {
+    if (await isLocked()) {
+      opened = null;
+      return null;
+    }
     if (!opened) {
       opened = (async () => {
         const s = await signer();
         if (!s || s.userId !== userId) return null;
         const { get, put } = await import('../store');
-        const saved = await get<{ k: string; v: { wrapped: string; namespaceId: string } }>('meta', HISTORY_KEY(userId));
-        const wrapped = saved?.v.namespaceId === s.namespaceId ? saved.v.wrapped : undefined;
-        const { key, wrapped: out, created } = await openHistoryKey(s, wrapped);
-        if (created) await put('meta', { k: HISTORY_KEY(userId), v: { wrapped: out, namespaceId: s.namespaceId } });
-        return key;
+        type Saved = { k: string; v: { wrapped: string; namespaceId: string } };
+        // Read, create and store under one cross-tab lock, so two tabs never
+        // each mint a history key and leave one tab's lines unreadable.
+        return exclusive(HISTORY_KEY(userId), async () => {
+          const saved = await get<Saved>('meta', HISTORY_KEY(userId));
+          const wrapped = saved?.v.namespaceId === s.namespaceId ? saved.v.wrapped : undefined;
+          const { key, wrapped: out, created } = await openHistoryKey(s, wrapped);
+          if (!created) return key;
+          await put('meta', { k: HISTORY_KEY(userId), v: { wrapped: out, namespaceId: s.namespaceId } });
+          // Whatever is stored wins, should a writer without the lock race us.
+          const stored = await get<Saved>('meta', HISTORY_KEY(userId));
+          if (stored && stored.v.wrapped !== out) return (await openHistoryKey(s, stored.v.wrapped)).key;
+          return key;
+        });
       })().catch(() => null);
       // A locked session may unlock later: try again next time.
       void opened.then((k) => { if (!k) opened = null; });
     }
     return opened;
   };
+}
+
+/** True while the signed-in account's wallet is locked (on this tab or another). */
+async function appWalletLocked(): Promise<boolean> {
+  try {
+    const { isWalletExplicitlyLocked } = await import('../auth');
+    return isWalletExplicitlyLocked();
+  } catch {
+    return false;
+  }
 }
 
 export function createIndexedDbDirectMessageStore(historyKey: () => Promise<CryptoKey | null> = async () => null): DirectMessageStore {
@@ -756,15 +811,20 @@ const activeListeners = new Set<(m: DirectMessenger | null) => void>();
 export function startDirectMessages(mesh: DirectMessageMesh, identity: DirectMessageIdentity): DirectMessenger {
   if (active && active.identity.userId === identity.userId) return active;
   active?.stop();
-  // Keys are unlocked once per session; keep the signer after it first loads.
+  // Keep the signer while the wallet stays unlocked; drop it (and its key
+  // material) the moment the wallet locks, here or in another tab.
   let cached: DmSigner | null = null;
   const signer = identity.signer ?? (async () => {
+    if (await appWalletLocked()) {
+      cached = null;
+      return null;
+    }
     if (!cached) cached = await loadAppDmSigner(identity.userId, identity.identityKey);
     return cached;
   });
   active = new DirectMessenger(
     mesh,
-    createIndexedDbDirectMessageStore(createHistoryKeyring(identity.userId, signer)),
+    createIndexedDbDirectMessageStore(createHistoryKeyring(identity.userId, signer, identity.signer ? undefined : appWalletLocked)),
     { ...identity, signer },
   );
   active.start();

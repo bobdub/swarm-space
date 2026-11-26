@@ -9,6 +9,7 @@ import { SwarmLink } from '@/components/routing/SwarmLink';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { entangle } from '@/lib/entanglements';
+import { WALLET_LOCK_EVENT } from '@/lib/auth';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { armChatChirpAudio, chirpForRemoteLine } from '@/lib/brain/chatChirp';
 import {
@@ -95,8 +96,18 @@ export function DirectMessageThread({
       return;
     }
     let cancelled = false;
-    messenger.history(conversationId).then((rows) => { if (!cancelled) setRecords(rows); }).catch(() => undefined);
-    return () => { cancelled = true; };
+    const load = () => {
+      messenger.history(conversationId).then((rows) => { if (!cancelled) setRecords(rows); }).catch(() => undefined);
+    };
+    load();
+    // Locking the wallet (here or in another tab) seals the history again.
+    window.addEventListener(WALLET_LOCK_EVENT, load);
+    window.addEventListener('storage', load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(WALLET_LOCK_EVENT, load);
+      window.removeEventListener('storage', load);
+    };
   }, [messenger, conversationId]);
 
   // Live lines, receipts and typing.

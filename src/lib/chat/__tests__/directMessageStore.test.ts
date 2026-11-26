@@ -56,3 +56,41 @@ describe('direct message store at rest', () => {
     expect(await store.getPin('u2')).toBeUndefined();
   });
 });
+
+import { Wallet, keccak256, toUtf8Bytes } from 'ethers';
+import { computeUserId, genIdentityKeyPair } from '../../crypto';
+import { createDmSigner } from '../dmIdentity';
+import { createHistoryKeyring } from '../directMessages';
+
+describe('history keyring', () => {
+  async function signer() {
+    const keys = await genIdentityKeyPair();
+    const userId = await computeUserId(keys.publicKey);
+    const wallet = new Wallet(keccak256(toUtf8Bytes(`swarm-coldkey:${keys.privateKey.toLowerCase()}`)));
+    return createDmSigner({ userId, identityPublicKey: keys.publicKey, identityPrivateKey: keys.privateKey, wallet });
+  }
+
+  it('gives two keyrings opening at once the same stored key', async () => {
+    const s = await signer();
+    const one = createHistoryKeyring(s.userId, async () => s);
+    const two = createHistoryKeyring(s.userId, async () => s);
+    const [k1, k2] = await Promise.all([one(), two()]);
+    const a = createIndexedDbDirectMessageStore(async () => k1);
+    const b = createIndexedDbDirectMessageStore(async () => k2);
+    await a.put({ ...row('k1', 'from tab one'), conversationId: 'dm:k' });
+    expect((await b.get('k1'))?.text).toBe('from tab one');
+    const fresh = createIndexedDbDirectMessageStore(createHistoryKeyring(s.userId, async () => s));
+    expect((await fresh.get('k1'))?.text).toBe('from tab one');
+  });
+
+  it('drops the key while the wallet is locked', async () => {
+    const s = await signer();
+    let locked = false;
+    const ring = createHistoryKeyring(s.userId, async () => s, () => locked);
+    expect(await ring()).not.toBeNull();
+    locked = true;
+    expect(await ring()).toBeNull();
+    locked = false;
+    expect(await ring()).not.toBeNull();
+  });
+});
