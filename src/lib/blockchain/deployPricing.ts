@@ -46,8 +46,8 @@ export async function getDeployPricing(): Promise<DeployPricing> {
     }
   }
 
-  const creatorTokenCredits = CREATOR_TOKEN_DEPLOY_COST;
   const creatorTokenSwarm = CREATOR_TOKEN_SWARM_DEPLOY_COST;
+  const creatorTokenCredits = await creatorCreditsAtMarket(creatorTokenSwarm);
 
   const coinDeploySwarm = scale(COIN_DEPLOY_COST, poolBalance, COIN_BASELINE_POOL);
   const coinLiquidityLock = Math.floor(coinDeploySwarm / 2);
@@ -61,4 +61,15 @@ export async function getDeployPricing(): Promise<DeployPricing> {
     coinLiquidityLock,
     coinPoolContribution,
   };
+}
+
+/** Credits for the launch's SWARM at the live Market Vault price (never below 100:1). */
+export async function creatorCreditsAtMarket(swarm: number): Promise<number> {
+  try {
+    const [{ getMarketVaultState }, { quoteVaultBuy }] = await Promise.all([import("./marketVault"), import("./marketVaultPricing")]);
+    const quote = quoteVaultBuy(await getMarketVaultState(), swarm, Number.MAX_SAFE_INTEGER);
+    return Math.max(CREATOR_TOKEN_DEPLOY_COST, quote.credits);
+  } catch {
+    return CREATOR_TOKEN_DEPLOY_COST;
+  }
 }

@@ -101,7 +101,7 @@ export async function lockIntoCreatorVault(params: {
 
   if (params.creditsLocked !== undefined) {
     const { CREDIT_TO_SWARM_RATIO } = await import("./types");
-    if (fromId !== "community-pool" || params.creditsLocked !== amount * CREDIT_TO_SWARM_RATIO) {
+    if (fromId !== "community-pool" || !Number.isSafeInteger(params.creditsLocked) || params.creditsLocked < amount * CREDIT_TO_SWARM_RATIO) {
       throw new Error("Invalid Creator credit funding");
     }
     const { releaseMinedPoolSwarm } = await import("./creditWrapping");

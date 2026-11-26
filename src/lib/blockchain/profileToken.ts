@@ -50,10 +50,15 @@ async function deployProfileTokenUnlocked(params: {
   const { getDeployPricing } = await import("./deployPricing");
   const pricing = await getDeployPricing();
   if (paymentAsset === "credits") {
+    // Recheck the live market just before payment; the vault's limits must allow the release.
+    const [{ getMarketVaultState }, { quoteVaultBuy }] = await Promise.all([import("./marketVault"), import("./marketVaultPricing")]);
     const balance = await getCreditBalance(params.userId);
+    const quote = quoteVaultBuy(await getMarketVaultState(), pricing.creatorTokenSwarm, balance);
+    pricing.creatorTokenCredits = Math.max(pricing.creatorTokenCredits, quote.credits);
     if (balance < pricing.creatorTokenCredits) {
       throw new Error(`Insufficient Credits. Need ${pricing.creatorTokenCredits} Credits to deploy a Creator Token.`);
     }
+    if (quote.error) throw new Error(quote.error);
   } else {
     const { getSwarmBalance } = await import("./token");
     const swarmBalance = await getSwarmBalance(params.userId);
