@@ -5,8 +5,8 @@ import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
 import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./blockHeader";
-import { blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
-import { verifyPoolDonation, verifyWalletTip } from "./wallets/tipSignature";
+import { blockForbidsLegacyClaims, blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isLegacyRewardClaim, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
+import { verifyLegacyRewardClaim, verifyPoolDonation, verifyWalletTip } from "./wallets/tipSignature";
 import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
@@ -271,6 +271,39 @@ export class SwarmChain {
     return true;
   }
 
+  /** Whether `member` already has a legacy reward claim on the chain or in pending. */
+  hasLegacyRewardClaim(member: string): boolean {
+    return [...this.chain.flatMap((b) => b.transactions), ...this.pendingTransactions]
+      .some((tx) => isLegacyRewardClaim(tx) && tx.from === member);
+  }
+
+  /** A member's legacy reward claim learned from a peer (or re-admitted after a fork). */
+  async acceptLegacyRewardClaim(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (this.hasTransaction(transaction.id)) return true;
+    if (blockForbidsLegacyClaims({ timestamp: new Date(networkNow()).toISOString() })) return false;
+    if (!await verifyLegacyRewardClaim(transaction)) return false;
+    if (this.hasLegacyRewardClaim(transaction.from)) return false;
+    this.pendingTransactions.push(transaction);
+    this._markDirtyAndScheduleFlush();
+    for (const listener of this._txAddedListeners) {
+      try { listener(transaction); } catch { /* listener errors never block the ledger */ }
+    }
+    return true;
+  }
+
+  /**
+   * Our own claim replaces the device-only mints it carries: they leave
+   * pending in the same step, so the SWARM is never counted twice.
+   */
+  async adoptOwnLegacyRewardClaim(claim: SwarmTransaction): Promise<boolean> {
+    const ids = new Set((claim.meta?.mintIds as string[] | undefined) ?? []);
+    if (!await this.acceptLegacyRewardClaim(claim)) return false;
+    this.pendingTransactions = this.pendingTransactions.filter((tx) => !(isSelfIssuedSwarmMint(tx) && tx.to === claim.to && ids.has(tx.id)));
+    await this.persistState();
+    return true;
+  }
+
   /**
    * A member's Market Vault donation learned from a peer. It spends the
    * donor's SWARM, so it needs the donor's signature and the donor's
@@ -428,7 +461,10 @@ export class SwarmChain {
     // A block pays exactly one reward: its own. Rewards from other blocks
     // (orphaned or copied from a peer's chain) never ride along, and
     // self-issued mints stay on this device: peers can't check them.
-    const carried = this.pendingTransactions.filter((tx) => tx.type !== "mining_reward" && !isSelfIssuedSwarmMint(tx));
+    const lateForClaims = blockForbidsLegacyClaims({ timestamp: new Date(startedAt).toISOString() });
+    const claimedOnChain = new Set(this.chain.flatMap((b) => b.transactions).filter(isLegacyRewardClaim).map((tx) => tx.from));
+    const carried = this.pendingTransactions.filter((tx) => tx.type !== "mining_reward" && !isSelfIssuedSwarmMint(tx)
+      && !(isLegacyRewardClaim(tx) && (lateForClaims || claimedOnChain.has(tx.from))));
     if (carried.length === 0 && !options.allowEmpty) {
       return null;
     }
@@ -573,6 +609,8 @@ export class SwarmChain {
   ]);
 
   private applyTransactionToBalance(tx: SwarmTransaction, address: string): number {
+    // A legacy reward claim credits its member once; it moves nobody else's SWARM.
+    if (isLegacyRewardClaim(tx)) return address === tx.to ? Number(tx.amount) || 0 : 0;
     if (isNativeMintMeTip(tx) || isNativeEthTip(tx) || isCustomTokenTip(tx)) return 0;
     if (tx.type === "wallet_tip" && (tx.tokenId || (tx.chainId && tx.chainId !== "SWARM"))) return 0;
     // SWARM moved between a native identity and its MetaMask-key-controlled ledger slot.
@@ -823,6 +861,10 @@ export class SwarmChain {
   private hasValidRewards(block: SwarmBlock): boolean {
     // New coins come only from the block reward: no self-issued mints.
     if (blockForbidsSelfMints(block) && block.transactions.some(isSelfIssuedSwarmMint)) return false;
+    // Legacy reward claims: before the deadline only, one per member per block.
+    const claims = block.transactions.filter(isLegacyRewardClaim);
+    if (claims.length > 0 && blockForbidsLegacyClaims(block)) return false;
+    if (new Set(claims.map((tx) => tx.from)).size !== claims.length) return false;
     // One reward per block: the miner's share, plus at most one share to the community pool.
     const rewards = block.transactions.filter((tx) => tx.type === "mining_reward");
     if (rewards.length > 2) return false;
@@ -851,6 +893,7 @@ export class SwarmChain {
       // A self-issued mint can never be mined into a shared block: don't revive it.
       if (isSelfIssuedSwarmMint(tx)) return false;
       if (tx.type === "wallet_tip") return await this.acceptWalletTip(tx);
+      if (isLegacyRewardClaim(tx)) return await this.acceptLegacyRewardClaim(tx);
       if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
       if (isNativeEthCustody(tx)) return await this.acceptNativeEthCustody(tx);
       if (isCustomTokenSync(tx)) return await this.acceptCustomTokenDeposit(tx);
@@ -986,6 +1029,10 @@ export class SwarmChain {
           if (seen.has(tx.id) || !await verifyNativeEthCustody(tx, accepted)) return false;
           const units = nativeEthUnits(tx);
           if (isNativeEthWithdraw(tx) && (units === null || nativeEthBalanceUnits(accepted, tx.from) < units)) return false;
+        }
+        if (isLegacyRewardClaim(tx)) {
+          if (seen.has(tx.id) || !await verifyLegacyRewardClaim(tx)) return false;
+          if (accepted.some((prior) => isLegacyRewardClaim(prior) && prior.from === tx.from)) return false;
         }
         if (tx.type === "wallet_tip") {
           if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;

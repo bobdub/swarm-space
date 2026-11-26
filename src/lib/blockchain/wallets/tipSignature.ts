@@ -111,3 +111,19 @@ export async function verifyVaultDonation(tx: SwarmTransaction): Promise<boolean
   if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
   return verifyLedgerSignature(tx);
 }
+
+/**
+ * A member's one-time claim moving SWARM rewards issued on their own device
+ * onto the shared chain (the legacy-reward hard fork). Signed by the member,
+ * credits only the member, capped.
+ */
+export async function verifyLegacyRewardClaim(tx: SwarmTransaction): Promise<boolean> {
+  const { LEGACY_CLAIM_MAX, isLegacyRewardClaim } = await import("../issuance");
+  if (!isLegacyRewardClaim(tx) || !tx.from || tx.from !== tx.to || tx.from === "system") return false;
+  if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || (tx.amount ?? 0) > LEGACY_CLAIM_MAX + 1e-9 || tx.fee !== 0) return false;
+  if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
+  if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
+  const ids = tx.meta?.mintIds;
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 10_000 || !ids.every((id) => typeof id === "string" && id.length <= 128)) return false;
+  return verifyLedgerSignature(tx);
+}

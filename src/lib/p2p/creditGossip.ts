@@ -35,7 +35,7 @@ export const LOCAL_TX_FRESH_MS = 10 * 60 * 1000;
 /** How often still-unmined local donations are offered again to every connected peer. */
 export const UNMINED_REOFFER_MS = 2 * 60 * 1000;
 /** Chain transaction types that carry credit/reward balance changes, plus member vault donations. */
-export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate", "custom_token_transfer"]);
+export const GOSSIPED_CHAIN_TX_TYPES: ReadonlySet<string> = new Set(["token_mint", "credit_sync", "pool_donate", "custom_token_transfer", "legacy_reward_claim"]);
 
 /**
  * A chain entry peers should hear about. A `pool_donate` from "system" is the
@@ -340,6 +340,12 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
           // New coins come only from block rewards: a peer's self-issued mint is unverifiable.
           if (isSelfIssuedSwarmMint(tx)) return false;
           if (chain.hasTransaction(tx.id)) return true;
+          // The legacy-reward hard fork: a member's signed one-time claim.
+          if (tx.type === "legacy_reward_claim") {
+            const ok = await chain.acceptLegacyRewardClaim(tx);
+            if (ok && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
+            return ok;
+          }
           if (tx.type === "pool_donate" || tx.type === "custom_token_transfer") {
             const problem = tx.type === "pool_donate"
               ? await peerDonationProblem(tx, (id) => chain.getSpendableBalance(id))
@@ -363,7 +369,7 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
         },
         subscribeLocalChainTx: (listener) => chain.onTransactionAdded(listener),
         // Vault donations wait in pending until someone mines them; offer them to every new peer.
-        unminedLocalChainTxs: () => signedUnminedDonations(chain),
+        unminedLocalChainTxs: async () => [...await signedUnminedDonations(chain), ...await unminedLegacyClaims(chain)],
       });
       gossip.start();
       // Pending entries load from IndexedDB without passing through
@@ -460,6 +466,22 @@ export async function signedUnminedDonations(chain: {
     if (await verify(signed) && chain.replacePendingTransaction(signed)) out.push(signed);
   }
   return out;
+}
+
+/**
+ * The legacy-reward hard fork: fold this member's device-only rewards into
+ * their signed claim (when unlocked), and offer every unmined claim we hold.
+ */
+export async function unminedLegacyClaims(chain: {
+  getPendingTransactions(): SwarmTransaction[];
+  hasLegacyRewardClaim(member: string): boolean;
+  adoptOwnLegacyRewardClaim(claim: SwarmTransaction): Promise<boolean>;
+}): Promise<SwarmTransaction[]> {
+  try {
+    const { claimLegacyRewards } = await import("@/lib/blockchain/legacyRewardClaim");
+    await claimLegacyRewards(chain);
+  } catch { /* the claim waits for the next offer */ }
+  return chain.getPendingTransactions().filter((tx) => tx.type === "legacy_reward_claim");
 }
 
 /** Announce a local credit transfer to the mesh (queued until gossip starts). */

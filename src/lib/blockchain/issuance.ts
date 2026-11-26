@@ -41,3 +41,25 @@ export function blockForbidsSelfMints(block: Pick<SwarmBlock, "timestamp">, cuto
 export function isRewardMature(blockIndex: number, chainLength: number, maturity = REWARD_MATURITY_BLOCKS): boolean {
   return chainLength - 1 - blockIndex >= maturity;
 }
+
+/**
+ * Hard fork: SWARM rewards issued on a member's own device before rewards
+ * moved into blocks join the shared chain through one signed claim per
+ * member. The claim is signed by the member's identity key, credits only that
+ * member, may appear once per member on the chain, is capped, and is accepted
+ * only in blocks stamped before the deadline.
+ */
+export const LEGACY_REWARD_CLAIM = "legacy_reward_claim";
+export const LEGACY_CLAIM_DEADLINE_MS = Date.parse("2027-01-01T00:00:00Z");
+/** The most SWARM one member's claim may carry. */
+export const LEGACY_CLAIM_MAX = 100_000;
+
+export function isLegacyRewardClaim(tx: Pick<SwarmTransaction, "type"> | null | undefined): boolean {
+  return !!tx && tx.type === LEGACY_REWARD_CLAIM;
+}
+
+/** True when a block is stamped too late to carry a legacy reward claim. */
+export function blockForbidsLegacyClaims(block: Pick<SwarmBlock, "timestamp">, deadlineMs = LEGACY_CLAIM_DEADLINE_MS): boolean {
+  const stamped = Date.parse(block.timestamp);
+  return !Number.isFinite(stamped) || stamped >= deadlineMs;
+}
