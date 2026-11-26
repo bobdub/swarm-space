@@ -21,6 +21,10 @@
  * more remain), so stock falls geometrically and never reaches zero.
  */
 import {
+  CREATOR_VAULT_COMMUNITY_SHARE,
+  CREATOR_VAULT_CREATOR_SHARE,
+} from '@/lib/blockchain/types';
+import {
   MARKET_VAULT_FLOOR_SHARE,
   MARKET_VAULT_MAX_TRADE_SHARE,
   marketVaultLayers,
@@ -30,7 +34,8 @@ import {
 
 export { MARKET_VAULT_FLOOR_SHARE as STAND_FLOOR_SHARE, MARKET_VAULT_MAX_TRADE_SHARE as STAND_MAX_TRADE_SHARE };
 
-export type TradingGood = 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'honey' | 'fibre';
+export type TradingGood =
+  | 'wood' | 'water' | 'stone' | 'gem' | 'food' | 'egg' | 'chicken' | 'fish' | 'shark' | 'honey' | 'fibre';
 export type StandCurrency = 'SWARM' | 'CREDITS';
 
 export interface TradingGoodSpec {
@@ -48,7 +53,12 @@ export const TRADING_GOODS: readonly TradingGoodSpec[] = [
   { id: 'water', label: 'Water', icon: '💧', baseSwarm: 0.01,  virtualReserve: 300 },
   { id: 'stone', label: 'Stone', icon: '🪨', baseSwarm: 0.025, virtualReserve: 200 },
   { id: 'gem',   label: 'Gems',  icon: '💎', baseSwarm: 0.25,  virtualReserve: 25 },
-  { id: 'food',  label: 'Food',  icon: '🍎', baseSwarm: 0.02,  virtualReserve: 200 },
+  // `food` is the bag's Food material; at the stand it is sold as Fruit.
+  { id: 'food',  label: 'Fruit', icon: '🍎', baseSwarm: 0.02,  virtualReserve: 200 },
+  { id: 'egg',   label: 'Eggs',  icon: '🥚', baseSwarm: 0.03,  virtualReserve: 120 },
+  { id: 'chicken', label: 'Chickens', icon: '🐔', baseSwarm: 0.09, virtualReserve: 60 },
+  { id: 'fish',  label: 'Fish',  icon: '🐟', baseSwarm: 0.04,  virtualReserve: 120 },
+  { id: 'shark', label: 'Sharks', icon: '🦈', baseSwarm: 0.4,  virtualReserve: 12 },
   { id: 'honey', label: 'Honey', icon: '🍯', baseSwarm: 0.05,  virtualReserve: 80 },
   { id: 'fibre', label: 'Fibre', icon: '🧵', baseSwarm: 0.015, virtualReserve: 200 },
 ];
@@ -230,4 +240,45 @@ export function standPriceBoard(state: StandVaultState): StandPriceRow[] {
       sellCredits: sell.credits,
     };
   });
+}
+
+/**
+ * A stand is its own market, so every sale splits the way a creator market
+ * buy does (`creatorVault.ts`, 40/40/15/5):
+ *   • 40% buyback + 40% stability → the stand's own vault (its liquid layer
+ *     and protected floor, read with the Market Vault's 40/60 layers),
+ *   • 15% → the stand's owner (the creator share),
+ *   • 5% → the SWARM community pool (the community share).
+ */
+export {
+  CREATOR_VAULT_BUYBACK_SHARE as STAND_BUYBACK_SHARE,
+  CREATOR_VAULT_STABILITY_SHARE as STAND_STABILITY_SHARE,
+  CREATOR_VAULT_CREATOR_SHARE as STAND_OWNER_SHARE,
+  CREATOR_VAULT_COMMUNITY_SHARE as STAND_COMMUNITY_SHARE,
+} from '@/lib/blockchain/types';
+
+export interface StandSplit {
+  /** Paid to the stand's owner, in the trade's currency. */
+  owner: number;
+  /** Paid to the community pool (SWARM) or the Market's Credits reserve (Credits). */
+  community: number;
+  /** Paid into the stand's own vault: its buyback and stability layers. */
+  vault: number;
+}
+
+/**
+ * Split what a buyer pays. Owner and community parts round down (six places
+ * for SWARM, whole Credits) and the vault takes the remainder, so the parts
+ * always add up to the price. A stand with no known owner keeps the owner's
+ * share in its vault. The owner buying at their own stand still pays the
+ * full price; the settlement pays their share back.
+ */
+export function splitStandPayment(amount: number, currency: StandCurrency, ownerId?: string | null): StandSplit {
+  const total = clean(amount);
+  if (total <= 0) return { owner: 0, community: 0, vault: 0 };
+  const part = (share: number) => (currency === 'CREDITS' ? Math.floor(total * share + 1e-9) : floor6(total * share));
+  const owner = ownerId ? part(CREATOR_VAULT_CREATOR_SHARE) : 0;
+  const community = part(CREATOR_VAULT_COMMUNITY_SHARE);
+  const rest = total - owner - community;
+  return { owner, community, vault: currency === 'CREDITS' ? rest : Math.round(rest * 1e6) / 1e6 };
 }

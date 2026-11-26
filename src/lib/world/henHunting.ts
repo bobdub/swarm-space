@@ -4,7 +4,7 @@
  * The hen's walk is shared without sending anything (`brain/land/chickens`).
  * A catch is recorded as one `hen-caught` nature event, which every peer
  * hears, so the bird vanishes for everyone; a hen of the flock then lays an
- * egg that hatches and grows into a replacement (see `chickens.ts`). The Food goes to the hunter only, like fruit,
+ * egg that hatches and grows into a replacement (see `chickens.ts`). The Food (or Egg) goes to the hunter only, like fruit,
  * honey and fish.
  */
 import {
@@ -20,9 +20,6 @@ import { getPrefab } from '@/lib/brain/prefabHouseCatalog';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import {
   EGG_LAY_MS,
-  FOOD_PER_EGG,
-  FOOD_PER_HEN,
-  FOOD_PER_ROOSTER,
   NEST_REACH_M,
   nearestNestEgg,
   HEN_CATCH_REACH_M,
@@ -36,6 +33,11 @@ import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { recordNatureEvent } from '@/lib/world/natureEventsStore';
 import { emitImpactFx, emitSwingFx } from '@/lib/world/swingFxBus';
 import { swingSuccess } from '@/lib/world/swingFeedback';
+
+/** Eggs a player takes from a nest at once. */
+export const EGGS_PER_TAKE = 1;
+/** Chickens a player gets for catching a hen or rooster. */
+export const CHICKENS_PER_CATCH = 1;
 
 /** Only a knife hunts hens. */
 export function huntsHens(toolPrefabId: string): boolean {
@@ -60,8 +62,8 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
   if (!found) return false;
 
   recordNatureEvent('hen-caught', found.hen.id, HEN_EVENT_ANCHOR, 0, 0, now);
-  const food = found.hen.rooster ? FOOD_PER_ROOSTER : FOOD_PER_HEN;
-  recordPlayerHarvest('food', food);
+  // A caught bird is a Chicken (its own good, sold at the Trading Stand).
+  recordPlayerHarvest('chicken', CHICKENS_PER_CATCH);
 
   const n = found.pose.n;
   const lift = EARTH_RADIUS + groundElevationAt(n) + 0.3;
@@ -84,7 +86,7 @@ export function tryCatchNearbyHen(toolPrefabId: string, selfId?: string, now = D
   swingSuccess(
     toolPrefabId,
     prefab?.label ?? 'Stone Knife',
-    `Caught a ${found.hen.rooster ? 'rooster' : 'hen'} · +${food} Food. ${next}`,
+    `Caught a ${found.hen.rooster ? 'rooster' : 'hen'} · +${CHICKENS_PER_CATCH} Chicken. ${next}`,
   );
   return true;
 }
@@ -107,7 +109,8 @@ export function tryTakeNestEgg(toolPrefabId: string, selfId?: string, now = Date
   if (!found) return false;
 
   recordNatureEvent('egg-taken', found.egg.id, HEN_EVENT_ANCHOR, 0, 0, now);
-  recordPlayerHarvest('food', FOOD_PER_EGG);
+  // An egg is its own good (sold at the Trading Stand), not Food.
+  recordPlayerHarvest('egg', EGGS_PER_TAKE);
 
   const n = found.egg.mother.nest;
   const lift = EARTH_RADIUS + groundElevationAt(n) + 0.15;
@@ -116,6 +119,6 @@ export function tryTakeNestEgg(toolPrefabId: string, selfId?: string, now = Date
   const up = quatRotate(pose.spinQuat, n);
   emitImpactFx({ point, up, color: '#f4ecdc', radius: 0.6, intensity: 0.2, label: 'egg', success: true, material: 'flora' });
   const prefab = getPrefab(toolPrefabId);
-  swingSuccess(toolPrefabId, prefab?.label ?? 'Nest', `Took an egg from the nest · +${FOOD_PER_EGG} Food.`);
+  swingSuccess(toolPrefabId, prefab?.label ?? 'Nest', `Took an egg from the nest · +${EGGS_PER_TAKE} Egg.`);
   return true;
 }

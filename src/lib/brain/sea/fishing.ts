@@ -5,14 +5,14 @@
  * Take a rod at either rod holder forward of the mast. Cast, wait for a
  * bite, and hook it while the float is down. Then the fish fights: a
  * marker sweeps along a bar, and you strike while it is inside the
- * highlighted zone. Three good strikes land it (+1 Food, credited like
- * any other gathered Food via `recordHarvestForResource`); two bad ones
+ * highlighted zone. Three good strikes land it (+1 Fish, credited like
+ * any other gathered good via `recordHarvestForResource`); two bad ones
  * and it throws the hook. Each good strike makes the zone narrower and
  * the marker quicker. Miss the bite and it gets away.
  *
  * Over deep water with a shark about (`sharks.ts`), about one bite in ten
  * is the shark: a harder fight (five strikes, a smaller and faster zone)
- * for +5 Food, and a landed shark is gone from the sea for everyone. Deeper water bites sooner than the shallows, and a boat making
+ * for +1 Shark, and a landed shark is gone from the sea for everyone. Deeper water bites sooner than the shallows, and a boat making
  * more than 1.5 m/s trails the line too fast for anything to take it.
  *
  * The bite times are drawn per cast from an injectable random source, on
@@ -242,7 +242,7 @@ function badStrike(f: FishFight, t: number): 'miss' | 'lost' {
 /**
  * Strike during the fight at `t`: good inside the highlighted zone, bad
  * outside it. Returns what happened: a good strike, a bad one, the fish
- * landed (+1 Food), or the fish lost.
+ * landed (+1 Fish), or the fish lost.
  */
 export function strike(t: number): 'hit' | 'miss' | 'landed' | 'lost' | null {
   const f = state.fight;

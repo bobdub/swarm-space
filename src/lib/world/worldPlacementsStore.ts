@@ -36,6 +36,20 @@ export interface PlacementRecord extends PlacedHandle {
   /** Last author activity (place, move, edit, re-decorate, refresh). Drives
    *  the Main Brain 5-day gate together with wall interactions. */
   activityAt?: number;
+  /** The builder's display name when placed, for labels such as a
+   *  Trading Stand's awning. Display only: ownership is `actorId`. */
+  ownerName?: string;
+}
+
+/** The signed-in user's display name, trimmed for a world label. */
+function currentOwnerName(): string | undefined {
+  try {
+    const u = getCurrentUser();
+    const name = (u?.displayName || u?.username || '').trim();
+    return name ? name.slice(0, 32) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Deletion record — outlives the placement so backfill can't resurrect it. */
@@ -440,6 +454,7 @@ export async function recordLocalPlacement(handle: PlacedHandle): Promise<Placem
     _origin: 'local',
     universeKey: activeUniverse,
     activityAt: Date.now(),
+    ownerName: currentOwnerName(),
   };
   records.set(rec.placementId, rec);
   if (isPlacementSuppressed(rec)) {
@@ -481,6 +496,7 @@ export async function updateLocalPlacement(handle: PlacedHandle): Promise<Placem
     _origin: 'local',
     universeKey: prev?.universeKey ?? activeUniverse,
     activityAt: Date.now(),
+    ownerName: prev?.ownerName ?? currentOwnerName(),
   };
   records.set(rec.placementId, rec);
   if (isPlacementSuppressed(rec)) {

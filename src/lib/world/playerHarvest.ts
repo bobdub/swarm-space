@@ -27,6 +27,10 @@ export const HARVEST_LABOUR_PER_UNIT: Record<string, number> = {
   animal: 0.05,
   honey: 0.04,
   gem: 0.08,
+  egg: 0.04,
+  fish: 0.04,
+  shark: 0.2,
+  chicken: 0.12,
 };
 
 function localUserId(): string | null {

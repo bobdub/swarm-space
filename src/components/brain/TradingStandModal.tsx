@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { customTokenRef, getAvailableTokenBalance, listCustomTokens } from '@/lib/blockchain/deposits/customTokens';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { blockWorldPos, getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { TRADING_STAND_ID } from '@/lib/brain/prefabHouseCatalog';
@@ -25,6 +26,10 @@ import {
   quoteStandBuy,
   quoteStandSell,
   standCreditsPerSwarm,
+  STAND_OWNER_SHARE,
+  STAND_BUYBACK_SHARE,
+  STAND_STABILITY_SHARE,
+  STAND_COMMUNITY_SHARE,
   standPriceBoard,
   type StandCurrency,
   type StandVaultState,
@@ -36,6 +41,8 @@ import {
   buyFromStand,
   currentStandScope,
   donateGoodsToStand,
+  donateToStandVault,
+  type StandDonationAsset,
   getPlayerBalances,
   getStandVaultState,
   sellToStand,
@@ -73,6 +80,7 @@ function useNearbyStand(selfId: string): string | null {
 }
 
 const fmtSwarm = (n: number | null) => (n === null ? '—' : n < 0.001 ? n.toFixed(6) : n.toFixed(4));
+const pct = (share: number) => `${Math.round(share * 100)}%`;
 const fmtCredits = (n: number | null) => (n === null ? '—' : n.toLocaleString());
 
 /** The proximity prompt plus the window it opens. Mount once over the Brain canvas. */
@@ -96,12 +104,24 @@ export function TradingStandPrompt({ selfId, mobile }: { selfId: string; mobile:
           {STAND_TITLE}
         </Button>
       )}
-      <TradingStandModal open={open} onOpenChange={setOpen} selfId={selfId} />
+      <TradingStandModal open={open} onOpenChange={setOpen} selfId={selfId} placementId={near} />
     </>
   );
 }
 
-export function TradingStandModal({ open, onOpenChange, selfId }: { open: boolean; onOpenChange: (open: boolean) => void; selfId: string }) {
+export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  selfId: string;
+  /** The stand being traded at: its owner takes 15% of its sales and can fund it. */
+  placementId?: string | null;
+}) {
+  // Keep the stand that was open even if the player steps back while the window is up.
+  const [standId, setStandId] = useState<string | null>(placementId ?? null);
+  useEffect(() => { if (placementId) setStandId(placementId); }, [placementId]);
+  const standRec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
+  const stand = standRec ? { placementId: standRec.placementId, ownerId: standRec.actorId } : null;
+  const isOwner = !!stand && stand.ownerId === selfId;
   const [scope, setScope] = useState<StandScope | null>(null);
   const [state, setState] = useState<StandVaultState | null>(null);
   const [balances, setBalances] = useState({ swarm: 0, credits: 0 });
@@ -112,13 +132,15 @@ export function TradingStandModal({ open, onOpenChange, selfId }: { open: boolea
 
   const refresh = useCallback(async () => {
     try {
-      const s = await currentStandScope();
+      // Each stand trades from its own vault.
+      const rec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
+      const s = await currentStandScope(rec ? { placementId: rec.placementId, ownerName: rec.ownerName } : null);
       const [vault, bal] = await Promise.all([getStandVaultState(s), getPlayerBalances(selfId)]);
       setScope(s); setState(vault); setBalances(bal);
     } catch (err) {
       console.warn('[TradingStand] refresh failed', err);
     }
-  }, [selfId]);
+  }, [selfId, standId]);
 
   useEffect(() => {
     if (!open) return;
@@ -163,7 +185,7 @@ export function TradingStandModal({ open, onOpenChange, selfId }: { open: boolea
         toast.success(`Stocked the stand with ${units} ${label.toLowerCase()}.`);
       } else {
         const fn = side === 'buy' ? buyFromStand : sellToStand;
-        const q = await fn({ userId: selfId, scope, good: selected, qty: units, currency });
+        const q = await fn({ userId: selfId, scope, good: selected, qty: units, currency, stand });
         const money = currency === 'SWARM' ? `${fmtSwarm(q.swarm)} SWARM` : `${fmtCredits(q.credits)} Credits`;
         toast.success(side === 'buy' ? `Bought ${units} ${label.toLowerCase()} for ${money}.` : `Sold ${units} ${label.toLowerCase()} for ${money}.`);
       }
@@ -244,12 +266,84 @@ export function TradingStandModal({ open, onOpenChange, selfId }: { open: boolea
               Stock this stand with {units > 0 ? units : ''} {label.toLowerCase()} (nothing back)
             </Button>
           )}
+          {stand && (
+            <p className="text-[11px] text-muted-foreground" data-testid="stand-owner-share">
+              {isOwner
+                ? `You own this stand: you receive ${pct(STAND_OWNER_SHARE)} of every sale it makes, including ${pct(STAND_OWNER_SHARE)} back when you buy here.`
+                : `${standRec?.ownerName ?? 'The owner'} receives ${pct(STAND_OWNER_SHARE)} of what you pay here.`}
+              {` Each sale splits like a creator market: ${pct(STAND_BUYBACK_SHARE + STAND_STABILITY_SHARE)} to this stand's vault, ${pct(STAND_OWNER_SHARE)} to its owner, ${pct(STAND_COMMUNITY_SHARE)} to the community pool.`}
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground">
             Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits. 40% of the stand vault is a protected floor; one trade takes at most 10% of its liquid layer or of a good's stock.
           </p>
         </div>
+        {isOwner && scope && stand && (
+          <details className="rounded-md border border-border/60 p-3" data-testid="stand-owner-funding">
+            <summary className="cursor-pointer text-sm font-semibold">Fund your stand</summary>
+            <div className="mt-2">
+              <StandFundingForm selfId={selfId} scope={scope} stand={stand} onDone={() => void refresh()} />
+            </div>
+          </details>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
+
+/** A private Cell stand's owner adds SWARM, Credits or synced tokens to its own vault. */
+function StandFundingForm({ selfId, scope, stand, onDone }: {
+  selfId: string;
+  scope: StandScope;
+  stand: { placementId: string; ownerId: string };
+  onDone: () => void;
+}) {
+  const options = useMemo(() => {
+    const tokens = (() => {
+      try {
+        return listCustomTokens(selfId).map((t) => {
+          const ref = customTokenRef(t);
+          return { id: `token:${ref}`, label: t.symbol, asset: { kind: 'TOKEN', contract: ref, symbol: t.symbol } as StandDonationAsset, balance: getAvailableTokenBalance(selfId, ref) };
+        }).filter((t) => t.balance > 0);
+      } catch { return []; }
+    })();
+    return [
+      { id: 'SWARM', label: 'SWARM', asset: { kind: 'SWARM' } as StandDonationAsset, balance: null as number | null },
+      { id: 'CREDITS', label: 'Credits', asset: { kind: 'CREDITS' } as StandDonationAsset, balance: null as number | null },
+      ...tokens,
+    ];
+  }, [selfId]);
+  const [assetId, setAssetId] = useState('SWARM');
+  const [amount, setAmount] = useState('');
+  const [busy, setBusy] = useState(false);
+  const option = options.find((o) => o.id === assetId) ?? options[0];
+  const fund = async () => {
+    setBusy(true);
+    try {
+      await donateToStandVault(selfId, scope, stand, option.asset, Number(amount));
+      toast.success(`Added ${amount} ${option.label} to your stand.`);
+      setAmount('');
+      onDone();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not fund the stand.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] text-muted-foreground">Goes into this stand's own vault, not the main Market Vault. It pays players who sell goods here; 40% always stays as the protected floor.</p>
+      <div className="flex gap-2">
+        <select
+          aria-label="Asset" value={option.id} onChange={(e) => setAssetId(e.target.value)} disabled={busy}
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+        >
+          {options.map((o) => <option key={o.id} value={o.id}>{o.label}{o.balance !== null ? ` · ${o.balance}` : ''}</option>)}
+        </select>
+        <Input type="number" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 flex-1" aria-label="Amount" />
+        <Button type="button" size="sm" disabled={busy || !(Number(amount) > 0)} onClick={() => void fund()}>Fund</Button>
+      </div>
+    </div>
+  );
+}

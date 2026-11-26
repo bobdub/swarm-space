@@ -69,7 +69,7 @@ function useFishing(): FishingState {
 
 function fishingLine(f: FishingState): string {
   const shark = f.on === 'shark';
-  if (f.phase === 'caught') return shark ? 'Shark +5 Food' : 'Fish +1 Food';
+  if (f.phase === 'caught') return shark ? 'Shark +1' : 'Fish +1';
   if (f.phase === 'missed') return 'It got away.';
   if (f.phase === 'bite') return shark ? 'Shark bite!' : 'Fish bite!';
   if (f.phase === 'fight') return shark ? 'Shark · reeling' : 'Fish · reeling';
@@ -202,8 +202,9 @@ export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; reado
       has: () => materialTotals().food > 0,
       spendOne: () => spendMaterials({ food: 1 }),
     });
-    setFishingReward((food, kind, sharkId) => {
-      recordPlayerHarvest('food', food);
+    setFishingReward((_food, kind, sharkId) => {
+      // A catch is its own good (sold at the Trading Stand), not Food.
+      recordPlayerHarvest(kind === 'shark' ? 'shark' : 'fish', 1);
       // A landed shark is gone from the sea for everyone for a while.
       if (kind === 'shark' && sharkId) recordSharkCaught(sharkId);
     });

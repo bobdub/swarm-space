@@ -1,7 +1,8 @@
 /**
  * TradingStandView — a market booth: a fieldstone footing, four timber
  * posts, a counter with crates of goods, a striped fibre awning and a sign
- * board reading "Trading Stand". Drawn in the placement's local frame
+ * board across the awning with the builder's name ("bobdub's Trading
+ * Stand"). Drawn in the placement's local frame
  * (y is up, origin at the base), sized to the prefab's bounding box.
  */
 import { useMemo } from 'react';
@@ -19,12 +20,16 @@ export function TradingStandView({
   depth,
   height,
   highlight = false,
+  ownerName,
 }: {
   width: number;
   depth: number;
   height: number;
   highlight?: boolean;
+  /** The builder's display name, painted on the awning. */
+  ownerName?: string;
 }) {
+  const name = ownerName?.trim().slice(0, 32);
   const footH = 0.18;
   const counterH = 1.0;
   const postR = 0.06;
@@ -94,8 +99,9 @@ export function TradingStandView({
       </mesh>
       <Html position={[0, awningY + 0.32, depth / 2 + 0.16]} center transform distanceFactor={4} occlude
         style={{ pointerEvents: 'none', userSelect: 'none' }}>
-        <div style={{ color: '#fde68a', fontFamily: 'Georgia, serif', fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap', letterSpacing: 0.5 }}>
-          Trading Stand
+        <div style={{ color: '#fde68a', fontFamily: 'Georgia, serif', fontWeight: 700, whiteSpace: 'nowrap', letterSpacing: 0.5, textAlign: 'center', lineHeight: 1.05 }}>
+          {name ? <div data-testid="stand-owner-name" style={{ fontSize: 15 }}>{name}&rsquo;s</div> : null}
+          <div style={{ fontSize: name ? 12 : 16 }}>Trading Stand</div>
         </div>
       </Html>
     </group>

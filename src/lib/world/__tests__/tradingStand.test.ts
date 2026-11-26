@@ -8,6 +8,11 @@ import {
   standCreditsPerSwarm,
   standLayers,
   standPriceBoard,
+  splitStandPayment,
+  STAND_BUYBACK_SHARE,
+  STAND_COMMUNITY_SHARE,
+  STAND_OWNER_SHARE,
+  STAND_STABILITY_SHARE,
   unitPriceSwarm,
   type StandVaultState,
 } from '@/lib/world/tradingStand/pricing';
@@ -15,7 +20,9 @@ import {
   goodCurrency,
   sharedStandVaultState,
   spendableStandVaultState,
+  donateToStandVault,
   standScopeFor,
+  standVaultScope,
   standStock,
   standTotalsOf,
 } from '@/lib/world/tradingStand/tradingStandStore';
@@ -24,7 +31,7 @@ import { spotCreditsPerSwarm } from '@/lib/blockchain/marketVaultPricing';
 import { VAULT_CREDITS_CURRENCY } from '@/lib/blockchain/poolLedger';
 import type { SwarmBlock, SwarmTransaction } from '@/lib/blockchain/types';
 import { getPrefab, TRADING_STAND_ID } from '@/lib/brain/prefabHouseCatalog';
-import { prefabCost, materialTotals } from '@/lib/world/materials';
+import { gatheredGoodTotals, prefabCost, materialTotals } from '@/lib/world/materials';
 import {
   _resetHarvestedForTest,
   getHarvested,
@@ -37,7 +44,7 @@ function vault(over: Partial<StandVaultState> = {}): StandVaultState {
   return {
     swarmPool: 1000,
     creditReserve: 50_000,
-    stock: { wood: 100, stone: 100, water: 100, fibre: 100, food: 100, honey: 40, gem: 10 },
+    stock: { wood: 100, stone: 100, water: 100, fibre: 100, food: 100, egg: 50, chicken: 20, fish: 40, shark: 5, honey: 40, gem: 10 },
     market: { poolBalance: 1000, knownMined: 4000 },
     ...over,
   };
@@ -134,7 +141,9 @@ describe('Trading Stand pricing', () => {
 
   it('lists live Buy and Sell prices for every good', () => {
     const board = standPriceBoard(vault());
-    expect(board.map((r) => r.good.id).sort()).toEqual(['fibre', 'food', 'gem', 'honey', 'stone', 'water', 'wood']);
+    expect(board.map((r) => r.good.id).sort()).toEqual(['chicken', 'egg', 'fibre', 'fish', 'food', 'gem', 'honey', 'shark', 'stone', 'water', 'wood']);
+    // Food is sold as Fruit at the stand.
+    expect(board.find((r) => r.good.id === 'food')?.good.label).toBe('Fruit');
     for (const row of board) {
       expect(row.buySwarm).not.toBeNull();
       expect(row.buySwarm!).toBeGreaterThan(row.sellSwarm);
@@ -201,6 +210,31 @@ describe('Trading Stand vault state', () => {
   });
 });
 
+describe("each stand is its own market", () => {
+  it('splits every sale 40/40/15/5 like a creator market', () => {
+    expect([STAND_BUYBACK_SHARE, STAND_STABILITY_SHARE, STAND_OWNER_SHARE, STAND_COMMUNITY_SHARE]).toEqual([0.4, 0.4, 0.15, 0.05]);
+    expect(splitStandPayment(1, 'SWARM', 'owner')).toEqual({ owner: 0.15, community: 0.05, vault: 0.8 });
+    expect(splitStandPayment(200, 'CREDITS', 'owner')).toEqual({ owner: 30, community: 10, vault: 160 });
+    // Whole Credits: owner and community round down, the vault takes the rest.
+    expect(splitStandPayment(7, 'CREDITS', 'owner')).toEqual({ owner: 1, community: 0, vault: 6 });
+    const swarm = splitStandPayment(0.123457, 'SWARM', 'owner');
+    expect(swarm.owner + swarm.community + swarm.vault).toBeCloseTo(0.123457, 9);
+  });
+
+  it("keeps the owner's share in the vault when the stand has no owner", () => {
+    expect(splitStandPayment(100, 'CREDITS', null)).toEqual({ owner: 0, community: 5, vault: 95 });
+  });
+
+  it("gives every stand its own vault, and lets only the owner fund it", async () => {
+    const own = standVaultScope('p1', 'Ada');
+    expect(own).toMatchObject({ key: 'stand:p1', address: 'trading-stand:stand:p1', settlesMain: false });
+    expect(standVaultScope('p2').address).not.toBe(own.address);
+    const stand = { placementId: 'p1', ownerId: 'owner' };
+    await expect(donateToStandVault('someone', own, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/Only the stand's owner/);
+    await expect(donateToStandVault('owner', own, stand, { kind: 'SWARM' }, 0)).rejects.toThrow(/above zero/);
+  });
+});
+
 describe('Trading Stand in the Brain', () => {
   beforeEach(() => _resetHarvestedForTest());
 
@@ -218,6 +252,13 @@ describe('Trading Stand in the Brain', () => {
     const stands = [{ placementId: 'a', pos: [0, 0, 3.4] as const }, { placementId: 'b', pos: [0, 0, 9] as const }];
     expect(nearestStandWithin([0, 0, 0], stands)?.placementId).toBe('a');
     expect(nearestStandWithin([0, 0, -1], stands, STAND_PROMPT_RADIUS_M)).toBeNull();
+  });
+
+  it('counts honey, eggs, chickens, fish, sharks and gems in the Gathered tally', () => {
+    for (const kind of ['honey', 'egg', 'chicken', 'fish', 'shark', 'gem']) recordHarvestForResource(kind, 2);
+    expect(gatheredGoodTotals()).toEqual({ honey: 2, egg: 2, chicken: 2, fish: 2, shark: 2, gem: 2 });
+    expect(heldGood('shark')).toBe(2);
+    expect(materialTotals().food).toBe(0);
   });
 
   it('keeps honey and gems as their own goods in the bag', () => {
