@@ -23,6 +23,7 @@
  */
 
 import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
+import { privateCellScope } from './userCell';
 
 // ── Inline Utilities ───────────────────────────────────────────────────
 
@@ -1755,6 +1756,9 @@ export class StandaloneBuilderMode {
     try {
       if (!postData.id) return;
       const normalizedPostData = this.normalizeBlogFlags(postData);
+      // Posts that arrive inside a private cell stay scoped to it.
+      const scope = privateCellScope();
+      if (scope && typeof normalizedPostData._cellScope !== 'string') normalizedPostData._cellScope = scope;
       const db = await this.openDB();
       if (!db.objectStoreNames.contains('posts')) { db.close(); return; }
       const tx = db.transaction('posts', 'readwrite');

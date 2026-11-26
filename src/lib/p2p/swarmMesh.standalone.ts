@@ -19,6 +19,7 @@ import { networkNow, recordPeerClockSample } from '@/lib/time/networkClock';
 import { getAppVersionWatch } from './appVersion';
 import { GUN_RELAYS } from './gunRelays';
 import { getFlushedAssets, saveFlushedAssets, clearFlushedAsset } from './flushedAssets';
+import { isCellScoped } from './userCell';
 
 /**
  * ═══════════════════════════════════════════════════════════════════════
@@ -3362,6 +3363,7 @@ export class StandaloneSwarmMesh {
     if (this.phase !== 'online') return;
     const id = post.id as string;
     if (!id) return;
+    if (isCellScoped(post)) return; // private-cell content stays in its cell
 
     // Always update the content store with the latest version
     const item: ContentItem = {
@@ -3797,7 +3799,7 @@ export class StandaloneSwarmMesh {
   /** A held item we may hand out: not unsupported here, author not blocked. */
   private servableItem(id: string): ContentItem | undefined {
     const i = this.contentStore.get(id);
-    return i && !(i.type === 'post' && isPostUnsupported(i.id)) && !isAuthorBlocked(itemAuthor(i)) ? i : undefined;
+    return i && !(i.type === 'post' && isPostUnsupported(i.id)) && !isAuthorBlocked(itemAuthor(i)) && !isCellScoped(i.data) ? i : undefined;
   }
 
   /**
@@ -5344,6 +5346,8 @@ export class StandaloneSwarmMesh {
           let n = 0;
           for (const post of posts) {
             if (!post.id || this.contentStore.has(post.id) || isPostUnsupported(post.id) || isAuthorBlocked(post.author)) continue;
+            // Private-cell and local-only posts never join the main mesh store.
+            if (post._localOnly === true || typeof post._cellScope === 'string') continue;
             this.contentStore.set(post.id, {
               id: post.id, type: 'post', data: post,
               author: post.author ?? 'unknown',

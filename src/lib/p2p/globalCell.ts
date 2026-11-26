@@ -264,6 +264,49 @@ class GlobalCell {
     return () => { this.knockListeners.delete(fn); };
   }
 
+  // ── Generic registry channels (e.g. public cell listings) ─────────
+
+  private registryHandlers = new Map<string, Set<(fromPeerId: string, payload: unknown) => void>>();
+  private attachedRegistryChannels = new Set<string>();
+  /** Registry writes requested before Gun relays were ready (slot → entry). */
+  private pendingRegistry = new Map<string, { channel: string; payload: unknown }>();
+
+  /**
+   * Write one entry into its own registry slot on the Gun presence graph.
+   * Writes made before Gun is up are held and flushed once relays connect.
+   */
+  publishRegistry(channel: string, slot: string, payload: unknown): boolean {
+    if (!this.gunAdapter) {
+      this.pendingRegistry.set(slot, { channel, payload });
+      return false;
+    }
+    try { return this.gunAdapter.broadcastToAll(channel, payload, { slot }); } catch { return false; }
+  }
+
+  /** Listen for registry entries on a channel (works before or after Gun starts). */
+  onRegistry(channel: string, fn: (fromPeerId: string, payload: unknown) => void): () => void {
+    let set = this.registryHandlers.get(channel);
+    if (!set) { set = new Set(); this.registryHandlers.set(channel, set); }
+    set.add(fn);
+    this.attachRegistryChannel(channel);
+    return () => { set!.delete(fn); };
+  }
+
+  private attachRegistryChannel(channel: string): void {
+    if (!this.gunAdapter || this.attachedRegistryChannels.has(channel)) return;
+    this.attachedRegistryChannels.add(channel);
+    this.gunAdapter.onMessage(channel, (fromPeerId: string, payload: unknown) => {
+      this.registryHandlers.get(channel)?.forEach(fn => { try { fn(fromPeerId, payload); } catch { /* ignore */ } });
+    });
+  }
+
+  private flushRegistry(): void {
+    for (const channel of this.registryHandlers.keys()) this.attachRegistryChannel(channel);
+    const pending = [...this.pendingRegistry.entries()];
+    this.pendingRegistry.clear();
+    for (const [slot, { channel, payload }] of pending) this.publishRegistry(channel, slot, payload);
+  }
+
   private handleInviteKnock(payload: unknown): void {
     const k = payload as { id?: string; from?: string; to?: string; at?: number };
     if (!acceptInviteKnock(k, this.localPeerId, this.seenKnocks, Date.now())) return;
@@ -330,6 +373,7 @@ class GlobalCell {
       try { this.gunAdapter.stop(); } catch { /* ignore */ }
       this.gunAdapter = null;
     }
+    this.attachedRegistryChannels.clear();
 
     if (this.busDebounceTimer) { clearTimeout(this.busDebounceTimer); this.busDebounceTimer = null; }
     this.knownPresence.clear();
@@ -525,6 +569,7 @@ class GlobalCell {
 
       this.gunAdapter.onMessage('invite-knock', (_from: string, payload: unknown) => this.handleInviteKnock(payload));
       this.flushPendingKnocks();
+      this.flushRegistry();
 
       console.log(`${LOG} ✅ Gun.js presence registry active`);
       this.announcePresence();
