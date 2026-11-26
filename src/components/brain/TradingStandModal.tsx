@@ -39,7 +39,7 @@ import { heldGood } from '@/lib/world/tradingStand/goods';
 import {
   TRADING_STAND_EVENT,
   buyFromStand,
-  currentStandScope,
+  standVaultScope,
   donateGoodsToStand,
   donateToStandVault,
   type StandDonationAsset,
@@ -78,6 +78,19 @@ function useNearbyStand(selfId: string): string | null {
     return () => clearInterval(t);
   }, [selfId]);
   return near;
+}
+
+/**
+ * The stand at `placementId` and its owner. Read from the placement record,
+ * or from the placed block (its `placedBy`) while a peer's record is still
+ * on its way, so a peer's stand is never mistaken for the viewer's own.
+ */
+export function resolveStand(placementId: string): { placementId: string; ownerId: string; ownerName?: string } | null {
+  const rec = listPlacements().find((r) => r.placementId === placementId && r.prefabId === TRADING_STAND_ID);
+  if (rec?.actorId) return { placementId, ownerId: rec.actorId, ownerName: rec.ownerName };
+  const block = getBuilderBlockEngine().getBlock(`${TRADING_STAND_ID}:${placementId}`);
+  const placedBy = block?.meta?.placedBy;
+  return typeof placedBy === 'string' && placedBy ? { placementId, ownerId: placedBy } : null;
 }
 
 const fmtSwarm = (n: number | null) => (n === null ? '—' : n < 0.001 ? n.toFixed(6) : n.toFixed(4));
@@ -121,8 +134,10 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const [standId, setStandId] = useState<string | null>(placementId ?? null);
   useEffect(() => { if (placementId) setStandId(placementId); }, [placementId]);
   const standRec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
-  const stand = standRec ? { placementId: standRec.placementId, ownerId: standRec.actorId } : null;
-  const isOwner = !!stand && stand.ownerId === selfId;
+  // Every stand is its own market, whoever opens it: the stand and its owner
+  // come from the stand itself, never from the viewer.
+  const stand = standId ? resolveStand(standId) : null;
+  const isOwner = !!stand && !!selfId && stand.ownerId === selfId;
   const [scope, setScope] = useState<StandScope | null>(null);
   const [state, setState] = useState<StandVaultState | null>(null);
   // Stock including this device's unmined sales and buys (on the chain, awaiting a block).
@@ -133,12 +148,19 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const [qty, setQty] = useState('1');
   const [busy, setBusy] = useState(false);
 
+  // A different stand: drop the last one's figures before this one's load.
+  const currentStand = useRef(standId);
+  useEffect(() => { currentStand.current = standId; setScope(null); setState(null); setLocalStock({}); }, [standId]);
+
   const refresh = useCallback(async () => {
     try {
-      // Each stand trades from its own vault.
-      const rec = standId ? listPlacements().find((r) => r.placementId === standId) : undefined;
-      const s = await currentStandScope(rec ? { placementId: rec.placementId, ownerName: rec.ownerName } : null);
+      // Each stand trades from its own vault, and only from a stand: there is
+      // no fallback to the viewer's room or Cell market.
+      if (!standId) return;
+      const s = standVaultScope(standId, resolveStand(standId)?.ownerName);
       const [vault, local, bal] = await Promise.all([getStandVaultState(s), getStandLocalStock(s), getPlayerBalances(selfId)]);
+      // A reply for a stand the window has since moved off is dropped.
+      if (currentStand.current !== standId) return;
       setScope(s); setState(vault); setLocalStock(local); setBalances(bal);
     } catch (err) {
       console.warn('[TradingStand] refresh failed', err);
