@@ -63,10 +63,9 @@ describe('night-sky constellations', () => {
     const a = buildConstellationBuffers(radius);
     const b = buildConstellationBuffers(radius);
     const stars = CONSTELLATIONS.reduce((n, c) => n + c.stars.length, 0);
-    const lines = CONSTELLATIONS.reduce((n, c) => n + c.lines.length, 0);
     expect(a.starPositions.length).toBe(stars * 3);
     expect(a.starMags.length).toBe(stars);
-    expect(a.linePositions.length).toBe(lines * 6);
+    expect('linePositions' in a).toBe(false);
     expect(Array.from(a.starPositions)).toEqual(Array.from(b.starPositions));
     expect(Array.from(a.starPhases)).toEqual(Array.from(b.starPhases));
     for (let i = 0; i < a.starPositions.length; i += 3) {
