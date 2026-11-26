@@ -167,15 +167,47 @@ export function buildBarTab(txs: Iterable<SwarmTransaction>): BarTab {
   return { patrons, drinksPoured, takings: round6(takings), orderCount };
 }
 
+/**
+ * Drink orders already found in mined blocks, one list per block, with the
+ * hash of the block each came from. A refresh keeps the longest prefix whose
+ * hashes still match the chain and scans only blocks after it, so the tab
+ * never replays the ledger from genesis on every new block.
+ */
+interface MinedBarCache {
+  hashes: string[];
+  orders: SwarmTransaction[][];
+}
+let minedCache: MinedBarCache = { hashes: [], orders: [] };
+
+/** Bar orders in `blocks`, reusing `cache` for every leading block whose hash is unchanged. */
+export function foldMinedBarOrders(
+  blocks: ReadonlyArray<{ hash: string; transactions?: SwarmTransaction[] }>,
+  cache: MinedBarCache,
+): MinedBarCache {
+  let keep = 0;
+  while (keep < cache.hashes.length && keep < blocks.length && cache.hashes[keep] === blocks[keep].hash) keep++;
+  const hashes = cache.hashes.slice(0, keep);
+  const orders = cache.orders.slice(0, keep);
+  for (let i = keep; i < blocks.length; i++) {
+    hashes.push(blocks[i].hash);
+    orders.push((blocks[i].transactions ?? []).filter((tx) => !!tx && barOrderFromTx(tx) !== null));
+  }
+  return { hashes, orders };
+}
+
 /** Read the bar tab from the local copy of the shared ledger (mined blocks + pending mesh txs). */
 export async function loadBarTab(): Promise<BarTab> {
   const { getSwarmChain } = await import("../chain");
   const chain = getSwarmChain();
   await chain.whenReady();
-  return buildBarTab([
-    ...chain.getChain().flatMap((b) => b.transactions ?? []),
-    ...chain.getPendingTransactions(),
-  ]);
+  minedCache = foldMinedBarOrders(chain.getChain(), minedCache);
+  const pending = chain.getPendingTransactions().filter((tx) => !!tx && barOrderFromTx(tx) !== null);
+  return buildBarTab([...minedCache.orders.flat(), ...pending]);
+}
+
+/** Test-only: forget the mined-order cache. */
+export function __resetBarTabCache(): void {
+  minedCache = { hashes: [], orders: [] };
 }
 
 /** "3 drinks" / "1 drink". */

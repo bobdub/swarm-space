@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SwarmTransaction } from "../types";
-import { barOrderFromTx, barTabMeta, buildBarTab, DRINKS_MENU, findDrink, isBarTabTx, orderCost } from "./barTab";
+import { barOrderFromTx, barTabMeta, buildBarTab, DRINKS_MENU, findDrink, foldMinedBarOrders, isBarTabTx, orderCost } from "./barTab";
 import { buildDonorLeaderboard } from "./donorLeaderboard";
 import { drinkChatLine } from "@/lib/pub/drinks";
 
@@ -62,5 +62,22 @@ describe("bar tab", () => {
     const base = { id: "x", fromPeerId: "p", fromName: "Ada", toPeerIds: ["p"], round: false, ts: 0 };
     expect(drinkChatLine({ ...base, solo: true, drinkName: "Red Dragon Stout", qty: 1 })).toBe("🍺 Ada ordered a Red Dragon Stout at the bar.");
     expect(drinkChatLine({ ...base, solo: true, drinkName: "Green Cat Ale", qty: 2 })).toBe("🍺 Ada ordered 2 × Green Cat Ale at the bar.");
+  });
+});
+
+describe("foldMinedBarOrders", () => {
+  it("scans only new blocks and rescans from a replaced block", () => {
+    const a = drink("alice");
+    const b = drink("bob");
+    const c = drink("carol");
+    const first = foldMinedBarOrders([{ hash: "h0", transactions: [a, tx({})] }, { hash: "h1", transactions: [b] }], { hashes: [], orders: [] });
+    expect(first.orders.flat().map((t) => t.from)).toEqual(["alice", "bob"]);
+    // Same prefix: block h0 is not re-read (its cached list is reused as-is).
+    const reused = foldMinedBarOrders([{ hash: "h0", transactions: [] }, { hash: "h1", transactions: [b] }, { hash: "h2", transactions: [c] }], first);
+    expect(reused.orders[0]).toBe(first.orders[0]);
+    expect(reused.orders.flat().map((t) => t.from)).toEqual(["alice", "bob", "carol"]);
+    // A reorg replaces h1: everything from there is read again.
+    const reorg = foldMinedBarOrders([{ hash: "h0", transactions: [a] }, { hash: "x1", transactions: [] }], reused);
+    expect(reorg.orders.flat().map((t) => t.from)).toEqual(["alice"]);
   });
 });
