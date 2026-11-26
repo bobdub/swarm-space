@@ -184,7 +184,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
     setBusy(true);
     try {
       if (side === 'donate') {
-        await donateGoodsToStand(selfId, scope, selected, units);
+        await donateGoodsToStand(selfId, scope, stand, selected, units);
         toast.success(`Stocked the stand with ${units} ${label.toLowerCase()}.`);
       } else {
         const fn = side === 'buy' ? buyFromStand : sellToStand;
@@ -271,8 +271,8 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
           {quotes && (quotes.buySwarm.error || quotes.sellSwarm.error) && (
             <p className="text-[11px] text-muted-foreground">{quotes.buySwarm.error ?? quotes.sellSwarm.error}</p>
           )}
-          {scope && !scope.settlesMain && (
-            <Button type="button" size="sm" variant="ghost" disabled={busy || units <= 0 || units > held} onClick={() => void trade('donate', 'SWARM')} className="w-full text-xs">
+          {isOwner && scope && !scope.settlesMain && (
+            <Button type="button" size="sm" variant="ghost" data-testid="stand-stock-button" disabled={busy || units <= 0 || units > held} onClick={() => void trade('donate', 'SWARM')} className="w-full text-xs">
               Stock this stand with {units > 0 ? units : ''} {label.toLowerCase()} (nothing back)
             </Button>
           )}

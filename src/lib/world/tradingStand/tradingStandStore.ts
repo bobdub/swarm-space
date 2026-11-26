@@ -457,7 +457,16 @@ export async function sellToStand(req: StandTradeRequest): Promise<StandQuote> {
 }
 
 /** Stock a stand with goods for nothing back, so a new private stand has something to sell. */
-export async function donateGoodsToStand(userId: string, scope: StandScope, good: TradingGood, qty: number): Promise<void> {
+export async function donateGoodsToStand(
+  userId: string,
+  scope: StandScope,
+  stand: { placementId: string; ownerId: string } | null | undefined,
+  good: TradingGood,
+  qty: number,
+): Promise<void> {
+  // Only a stand's owner stocks it, and only into that stand's own vault.
+  if (!stand || stand.ownerId !== userId) throw new Error('Only the stand\'s owner can stock it.');
+  if (scope.settlesMain || scope.key !== standVaultScope(stand.placementId).key) throw new Error('Stock a stand from that stand.');
   if (!getTradingGood(good)) throw new Error('The stand does not trade this good.');
   if (!Number.isSafeInteger(qty) || qty <= 0) throw new Error('Enter a whole number of units.');
   const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
@@ -466,7 +475,7 @@ export async function donateGoodsToStand(userId: string, scope: StandScope, good
     if (!takeGood(good, qty)) throw new Error(`You don't have ${qty} ${good}.`);
     try {
       const tx = await addRecord({ from: userId, to: scope.address, amount: qty, currency: goodCurrency(good),
-        meta: { tradingStand: true, standKey: scope.key, direction: 'donation', operationId: crypto.randomUUID(), tradeLeg: 'goods' } });
+        meta: { tradingStand: true, standKey: scope.key, standId: stand.placementId, direction: 'donation', operationId: crypto.randomUUID(), tradeLeg: 'goods' } });
       announce(scope, tx);
     } catch (error) {
       giveGood(good, qty);
