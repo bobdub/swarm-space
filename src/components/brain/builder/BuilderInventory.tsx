@@ -38,6 +38,7 @@ import {
 } from '@/lib/world/materials';
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { subscribeHarvested } from '@/lib/remix/harvestedInventory';
+import { COOKABLE_FOODS, cookedTotals } from '@/lib/world/cooking';
 import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import { ToolPurchaseCard } from '@/components/brain/builder/ToolPurchaseCard';
 import { ownsTool, TOOL_PURCHASE_EVENT } from '@/lib/world/toolPurchases';
@@ -100,6 +101,9 @@ export function BuilderInventory({
   // Honey, eggs, chickens, fish, sharks and gems: gathered goods that are not building materials.
   const [goods, setGoods] = useState(() => gatheredGoodTotals());
   useEffect(() => subscribeHarvested(() => setGoods(gatheredGoodTotals())), []);
+  // Meals cooked on a fire pit's grill (never sold at the Trading Stand).
+  const [cooked, setCooked] = useState(() => cookedTotals());
+  useEffect(() => subscribeHarvested(() => setCooked(cookedTotals())), []);
   // Market tools (a `priceSwarm` prefab) this player has bought.
   const [owned, setOwned] = useState<Record<string, boolean>>({});
   const [buying, setBuying] = useState<Prefab | null>(null);
@@ -297,6 +301,18 @@ export function BuilderInventory({
                     <span className="text-2xl" aria-hidden="true">{g.icon}</span>
                     <span className="text-[12px] font-medium">{g.label}</span>
                     <span className="text-[13px] font-semibold tabular-nums text-primary">{goods[g.id]}</span>
+                  </div>
+                ))}
+                {COOKABLE_FOODS.filter((f) => cooked[f.cooked] > 0).map((f) => (
+                  <div
+                    key={f.cooked}
+                    data-testid={`cooked-food-${f.cooked}`}
+                    title={`Cooked on a fire pit · rows ${f.rowMetres} m`}
+                    className="flex flex-col items-center gap-1 rounded-xl border border-border/50 bg-muted/25 px-2 py-3"
+                  >
+                    <span className="text-2xl" aria-hidden="true">{f.cookedIcon}</span>
+                    <span className="text-[12px] font-medium">{f.label}</span>
+                    <span className="text-[13px] font-semibold tabular-nums text-primary">{cooked[f.cooked]}</span>
                   </div>
                 ))}
               </div>

@@ -39,6 +39,7 @@ import {
 } from '@/lib/brain/sea/crew';
 import { getVillageBoat } from '@/lib/brain/sea/vessel';
 import { materialTotals, spendMaterials } from '@/lib/world/materials';
+import { eatCookedServing, totalCookedServings } from '@/lib/world/cooking';
 import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 import { getEarthPoseTime } from '@/lib/brain/earth';
 import { toast } from 'sonner';
@@ -193,14 +194,16 @@ export function CrewJoystickSkin() {
 export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; readoutTarget: HTMLDivElement | null }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
-  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
+  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, cooked: 0, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
 
   // Food comes out of the gathered inventory on this device, and a fish
   // goes into it.
   useEffect(() => {
     setFoodPurse({
-      has: () => materialTotals().food > 0,
-      spendOne: () => spendMaterials({ food: 1 }),
+      has: () => totalCookedServings() > 0 || materialTotals().food > 0,
+      // A cooked meal from the fire pit goes first: it pulls the oars much
+      // further than a unit of raw Food.
+      spendOne: () => eatCookedServing() || spendMaterials({ food: 1 }),
     });
     setFishingReward((_food, kind, sharkId) => {
       // A catch is its own good (sold at the Trading Stand), not Food.
@@ -275,6 +278,7 @@ export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; reado
           wind: w.speed,
           windFrom: w.from,
           food: materialTotals().food,
+          cooked: totalCookedServings(),
           out: isOutOfFood(),
           mast: getMastHold(),
           school: role === 'rod' && fishingSchoolNear(),
@@ -370,7 +374,7 @@ export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; reado
           <Wind className="h-2.5 w-2.5" aria-hidden="true" />
           {readout.wind.toFixed(1)} m/s · {Math.abs(deg)}°{deg > 0 ? ' R' : deg < 0 ? ' L' : ''}
         </span>
-        {role === 'helm' ? <span>Sail {Math.round(readout.sail * 100)}%</span> : <span>Food {readout.food}</span>}
+        {role === 'helm' ? <span>Sail {Math.round(readout.sail * 100)}%</span> : <span>Food {readout.food}{readout.cooked > 0 ? ` · Cooked ${readout.cooked}` : ''}</span>}
         {role === 'rod' && <span className={hot ? 'font-semibold text-accent' : ''} data-testid="fishing-line">{fishingLine(fishing)}</span>}
         {role === 'rod' && readout.shark && <span data-testid="fishing-shark">Shark nearby</span>}
         {role === 'rod' && readout.school && <span data-testid="fishing-school">Fish below</span>}
