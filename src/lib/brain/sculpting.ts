@@ -71,7 +71,7 @@ function actionMatchesTarget(action: Tool['actionKind'], target: ImpactTarget): 
 }
 
 function shellResistance(shell: EarthShell): { density: number; bond: number } {
-  const density = shell.density;
+  const density = shell.workDensity ?? shell.density;
   // Bond term: n=2/3 mineral lattices bond more strongly; n=1 loose grains less.
   const bond = shell.n === 0 ? 0
     : shell.n === 1 ? 0.3

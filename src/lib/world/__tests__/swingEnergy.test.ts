@@ -52,7 +52,9 @@ describe('player swing energy', () => {
   });
 
   it('hard shells still refuse', () => {
-    expect(dig(pick, 'gold').cut).toBe(false);
+    // The Gold Vein is pick work (chipped from host rock); platinum below it is not.
+    expect(dig(pick, 'gold').cut).toBe(true);
+    expect(dig(pick, 'platinum').cut).toBe(false);
     expect(dig(pick, 'diamond_upper').cut).toBe(false);
     expect(dig(pick, 'lava').cut).toBe(false);
   });

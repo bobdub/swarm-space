@@ -109,8 +109,8 @@ function materialForShell(shellId: string): ImpactMaterial {
 
 /** The beach band between sea and land, where the sand is salty. */
 function isBeachSand(point: Vec3): boolean {
-  const r = Math.hypot(point[0], point[1], point[2]) || 1;
-  return sampleSurfaceClass([point[0] / r, point[1] / r, point[2] / r]) === 'shore';
+  // Same Earth-local frame the target picker classified the hit in.
+  return sampleSurfaceClass(worldPosToLocalNormal(point, getEarthPose())) === 'shore';
 }
 
 /**
@@ -136,9 +136,7 @@ export function goldToolRefusal(toolPrefabId: string, shellId: string, toolLabel
 }
 
 function isSurfaceGatherable(point: Vec3): boolean {
-  const r = Math.hypot(point[0], point[1], point[2]) || 1;
-  const localNormal: Vec3 = [point[0] / r, point[1] / r, point[2] / r];
-  const surface = sampleSurfaceClass(localNormal);
+  const surface = sampleSurfaceClass(worldPosToLocalNormal(point, getEarthPose()));
   return surface === 'ocean' || surface === 'shore';
 }
 

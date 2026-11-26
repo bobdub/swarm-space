@@ -27,6 +27,7 @@ vi.mock('@/lib/brain/earth', () => ({
   EARTH_RADIUS: 100,
   getEarthPose: () => ({ center: [0, 0, 0], spinQuat: [0, 0, 0, 1], invSpinQuat: [0, 0, 0, 1] }),
   quatRotate: (_q: unknown, v: number[]) => v,
+  worldPosToLocalNormal: (p: number[]) => { const r = Math.hypot(p[0], p[1], p[2]) || 1; return [p[0] / r, p[1] / r, p[2] / r]; },
 }));
 vi.mock('@/lib/world/landPermissions', () => ({ canBuildAtWorldPoint: () => ({ ok: true }) }));
 vi.mock('@/lib/brain/uqrcPhysics', () => ({
