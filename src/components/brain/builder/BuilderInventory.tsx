@@ -117,7 +117,14 @@ export function BuilderInventory({
         e.preventDefault();
         // Lab canvas open: Esc goes back to the Lab list, and only that.
         // (The fullscreen canvas catches its own Esc before this runs.)
-        if (labOpen) { e.stopImmediatePropagation(); setLabOpen(false); return; }
+        if (labOpen) {
+          // Fullscreen canvas open: leave this Esc to LabTab, which only
+          // exits fullscreen (and stops it), whichever listener runs first.
+          if (document.querySelector('[data-testid="lab-canvas-fullscreen"]')) return;
+          e.stopImmediatePropagation();
+          setLabOpen(false);
+          return;
+        }
         onClose();
       }
     };
@@ -186,7 +193,7 @@ export function BuilderInventory({
 
   return (
     <div
-      className={`pointer-events-none absolute inset-0 ${labOpen ? 'z-[60]' : 'z-30'} flex items-center justify-center p-3 animate-in fade-in duration-200`}
+      className={`pointer-events-none absolute inset-0 ${labOpen ? 'z-[120]' : 'z-30'} flex items-center justify-center p-3 animate-in fade-in duration-200`}
       data-testid="builder-inventory"
     >
       <div
