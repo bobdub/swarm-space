@@ -559,7 +559,12 @@ export async function sweepAssetsToMaster(master: MergeIdentityRef, onStep?: (st
     if (tx) txs.push(tx);
     extras.push({ assetId: asset.id, ticker: asset.ticker, amount: asset.balance });
   }
-  const movedImported = new Set(extras.filter((e) => e.assetId.startsWith(IMPORTED_PREFIX)).map((e) => e.assetId));
+  // Every imported token this merge has tipped, including transfers from an
+  // earlier interrupted attempt (re-listed above), so a retry still sends
+  // their definitions and custody history.
+  const movedImported = new Set(
+    txs.map((tx) => String(tx.meta?.assetId ?? "")).filter((id) => id.startsWith(IMPORTED_PREFIX)),
+  );
   const tokens = deposits.listCustomTokens(user.id)
     .filter((t) => movedImported.has(customTipAssetId(deposits.customTokenRef(t))))
     .slice(0, MAX_MERGE_TOKENS);
