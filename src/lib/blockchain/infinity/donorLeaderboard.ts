@@ -150,6 +150,8 @@ function manualTimestamp(date: string): string {
 export function buildDonorLeaderboard(
   txs: Iterable<SwarmTransaction>,
   manual: readonly ManualDonation[] = [],
+  /** Symbols for MintMe contracts this viewer has imported, by lower-case address: a label for gifts that named none. */
+  knownSymbols: Readonly<Record<string, string>> = {},
 ): DonorLeaderboard {
   const seen = new Set<string>();
   const byDonor = new Map<string, DonorEntry>();
@@ -162,7 +164,9 @@ export function buildDonorLeaderboard(
     if (!gift) continue;
     seen.add(tx.id);
     donationCount++;
-    if (isTokenKey(gift.ticker) && !labels.get(gift.ticker)) labels.set(gift.ticker, gift.label);
+    if (isTokenKey(gift.ticker) && !labels.get(gift.ticker)) {
+      labels.set(gift.ticker, gift.label ?? tokenLabel(knownSymbols[gift.ticker.slice(TOKEN_KEY.length).replace(/^mintme:/, "")]));
+    }
     const entry = byDonor.get(tx.from) ?? { userId: tx.from, amounts: {}, donations: 0, lastAt: tx.timestamp };
     entry.amounts[gift.ticker] = round6((entry.amounts[gift.ticker] ?? 0) + gift.amount);
     entry.donations++;
@@ -210,7 +214,22 @@ export async function loadDonorLeaderboard(): Promise<DonorLeaderboard & { ledge
     ...chain.getChain().flatMap((b) => b.transactions ?? []),
     ...chain.getPendingTransactions(),
   ];
-  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS), ledgerSize: txs.length };
+  return { ...buildDonorLeaderboard(txs, MANUAL_DONATIONS, await importedTokenSymbols()), ledgerSize: txs.length };
+}
+
+/** Symbols of the MintMe tokens the signed-in member has imported, by lower-case contract. */
+async function importedTokenSymbols(): Promise<Record<string, string>> {
+  try {
+    const [{ getCurrentUser }, { listCustomTokens }] = await Promise.all([import("@/lib/auth"), import("../deposits/customTokens")]);
+    const me = getCurrentUser();
+    const out: Record<string, string> = {};
+    for (const t of me ? listCustomTokens(me.id) : []) {
+      if (typeof t?.address === "string" && typeof t.symbol === "string") out[t.address.toLowerCase()] = t.symbol;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 /** "120 SWARM · 0.05 ETH · $25" with SWARM first. */

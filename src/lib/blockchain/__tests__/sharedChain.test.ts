@@ -335,3 +335,38 @@ describe("witnesses recorded on the chain", () => {
     expect(await local.adoptPeerChain(peer.getChain())).toBe("adopted");
   }, 60_000);
 });
+
+describe("gifts on a peer branch we don't adopt", () => {
+  async function donation(id: string, amount: number, sign = true) {
+    const keys = await genIdentityKeyPair();
+    const from = await computeUserId(keys.publicKey);
+    const raw = { id, type: "pool_donate", from, to: "community-pool", amount, fee: 0, nonce: 1,
+      publicKey: keys.publicKey, signature: "", timestamp: new Date().toISOString() };
+    return { from, tx: sign ? await signWalletTip(raw as never, keys.privateKey) : raw };
+  }
+  const fund = (id: string, to: string, amount: number) => ({ ...tx(id), type: "token_transfer", to, amount });
+
+  it("takes the signed vault donations from a peer's branch through the usual checks", async () => {
+    const signed = await donation("peer-gift", 5);
+    const unsigned = await donation("forged-gift", 5, false);
+    const broke = await donation("too-big-gift", 500);
+    const peer = new SwarmChain();
+    await peer.whenReady();
+    for (const d of [signed, unsigned, broke]) {
+      peer.addTransaction(fund(`fund-${d.tx.id}`, d.from, 10) as never);
+      peer.addTransaction(d.tx as never);
+    }
+    await peer.minePendingTransactions("peer");
+
+    const local = await minedChain(3, "local");
+    for (const d of [signed, unsigned, broke]) local.addTransaction(fund(`local-fund-${d.tx.id}`, d.from, 10) as never);
+    expect(await local.adoptPeerChain(peer.getChain())).toBe("kept");
+    const pending = local.getPendingTransactions().map((t) => t.id);
+    expect(pending).toContain("peer-gift");
+    expect(pending).not.toContain("forged-gift");
+    expect(pending).not.toContain("too-big-gift");
+    // Sending the same branch again adds nothing twice.
+    await local.adoptPeerChain(peer.getChain());
+    expect(local.getPendingTransactions().filter((t) => t.id === "peer-gift")).toHaveLength(1);
+  }, 60_000);
+});

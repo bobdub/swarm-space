@@ -171,3 +171,14 @@ describe("Support the Vault donations in Credits and synced tokens", () => {
     expect(board.totals).toEqual({ DREAMS: 3 });
   });
 });
+
+describe("token names this viewer knows", () => {
+  it("names an unlabelled token from the viewer's imported tokens, by contract", () => {
+    const gift = tx({
+      type: "custom_token_transfer", to: "community-pool", from: "bob", amount: 503,
+      meta: { currency: "MINTME:0x6343AAAA567890abcdef1234567890abcdef1a82", marketVault: true, direction: "donation" },
+    });
+    expect(buildDonorLeaderboard([gift], [], { "0x6343aaaa567890abcdef1234567890abcdef1a82": "PURR" }).totals).toEqual({ PURR: 503 });
+    expect(buildDonorLeaderboard([gift], [], { "0x6343aaaa567890abcdef1234567890abcdef1a82": "USD" }).totals).toEqual({ "0x6343…1a82": 503 });
+  });
+});

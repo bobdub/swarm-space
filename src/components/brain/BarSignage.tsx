@@ -179,11 +179,20 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
     ctx.fillText(`${i + 1}.`, left, y);
     ctx.fillStyle = '#f2e6c9';
     ctx.font = `${i < 3 ? 'bold ' : ''}46px Georgia, serif`;
-    ctx.fillText(fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 420), left + 90, y);
+    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 420);
+    ctx.fillText(name, left + 90, y);
+    // The amounts take whatever the name leaves, shrinking before they cut off.
+    const room = right - (left + 90 + ctx.measureText(name).width + 40);
+    const amounts = formatDonationAmounts(d.amounts);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#f4c46a';
-    ctx.font = '42px Georgia, serif';
-    ctx.fillText(fit(ctx, formatDonationAmounts(d.amounts), 600), right, y);
+    let size = 42;
+    ctx.font = `${size}px Georgia, serif`;
+    while (size > 26 && ctx.measureText(amounts).width > room) {
+      size -= 2;
+      ctx.font = `${size}px Georgia, serif`;
+    }
+    ctx.fillText(fit(ctx, amounts, room), right, y);
     y += rowH;
   });
   if (board.donors.length > MAX_ROWS) {
@@ -201,8 +210,14 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
   ctx.font = '38px Georgia, serif';
   ctx.fillText('Total raised altogether', W / 2, footY - 12);
   ctx.fillStyle = '#ffd35a';
-  ctx.font = 'bold 58px Georgia, serif';
-  ctx.fillText(fit(ctx, formatDonationAmounts(board.totals), W - 200), W / 2, footY + 48);
+  const total = formatDonationAmounts(board.totals);
+  let totalSize = 58;
+  ctx.font = `bold ${totalSize}px Georgia, serif`;
+  while (totalSize > 32 && ctx.measureText(total).width > W - 200) {
+    totalSize -= 2;
+    ctx.font = `bold ${totalSize}px Georgia, serif`;
+  }
+  ctx.fillText(fit(ctx, total, W - 200), W / 2, footY + 48);
 
   // Small print: how much ledger the board read, so an empty board can be told apart from an unread one.
   if (readAt) {
