@@ -205,6 +205,23 @@ const BY_ID: Record<string, Tool> = (() => {
 })();
 
 export function listTools(): Tool[] { return [...TOOLS]; }
+
+/**
+ * Stone hand tools. Picking one from the builder puts it straight in
+ * hand, so the build grid has nothing left to place and closes at once.
+ * (The Boundary marker is held too, but it claims land block by block,
+ * so it keeps the grid up.)
+ */
+export const STONE_HAND_TOOL_IDS: ReadonlySet<string> = new Set([
+  'tool_knife_stone',
+  'tool_axe_stone',
+  'tool_shovel_stone',
+  'tool_pick_stone',
+]);
+
+export function isStoneHandTool(id: string | null | undefined): boolean {
+  return !!id && STONE_HAND_TOOL_IDS.has(id);
+}
 export function getTool(id: string): Tool | undefined { return BY_ID[id]; }
 
 // ────────────────────────────────────────────────────────────────────────

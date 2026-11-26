@@ -29,6 +29,7 @@ import {
 import { stagePendingBuild } from '@/lib/world/pendingBuildsStore';
 import { BRAIN_PHYSICS_VERSION } from '@/lib/brain/brainPersistence';
 import { BrainBuilderBar, equipCatalogTool } from '@/components/brain/builder/BrainBuilderBar';
+import { isStoneHandTool } from '@/lib/brain/toolCatalog';
 import { BuildGridOverlay } from '@/components/world/BuildGridOverlay';
 import { PlotSurveyOverlay } from '@/components/world/PlotSurveyOverlay';
 import { LandPlotsOverlay } from '@/components/world/LandPlotsOverlay';
@@ -2480,13 +2481,16 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         });
         toast(`${prefab.label} ready — walk over and hold to build.`);
         builder.selectPrefab(null);
+        // The item is down — drop out of Builder Mode so the grid goes
+        // with the ghost instead of lingering over the world.
+        builder.exitBuild();
       },
       onCancel: () => {
         // Avoid recursive clear when Cancel was triggered by deselect.
         if (builder.selectedPrefabId === id) builder.selectPrefab(null);
       },
     });
-  }, [builder.selectedPrefabId, selfId, universeKey, builder.selectPrefab, builder.selectBlock]);
+  }, [builder.selectedPrefabId, selfId, universeKey, builder.selectPrefab, builder.selectBlock, builder.exitBuild]);
 
   // Spawn Coherence: shared boot transform (position + orientation) used by
   // the Canvas camera so the first painted frame already matches the live
@@ -2945,7 +2949,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
             builder.exitBuild();
             setInventoryOpen(false);
           }}
-          onEquipTool={(prefabId) => equipCatalogTool(prefabId, selfId || 'local')}
+          onEquipTool={(prefabId) => {
+            equipCatalogTool(prefabId, selfId || 'local');
+            // Stone hand tools go straight into the hand — nothing is left
+            // to place, so the build grid closes with the selection.
+            if (isStoneHandTool(prefabId)) builder.exitBuild();
+          }}
         />
       )}
 
