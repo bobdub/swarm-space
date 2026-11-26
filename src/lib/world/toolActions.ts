@@ -128,11 +128,11 @@ export function digYieldForShell(shellId: string): 'dirt' | 'clay' | 'gold' | nu
 
 const DIG_YIELD_LABEL = { dirt: 'Dirt', clay: 'Clay', gold: 'Gold' } as const;
 
-/** Gold is pick work: refuse every other tool at the vein. */
+/** Gold takes the Prospector's Pick: refuse every other tool at the vein. */
 export function goldToolRefusal(toolPrefabId: string, shellId: string, toolLabel: string): string | null {
   if (digYieldForShell(shellId) !== 'gold') return null;
-  if (verbFor(toolPrefabId) === 'mine') return null;
-  return `${toolLabel} can't work the Gold Vein. Use a Stone Pick.`;
+  if (getToolAny(toolPrefabId)?.oreVeins) return null;
+  return `${toolLabel} can't work the Gold Vein. Use a Prospector's Pick.`;
 }
 
 function isSurfaceGatherable(point: Vec3): boolean {
@@ -923,7 +923,7 @@ async function digShell(
   const goldRefusal = goldToolRefusal(toolPrefabId, shell.id, prefab.label);
   if (goldRefusal) {
     emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'resist', false, 'stone');
-    swingResisted(toolPrefabId, prefab.label, shell.label, 'gold needs a Stone Pick');
+    swingResisted(toolPrefabId, prefab.label, shell.label, "gold needs a Prospector's Pick");
     return true;
   }
 

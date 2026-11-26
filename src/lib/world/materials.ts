@@ -156,6 +156,8 @@ export function isStarterTool(prefabId: string): boolean {
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
   if (isStarterTool(prefab.id)) return {};
+  // Bought with SWARM or Credits (`toolPurchases.ts`), never with materials.
+  if (prefab.priceSwarm) return {};
   // A piece made from a gathered good costs that good, not derived atoms.
   if (prefab.goodCost) return { ...prefab.goodCost } as MaterialCost;
   const hasMineral = !prefab.compositeCost && prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));

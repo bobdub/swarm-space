@@ -39,9 +39,10 @@ export interface EarthShell {
   /** Bulk density, g/cm³. Contributes to — does not define — resistance. */
   density: number;
   /**
-   * Density a tool actually works against, when it differs from `density`.
-   * An ore vein is chipped out of its host rock, not cut through solid
-   * metal, so the Gold Vein resists like quartz rock while weighing 19.3.
+   * Host-rock density of an ore vein. A tool with `oreVeins` (the
+   * Prospector's Pick) chips the ore out and works against this instead of
+   * `density`; every other tool still strikes the vein's full density, so
+   * a Stone Pick cannot cut the Gold Vein (19.3).
    */
   workDensity?: number;
   /** Minimum head-sharpness (0..1) a tool needs to make any cut here. */

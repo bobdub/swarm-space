@@ -69,6 +69,12 @@ export interface PrefabSpec {
    * `GatheredGoodId`s from `src/lib/world/materials.ts`.
    */
   goodCost?: Partial<Record<string, number>>;
+  /**
+   * Bought from the Market rather than built: costs this much SWARM (or
+   * the same value in Credits at the live spot rate) once, then it is the
+   * player's to pick up. No material cost. See `src/lib/world/toolPurchases.ts`.
+   */
+  priceSwarm?: number;
 }
 
 export interface PrefabDerived {
@@ -247,6 +253,18 @@ const SPECS: PrefabSpec[] = [
     density: 1.7,
     width: 0.12, depth: 0.04, height: 0.70,
     yawSnapStep: Math.PI / 4,
+  },
+  {
+    // Iron-tipped: the only tool that works the Gold Vein. Bought, not built.
+    id: 'tool_pick_prospector',
+    label: "Prospector's Pick",
+    sectionId: 'tools',
+    formula: 'C₁₆·Fe₆',
+    constituents: [{ symbol: 'C', count: 16 }, { symbol: 'Fe', count: 6 }],
+    density: 2.4,
+    width: 0.12, depth: 0.04, height: 0.72,
+    yawSnapStep: Math.PI / 4,
+    priceSwarm: 30,
   },
   // Fire Pit — a ring of fieldstones. Placed from the Tools tab like any
   // build; once standing, anyone nearby can light it with gathered Wood

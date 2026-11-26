@@ -11,7 +11,9 @@ vi.mock('sonner', () => ({ toast: toastFns }));
 vi.mock('@/lib/brain/builderBlockEngine', () => ({
   getBuilderBlockEngine: () => ({ getBlock: () => undefined, removeBlock: vi.fn(), listBlocks: () => [], upgradeBlock: vi.fn() }),
 }));
-vi.mock('@/lib/brain/toolCatalog', () => ({ getToolAny: (id: string) => ({ id, mass: 1.5 }) }));
+vi.mock('@/lib/brain/toolCatalog', () => ({
+  getToolAny: (id: string) => ({ id, mass: 1.5, oreVeins: id === 'tool_pick_prospector' }),
+}));
 const impact = vi.hoisted(() => ({ cut: true, calls: 0 }));
 vi.mock('@/lib/brain/sculpting', () => ({
   applyImpact: () => {
@@ -58,6 +60,7 @@ import type { ToolTarget } from '@/lib/world/toolTargets';
 
 const SHOVEL = 'tool_shovel_stone';
 const PICK = 'tool_pick_stone';
+const PROSPECTOR = 'tool_pick_prospector';
 const BUCKET = 'tool_bucket_wood';
 
 const ground: ToolTarget = {
@@ -103,18 +106,18 @@ describe('dig yields by shell', () => {
     expect(getHarvested('good:dirt')).toBe(0);
   });
 
-  it('the Gold Vein refuses a shovel before any swing and yields nothing', async () => {
+  it.each([[SHOVEL, 'Stone Shovel'], [PICK, 'Stone Pick']])('the Gold Vein refuses the %s before any swing', async (tool, label) => {
     floor.shellId = 'gold';
-    expect(goldToolRefusal(SHOVEL, 'gold', 'Stone Shovel')).toMatch(/Stone Pick/);
-    expect(await applyToolToTarget(SHOVEL, { ...ground, shellId: 'gold' })).toBe(true);
+    expect(goldToolRefusal(tool, 'gold', label)).toMatch(/Prospector's Pick/);
+    expect(await applyToolToTarget(tool, { ...ground, shellId: 'gold' })).toBe(true);
     expect(impact.calls).toBe(0);
     expect(getHarvested('good:gold')).toBe(0);
   });
 
-  it('a Stone Pick at the Gold Vein collects +1 Gold', async () => {
+  it("the Prospector's Pick at the Gold Vein collects +1 Gold", async () => {
     floor.shellId = 'gold';
-    expect(goldToolRefusal(PICK, 'gold', 'Stone Pick')).toBeNull();
-    await applyToolToTarget(PICK, { ...ground, shellId: 'gold' });
+    expect(goldToolRefusal(PROSPECTOR, 'gold', "Prospector's Pick")).toBeNull();
+    await applyToolToTarget(PROSPECTOR, { ...ground, shellId: 'gold' });
     expect(getHarvested('good:gold')).toBe(1);
   });
 });

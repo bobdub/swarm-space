@@ -52,8 +52,8 @@ describe('player swing energy', () => {
   });
 
   it('hard shells still refuse', () => {
-    // The Gold Vein is pick work (chipped from host rock); platinum below it is not.
-    expect(dig(pick, 'gold').cut).toBe(true);
+    // A Stone Pick still bounces off the Gold Vein: that takes the Prospector's Pick.
+    expect(dig(pick, 'gold').cut).toBe(false);
     expect(dig(pick, 'platinum').cut).toBe(false);
     expect(dig(pick, 'diamond_upper').cut).toBe(false);
     expect(dig(pick, 'lava').cut).toBe(false);

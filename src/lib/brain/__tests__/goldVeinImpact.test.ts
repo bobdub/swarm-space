@@ -1,7 +1,7 @@
 /**
- * The Gold Vein is reachable work for a real Stone Pick through the shared
- * sculpting predicate (no mocks): a vein is chipped out of its host rock,
- * so it resists like rock even though gold weighs 19.3.
+ * The Gold Vein through the shared sculpting predicate (no mocks): a Stone
+ * Pick bounces off gold's full density, while the Prospector's Pick chips
+ * the ore out of its host rock and cuts it.
  */
 import { describe, expect, it } from 'vitest';
 import { applyImpact } from '@/lib/brain/sculpting';
@@ -27,11 +27,21 @@ describe('Gold Vein', () => {
     expect(gold.density).toBe(19.3);
   });
 
-  it('a Stone Pick in a calm field cuts the vein', () => {
-    expect(swing('tool_pick_stone', 'gold').cut).toBe(true);
+  it('a Stone Pick in a calm field cannot cut the vein', () => {
+    expect(swing('tool_pick_stone', 'gold').cut).toBe(false);
   });
 
-  it.each(['bedrock', 'coal', 'oil', 'mixed_minerals'])('a Stone Pick also cuts the %s above it', (id) => {
-    expect(swing('tool_pick_stone', id).cut).toBe(true);
+  it("the Prospector's Pick in a calm field cuts the vein", () => {
+    expect(getToolAny('tool_pick_prospector')?.oreVeins).toBe(true);
+    expect(swing('tool_pick_prospector', 'gold').cut).toBe(true);
+  });
+
+  it.each(['grass', 'soil', 'dirt', 'mixed_earth', 'bedrock', 'coal', 'oil', 'mixed_minerals'])(
+    "the Prospector's Pick also cuts the %s on the way down", (id) => {
+      expect(swing('tool_pick_prospector', id).cut).toBe(true);
+    });
+
+  it("the Prospector's Pick still cannot cut the platinum below", () => {
+    expect(swing('tool_pick_prospector', 'platinum').cut).toBe(false);
   });
 });
