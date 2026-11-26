@@ -1320,6 +1320,8 @@ export class StandaloneSwarmMesh {
         if (this.phase !== 'online' || !this.toggles.mining) return;
         if (!beatIsFree(chain.getLatestBlock(), networkNow())) return;
       }
+      // Never mine a block no peer will hear about: offline or alone, no block.
+      if (this.phase !== 'online' || this.connections.size === 0) return;
       // Record the agreements our parent collected: they put its witnesses on the chain.
       const { getCertificateBook } = await import('../blockchain/endorsements');
       const witnesses = getCertificateBook().get(chain.getLatestBlock().hash)?.signed ?? [];

@@ -40,6 +40,10 @@ function round(witnesses: string[]): Harness {
   localStorage.clear();
   const h = new StandaloneSwarmMesh() as unknown as Harness;
   h.announceChainBlock = () => {};
+  // Mining needs an online node with a connected peer: blocks no one hears about are never mined.
+  const live = h as unknown as { phase: string; connections: Map<string, unknown> };
+  live.phase = 'online';
+  for (const id of witnesses) live.connections.set(id, {});
   h.pendingBlockVotes.set('r', {
     blockId: 'r', votes: new Map(), totalPeers: witnesses.length, witnesses: new Set(witnesses), isHollow: false, height: 1, minedAt: 0,
   });
@@ -56,6 +60,15 @@ describe('CREATOR rounds use the chain voter list', () => {
     expect([...r.witnesses!]).toEqual(['veteran']);
     expect(r.totalPeers).toBe(1);
     expect(Array.isArray(fake.minedWith)).toBe(true);
+  });
+
+  it('mines nothing while no peer is connected', async () => {
+    fake.voters = new Set();
+    fake.minedWith = null;
+    const h = round([]);
+    await h.mineChainBlock(false, 'r');
+    expect(fake.minedWith).toBeNull();
+    expect(h.pendingBlockVotes.has('r')).toBe(false);
   });
 
   it('keeps the connected peers while the chain names no voters yet', async () => {

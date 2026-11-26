@@ -1,19 +1,19 @@
-// Mining Implementation — Chain-Aware
-// UQRC-Compatible: Curvature reduction in mining manifold
-// [D_μ, D_ν] → 0 through template stabilization, nonce partitioning,
-// propagation-aware broadcasting, and timestamp smoothing
+// Mining — SWARM Mesh only
 //
-// Mining rewards are tagged with the user's active chainId so that
-// rewards accrue on the correct sub-chain or main SWARM chain.
+// SWARM is mined in one place: the SWARM Mesh block loop
+// (swarmMesh.standalone mineChainBlock). It runs only while the node is
+// online with at least one connected peer, signs every block with the
+// vault's identity key, and announces it to the mesh, so every mined coin
+// lives on the shared chain that peers verify.
+//
+// The old wallet-side loop mined blocks with no peers and no signature,
+// which peers could refuse, so its SWARM never synced. It is gone: these
+// helpers only report and close out legacy sessions.
 
-import { MiningSession, SwarmBlock } from "./types";
-import { getSwarmChain } from "./chain";
+import { MiningSession } from "./types";
 import { getMiningSession, saveMiningSession } from "./storage";
-import { getOptimizedMiningEngine, OptimizedMiningEngine } from "./miningOptimizations";
-import { getActiveChain } from "./multiChainManager";
-import { shouldDeferMining } from "../uqrc/healthBridge";
 
-// Extended mining session with UQRC metrics
+/** Extended mining session kept for legacy records. */
 export interface OptimizedMiningSession extends MiningSession {
   curvatureMetrics?: {
     templateCurvature: number;
@@ -29,172 +29,17 @@ export interface OptimizedMiningSession extends MiningSession {
   chainTicker?: string;
 }
 
-export async function startMining(userId: string): Promise<OptimizedMiningSession> {
-  const existingSession = await getMiningSession(userId);
-  
-  if (existingSession && existingSession.status === "active") {
-    throw new Error("Mining session already active");
-  }
+export const MESH_ONLY_MINING_MESSAGE =
+  "SWARM is only mined on the SWARM Mesh, while you're online with a peer, so every block reaches the shared chain. Turn mining on from the Node Dashboard.";
 
-  const miningEngine = getOptimizedMiningEngine();
-
-  const activeChain = getActiveChain();
-
-  const session: OptimizedMiningSession = {
-    id: `mining-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    userId,
-    startedAt: new Date().toISOString(),
-    blocksFound: 0,
-    totalReward: 0,
-    hashRate: 0,
-    status: "active",
-    curvatureMetrics: miningEngine.getCurvatureMetrics(),
-    chainId: activeChain.chainId,
-    chainTicker: activeChain.ticker,
-  };
-
-  await saveMiningSession(session);
-  
-  // Start optimized mining loop
-  mineLoopOptimized(session, miningEngine);
-
-  return session;
-}
-
-async function mineLoopOptimized(
-  session: OptimizedMiningSession, 
-  miningEngine: OptimizedMiningEngine
-): Promise<void> {
-  const chain = getSwarmChain();
-  await chain.whenReady();
-  let hashCount = 0;
-  const startTime = Date.now();
-
-  while (session.status === "active") {
-    try {
-      // Field-aware soft defer: if Q_Score has been severe for ≥10s, skip
-      // one block cycle to let delivery/replication catch up.
-      if (shouldDeferMining()) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        const recheck = await getMiningSession(session.userId);
-        if (recheck && recheck.status !== "active") break;
-        continue;
-      }
-
-      // Use optimized mining with curvature reduction
-      const block = await mineWithOptimizations(chain, session.userId, miningEngine, session.chainId);
-      
-      if (block) {
-        session.blocksFound++;
-        session.totalReward += block.transactions
-          .filter(tx => tx.to === session.userId && tx.type === "mining_reward")
-          .reduce((sum, tx) => sum + (tx.amount || 0), 0);
-        
-        // Update curvature metrics
-        session.curvatureMetrics = miningEngine.getCurvatureMetrics();
-        
-        // Invalidate template after successful block
-        miningEngine.invalidateTemplate();
-        
-        await saveMiningSession(session);
-
-        // Check propagation awareness before broadcast
-        const { shouldBroadcast, reason } = miningEngine.shouldBroadcast(block);
-
-        // Inject mining cadence into the App Health bus so wavelength λ
-        // shifts visibly when block production speeds up or stalls.
-        try {
-          const mod = await import('../uqrc/appHealth');
-          mod.recordAppEvent('mining', 'block', {
-            reward: shouldBroadcast ? 0.5 : -0.2,
-          });
-        } catch { /* ignore */ }
-        
-        // Emit mining event with UQRC metrics
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("swarm-block-mined", {
-              detail: { 
-                block, 
-                session,
-                curvatureMetrics: session.curvatureMetrics,
-                propagationStatus: { shouldBroadcast, reason }
-              },
-            })
-          );
-        }
-      }
-
-      hashCount++;
-      const elapsed = (Date.now() - startTime) / 1000;
-      session.hashRate = hashCount / elapsed;
-
-      // Throttle to prevent browser freeze
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Reload session to check if it was paused
-      const currentSession = await getMiningSession(session.userId);
-      if (currentSession && currentSession.status !== "active") {
-        break;
-      }
-    } catch (error) {
-      // Nonce partition exhausted is not a fatal error in multi-miner context
-      if (error instanceof Error && error.message.includes("partition exhausted")) {
-        console.log("[Mining] Nonce partition exhausted, waiting for next round");
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        continue;
-      }
-      
-      console.error("[Mining] Error in mining loop:", error);
-      await pauseMining(session.userId);
-      break;
-    }
-  }
-}
-
-/**
- * Mine with all UQRC curvature-reduction optimizations applied
- */
-async function mineWithOptimizations(
-  chain: ReturnType<typeof getSwarmChain>,
-  minerId: string,
-  miningEngine: OptimizedMiningEngine,
-  chainId?: string
-): Promise<SwarmBlock | null> {
-  const pendingTransactions = chain.getPendingTransactions();
-  
-  if (pendingTransactions.length === 0) {
-    return null;
-  }
-
-  // Use stabilized template (4.1 Template Stabilization)
-  const stabilizedTransactions = miningEngine.getTemplate(pendingTransactions);
-  
-  // Get previous block for timestamp smoothing
-  const previousBlock = chain.getLatestBlock();
-  
-  // Mine using optimized engine (applies 4.2, 4.3, 4.4)
-  try {
-    // Sign with the vault's identity key (header v2); without it the block is legacy.
-    const { getLocalBlockSigner } = await import("./blockHeader");
-    const signer = await getLocalBlockSigner();
-    const block = await chain.minePendingTransactions(minerId, chainId, { signer: signer?.userId === minerId ? signer : null });
-    // Shared chain: send the block to connected peers so they build on it.
-    if (block) {
-      void import("../p2p/swarmMesh.standalone")
-        .then(({ getSwarmMeshStandalone }) => getSwarmMeshStandalone().announceChainBlock(block))
-        .catch(() => { /* mesh not running */ });
-    }
-    return block;
-  } catch (error) {
-    console.error("[Mining] Optimized mining error:", error);
-    return null;
-  }
+/** Refuses: a block mined outside the mesh would never sync. */
+export async function startMining(_userId: string): Promise<OptimizedMiningSession> {
+  throw new Error(MESH_ONLY_MINING_MESSAGE);
 }
 
 export async function pauseMining(userId: string): Promise<MiningSession | null> {
   const session = await getMiningSession(userId);
-  
+
   if (!session || session.status !== "active") {
     return null;
   }
@@ -205,25 +50,14 @@ export async function pauseMining(userId: string): Promise<MiningSession | null>
   return session;
 }
 
-export async function resumeMining(userId: string): Promise<OptimizedMiningSession | null> {
-  const session = await getMiningSession(userId) as OptimizedMiningSession | null;
-  
-  if (!session || session.status !== "paused") {
-    return null;
-  }
-
-  session.status = "active";
-  await saveMiningSession(session);
-  
-  const miningEngine = getOptimizedMiningEngine();
-  mineLoopOptimized(session, miningEngine);
-
-  return session;
+/** Refuses: a block mined outside the mesh would never sync. */
+export async function resumeMining(_userId: string): Promise<OptimizedMiningSession | null> {
+  throw new Error(MESH_ONLY_MINING_MESSAGE);
 }
 
 export async function stopMining(userId: string): Promise<MiningSession | null> {
   const session = await getMiningSession(userId);
-  
+
   if (!session) {
     return null;
   }
