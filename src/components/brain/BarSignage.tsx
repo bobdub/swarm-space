@@ -3,11 +3,9 @@ import * as THREE from 'three';
 import barSignUrl from '@/assets/bar/green-cat-red-dragon-sign.webp';
 import { get } from '@/lib/store';
 import { getCurrentUser } from '@/lib/auth';
-import { peerGiftSummary, type PeerGiftSummary } from '@/lib/p2p/peerGiftLog';
 import type { User } from '@/types';
 import {
   formatDonationAmounts,
-  formatSwarmValue,
   loadDonorLeaderboard,
   type DonorLeaderboard,
 } from '@/lib/blockchain/infinity/donorLeaderboard';
@@ -78,10 +76,6 @@ export interface BoardState {
   ledgerSize: number;
   /** When the board last read the ledger (ISO), or null before the first read. */
   readAt: string | null;
-  /** Newest block on this device's chain, to compare with a peer's board. */
-  tip?: { height: number; hash: string };
-  /** What this device did with donations peers sent it. */
-  peerGifts?: PeerGiftSummary;
 }
 
 function useDonorLeaderboard(): BoardState {
@@ -90,15 +84,13 @@ function useDonorLeaderboard(): BoardState {
     let alive = true;
     const refresh = async () => {
       try {
-        const { ledgerSize, tipHeight, tipHash, ...board } = await loadDonorLeaderboard();
-        const tip = { height: tipHeight, hash: tipHash };
-        const peerGifts = peerGiftSummary();
+        const { ledgerSize, tipHeight: _height, tipHash: _hash, ...board } = await loadDonorLeaderboard();
         const readAt = new Date().toISOString();
         if (!alive) return;
         // Show the donors straight away with whatever names are known, then
         // fill in profile names as they arrive.
         const known = Object.fromEntries(board.donors.flatMap((d) => (d.name ? [[d.userId, d.name]] : [])));
-        setState((prev) => ({ board, names: { ...prev.names, ...known }, status: 'ready', ledgerSize, readAt, tip, peerGifts }));
+        setState((prev) => ({ board, names: { ...prev.names, ...known }, status: 'ready', ledgerSize, readAt }));
         console.info(`[DonorBoard] ${board.donors.length} donor(s), ${board.donationCount} donation(s) from ${ledgerSize} ledger entries`);
         const entries = await Promise.all(board.donors.map(async (d) =>
           [d.userId, d.name ?? await donorName(d.userId)] as const));
@@ -122,7 +114,6 @@ function useDonorLeaderboard(): BoardState {
 }
 
 const CANVAS_W = 1280;
-const MAX_ROWS = 6;
 
 function fit(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
   if (ctx.measureText(text).width <= maxW) return text;
@@ -141,7 +132,19 @@ function shrinkToFit(ctx: CanvasRenderingContext2D, text: string, maxW: number, 
   }
 }
 
-function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize, readAt, tip, peerGifts }: BoardState) {
+/** Split " · "-joined amounts into lines no wider than `maxW` at the current font. */
+function wrapAmounts(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const piece of text.split(' · ')) {
+    const next = line ? `${line} · ${piece}` : piece;
+    if (line && ctx.measureText(next).width > maxW) { lines.push(line); line = piece; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines.map((l) => fit(ctx, l, maxW));
+}
+
+function drawBoard(canvas: HTMLCanvasElement, { board, names, status }: BoardState) {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   const W = canvas.width;
@@ -174,78 +177,87 @@ function drawBoard(canvas: HTMLCanvasElement, { board, names, status, ledgerSize
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(left, 210); ctx.lineTo(right, 210); ctx.stroke();
 
-  const rows = board.donors.slice(0, MAX_ROWS);
-  const rowH = 78;
-  let y = 260;
-  if (rows.length === 0 && status !== 'ready') {
+  // The board is a record: every donor and exactly what they gave, top patron
+  // in pride of place. Empty rows wait for the next patron.
+  const footY = H - 90;
+  const rowH = 76;
+  const lineH = 40;
+  // Room for rows above the total, keeping one place for the next patron.
+  const bottom = footY - 90 - rowH;
+  let y = 262;
+  if (board.donors.length === 0 && status !== 'ready') {
     ctx.fillStyle = '#e8dcc0';
     ctx.font = '38px Georgia, serif';
     ctx.fillText(status === 'loading' ? 'Reading the ledger…' : 'Could not read the ledger.', W / 2, y + 120);
-  } else if (rows.length === 0) {
-    ctx.fillStyle = '#e8dcc0';
-    ctx.font = '38px Georgia, serif';
-    ctx.fillText('No donations yet. Be the first patron!', W / 2, y + 120);
-    ctx.font = '28px Georgia, serif';
-    ctx.fillStyle = '#b8a888';
-    ctx.fillText('Donate through Support the Vault, or send coins to Infinity, to join the board.', W / 2, y + 180);
+    return;
   }
-  rows.forEach((d, i) => {
-    const medal = ['#ffd35a', '#d9d9d9', '#d08a4a'][i];
+  const medals = ['#ffd35a', '#d9d9d9', '#d08a4a'];
+  let shown = 0;
+  for (const [i, d] of board.donors.entries()) {
+    const top = i === 0;
+    ctx.font = `${i < 3 ? 'bold ' : ''}${top ? 50 : 44}px Georgia, serif`;
+    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 460);
+    const nameW = ctx.measureText(name).width;
+    // Every coin they gave is listed: shrink a little, then wrap onto more lines.
+    const gave = formatDonationAmounts(d.amounts);
+    const room = right - (left + 80 + nameW + 40);
+    shrinkToFit(ctx, gave, room, top ? 46 : 40, 30, i < 3 ? 'bold ' : '');
+    const lines = wrapAmounts(ctx, gave, room);
+    const height = rowH + (lines.length - 1) * lineH;
+    if (shown > 0 && y + height - rowH > bottom) break;
+    const amountFont = ctx.font;
+    if (top) {
+      // Pride of place: a gilded band behind the top patron.
+      const glow = ctx.createLinearGradient(left - 20, 0, right + 20, 0);
+      glow.addColorStop(0, 'rgba(255,211,90,0)');
+      glow.addColorStop(0.5, 'rgba(255,211,90,0.16)');
+      glow.addColorStop(1, 'rgba(255,211,90,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(left - 20, y - rowH / 2 + 4, right - left + 40, height - 8);
+    }
     ctx.textAlign = 'left';
-    ctx.fillStyle = medal ?? '#c9a24a';
-    ctx.font = 'bold 46px Georgia, serif';
-    ctx.fillText(`${i + 1}.`, left, y);
-    ctx.fillStyle = '#f2e6c9';
-    ctx.font = `${i < 3 ? 'bold ' : ''}46px Georgia, serif`;
-    const name = fit(ctx, names[d.userId] ?? `@${d.userId.slice(0, 8)}`, 420);
-    ctx.fillText(name, left + 90, y);
-    // Ranked by market value; what they actually gave sits beneath it.
+    ctx.fillStyle = medals[i] ?? '#c9a24a';
+    ctx.font = `bold ${top ? 52 : 44}px Georgia, serif`;
+    ctx.fillText(top ? '♛' : `${i + 1}.`, left, y);
+    ctx.fillStyle = top ? '#ffe9a8' : '#f2e6c9';
+    ctx.font = `${i < 3 ? 'bold ' : ''}${top ? 50 : 44}px Georgia, serif`;
+    ctx.fillText(name, left + 80, y);
     ctx.textAlign = 'right';
-    ctx.fillStyle = '#f4c46a';
-    ctx.font = `${i < 3 ? 'bold ' : ''}42px Georgia, serif`;
-    const nameRight = left + 90 + ctx.measureText(name).width + 40;
-    ctx.fillText(fit(ctx, d.value > 0 ? formatSwarmValue(d.value) : 'no market price yet', right - nameRight), right, y);
-    shrinkToFit(ctx, formatDonationAmounts(d.amounts), right - (left + 90), 26, 18, '');
-    ctx.fillStyle = '#b8a888';
-    ctx.fillText(fit(ctx, formatDonationAmounts(d.amounts), right - (left + 90)), right, y + 32);
-    y += rowH;
-  });
-  if (board.donors.length > MAX_ROWS) {
+    ctx.fillStyle = medals[i] ?? '#f4c46a';
+    ctx.font = amountFont;
+    lines.forEach((line, n) => ctx.fillText(line, right, y + n * lineH));
+    y += height;
+    shown++;
+  }
+  const maxRows = shown;
+  if (board.donors.length > maxRows) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#b8a888';
     ctx.font = 'italic 28px Georgia, serif';
-    ctx.fillText(`…and ${board.donors.length - MAX_ROWS} more generous souls`, W / 2, y);
+    ctx.fillText(`…and ${board.donors.length - maxRows} more generous patrons`, W / 2, y);
+  } else {
+    // The next open place on the board, inviting the next patron in.
+    const place = shown + 1;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(201,162,74,0.55)';
+    ctx.font = `bold ${place === 1 ? 52 : 44}px Georgia, serif`;
+    ctx.fillText(place === 1 ? '♛' : `${place}.`, left, y);
+    ctx.font = 'italic 40px Georgia, serif';
+    ctx.fillStyle = 'rgba(232,220,192,0.5)';
+    ctx.fillText(place === 1 ? 'Your name here: be the first patron' : 'Your name here', left + 80, y);
+    ctx.textAlign = 'right';
+    ctx.font = 'italic 28px Georgia, serif';
+    ctx.fillText('Donate through Support the Vault', right, y);
   }
 
-  const footY = H - 115;
   ctx.strokeStyle = 'rgba(201,162,74,0.5)';
   ctx.beginPath(); ctx.moveTo(left, footY - 50); ctx.lineTo(right, footY - 50); ctx.stroke();
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#e8dcc0';
-  shrinkToFit(ctx, `Total raised altogether: ${formatDonationAmounts(board.totals)}`, W - 200, 32, 20, '');
-  ctx.fillText(fit(ctx, `Total raised altogether: ${formatDonationAmounts(board.totals)}`, W - 200), W / 2, footY - 12);
   ctx.fillStyle = '#ffd35a';
-  const total = `${formatSwarmValue(board.totalValue)} at market prices`;
-  shrinkToFit(ctx, total, W - 200, 58, 32, 'bold ');
-  ctx.fillText(fit(ctx, total, W - 200), W / 2, footY + 48);
-
-  // Readable small print: which ledger this board read, and what became of
-  // donations peers sent, so a missing gift says why it is missing.
-  if (readAt) {
-    const time = new Date(readAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const block = tip?.hash ? `Block #${tip.height.toLocaleString()} (${tip.hash.slice(0, 6)})` : 'No blocks yet';
-    ctx.fillStyle = '#cbbd9c';
-    shrinkToFit(ctx, `${block} · ${ledgerSize.toLocaleString()} ledger entries · read ${time}`, W - 200, 30, 20, '');
-    ctx.fillText(fit(ctx, `${block} · ${ledgerSize.toLocaleString()} ledger entries · read ${time}`, W - 200), W / 2, footY - 116);
-    const g = peerGifts;
-    const peers = !g || g.heard === 0
-      ? 'No donations received from peers since the app opened'
-      : `From peers: ${g.taken} donation${g.taken === 1 ? '' : 's'} taken, ${g.refused} refused`
-        + (g.lastRefusal ? ` · last refused ${g.lastRefusal.what}: ${g.lastRefusal.refused}` : '');
-    ctx.fillStyle = g?.lastRefusal ? '#e8a07a' : '#cbbd9c';
-    shrinkToFit(ctx, peers, W - 200, 30, 18, '');
-    ctx.fillText(fit(ctx, peers, W - 200), W / 2, footY - 80);
-  }
+  const total = `Total raised: ${formatDonationAmounts(board.totals) || '0 SWARM'}`;
+  shrinkToFit(ctx, total, W - 200, 54, 30, 'bold ');
+  const totalLines = wrapAmounts(ctx, total, W - 200).slice(0, 2);
+  totalLines.forEach((line, n) => ctx.fillText(line, W / 2, footY + 4 + (n - (totalLines.length - 1) / 2) * 38));
 }
 
 /** Wall-mounted board listing every donor, their amount, and the total raised. */
