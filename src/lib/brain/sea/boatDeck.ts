@@ -7,19 +7,22 @@
  * your feet moves with it.
  *
  * Walls, by where your feet are:
- * - On the deck (feet between deck level and the rail top): the rail
- *   keeps you aboard, except at the gate on each side midships and the
- *   opening onto the stern ladder.
+ * - On the deck (feet between deck level and `RAIL_HOLD_H`, above any
+ *   standing jump): the rail keeps you aboard, except at the opening onto
+ *   the stern ladder, and at the gate on each side midships when it opens
+ *   onto something to step onto (the jetty, another deck, a beach). Out
+ *   at sea the gates stay shut, so nobody walks off the side by mistake.
  * - Beside the boat at deck level (the jetty): the rail keeps you off,
  *   except through a gate. Once the boat is full the gates shut to people
  *   coming aboard (people aboard can still walk off).
  * - Below deck level (swimming): the hull is solid; you climb aboard by
  *   the ladder.
- * - Above the rail top (mid-jump): no walls, you can leap over.
+ * - Above `RAIL_HOLD_H`: no walls (a body thrown that high, not a jump).
  */
 
 import type { Vec3 } from '../earth';
-import { BOAT_RAIL_H } from './boatSpec';
+import { RAIL_HOLD_H } from './boatSpec';
+import { groundElevationAt } from '../groundHeight';
 import {
   HALF_L,
   LADDER_HALF,
@@ -29,7 +32,10 @@ import {
   railHalfWidthAt,
   tAt,
 } from './boatHull';
-import { DECK_STEP_UP, type DeckSurface } from './deckSupport';
+import { DECK_STEP_UP, deckElevationAt, type DeckSurface } from './deckSupport';
+
+/** Which way a gate opens: −1 port, +1 starboard. */
+export type GateSide = -1 | 1;
 
 export interface BoatFrame {
   /** Earth-local unit normal under the boat's centre. */
@@ -85,6 +91,8 @@ function bowLimit(radius: number): number {
 /**
  * Pure wall rule in the boat frame. Returns the corrected (x, z), or null
  * when nothing pushes. `feetAboveDeck` is feet elevation minus deck top.
+ * `gateOpen(side)` says whether that side's gate lets someone aboard step
+ * out (default: always, as alongside the jetty).
  */
 export function confineInBoatFrame(
   x: number,
@@ -92,8 +100,9 @@ export function confineInBoatFrame(
   feetAboveDeck: number,
   radius: number,
   boardingShut = false,
+  gateOpen: (side: GateSide) => boolean = () => true,
 ): { x: number; z: number } | null {
-  if (feetAboveDeck > BOAT_RAIL_H) return null; // clearing the rail mid-jump
+  if (feetAboveDeck > RAIL_HOLD_H) return null; // well clear of the rail
   const ax = Math.abs(x);
   const sign = x < 0 ? -1 : 1;
 
@@ -106,10 +115,10 @@ export function confineInBoatFrame(
       const zBow = bowLimit(radius);
       if (nz < zBow) nz = zBow;
       if (nz > HALF_L - radius && Math.abs(nx) > LADDER_HALF - 0.05) nz = HALF_L - radius;
-      if (!isGateZ(nz)) {
-        const xMax = Math.max(0, railHalfWidthAt(nz) - radius);
-        if (Math.abs(nx) > xMax) nx = sign * xMax;
-      }
+      const xMax = Math.max(0, railHalfWidthAt(nz) - radius);
+      // A gate only lets you out onto something to stand on; asked only
+      // for a body actually pressing into it.
+      if (Math.abs(nx) > xMax && !(isGateZ(nz) && gateOpen(sign))) nx = sign * xMax;
       return nx !== x || nz !== z ? { x: nx, z: nz } : null;
     }
     // Outside, at deck level (on the jetty beside the boat): the rail
@@ -132,6 +141,11 @@ export function confineInBoatFrame(
   return { x: (x === 0 ? 1 : sign) * hb, z };
 }
 
+/** How far outside the gate (m) we look for somewhere to step. */
+const GATE_PROBE_M = 0.8;
+/** How far below the deck (m) that step may be. */
+const GATE_STEP_M = 0.6;
+
 /**
  * The deck of a boat at `frame()`, `top()` metres above sea level right now.
  */
@@ -145,7 +159,7 @@ export function boatDeck(opts: {
   boardingShut?: () => boolean;
 }): DeckSurface {
   const { radius } = opts;
-  const reach = Math.hypot(HALF_L + 1, 2) / radius;
+  const reach = Math.hypot(HALF_L + 1, 3) / radius;
   const minDot = Math.cos(reach);
   const near = (frame: BoatFrame, n: Vec3) =>
     n[0] * frame.center[0] + n[1] * frame.center[1] + n[2] * frame.center[2] >= minDot;
@@ -164,7 +178,15 @@ export function boatDeck(opts: {
       const frame = opts.frame();
       if (!near(frame, n)) return null;
       const { x, z } = toBoatFrame(frame, n, radius);
-      const next = confineInBoatFrame(x, z, feet - opts.top(), bodyRadius, opts.boardingShut?.() ?? false);
+      const top = opts.top();
+      const gateOpen = (side: GateSide) => {
+        const out = fromBoatFrame(frame, side * (railHalfWidthAt(0) + GATE_PROBE_M), 0, radius);
+        // Another deck (the jetty, a boat alongside) at about this level…
+        if (deckElevationAt(out, top, opts.id) >= top - GATE_STEP_M) return true;
+        // …or ground (a beach) close under the gate.
+        return groundElevationAt(out) >= top - GATE_STEP_M;
+      };
+      const next = confineInBoatFrame(x, z, feet - top, bodyRadius, opts.boardingShut?.() ?? false, gateOpen);
       if (!next) return null;
       // Move by the correction only, so the radial part of n is untouched.
       const from = fromBoatFrame(frame, x, z, radius);

@@ -37,7 +37,7 @@ import {
   subscribeCrew,
   type CrewRole,
 } from '@/lib/brain/sea/crew';
-import { getVillageBoat } from '@/lib/brain/sea/vessel';
+import { MAX_ROWERS, getVillageBoat, rowersAllowed } from '@/lib/brain/sea/vessel';
 import { materialTotals, spendMaterials } from '@/lib/world/materials';
 import { eatCookedServing, totalCookedServings } from '@/lib/world/cooking';
 import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
@@ -194,7 +194,7 @@ export function CrewJoystickSkin() {
 export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; readoutTarget: HTMLDivElement | null }) {
   const role = useCrewRole();
   const keys = useRef<Record<string, boolean>>({});
-  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, cooked: 0, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
+  const [readout, setReadout] = useState({ sail: 0, speed: 0, wind: 0, windFrom: 0, food: 0, cooked: 0, oars: MAX_ROWERS, out: false, mast: null as 1 | -1 | null, school: false, shark: false, aground: false });
 
   // Food comes out of the gathered inventory on this device, and a fish
   // goes into it.
@@ -279,6 +279,7 @@ export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; reado
           windFrom: w.from,
           food: materialTotals().food,
           cooked: totalCookedServings(),
+          oars: rowersAllowed(boat.sea),
           out: isOutOfFood(),
           mast: getMastHold(),
           school: role === 'rod' && fishingSchoolNear(),
@@ -378,6 +379,11 @@ export function ShipControls({ mobile, readoutTarget }: { mobile: boolean; reado
         {role === 'rod' && <span className={hot ? 'font-semibold text-accent' : ''} data-testid="fishing-line">{fishingLine(fishing)}</span>}
         {role === 'rod' && readout.shark && <span data-testid="fishing-shark">Shark nearby</span>}
         {role === 'rod' && readout.school && <span data-testid="fishing-school">Fish below</span>}
+        {role === 'oars' && readout.oars < MAX_ROWERS && (
+          <span data-testid="rough-oars" title="The swell throws the oars out of time; on a calm day every bench can pull together">
+            Rough sea: {readout.oars === 1 ? 'one oar pulls' : `${readout.oars} oars pull`}
+          </span>
+        )}
         {role === 'oars' && readout.out && <span className="text-destructive" aria-label={OUT_OF_FOOD_NOTE}>No food</span>}
         {(role === 'helm' || role === 'oars') && readout.aground && <span className="font-semibold text-destructive" data-testid="aground">Aground</span>}
       </div>, readoutTarget,

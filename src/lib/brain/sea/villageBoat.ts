@@ -16,9 +16,8 @@ import { PHYSICS_HZ, type UqrcPhysics } from '../uqrcPhysics';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from './boatHull';
 import type { BoatFrame } from './boatDeck';
 import { getCrewBoatKey, getCrewRole, type CrewRole } from './crew';
+import { HELM_SPOT, OARS_SPOT, OAR_SPOTS, nearestOarSpot } from './boatLayout';
 import {
-  HELM_SPOT,
-  OARS_SPOT,
   deckPointOn,
   frameOf,
   getFleet,
@@ -32,7 +31,7 @@ import { groundElevationAt } from '../groundHeight';
 import { schoolNear } from './seaLife';
 import { hookableShark, sharkStillHookable } from './sharks';
 
-export { HELM_SPOT, OARS_SPOT, ROD_SPOTS, isOnDeck };
+export { HELM_SPOT, OARS_SPOT, OAR_SPOTS, ROD_SPOTS, isOnDeck };
 
 /** How close to the boat's gate you must stand on the jetty to board (m). */
 export const BOARD_REACH_M = 3.0;
@@ -44,7 +43,7 @@ export const CLIMB_SIDE_REACH_M = 1.4;
 /** Extra reach (m) allowed when a hold completes, so a swimmer drifting
  *  a little while holding still gets aboard. */
 export const HOLD_SLACK_M = 1.0;
-const STATION_REACH_M = 1.3;
+const STATION_REACH_M = 1.0;
 /** Rod holders sit by the rail, closer together than the stations. */
 const ROD_REACH_M = 0.9;
 
@@ -98,10 +97,13 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
     // never swaps the oars a body is standing at for the wheel.
     const reach = STATION_REACH_M + slack * 0.5;
     const dHelm = ownable ? Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) : Infinity;
-    const dOars = Math.hypot(p.x - OARS_SPOT[0], p.z - OARS_SPOT[1]);
+    // Any of the oar places: each bench seats a rower either side.
+    const oars = nearestOarSpot(p.x, p.z);
+    const dOars = oars.d;
     if (Math.min(dHelm, dOars) <= reach) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      return { kind: 'take', boatKey: boat.key, role: dHelm <= dOars ? 'helm' : 'oars' };
+      if (dHelm <= dOars) return { kind: 'take', boatKey: boat.key, role: 'helm' };
+      return { kind: 'take', boatKey: boat.key, role: 'oars', spot: oars.spot };
     }
     // A rod holder: anyone may fish from any boat.
     for (const spot of ROD_SPOTS) {
@@ -169,10 +171,12 @@ export function deckWorldPos(x: number, z: number, boatKey?: string): [number, n
 
 /** Where a completed hold puts you on deck. */
 export function boardingSpot(action: BoatAction): [number, number] | null {
-  if (action.kind === 'board') return [0, 0.2];
+  // Onto the open middle of the deck, clear of the gate and the benches,
+  // so the next person through the gate isn't blocked.
+  if (action.kind === 'board') return [0, -0.2];
   if (action.kind === 'climb') {
     if (action.from === 'ladder') return [0, HALF_L - 0.7];
-    return [action.from === 'port' ? -0.45 : 0.45, 0];
+    return [action.from === 'port' ? -0.7 : 0.7, 0];
   }
   return null;
 }

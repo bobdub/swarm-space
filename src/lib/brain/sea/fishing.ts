@@ -25,7 +25,7 @@ import { railHalfWidthAt } from './boatHull';
 import { SHARK_BITE_CHANCE } from './sharks';
 
 /** Rod holders (boat frame x, z): port and starboard, forward of the mast. */
-const ROD_Z = -1.8;
+const ROD_Z = -3.2;
 const ROD_X = Math.max(0.3, railHalfWidthAt(ROD_Z) - 0.45);
 export const ROD_SPOTS: ReadonlyArray<[number, number]> = [[-ROD_X, ROD_Z], [ROD_X, ROD_Z]];
 
