@@ -254,11 +254,17 @@ export async function donateToRewardPool(userId: string, amount: number): Promis
     throw new Error("Donation amount must be greater than 0");
   }
 
-  const { getSwarmBalance } = await import("./token");
-  const balance = await getSwarmBalance(userId);
-  
+  // Peers take a donation only when the donor's spendable SWARM on their own
+  // ledger covers it, so check the same figure here: SWARM issued on this
+  // device alone never reaches a block, and a gift funded by it would show on
+  // this board and nowhere else.
+  const { getSwarmBalance, getSpendableSwarmBalance } = await import("./token");
+  const [balance, spendable] = await Promise.all([getSwarmBalance(userId), getSpendableSwarmBalance(userId)]);
   if (balance < amount) {
     throw new Error("Insufficient SWARM balance");
+  }
+  if (spendable < amount) {
+    throw new Error(`Only ${spendable.toLocaleString(undefined, { maximumFractionDigits: 4 })} of your SWARM is on the shared chain, so peers would refuse a larger gift. SWARM issued on this device alone can't be donated; nothing was donated.`);
   }
 
   // Add to reward pool

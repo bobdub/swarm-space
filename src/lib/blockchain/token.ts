@@ -12,6 +12,13 @@ export async function getSwarmBalance(address: string): Promise<number> {
   return chain.getBalance(address);
 }
 
+/** SWARM a signed payment may spend on the shared chain: leaves out SWARM issued on this device alone. */
+export async function getSpendableSwarmBalance(address: string): Promise<number> {
+  const chain = getSwarmChain();
+  await chain.whenReady();
+  return chain.getSpendableBalance(address);
+}
+
 export async function getTokenBalanceRecord(address: string): Promise<SwarmTokenBalance> {
   const existing = await getTokenBalance(address);
   if (existing) {

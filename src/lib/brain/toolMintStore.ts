@@ -10,6 +10,8 @@
  *   • Non-destructive cross-tab DB upgrade (`onversionchange` only closes).
  */
 import { registerCustomTool, type Tool } from './toolCatalog';
+import { registerCustomPrefab } from './prefabHouseCatalog';
+import { forgedToolPrefab } from './toolForge';
 
 const DB_NAME = 'swarm-tool-mints';
 const STORE = 'tools';
@@ -22,6 +24,8 @@ export interface ForgedToolRecord {
   actorId: string;
   createdAt: number;
   _origin: 'local' | 'peer';
+  /** Brain the tool was forged for; absent means the shared Main Brain. */
+  projectId?: string;
 }
 
 type Listener = (records: ForgedToolRecord[]) => void;
@@ -111,6 +115,10 @@ function ingest(rec: ForgedToolRecord): void {
   try { registerCustomTool(rec.tool); } catch (err) {
     console.warn('[toolMintStore] register failed', err);
   }
+  // Also a Builder prefab, so it can be picked from Tools / Lab and held.
+  try { registerCustomPrefab(forgedToolPrefab(rec.tool)); } catch (err) {
+    console.warn('[toolMintStore] prefab register failed', err);
+  }
   scheduleNotify();
 }
 
@@ -122,15 +130,16 @@ export async function hydrateForgedTools(): Promise<void> {
   for (const r of all) ingest({ ...r, _origin: 'local' });
 }
 
-export interface ForgeInput { tool: Tool; actorId: string; }
+export interface ForgeInput { tool: Tool; actorId: string; projectId?: string; }
 
-export async function forgeTool({ tool, actorId }: ForgeInput): Promise<ForgedToolRecord> {
+export async function forgeTool({ tool, actorId, projectId }: ForgeInput): Promise<ForgedToolRecord> {
   const rec: ForgedToolRecord = {
     id: tool.id,
     tool,
     actorId,
     createdAt: Date.now(),
     _origin: 'local',
+    ...(projectId ? { projectId } : {}),
   };
   ingest(rec);
   await dbPut(rec);

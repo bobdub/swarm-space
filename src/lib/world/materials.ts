@@ -155,7 +155,8 @@ export function isStarterTool(prefabId: string): boolean {
  * the carbon belongs to the rock, not to timber, so it counts as Stone.
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
-  if (isStarterTool(prefab.id)) return {};
+  // Lab-forged tools were paid for at the bench, stroke by stroke.
+  if (isStarterTool(prefab.id) || prefab.id.startsWith('forge:')) return {};
   // Bought with SWARM or Credits (`toolPurchases.ts`), never with materials.
   if (prefab.priceSwarm) return {};
   // A piece made from a gathered good costs that good, not derived atoms.

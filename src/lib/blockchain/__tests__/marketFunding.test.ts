@@ -3,16 +3,18 @@ import type { SwarmTransaction } from "../types";
 
 const state = vi.hoisted(() => ({
   txs: [] as SwarmTransaction[], pool: null as null | Record<string, unknown>,
-  user: null as null | { id: string; publicKey: string }, privateKey: null as null | string,
+  user: null as null | { id: string; publicKey: string }, privateKey: null as null | string, spendable: 100,
 }));
 vi.mock("../../auth", () => ({ getCurrentUser: () => state.user, getCachedPrivateKey: async () => state.privateKey }));
 vi.mock("../chain", () => ({ getSwarmChain: () => ({
   whenReady: async () => {},
   addTransaction: (tx: SwarmTransaction) => state.txs.push(tx),
   getChain: () => [], getPendingTransactions: () => state.txs, getConfirmedBalance: () => 0, getBalance: () => 0,
+  getLatestBlock: () => undefined,
 }) }));
 vi.mock("../token", () => ({
   getSwarmBalance: async () => 100,
+  getSpendableSwarmBalance: async () => state.spendable,
   mintSwarm: async (p: { to: string; amount: number }) => state.txs.push({ ...p, from: "system", type: "token_mint" } as SwarmTransaction),
   burnSwarm: async (p: { from: string; amount: number }) => state.txs.push({ ...p, type: "token_burn" } as SwarmTransaction),
 }));
@@ -40,7 +42,7 @@ async function signIn() {
   state.user = { id: member, publicKey };
 }
 
-beforeEach(async () => { state.txs = []; state.pool = null; await signIn(); });
+beforeEach(async () => { state.txs = []; state.pool = null; state.spendable = 100; await signIn(); });
 describe("Market Vault donations", () => {
   it("moves a 10 SWARM donation once, without burning another 10", async () => {
     await donateToRewardPool(member, 10);
@@ -64,6 +66,13 @@ describe("Market Vault donations", () => {
     expect(await verifyPoolDonation({ ...tx, amount: 1000 })).toBe(false);
     expect(await verifyPoolDonation({ ...tx, from: "0123456789abcdef" })).toBe(false);
     expect(await verifyPoolDonation({ ...tx, signature: "" })).toBe(false);
+  });
+
+  it("refuses SWARM issued on this device alone, which peers would never accept", async () => {
+    state.spendable = 4;
+    await expect(donateToRewardPool(member, 10)).rejects.toThrow(/Only 4 of your SWARM is on the shared chain/);
+    expect(state.txs).toEqual([]);
+    expect(state.pool).toBeNull();
   });
 
   it("refuses to donate while the wallet is locked", async () => {

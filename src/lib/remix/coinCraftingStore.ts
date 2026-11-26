@@ -6,17 +6,30 @@
  * Lifecycle:
  *   - User picks an unsealed coin (status='pool' OR fillState∈{pool,bound,filling}).
  *   - User deposits atoms; fill is capped at 0.85 by spec.
- *   - finalizeCraft seals the coin and assigns it to the user wallet with
+ *   - Deposits are gathered materials (`depositMaterial`: Wood, Stone,
+ *     Fiber, Water, Honey, Gems, Gold); raw atoms (`deposit`) still work.
+ *   - finalizeCraft engraves the seal via `applySeal` (Creator Proof, tier
+ *     from deposited mass) and assigns the coin to the user wallet with a
  *     `wrappedChemicals` payload (so it carries across projects).
  *   - cancelCraft refunds deposited atoms to the global inventory.
  */
 import { getAll, put } from '@/lib/store';
 import type { SwarmCoin } from '@/lib/blockchain/types';
+import { applySeal } from '@/lib/blockchain/coinFill';
+import type { EngravingTier } from '@/lib/blockchain/engravingTiers';
 import {
   spendHarvested,
   recordHarvestMany,
   recordHarvestForProject,
 } from './harvestedInventory';
+import {
+  materialBagParts,
+  materialFromKey,
+  materialKey,
+  refundLabMaterial,
+  spendLabMaterial,
+  type LabMaterialId,
+} from './labMaterials';
 
 export const CRAFT_FILL_CAP = 0.85;
 
@@ -30,6 +43,29 @@ const ATOMIC_MASS: Record<string, number> = {
 
 export function atomicMass(symbol: string): number {
   return ATOMIC_MASS[symbol] ?? 12;
+}
+
+/** Forge heft of one entry in a craft buffer: a material unit or an atom. */
+export function contentMass(key: string): number {
+  const mat = materialFromKey(key);
+  return mat ? mat.forgeMass : atomicMass(key);
+}
+
+/** Total deposited heft of a craft buffer. */
+export function contentsMass(contents: Record<string, number>): number {
+  let mass = 0;
+  for (const [key, n] of Object.entries(contents)) mass += contentMass(key) * n;
+  return mass;
+}
+
+/**
+ * Seal tier set by how much material went into the coin (out of 100):
+ * up to 30 is Basic, up to 60 Rare, heavier Legendary.
+ */
+export function sealTierForMass(mass: number): EngravingTier {
+  if (mass > 60) return 'legendary';
+  if (mass > 30) return 'rare';
+  return 'basic';
 }
 
 export type CraftProgress = {
@@ -193,8 +229,7 @@ export function subscribeCrafting(fn: Listener): () => void {
 }
 
 function computeFill(contents: Record<string, number>, maxWeight: number): number {
-  let mass = 0;
-  for (const [sym, n] of Object.entries(contents)) mass += atomicMass(sym) * n;
+  const mass = contentsMass(contents);
   if (maxWeight <= 0) return 0;
   const raw = mass / maxWeight;
   return Math.min(CRAFT_FILL_CAP, Math.max(0, raw));
@@ -245,13 +280,56 @@ export function deposit(
 }
 
 /**
+ * Deposit `units` of a gathered material (Wood, Stone, Gems…) into the
+ * coin's craft buffer, spending them from the player's bag. Refused before
+ * anything is spent when it would carry the coin past the 85% cap.
+ */
+export function depositMaterial(
+  coin: SwarmCoin,
+  material: LabMaterialId,
+  units: number,
+): DepositResult {
+  if (!Number.isSafeInteger(units) || units <= 0) return { ok: false, reason: 'invalid' };
+  const now = new Date().toISOString();
+  const cur = progress.get(coin.coinId) ?? {
+    coinId: coin.coinId, contents: {}, fill: 0, startedAt: now, updatedAt: now,
+  };
+  if (cur.fill >= CRAFT_FILL_CAP) return { ok: false, reason: 'at-cap' };
+  const key = materialKey(material);
+  const nextContents = { ...cur.contents, [key]: (cur.contents[key] ?? 0) + units };
+  const raw = coin.maxWeight > 0 ? contentsMass(nextContents) / coin.maxWeight : 0;
+  if (raw > CRAFT_FILL_CAP + 1e-9) return { ok: false, reason: 'at-cap' };
+  if (!spendLabMaterial(material, units)) return { ok: false, reason: 'insufficient-atoms' };
+
+  const updated: CraftProgress = { ...cur, contents: nextContents, fill: Math.min(CRAFT_FILL_CAP, raw), updatedAt: now };
+  progress.set(coin.coinId, updated);
+  scheduleWrite(updated);
+  broadcast({ type: 'set', p: updated });
+  notify();
+  return { ok: true, progress: updated };
+}
+
+/** Most whole units of `material` that still fit under the cap. */
+export function unitsThatFit(coin: SwarmCoin, material: LabMaterialId): number {
+  const cur = progress.get(coin.coinId);
+  const room = CRAFT_FILL_CAP * coin.maxWeight - contentsMass(cur?.contents ?? {});
+  const per = contentMass(materialKey(material));
+  return per > 0 ? Math.max(0, Math.floor((room + 1e-9) / per)) : 0;
+}
+
+/**
  * Cancel craft progress for a coin — refund deposited atoms to the user's
  * global inventory and clear local state.
  */
 export async function cancelCraft(coinId: string): Promise<void> {
   const cur = progress.get(coinId);
   if (!cur) return;
-  const parts = Object.entries(cur.contents).map(([symbol, count]) => ({ symbol, count }));
+  const parts: { symbol: string; count: number }[] = [];
+  for (const [key, count] of Object.entries(cur.contents)) {
+    const mat = materialFromKey(key);
+    if (mat) refundLabMaterial(mat.id, count);
+    else parts.push({ symbol: key, count });
+  }
   if (parts.length) recordHarvestMany(parts);
   progress.delete(coinId);
   await deleteOne(coinId);
@@ -260,9 +338,11 @@ export async function cancelCraft(coinId: string): Promise<void> {
 }
 
 /**
- * Finalize a craft: seal the coin with its current chemical payload, assign
- * it to the user's wallet, and clear the progress entry. Refuses if the coin
- * has nothing deposited.
+ * Finalize a craft: engrave the seal (`applySeal` stamps the Creator Proof),
+ * set the seal tier from the deposited material mass, assign the coin to
+ * the user's wallet and clear the progress entry. The coin then counts as
+ * a Sealed coin in the Wallet and shows in its sealed history. Refuses if
+ * the coin has nothing deposited.
  */
 export async function finalizeCraft(coinId: string, userId: string): Promise<SwarmCoin> {
   const cur = progress.get(coinId);
@@ -277,14 +357,26 @@ export async function finalizeCraft(coinId: string, userId: string): Promise<Swa
     .filter(([, n]) => n > 0)
     .map(([symbol, count]) => ({ symbol, count }));
 
-  const sealed: SwarmCoin = {
+  const now = new Date().toISOString();
+  const mass = contentsMass(cur.contents);
+  const stamped = applySeal({
     ...coin,
     ownerId: userId,
-    status: 'wallet',
+    status: 'wallet' as const,
+    // A hollow coin may still read as sealed in old data; craft re-seals it.
+    fillState: coin.fillState === 'sealed' || coin.fillState === 'spent' ? undefined : coin.fillState,
+    wrappedChemicals,
+  }, now);
+  const sealed: SwarmCoin = {
+    ...stamped,
+    // applySeal fills an engraving-less coin to 1; a crafted coin keeps its forge fill.
     fill: cur.fill,
     fillState: 'sealed',
-    sealedAt: new Date().toISOString(),
-    wrappedChemicals,
+    sealedAt: now,
+    creatorProof: {
+      ...(stamped.creatorProof ?? { version: 1, sealedAt: now }),
+      tier: sealTierForMass(mass),
+    },
   };
   await put('swarmCoins', sealed);
 
@@ -292,6 +384,11 @@ export async function finalizeCraft(coinId: string, userId: string): Promise<Swa
   await deleteOne(coinId);
   broadcast({ type: 'delete', coinId });
   notify();
+  // Wallet tallies and the sealed-coin history refresh on these.
+  if (typeof window !== 'undefined') {
+    try { window.dispatchEvent(new Event('coin-engraving-update')); } catch { /* noop */ }
+    try { window.dispatchEvent(new Event('blockchain-transaction')); } catch { /* noop */ }
+  }
   return sealed;
 }
 
@@ -306,7 +403,10 @@ export async function smeltCoin(coinId: string, projectId: string): Promise<void
   if (!coin) throw new Error('Coin not found');
   if (coin.fillState && coin.fillState !== 'sealed') throw new Error('Only sealed coins can be smelted');
 
-  const parts = (coin.wrappedChemicals ?? []).map((p) => ({ symbol: p.symbol, count: p.count }));
+  const parts = (coin.wrappedChemicals ?? []).flatMap((p) => {
+    const mat = materialFromKey(p.symbol);
+    return mat ? materialBagParts(mat.id, p.count) : [{ symbol: p.symbol, count: p.count }];
+  });
   if (parts.length) await recordHarvestForProject(projectId, parts);
 
   const reset: SwarmCoin = {

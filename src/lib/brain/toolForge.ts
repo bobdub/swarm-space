@@ -24,6 +24,7 @@ import {
   type ToolPart,
 } from './toolCatalog';
 import { ELEMENT_COLORS, blendColor } from '@/lib/virtualHub/compoundCatalog';
+import type { Prefab } from './prefabHouseCatalog';
 
 const ATOMIC_MASS: Record<string, number> = {
   H: 1, He: 4, Li: 7, Be: 9, B: 11, C: 12, N: 14, O: 16, F: 19, Ne: 20,
@@ -79,7 +80,31 @@ function actionKindFromMass(mass: number): ToolActionKind {
 function dimsForAction(kind: ToolActionKind): { width: number; depth: number; height: number; headAspect: number } {
   if (kind === 'whittle') return { width: 0.04, depth: 0.02, height: 0.22, headAspect: 7.5 };
   if (kind === 'chop')    return { width: 0.18, depth: 0.06, height: 0.55, headAspect: 3.5 };
+  if (kind === 'mine')    return { width: 0.12, depth: 0.04, height: 0.70, headAspect: 4.5 };
+  if (kind === 'gather')  return { width: 0.16, depth: 0.03, height: 0.45, headAspect: 6.0 };
   return                       { width: 0.22, depth: 0.04, height: 0.95, headAspect: 2.0 };
+}
+
+/**
+ * The purposes a player can stamp into a Lab-forged tool. Each maps to the
+ * in-world interaction its swing runs (see `toolActions.verbFor`).
+ */
+export type ForgeToolAction = 'chop' | 'mine' | 'dig' | 'gather';
+
+export const FORGE_TOOL_ACTIONS: { id: ForgeToolAction; label: string; tool: string; hint: string }[] = [
+  { id: 'chop', label: 'Cut', tool: 'Axe', hint: 'Chops trees and fells wood.' },
+  { id: 'mine', label: 'Pick', tool: 'Pickaxe', hint: 'Breaks boulders and rock faces, frees minerals.' },
+  { id: 'dig', label: 'Dig', tool: 'Shovel', hint: 'Excavates ground and earth terrain.' },
+  { id: 'gather', label: 'Gather', tool: 'Sickle', hint: 'Forages herbs, wild flowers and fibres.' },
+];
+
+const TOOL_NOUN: Record<ToolActionKind, string> = {
+  whittle: 'Knife', chop: 'Axe', mine: 'Pickaxe', dig: 'Shovel', gather: 'Sickle', claim: 'Marker',
+};
+
+export interface ForgeToolOptions {
+  /** Purpose stamped into the tool. Defaults to the mass-derived kind. */
+  actionKind?: ForgeToolAction;
 }
 
 function totalAtomicMass(c: MoleculeConstituent[]): number {
@@ -91,7 +116,7 @@ function deriveColor(parts: ToolPart[]): string {
 }
 
 /** Derive a Tool from a Molecule. Pure. Throws on unknown elements. */
-export function deriveForgedTool(mol: Molecule): Tool {
+export function deriveForgedTool(mol: Molecule, opts: ForgeToolOptions = {}): Tool {
   if (!mol.constituents.length) {
     throw new Error('[toolForge] Molecule has no constituents.');
   }
@@ -107,7 +132,7 @@ export function deriveForgedTool(mol: Molecule): Tool {
 
   // Provisional mass to choose action kind (atomic mass × small bounding vol).
   const provisional = totalAtomicMass(mol.constituents) * 0.02 * 0.05;
-  const kind = actionKindFromMass(provisional * 4); // expand to action range
+  const kind: ToolActionKind = opts.actionKind ?? actionKindFromMass(provisional * 4); // expand to action range
   const dims = dimsForAction(kind);
 
   const parts: ToolPart[] = [
@@ -128,11 +153,12 @@ export function deriveForgedTool(mol: Molecule): Tool {
   const organicPenalty = ORGANIC.has(head.symbol) ? 0.12 : 0;
   const baseSharpness = clamp01(0.32 + aspectTerm * 0.55 + mineralBonus - organicPenalty);
 
-  const id = `forge:${mol.id}`;
-  const labelKind = kind === 'whittle' ? 'Knife' : kind === 'chop' ? 'Axe' : 'Shovel';
+  // The purpose is part of the id, so one material can be forged into an
+  // axe and a pickaxe without the second replacing the first.
+  const id = opts.actionKind ? `forge:${mol.id}:${kind}` : `forge:${mol.id}`;
   return {
     id,
-    label: `${mol.name} ${labelKind}`,
+    label: `${mol.name} ${TOOL_NOUN[kind]}`,
     actionKind: kind,
     parts,
     width: dims.width,
@@ -145,4 +171,38 @@ export function deriveForgedTool(mol: Molecule): Tool {
     baseSharpness,
     headDensity,
   };
+}
+/**
+ * The Builder prefab for a forged tool, so it shows on the Tools and Lab
+ * tabs and can be equipped like the stone tools. Same id as the tool.
+ */
+export function forgedToolPrefab(tool: Tool): Prefab {
+  const constituents = tool.parts.map(({ symbol, count }) => ({ symbol, count }));
+  const vol = Math.max(1e-6, tool.width * tool.depth * tool.height);
+  const organic = constituents.filter((c) => ORGANIC.has(c.symbol)).reduce((a, c) => a + c.count, 0);
+  const total = Math.max(1, constituents.reduce((a, c) => a + c.count, 0));
+  const shellTags = Array.from(new Set(constituents.map((c) => (c.symbol === 'H' ? 0 : MINERAL.has(c.symbol) ? 2 : 1)))).sort();
+  return {
+    id: tool.id,
+    label: tool.label,
+    sectionId: 'tools',
+    formula: constituents.map((c) => `${c.symbol}${c.count > 1 ? c.count : ''}`).join('·'),
+    constituents,
+    density: Math.max(0.3, tool.mass / (vol * 1000)),
+    width: tool.width,
+    depth: tool.depth,
+    height: tool.height,
+    yawSnapStep: Math.PI / 4,
+    color: tool.color,
+    mass: tool.mass,
+    basin: tool.basin,
+    waterResistance: clamp01(0.5 + (1 - organic / total) * 0.4),
+    flammability: clamp01((organic / total) * 0.7),
+    shellTags,
+  };
+}
+
+/** True for tools forged in the Lab (already paid for at the bench). */
+export function isForgedToolId(id: string): boolean {
+  return id.startsWith('forge:');
 }

@@ -15,8 +15,12 @@
 import { SHELL_DEFS, INNER_SYMBOLS } from './elements';
 import { ELEMENT_COLORS, blendColor } from '@/lib/virtualHub/compoundCatalog';
 
-/** `claim` is the Boundary marker: it marks land instead of striking anything. */
-export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine' | 'claim';
+/**
+ * `claim` is the Boundary marker: it marks land instead of striking anything.
+ * `gather` is a sickle-style tool forged in the Lab: it forages herbs,
+ * flowers, fibre, fruit and honey, like the bucket does for water.
+ */
+export type ToolActionKind = 'whittle' | 'chop' | 'dig' | 'mine' | 'gather' | 'claim';
 
 export interface ToolPart {
   role: 'handle' | 'head' | 'binding';
