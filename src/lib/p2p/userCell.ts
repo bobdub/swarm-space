@@ -458,6 +458,18 @@ export function cellAllowsMeshBroadcast(): boolean {
   return !!getActiveUserCell()?.isPublic;
 }
 
+/** The active private cell's ID while in one, else null. Content made here is scoped to it. */
+export function privateCellScope(): string | null {
+  if (!isCellMode()) return null;
+  const active = getActiveUserCell();
+  return active && !active.isPublic ? active.cellId : null;
+}
+
+/** Post data stays inside a private cell when it carries a cell scope. */
+export function isCellScoped(data: unknown): boolean {
+  return !!data && typeof data === 'object' && typeof (data as { _cellScope?: unknown })._cellScope === 'string';
+}
+
 async function announcePublicCell(cell: UserCell, withdrawn = false): Promise<void> {
   let ownerMeshPeerId = '';
   let members = 1;

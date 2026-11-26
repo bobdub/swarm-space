@@ -150,7 +150,7 @@ export default function PeerConnect() {
               {state.peerId}
             </code>
           )}
-          {cellId && <CellInviteCard cellId={cellId} invite={state} />}
+          {cellId && <CellInviteCard key={cellId} cellId={cellId} invite={state} />}
           {connected && <GuestNameField />}
           {connected && (
             <nav aria-label="Next steps" className="space-y-2">

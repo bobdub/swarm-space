@@ -57,3 +57,14 @@ describe('cell rules', () => {
     expect(cellAllowsMeshBroadcast()).toBe(true);
   });
 });
+
+describe('private cell scope', () => {
+  it('marks scoped post data and has no scope outside a cell', async () => {
+    const { isCellScoped, privateCellScope } = await import('../userCell');
+    expect(isCellScoped({ id: 'p1', _cellScope: 'u/alice/ab12' })).toBe(true);
+    expect(isCellScoped({ id: 'p1' })).toBe(false);
+    expect(isCellScoped(null)).toBe(false);
+    localStorage.removeItem('active-user-cell');
+    expect(privateCellScope()).toBeNull();
+  });
+});
