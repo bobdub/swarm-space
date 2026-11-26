@@ -9,6 +9,10 @@
  * rise, cross the sky and set at the same moment, and nothing here reads a
  * local frame counter or `Date.now()`.
  *
+ * The sky draws the stars only; figure lines exist for the star chart in
+ * the bar (`starHunt.ts`), where players learn a shape before going out to
+ * find it.
+ *
  * The figures sit close to the celestial equator and a quarter turn apart in
  * right ascension, so whichever way the night side faces during the year at
  * least two of them are up after dark.
@@ -203,57 +207,45 @@ export interface ConstellationBuffers {
   starMags: Float32Array;
   /** Twinkle phase per star (radians), fixed per star so peers agree. */
   starPhases: Float32Array;
-  /** Figure line endpoints, two xyz points per segment. */
-  linePositions: Float32Array;
 }
 
 /**
- * Bake every constellation into flat buffers once. The result never changes
- * at runtime: the renderer only moves the group to the camera and sets
- * uniforms, so the main thread does no per-star work each frame.
+ * Bake every constellation's stars into flat buffers once. The sky draws
+ * stars only, never figure lines: the shapes are for players to find. The
+ * result never changes at runtime, so the main thread does no per-star
+ * work each frame.
  */
 export function buildConstellationBuffers(radius: number): ConstellationBuffers {
   let starCount = 0;
-  let lineCount = 0;
-  for (const c of CONSTELLATIONS) {
-    starCount += c.stars.length;
-    lineCount += c.lines.length;
-  }
+  for (const c of CONSTELLATIONS) starCount += c.stars.length;
   const starPositions = new Float32Array(starCount * 3);
   const starMags = new Float32Array(starCount);
   const starPhases = new Float32Array(starCount);
-  const linePositions = new Float32Array(lineCount * 6);
   let si = 0;
-  let li = 0;
   for (const chart of CONSTELLATIONS) {
-    const dirs = chart.stars.map((star) => chartPointDirection(chart, star.x, star.y));
-    chart.stars.forEach((star, i) => {
-      const d = dirs[i];
+    for (const star of chart.stars) {
+      const d = chartPointDirection(chart, star.x, star.y);
       starPositions.set([d[0] * radius, d[1] * radius, d[2] * radius], si * 3);
       starMags[si] = star.mag;
       // Golden-angle phases: spread, deterministic, identical on every peer.
       starPhases[si] = (si * 2.399963) % (Math.PI * 2);
       si++;
-    });
-    for (const [a, b] of chart.lines) {
-      // Shorten each line a little at both ends so it reads as a guide
-      // between stars rather than running through their glow.
-      const da = dirs[a];
-      const db = dirs[b];
-      const inset = 0.12;
-      for (const [u, v] of [[da, db], [db, da]] as const) {
-        const p: Vec3 = [
-          u[0] + (v[0] - u[0]) * inset,
-          u[1] + (v[1] - u[1]) * inset,
-          u[2] + (v[2] - u[2]) * inset,
-        ];
-        const len = Math.hypot(p[0], p[1], p[2]) || 1;
-        linePositions.set([p[0] / len * radius, p[1] / len * radius, p[2] / len * radius], li * 3);
-        li++;
-      }
     }
   }
-  return { starPositions, starMags, starPhases, linePositions };
+  return { starPositions, starMags, starPhases };
+}
+
+/** Unit direction of a figure's centre of light (mean of its stars). */
+export function constellationCentre(chart: ConstellationChart): Vec3 {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const star of chart.stars) {
+    const d = chartPointDirection(chart, star.x, star.y);
+    x += d[0]; y += d[1]; z += d[2];
+  }
+  const len = Math.hypot(x, y, z) || 1;
+  return [x / len, y / len, z / len];
 }
 
 /** Period of the shared twinkle, seconds of pose-clock time. */
