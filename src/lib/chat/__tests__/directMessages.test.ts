@@ -9,10 +9,13 @@ import {
   type DirectMessageStore,
 } from '../directMessages';
 
-function memoryStore(): DirectMessageStore & { rows: Map<string, DirectMessageRecord> } {
+export function memoryStore(): DirectMessageStore & { rows: Map<string, DirectMessageRecord> } {
   const rows = new Map<string, DirectMessageRecord>();
+  const pins = new Map<string, Awaited<ReturnType<DirectMessageStore['getPin']>>>();
   return {
     rows,
+    async getPin(u) { return pins.get(u); },
+    async putPin(ns) { pins.set(ns.userId, ns); },
     async put(r) { rows.set(r.id, { ...r }); },
     async get(id) { const r = rows.get(id); return r ? { ...r } : undefined; },
     async byConversation(c) { return [...rows.values()].filter((r) => r.conversationId === c).map((r) => ({ ...r })); },
@@ -24,6 +27,7 @@ function memoryStore(): DirectMessageStore & { rows: Map<string, DirectMessageRe
 function linkedMeshes(tap?: (from: string, payload: unknown) => unknown) {
   const handlers = new Map<string, (peerId: string, payload: unknown) => void>();
   const make = (self: string, other: string): DirectMessageMesh => ({
+    getPeerId: () => self,
     getConnectedPeerIds: () => [other],
     async send(channel, peerId, payload) {
       if (channel !== DM_CHANNEL || peerId !== other) return false;
@@ -41,12 +45,13 @@ function linkedMeshes(tap?: (from: string, payload: unknown) => unknown) {
 
 
 /** A small mesh where every node links to every other; `down` drops links. */
-function hub(ids: string[]) {
+export function hub(ids: string[]) {
   const handlers = new Map<string, (peerId: string, payload: unknown) => void>();
   const down = new Set<string>();
   const meshes = new Map<string, DirectMessageMesh>();
   for (const self of ids) {
     meshes.set(self, {
+      getPeerId: () => self,
       getConnectedPeerIds: () => ids.filter((x) => x !== self && !down.has(x) && !down.has(self)),
       async send(channel, peerId, payload) {
         if (channel !== DM_CHANNEL || down.has(peerId) || down.has(self) || !ids.includes(peerId)) return false;
@@ -63,7 +68,7 @@ function hub(ids: string[]) {
   return { mesh: (id: string) => meshes.get(id)!, down };
 }
 
-async function settle(ms = 30): Promise<void> {
+export async function settle(ms = 30): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
 }
 
@@ -220,5 +225,161 @@ describe('direct messages', () => {
     await alice.retry(line!.id);
     await settle();
     expect((await storeA.get(line!.id))?.status).toBe('delivered');
+  });
+});
+
+// ── Proven identity: signatures, namespace pins, wrapped history key ──
+
+import { Wallet, keccak256, toUtf8Bytes } from 'ethers';
+import { computeUserId, genIdentityKeyPair } from '../../crypto';
+import {
+  createDmSigner,
+  createHelloProof,
+  openHistoryKey,
+  openText,
+  sealText,
+  verifyHelloProof,
+  type DmSigner,
+} from '../dmIdentity';
+
+async function account(): Promise<DmSigner> {
+  const keys = await genIdentityKeyPair();
+  const userId = await computeUserId(keys.publicKey);
+  const wallet = new Wallet(keccak256(toUtf8Bytes(`swarm-coldkey:${keys.privateKey.toLowerCase()}`)));
+  return createDmSigner({ userId, identityPublicKey: keys.publicKey, identityPrivateKey: keys.privateKey, wallet });
+}
+
+function messengerFor(mesh: DirectMessageMesh, signer: DmSigner | null, userId?: string, store = memoryStore()) {
+  return new DirectMessenger(mesh, store, {
+    userId: userId ?? signer!.userId,
+    displayName: 'someone',
+    signer: async () => signer,
+  });
+}
+
+describe('direct message identity', () => {
+  it('proves both sides and shows the verified namespace', async () => {
+    const [a, b] = await Promise.all([account(), account()]);
+    const net = hub(['peer-a', 'peer-b']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    const bob = messengerFor(net.mesh('peer-b'), b);
+    alice.start();
+    bob.start();
+    const s = await alice.connect('peer-b');
+    await settle();
+    expect(s?.verified).toBe(true);
+    expect(s?.discriminator).toBe(b.discriminator);
+    expect(bob.getSession('peer-a')?.verified).toBe(true);
+    expect(bob.getSession('peer-a')?.namespaceId).toBe(a.namespaceId);
+  });
+
+  it('refuses a link that claims a pinned user without proving their namespace', async () => {
+    const [a, b, m] = await Promise.all([account(), account(), account()]);
+    const net = hub(['peer-a', 'peer-b', 'peer-x', 'peer-y']);
+    const storeA = memoryStore();
+    const alice = messengerFor(net.mesh('peer-a'), a, undefined, storeA);
+    const bob = messengerFor(net.mesh('peer-b'), b);
+    alice.start();
+    bob.start();
+    await alice.connect('peer-b');
+    await settle();
+    expect((await storeA.getPin(b.userId))?.namespaceId).toBe(b.namespaceId);
+
+    const events: string[] = [];
+    alice.subscribe((e) => { if (e.type === 'rejected') events.push(`${e.peerId}:${e.reason}`); });
+
+    // Unsigned hello claiming Bob.
+    const unsigned = messengerFor(net.mesh('peer-x'), null, b.userId);
+    unsigned.start();
+    expect(await unsigned.connect('peer-a', 300)).toBeNull();
+    // Signed with another account's keys while claiming Bob.
+    const forged = messengerFor(net.mesh('peer-y'), { ...m, userId: b.userId }, b.userId);
+    forged.start();
+    expect(await forged.connect('peer-a', 300)).toBeNull();
+    await settle();
+    expect(alice.getSession('peer-x')).toBeUndefined();
+    expect(alice.getSession('peer-y')).toBeUndefined();
+    expect(events).toEqual(['peer-x:no namespace proof', 'peer-y:no namespace proof']);
+  });
+
+  it('marks an unsigned peer unverified when nothing is pinned', async () => {
+    const a = await account();
+    const net = hub(['peer-a', 'peer-b']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    const guest = messengerFor(net.mesh('peer-b'), null, 'guest-user');
+    alice.start();
+    guest.start();
+    const s = await alice.connect('peer-b');
+    expect(s?.userId).toBe('guest-user');
+    expect(s?.verified).toBe(false);
+  });
+
+  it('rejects a proof replayed from another link, re-keyed, or too old', async () => {
+    const b = await account();
+    const pub = 'BPub';
+    const proof = await createHelloProof(b, { pub, fromPeerId: 'peer-b', toPeerId: 'peer-a' });
+    const claim = { userId: b.userId, pub, transportPeerId: 'peer-b', selfPeerId: 'peer-a' };
+    expect(await verifyHelloProof(proof, claim)).not.toBeNull();
+    expect(await verifyHelloProof(proof, { ...claim, transportPeerId: 'peer-x' })).toBeNull();
+    expect(await verifyHelloProof(proof, { ...claim, selfPeerId: 'peer-z' })).toBeNull();
+    expect(await verifyHelloProof(proof, { ...claim, pub: 'OtherPub' })).toBeNull();
+    expect(await verifyHelloProof(proof, claim, proof.ts + 11 * 60_000)).toBeNull();
+    const other = await account();
+    expect(await verifyHelloProof({ ...proof, walletSig: (await createHelloProof(other, { pub, fromPeerId: 'peer-b', toPeerId: 'peer-a', ts: proof.ts })).walletSig }, claim)).toBeNull();
+  });
+
+  it('wraps the history key under the account namespace', async () => {
+    const a = await account();
+    const first = await openHistoryKey(a, undefined);
+    expect(first.created).toBe(true);
+    const sealed = await sealText(first.key, 'm1', 'dm:x', 'private words');
+    expect(sealed.ct).not.toContain('private');
+    const again = await openHistoryKey(a, first.wrapped);
+    expect(await openText(again.key, 'm1', 'dm:x', sealed)).toBe('private words');
+    // Bound to the row it was sealed for.
+    await expect(openText(again.key, 'm2', 'dm:x', sealed)).rejects.toBeTruthy();
+    // Another account (or namespace) cannot unwrap it.
+    const b = await account();
+    await expect(openHistoryKey(b, first.wrapped)).rejects.toBeTruthy();
+    await expect(openHistoryKey({ ...a, namespaceId: b.namespaceId }, first.wrapped)).rejects.toBeTruthy();
+  });
+});
+
+describe('direct message identity over time', () => {
+  it('upgrades a session when a locked peer unlocks and proves itself', async () => {
+    const [a, b] = await Promise.all([account(), account()]);
+    const net = hub(['peer-a', 'peer-b']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    let bobSigner: DmSigner | null = null;
+    const bob = new DirectMessenger(net.mesh('peer-b'), memoryStore(), {
+      userId: b.userId, displayName: 'Bob', signer: async () => bobSigner,
+    });
+    alice.start();
+    bob.start();
+    expect((await alice.connect('peer-b'))?.verified).toBe(false);
+    bobSigner = b; // Bob unlocks
+    await bob.refresh('peer-a');
+    await settle(80);
+    expect(alice.getSession('peer-b')?.verified).toBe(true);
+    expect(alice.getSession('peer-b')?.discriminator).toBe(b.discriminator);
+  });
+
+  it('enforces a pin set later against an existing unverified link', async () => {
+    const [a, b] = await Promise.all([account(), account()]);
+    const net = hub(['peer-a', 'peer-b', 'peer-x']);
+    const alice = messengerFor(net.mesh('peer-a'), a);
+    const impostor = messengerFor(net.mesh('peer-x'), null, b.userId);
+    const bob = messengerFor(net.mesh('peer-b'), b);
+    alice.start();
+    impostor.start();
+    bob.start();
+    expect((await impostor.connect('peer-a'))?.userId).toBe(a.userId);
+    await settle();
+    expect(alice.getSession('peer-x')?.verified).toBe(false);
+    await alice.connect('peer-b'); // the real Bob proves and pins his namespace
+    await settle();
+    await impostor.refresh('peer-a');
+    await settle(80);
+    expect(alice.getSession('peer-x')).toBeUndefined();
   });
 });
