@@ -35,7 +35,7 @@ describe('manual connect coordinator', () => {
     expect(phase()).toBe('starting');
   });
 
-  it('re-knocks every 20 s for up to 8 tries, then reports unavailable', () => {
+  it('dials once, retries once, then reports unavailable within 20-25 s', () => {
     const e = env();
     requestManualConnect('peer-host', { now: 0 });
     for (let t = 0; t <= MANUAL_REDIAL_INTERVAL_MS * MANUAL_MAX_ATTEMPTS; t += 1000) {

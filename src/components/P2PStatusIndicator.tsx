@@ -126,6 +126,15 @@ export function P2PStatusIndicator() {
     return () => { u1(); u2(); u3(); };
   }, []);
 
+  // Peers whose direct dial stalled and who are reached over the Gun relay.
+  // Shown as "Connected (relay)" so a relay is never presented as a direct link.
+  const [relayedPeerIds, setRelayedPeerIds] = useState<string[]>([]);
+  useEffect(() => {
+    const sm = getSwarmMeshStandalone();
+    setRelayedPeerIds(sm.getRelayedPeerIds());
+    return sm.onRelayChange(setRelayedPeerIds);
+  }, []);
+
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   const [fallbackId, setFallbackId] = useState("");
   const [fallbackConnecting, setFallbackConnecting] = useState(false);
@@ -250,7 +259,11 @@ export function P2PStatusIndicator() {
     }
     if (stats.status === "online") {
       if (stats.connectedPeers > 0) {
-        return `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.`;
+        const relayNote = relayedPeerIds.length > 0 ? ` Plus ${relayedPeerIds.length} via relay.` : "";
+        return `Connected to ${stats.connectedPeers} peer${stats.connectedPeers === 1 ? "" : "s"}.${relayNote}`;
+      }
+      if (relayedPeerIds.length > 0) {
+        return `Connected (relay) to ${relayedPeerIds.length} peer${relayedPeerIds.length === 1 ? "" : "s"}.`;
       }
       return cellCountdown > 0
         ? `Waiting in cell, next announcement in ${cellCountdown}s.`
@@ -274,12 +287,13 @@ export function P2PStatusIndicator() {
   const connectedPeerIds = new Set(
     activeConnections.map((connection) => connection.peerId),
   );
+  const relayedPeerSet = new Set(relayedPeerIds.filter((id) => !connectedPeerIds.has(id)));
 
   // Live peers: currently connected OR seen within the cell freshness window (75s)
   const LIVE_PEER_WINDOW_MS = 75_000;
   const now = Date.now();
   const livePeers = discoveredPeers.filter((peer) => {
-    if (connectedPeerIds.has(peer.peerId)) return true;
+    if (connectedPeerIds.has(peer.peerId) || relayedPeerSet.has(peer.peerId)) return true;
     const seenMs = peer.lastSeen instanceof Date ? peer.lastSeen.getTime() : new Date(peer.lastSeen).getTime();
     if (Number.isNaN(seenMs)) return false;
     return now - seenMs <= LIVE_PEER_WINDOW_MS;
@@ -293,7 +307,12 @@ export function P2PStatusIndicator() {
 
   // Show user's own post count (localContent) vs total network content
   const summaryItems = [
-    { label: "Connected", value: activeConnections.length.toString() },
+    {
+      label: "Connected",
+      value: relayedPeerSet.size > 0
+        ? `${activeConnections.length} + ${relayedPeerSet.size} relay`
+        : activeConnections.length.toString(),
+    },
     { label: "Discovered", value: discoveredPeers.length.toString() },
     { label: "Your posts", value: stats.localContent.toString() },
     { label: "Network", value: stats.networkContent.toString() },
@@ -459,6 +478,7 @@ export function P2PStatusIndicator() {
           size="icon"
           className="relative"
           data-testid="p2p-status-trigger"
+          title={statusText}
         >
           <div className={getStatusColor(isEnabled, isConnecting, stats.status, testPhase, swarmPhase, builderPhase)}>
             {getStatusIcon(isEnabled, isConnecting, stats.status, testPhase, swarmPhase, builderPhase)}
@@ -719,6 +739,7 @@ export function P2PStatusIndicator() {
                   const lastSeenLabel = formatLastSeen(lastSeenDate);
                   const availableCount = peer.availableContent?.size ?? 0;
                   const isConnected = connectedPeerIds.has(peer.peerId);
+                  const isRelayed = !isConnected && relayedPeerSet.has(peer.peerId);
                   const pendingAction = pendingPeers[peer.peerId]
                     ?? (!isConnected && isManualConnectActive(manualConnects.get(peer.peerId)) ? "connect" : undefined);
                   const buttonDisabled = Boolean(pendingAction);
@@ -757,7 +778,7 @@ export function P2PStatusIndicator() {
                           {peer.peerId}
                         </code>
                         <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                          <span>{isConnected ? "Connected now" : `Seen ${lastSeenLabel}`}</span>
+                          <span>{isConnected ? "Connected now" : isRelayed ? "Connected (relay)" : `Seen ${lastSeenLabel}`}</span>
                           <span>·</span>
                           <span>{availableCount} shared</span>
                         </div>

@@ -23,6 +23,14 @@ export interface GunAdapterOptions {
   channelName?: string;
   graphKey?: string;
   registryMode?: boolean;
+  /**
+   * Per-peer inbox: listen only on `<graphKey>/<localPeerId>` and write
+   * targeted sends to `<graphKey>/<targetPeerId>`, so each node receives only
+   * its own messages instead of the whole graph.
+   */
+  inbox?: boolean;
+  /** Ignore graph entries older than this (Gun replays stored history on subscribe). */
+  maxAgeMs?: number;
 }
 
 const DEFAULT_CHANNEL = 'swarm-space-gun';
@@ -96,7 +104,8 @@ export class GunAdapter {
 
     if (this.gun && this.localPeerId) {
       try {
-        const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        const baseKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        const graphKey = this.options.inbox ? `${baseKey}/${peerId}` : baseKey;
         const envelope = {
           id,
           type: channel,
@@ -270,7 +279,8 @@ export class GunAdapter {
           localStorage: false,
         });
 
-        const graphKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        const baseKey = this.options.graphKey ?? DEFAULT_GRAPH_KEY;
+        const graphKey = this.options.inbox && this.localPeerId ? `${baseKey}/${this.localPeerId}` : baseKey;
         console.log(`[GunAdapter] 👂 Listening on GUN graph: ${graphKey}`);
         const chain = this.gun.get(graphKey);
         const listener = (data: BroadcastEnvelope & { timestamp?: number }) => {
@@ -282,6 +292,10 @@ export class GunAdapter {
           }
           this.seenMessageIds.add(data.id);
           if (!data.from || data.from === this.localPeerId) {
+            return;
+          }
+          const maxAgeMs = this.options.maxAgeMs;
+          if (maxAgeMs !== undefined && (typeof data.timestamp !== 'number' || Date.now() - data.timestamp > maxAgeMs)) {
             return;
           }
           // Accept broadcast messages (target=null) or messages targeting us

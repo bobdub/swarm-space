@@ -3,10 +3,11 @@
  *
  * A user pressing "Connect" (wifi icon quick-connect, a discovered peer in the
  * popover, or a Node/Peer ID typed into the Node Dashboard) gets the same
- * patience as an invite link (see brainInvite.ts): the node is enabled if it
- * is off, the dial is re-knocked every 20 seconds for up to 8 attempts, and
- * the open DataChannel is detected by polling the active connections each
- * second. A single slow ICE/TURN negotiation is never reported as a failure.
+ * a short, honest window: the node is enabled if it is off, the dial is sent
+ * once and retried once 11 s later (the retry follows the normal no-stacking
+ * rule, so an in-flight dial is never doubled), and the open DataChannel, or a
+ * relay route for a stalled same-Wi-Fi dial, is detected by polling each
+ * second. With no answer the request fails at about 22 s.
  *
  * The module is pure state + a `tick` the app-wide runner calls once a
  * second, so it keeps working after the popover or dashboard closes.
@@ -36,18 +37,19 @@ export type ManualConnectEntry = {
   dial?: (peerId: string) => boolean;
 };
 
-export const MANUAL_REDIAL_INTERVAL_MS = 20_000;
-export const MANUAL_MAX_ATTEMPTS = 8;
+/** Fail toast after 20-25 s with one retry: dial at 0 s, retry at 11 s, give up at 22 s. */
+export const MANUAL_REDIAL_INTERVAL_MS = 11_000;
+export const MANUAL_MAX_ATTEMPTS = 2;
 /** Without a peer name, the open channel counts as connected after this long. */
 export const MANUAL_SYNC_GRACE_MS = 12_000;
-/**
- * How long the local node may keep refusing to dial (signaling and keys still
- * warming up) before the request is unavailable. Matches the full knock window
- * so a slow cold start never cuts a manual connect short.
- */
 /** Time for `enable()` to show up as "connecting" before an off network means the user turned it off. */
 const ENABLE_SETTLE_MS = 5_000;
-export const MANUAL_REFUSED_GRACE_MS = MANUAL_REDIAL_INTERVAL_MS * MANUAL_MAX_ATTEMPTS;
+/**
+ * How long the local node may keep refusing to dial (signaling and keys still
+ * warming up) before the request is unavailable. Independent of the short dial
+ * window, so a slow cold start never cuts a manual connect short.
+ */
+export const MANUAL_REFUSED_GRACE_MS = 160_000;
 
 const ACTIVE_PHASES: ReadonlySet<ManualConnectPhase> = new Set(['starting', 'connecting', 'syncing']);
 
@@ -219,7 +221,7 @@ function tickEntry(entry: ManualConnectEntry, env: ManualConnectEnv, now: number
   if (!due) return;
 
   if (entry.attempts >= MANUAL_MAX_ATTEMPTS) {
-    // Every knock went unanswered and the last one had its full 20 s to land.
+    // Every knock went unanswered and the last one had its full window to land.
     update(peerId, { phase: 'unavailable' });
     return;
   }

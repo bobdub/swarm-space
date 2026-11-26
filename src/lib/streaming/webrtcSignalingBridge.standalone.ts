@@ -120,6 +120,8 @@ interface MeshLike {
   send(channel: string, peerId: string, payload: unknown): Promise<boolean>;
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
   getConnectedPeerIds(): string[];
+  /** Peers reached over the relay because their direct dial stalled. */
+  getRelayedPeerIds?(): string[];
   getPeerId(): string;
   dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
   registerPeerConnection?(peerId: string): boolean;
@@ -373,11 +375,23 @@ function rememberSignal(key: string): void {
   }
 }
 
+/**
+ * Peers we can hand a signal to: open mesh links plus peers reached over the
+ * relay because their direct dial stalled. The mesh itself refuses call and
+ * media signals on relay edges, so this only widens chat, presence and room
+ * membership, within the same hop budget.
+ */
+function reachablePeerIds(mesh: MeshLike): string[] {
+  const relayed = mesh.getRelayedPeerIds?.() ?? [];
+  if (relayed.length === 0) return mesh.getConnectedPeerIds();
+  return [...new Set([...mesh.getConnectedPeerIds(), ...relayed])];
+}
+
 function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
   if (!meshRef || !envelope.to) return;
   const hops = envelope.hops ?? 0;
   if (hops >= MAX_SIGNAL_HOPS) return;
-  if (!meshRef.getConnectedPeerIds().includes(envelope.to)) return;
+  if (!reachablePeerIds(meshRef).includes(envelope.to)) return;
   if (envelope.to === fromPeerId) return;
   void meshRef.send(SIGNAL_CHANNEL, envelope.to, { ...envelope, hops: hops + 1 }).catch(() => undefined);
 }
@@ -396,12 +410,12 @@ function sendDirected(envelope: SignalEnvelope & { to: string }): void {
   if (!mesh) return;
   const fallback = () => {
     if (meshRef !== mesh) return;
-    for (const peerId of mesh.getConnectedPeerIds()) {
+    for (const peerId of reachablePeerIds(mesh)) {
       if (peerId === envelope.to) continue;
       void mesh.send(SIGNAL_CHANNEL, peerId, envelope).catch(() => undefined);
     }
   };
-  if (!mesh.getConnectedPeerIds().includes(envelope.to)) {
+  if (!reachablePeerIds(mesh).includes(envelope.to)) {
     fallback();
     return;
   }
@@ -425,7 +439,7 @@ function relayRoomAnnouncement(fromPeerId: string, envelope: SignalEnvelope): vo
     && isNetworkChatRoom(envelope.roomId);
   if (!openChat && !joinedRooms.has(envelope.roomId) && hops > 0) return;
   const next = { ...envelope, hops: hops + 1 };
-  for (const peerId of meshRef.getConnectedPeerIds()) {
+  for (const peerId of reachablePeerIds(meshRef)) {
     if (peerId === fromPeerId || peerId === envelope.from) continue;
     void meshRef.send(SIGNAL_CHANNEL, peerId, next).catch(() => undefined);
   }
@@ -1051,7 +1065,9 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   // start race where joinedRooms was populated before the edge existed.
   meshExpansionTimer = setInterval(() => {
     if (!meshRef) return;
-    const current = meshRef.getConnectedPeerIds();
+    // Relayed peers (stalled direct dial) get the same room replay, so chat
+    // and presence reach them over the relay.
+    const current = [...meshRef.getConnectedPeerIds(), ...(meshRef.getRelayedPeerIds?.() ?? [])];
     const currentSet = new Set(current);
     const newPeers: string[] = [];
     for (const pid of current) {

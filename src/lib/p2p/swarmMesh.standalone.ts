@@ -11,6 +11,9 @@ import {
   hydrateUnsupportedPosts,
 } from '@/lib/content/unsupportedPostsStore';
 import { DEFAULT_ICE_SERVERS } from './iceServers';
+import { StalledDialTracker, type StallReason } from './stalledDials';
+import { MeshRelayLink } from './meshRelayLink';
+import { fitsRelay, isRelayableMessage, RelayPresenceThrottle, summarizeCandidatePairs, type StallDiagnosis } from './meshRelayPolicy';
 import { isPublicWalletAddress } from '@/lib/uqrc/namespaceIdentity';
 import { FUTURE_LIMIT_MS, getChainMark, planCatchup, saveChainMark, type ChainMark } from '@/lib/blockchain/chainCatchup';
 import { isSelfIssuedSwarmMint } from '@/lib/blockchain/issuance';
@@ -549,6 +552,27 @@ export class StandaloneSwarmMesh {
   private handshakeFailures = new Map<string, number>();
   private handshakeFailureCooldowns = new Map<string, number>(); // peerId → cooldown-until timestamp
   private pendingDials = new Map<string, number>();
+
+  // ── Stalled new dials → per-peer Gun relay ───────────────────────
+  // Only fresh dials are watched; open links are never closed, renegotiated
+  // or redialed by this path (AGENTS.md, src/lib/p2p/AGENTS.md).
+  private stallTracker = new StalledDialTracker({
+    now,
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    isConnected: (peerId) => Boolean(this.connections.get(peerId)?.open),
+    onStall: (peerId, reason) => this.handleDialStall(peerId, reason),
+    onRouteEnded: (peerId, why) => this.handleRelayRouteEnded(peerId, why),
+  });
+  private relayLink = new MeshRelayLink();
+  private relayPresenceThrottle = new RelayPresenceThrottle();
+  private relayUnsub: (() => void) | null = null;
+  private relayPruneTimer: ReturnType<typeof setInterval> | null = null;
+  private relayChangeHandlers = new Set<(relayedPeerIds: string[]) => void>();
+  /** The not-yet-open channel of each watched dial, for candidate-pair diagnosis. */
+  private dialConns = new Map<string, import('peerjs').DataConnection>();
+  private stallDiagnoses: Array<{ peerId: string; at: number; reason: StallReason; diagnosis: StallDiagnosis }> = [];
+
   private static readonly HANDSHAKE_FAILURE_MAX = 3;
   private static readonly HANDSHAKE_FAILURE_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes (reduced from 15)
 
@@ -1683,6 +1707,7 @@ export class StandaloneSwarmMesh {
       this.blockedPeers.add(peerId);
       this.library.delete(peerId);
       this.pendingDials.delete(peerId);
+      this.stallTracker.drop(peerId);
       for (const seeders of this.fileSeeders.values()) seeders.delete(peerId);
       const conn = this.connections.get(peerId);
       if (conn) {
@@ -2231,6 +2256,7 @@ export class StandaloneSwarmMesh {
     }
     this.clearPendingDial(peerId);
     this.peerLastHeard.delete(peerId);
+    this.stallTracker.drop(peerId);
     // They are offline on purpose: pause redials (a fresh beacon or their own dial lifts it).
     this.handshakeFailureCooldowns.set(peerId, now() + GOODBYE_REDIAL_PAUSE_MS);
     this.emitPeerDeparted(peerId, 'goodbye');
@@ -2269,6 +2295,7 @@ export class StandaloneSwarmMesh {
     this.clearAssetRetryTimers();
     this.pendingDials.clear();
     this.queuedManualDials.clear();
+    this.stopRelayFallback();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
       window.removeEventListener('media-coin-torrent-filled', this._onCoinTorrentFilled);
@@ -2552,6 +2579,9 @@ export class StandaloneSwarmMesh {
 
       const meta = conn.metadata as { source?: string } | undefined;
       this.handleConnection(conn, (meta?.source as ConnectionSource) ?? 'manual');
+      // An incoming handshake is a new dial from the other side; a peer we
+      // already have an open link with is never watched.
+      this.watchNewDial(remotePeerId, conn);
     });
 
     // Losing the signaling socket does not close data channels. Reconnect
@@ -2568,6 +2598,9 @@ export class StandaloneSwarmMesh {
           // out the pending-dial timeout.
           this.clearPendingDial(match[1]);
           this.recordHandshakeFailure(match[1]);
+          // Signaling says they are not there: no stall, no relay route.
+          this.dialConns.delete(match[1]);
+          this.stallTracker.drop(match[1]);
           console.log(`[SwarmMesh] ℹ️ Peer ${match[1]} unavailable`);
         }
         return;
@@ -2701,6 +2734,9 @@ export class StandaloneSwarmMesh {
     conn.on('open', () => {
       console.log(`[SwarmMesh] ✅ Channel open: ${rId} (${source})`);
       this.clearPendingDial(rId);
+      // Direct path is up: traffic moves back to it and any relay route ends.
+      if (this.dialConns.get(rId) === conn) this.dialConns.delete(rId);
+      this.stallTracker.noteOpen(rId);
       this.peerCooldowns.delete(rId); // Clear cooldown on successful connection
       this.clearHandshakeFailures(rId); // Clear handshake failure tracking
 
@@ -2848,6 +2884,10 @@ export class StandaloneSwarmMesh {
 
     conn.on('close', () => {
       this.clearPendingDial(rId);
+      if (this.dialConns.get(rId) === conn) {
+        this.dialConns.delete(rId);
+        this.stallTracker.noteDialEnded(rId);
+      }
       if (this.connections.get(rId) === conn) {
         this.connections.delete(rId);
         this.peerData.delete(rId);
@@ -2918,6 +2958,7 @@ export class StandaloneSwarmMesh {
       if (!conn) throw new Error('signaling unavailable');
       this.outgoingChannels.add(conn);
       this.handleConnection(conn, source);
+      this.watchNewDial(remotePeerId, conn);
       return true;
     } catch (err) {
       this.clearPendingDial(remotePeerId);
@@ -4516,6 +4557,9 @@ export class StandaloneSwarmMesh {
         if (p) p.messagesSent++;
       } catch { /* ignore */ }
     }
+    for (const peerId of this.stallTracker.relayedPeerIds()) {
+      this.relaySend(peerId, { ...msg, from: this.peerId });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -4894,6 +4938,175 @@ export class StandaloneSwarmMesh {
     return this.getConnectedPeers();
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // RELAY FALLBACK — per peer, only for stalled NEW dials
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Peers reached over the Gun relay because their direct dial stalled and
+   * who have answered over it ("Connected (relay)"). An unanswered route is
+   * still tried for sending but is never reported as connected.
+   */
+  getRelayedPeerIds(): string[] {
+    return this.stallTracker.relayedPeerIds()
+      .filter(peerId => !this.connections.has(peerId) && this.stallTracker.isConfirmed(peerId));
+  }
+
+  isPeerRelayed(peerId: string): boolean {
+    return this.stallTracker.isConfirmed(peerId) && !this.connections.has(peerId);
+  }
+
+  onRelayChange(handler: (relayedPeerIds: string[]) => void): () => void {
+    this.relayChangeHandlers.add(handler);
+    return () => { this.relayChangeHandlers.delete(handler); };
+  }
+
+  /** Recent stalled-dial candidate-pair diagnoses (newest last). */
+  getStallDiagnoses(): Array<{ peerId: string; at: number; reason: StallReason; diagnosis: StallDiagnosis }> {
+    return [...this.stallDiagnoses];
+  }
+
+  /** Watch a fresh dial (ours or theirs) for a stall. Never touches open links. */
+  private watchNewDial(peerId: string, conn: import('peerjs').DataConnection): void {
+    if (!this.stallTracker.watchNewDial(peerId)) return;
+    this.dialConns.set(peerId, conn);
+    // PeerJS reports ICE `failed` as a negotiation-failed error just before
+    // it closes the channel: count it as a stall now rather than in 8 s.
+    try {
+      conn.on('error', (err: Error & { type?: string }) => {
+        if (err?.type === 'negotiation-failed' && this.dialConns.get(peerId) === conn) {
+          this.stallTracker.noteIceFailed(peerId);
+        }
+      });
+    } catch { /* ignore */ }
+  }
+
+  private handleDialStall(peerId: string, reason: StallReason): void {
+    if (this.phase !== 'online' || this.blockedPeers.has(peerId)) {
+      this.stallTracker.drop(peerId);
+      return;
+    }
+    console.warn(`[SwarmMesh] 🐢 Direct path to ${peerId} stalled (${reason}) — chat, presence and posts go via relay while the direct dial keeps trying`);
+    void this.logStalledCandidatePairs(peerId, reason);
+    this.ensureRelayListening();
+    void this.relayLink.ensureStarted(this.peerId);
+    // Knock over the relay; the route counts as connected only once they answer.
+    this.relaySend(peerId, { type: 'relay-hello', from: this.peerId });
+    this.sendRelayProfile(peerId);
+  }
+
+  private handleRelayRouteEnded(peerId: string, why: 'direct' | 'idle' | 'dropped'): void {
+    this.relayPresenceThrottle.forget(peerId);
+    if (why === 'direct') console.log(`[SwarmMesh] ⚡ ${peerId} back on a direct link — relay route dropped`);
+    else console.log(`[SwarmMesh] Relay route to ${peerId} ended (${why})`);
+    this.emitRelayChange();
+  }
+
+  /** Log which ICE candidate pair failed on the stalled dial (first build step: find the device). */
+  private async logStalledCandidatePairs(peerId: string, reason: StallReason): Promise<void> {
+    const pc = this.dialConns.get(peerId)?.peerConnection as RTCPeerConnection | undefined;
+    const states = { iceConnectionState: pc?.iceConnectionState ?? null, iceGatheringState: pc?.iceGatheringState ?? null };
+    let diagnosis: StallDiagnosis;
+    try {
+      const report = pc ? await pc.getStats() : null;
+      diagnosis = summarizeCandidatePairs(report ? (report.values() as Iterable<Record<string, unknown>>) : [], states);
+    } catch {
+      diagnosis = summarizeCandidatePairs([], states);
+    }
+    this.stallDiagnoses.push({ peerId, at: now(), reason, diagnosis });
+    if (this.stallDiagnoses.length > 20) this.stallDiagnoses.shift();
+    console.warn(`[SwarmMesh] 🔎 Stalled dial ${peerId} (${reason}, ICE ${states.iceConnectionState ?? 'n/a'}): ${diagnosis.hint}`);
+    console.warn('[SwarmMesh] 🔎 Local candidate types:', diagnosis.localTypes.join(',') || 'none', '| remote:', diagnosis.remoteTypes.join(',') || 'none');
+    if (diagnosis.pairs.length > 0) {
+      const rows = diagnosis.pairs.map(p => ({
+        state: p.state,
+        nominated: p.nominated,
+        local: p.local ? `${p.local.type}/${p.local.protocol} ${p.local.address}:${p.local.port ?? ''}${p.local.networkType ? ` (${p.local.networkType})` : ''}` : 'n/a',
+        remote: p.remote ? `${p.remote.type}/${p.remote.protocol} ${p.remote.address}:${p.remote.port ?? ''}` : 'n/a',
+        checksSent: p.requestsSent,
+        answers: p.responsesReceived,
+      }));
+      try { console.table(rows); } catch { console.warn(rows); }
+    }
+    this.recordCellDiagnostic(peerId, 'dial-stalled', `${reason}: ${diagnosis.hint}`);
+  }
+
+  private ensureRelayListening(): void {
+    if (!this.relayUnsub) {
+      this.relayUnsub = this.relayLink.onMessage((from, raw) => this.handleRelayedMessage(from, raw));
+    }
+    if (!this.relayPruneTimer) {
+      this.relayPruneTimer = setInterval(() => {
+        this.stallTracker.pruneIdle();
+        if (this.stallTracker.relayedPeerIds().length === 0 && this.relayPruneTimer) {
+          clearInterval(this.relayPruneTimer);
+          this.relayPruneTimer = null;
+        }
+      }, 60_000);
+    }
+  }
+
+  /** Inbound relay traffic: only from a peer whose handshake with us stalled, only while no direct link exists. */
+  private handleRelayedMessage(from: string, raw: string): void {
+    if (this.phase === 'off') return;
+    if (!this.stallTracker.isRelayed(from) || this.connections.has(from) || this.blockedPeers.has(from)) return;
+    let msg: { type?: unknown; payload?: unknown };
+    try { msg = JSON.parse(raw); } catch { return; }
+    if (!isRelayableMessage(msg)) return;
+    if (this.stallTracker.noteRelayActivity(from)) {
+      console.log(`[SwarmMesh] 🛰️ ${from} answered over the relay — Connected (relay)`);
+      this.emitRelayChange();
+    }
+    if (msg.type === 'relay-hello') {
+      // Answer a first knock once so their side confirms the route too.
+      if ((msg as { ack?: unknown }).ack !== true) {
+        this.relaySend(from, { type: 'relay-hello', from: this.peerId, ack: true });
+        this.sendRelayProfile(from);
+      }
+      return;
+    }
+    this.handleMessage(from, raw);
+  }
+
+  /** Send one mesh message over the relay; false when the peer is not relayed or the message may not go. */
+  private relaySend(peerId: string, msg: Record<string, unknown>): boolean {
+    if (!this.stallTracker.isRelayed(peerId) || this.connections.has(peerId)) return false;
+    if (!isRelayableMessage(msg)) return false;
+    if (!this.relayPresenceThrottle.allow(peerId, msg, now())) return false;
+    const raw = JSON.stringify(msg);
+    if (!fitsRelay(raw)) return false;
+    return this.relayLink.send(peerId, raw);
+  }
+
+  private sendRelayProfile(peerId: string): void {
+    const profile = this.getLocalProfile();
+    if (!profile.userId && !profile.username && !profile.displayName) return;
+    this.relaySend(peerId, {
+      type: 'profile-exchange',
+      from: this.peerId,
+      userId: profile.userId,
+      username: profile.username,
+      displayName: profile.displayName,
+      avatarRef: profile.avatarRef,
+    });
+  }
+
+  private emitRelayChange(): void {
+    const ids = this.getRelayedPeerIds();
+    for (const h of this.relayChangeHandlers) { try { h(ids); } catch { /* ignore */ } }
+  }
+
+  private stopRelayFallback(): void {
+    const hadRoutes = this.stallTracker.relayedPeerIds().length > 0;
+    this.stallTracker.reset();
+    this.dialConns.clear();
+    this.relayUnsub?.();
+    this.relayUnsub = null;
+    if (this.relayPruneTimer) { clearInterval(this.relayPruneTimer); this.relayPruneTimer = null; }
+    this.relayLink.stop();
+    if (hadRoutes) this.emitRelayChange();
+  }
+
   /**
    * Ask open peers for specific content ids. Used by the share-link preview:
    * a guest names the one post it is waiting for instead of depending only
@@ -5259,7 +5472,7 @@ export class StandaloneSwarmMesh {
 
   async send(channel: string, peerId: string, payload: unknown): Promise<boolean> {
     const conn = this.connections.get(peerId);
-    if (!conn) return false;
+    if (!conn) return this.relaySend(peerId, { type: `channel:${channel}`, payload, from: this.peerId });
     try {
       conn.send(JSON.stringify({ type: `channel:${channel}`, payload, from: this.peerId }));
       return true;
@@ -5283,6 +5496,9 @@ export class StandaloneSwarmMesh {
   broadcast(channel: string, payload: unknown): void {
     for (const peerId of this.getConnectedPeerIds()) {
       void this.send(channel, peerId, payload);
+    }
+    for (const peerId of this.stallTracker.relayedPeerIds()) {
+      if (!this.connections.has(peerId)) void this.send(channel, peerId, payload);
     }
   }
 
