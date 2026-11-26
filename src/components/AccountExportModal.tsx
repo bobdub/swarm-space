@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { DownloadCloud, FileText, ImageIcon, Loader2, Share2, ShieldCheck } from "lucide-react";
+import { CheckCircle2, DownloadCloud, FileText, ImageIcon, Loader2, Share2, ShieldCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createAccountExportStream,
@@ -20,6 +20,7 @@ import {
   type ExportSummary,
   type ExportRequestOptions,
 } from "@/lib/utils/exporter";
+import { clearArchivedLocal, estimateArchivedBytes } from "@/lib/storage/offload";
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return "0 B";
@@ -36,8 +37,8 @@ function isMobileShareTarget(): boolean {
   return /Android|iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 }
 
-export function AccountExportModal() {
-  const [open, setOpen] = useState(false);
+export function AccountExportModal({ defaultOpen = false }: { defaultOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(defaultOpen);
   const [includePosts, setIncludePosts] = useState(true);
   const [includeMedia, setIncludeMedia] = useState(true);
   const [isExporting, setIsExporting] = useState(false);
@@ -48,6 +49,16 @@ export function AccountExportModal() {
   const [summary, setSummary] = useState<ExportSummary | null>(null);
   const [errors, setErrors] = useState<string | null>(null);
   const [archiveFile, setArchiveFile] = useState<File | null>(null);
+  const [downloaded, setDownloaded] = useState(false);
+  const [freeableBytes, setFreeableBytes] = useState<number | null>(null);
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [freedMessage, setFreedMessage] = useState<string | null>(null);
+
+  // The storage-full banner links here with ?export=1; reopen even if Settings is already mounted.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
 
   useEffect(() => {
     return () => {
@@ -67,6 +78,11 @@ export function AccountExportModal() {
     setErrors(null);
     setFileName(null);
     setArchiveFile(null);
+    setDownloaded(false);
+    setFreeableBytes(null);
+    setConfirmingClear(false);
+    setClearing(false);
+    setFreedMessage(null);
     if (downloadUrl) {
       URL.revokeObjectURL(downloadUrl);
       setDownloadUrl(null);
@@ -96,6 +112,10 @@ export function AccountExportModal() {
     setErrors(null);
     setSummary(null);
     setFileName(null);
+    setDownloaded(false);
+    setFreeableBytes(null);
+    setConfirmingClear(false);
+    setFreedMessage(null);
 
     const options: ExportRequestOptions = {
       includePosts,
@@ -132,6 +152,9 @@ export function AccountExportModal() {
       setDownloadUrl(url);
       setFileName(exportFileName);
       setSummary(exportSummary);
+      estimateArchivedBytes(exportSummary.contents)
+        .then(setFreeableBytes)
+        .catch(() => setFreeableBytes(0));
       setProgress((prev) =>
         prev && prev.percent >= 99
           ? { ...prev, percent: 100, bytesWritten: prev.totalBytes, currentFile: null }
@@ -160,10 +183,35 @@ export function AccountExportModal() {
     if (!archiveFile) return;
     try {
       await navigator.share({ files: [archiveFile], title: archiveFile.name });
+      setDownloaded(true);
     } catch (error) {
       if ((error as DOMException)?.name !== "AbortError") toast.error("Sharing failed; use Download instead");
     }
   }, [archiveFile]);
+
+  const handleFreeUpSpace = useCallback(async () => {
+    if (!summary || !downloaded || clearing) return;
+    setClearing(true);
+    try {
+      const result = await clearArchivedLocal(summary.contents);
+      setFreedMessage(`Removed ${result.removed} items from this device, about ${formatBytes(result.freedBytes)} freed.`);
+      setFreeableBytes(0);
+      toast.success("Space freed");
+    } catch (error) {
+      console.error("[AccountExportModal] Free up space failed", error);
+      toast.error("Couldn't free up space. Your data is unchanged where clearing stopped.");
+    } finally {
+      setClearing(false);
+      setConfirmingClear(false);
+    }
+  }, [summary, downloaded, clearing]);
+
+  const clearWhat = summary
+    ? [
+        summary.contents.manifestIds.length > 0 ? "media" : null,
+        summary.contents.postIds.length > 0 ? "posts and comments" : null,
+      ].filter(Boolean).join(" and ")
+    : "";
 
   const progressPercent = useMemo(() => {
     if (!progress) return 0;
@@ -280,6 +328,56 @@ export function AccountExportModal() {
             </div>
           ) : null}
 
+          {summary ? (
+            <div className="space-y-3 rounded-lg border border-border/60 bg-background p-4 text-sm">
+              <div className="flex items-center gap-2 font-semibold">
+                <Trash2 className="h-4 w-4" />
+                Free up space
+              </div>
+              {freedMessage ? (
+                <p className="flex items-start gap-2 text-xs text-foreground/80">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  {freedMessage}
+                </p>
+              ) : !clearWhat || freeableBytes === 0 ? (
+                <p className="text-xs text-muted-foreground">Nothing in this zip is stored on this device to clear.</p>
+              ) : confirmingClear ? (
+                <div className="space-y-3">
+                  <p className="text-xs text-foreground/80">
+                    Your zip has these files. Clear its {clearWhat} from this device
+                    {freeableBytes ? ` (about ${formatBytes(freeableBytes)})` : ""}? Your account, keys, wallet and coins stay.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setConfirmingClear(false)} disabled={clearing}>
+                      Keep
+                    </Button>
+                    <Button variant="destructive" size="sm" className="flex-1 gap-2" onClick={() => void handleFreeUpSpace()} disabled={clearing}>
+                      {clearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      {clearing ? "Clearing…" : "Clear from this device"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {downloaded
+                      ? `Clears only the ${clearWhat} inside this zip from this device. Your account, keys, wallet and coins stay.`
+                      : "Download your zip first."}
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={() => setConfirmingClear(true)}
+                    disabled={!downloaded || freeableBytes === null}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Free up space{freeableBytes ? ` (${formatBytes(freeableBytes)})` : ""}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {errors ? (
             <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-xs text-destructive">
               {errors}
@@ -291,9 +389,9 @@ export function AccountExportModal() {
           <Button
             variant="outline"
             onClick={() => handleOpenChange(false)}
-            disabled={isExporting}
+            disabled={isExporting || clearing}
           >
-            Cancel
+            {freedMessage ? "Done" : "Cancel"}
           </Button>
           {downloadUrl && fileName && canShareArchive ? (
             <Button onClick={() => void handleShare()} className="gap-2">
@@ -303,7 +401,7 @@ export function AccountExportModal() {
           ) : null}
           {downloadUrl && fileName ? (
             <Button asChild variant={canShareArchive ? "outline" : "default"}>
-              <a href={downloadUrl} download={fileName}>
+              <a href={downloadUrl} download={fileName} onClick={() => setDownloaded(true)}>
                 Download archive
               </a>
             </Button>

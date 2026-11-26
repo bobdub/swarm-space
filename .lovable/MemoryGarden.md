@@ -1347,3 +1347,8 @@ After tending: a new dial (ours or theirs) that has not opened after 8 s, or who
 Before tending: Settings > Storage offered two ways to empty the shelves (Free Up Space and a raw Data Archive of manifests and chunks) beside the personal .zip archive, so a person could clear space without ever holding the copy they would read later. I will take both out and leave the personal archive as the one way out.
 
 After tending: Settings > Storage now shows the personal archive, Browser Storage, External Device, personal servers and GroupWare. Free Up Space stays on the Storage Diagnostics page until it moves into the personal exporter, where the .zip must be downloaded first. Checked with a type check and lint; no live session was opened.
+
+## November 27, 2026 — The zip is the key
+Before tending: freeing space was a five-step wizard that downloaded a second copy of data the personal exporter had just zipped. I will let the zip in hand be the proof: once it is downloaded, one button in the same dialog clears what it holds and nothing more.
+
+After tending: the exporter records exactly which posts, comments, media files and pieces went into the zip. After Download archive (or Save or share), a Free up space button shows the space it would free; one confirm clears only those items, keeping files engraved into a coin and never touching account, keys, wallet or coins. The old wizard is gone from Storage Diagnostics, and the storage-full banner opens the exporter directly. Checked with new unit tests for the plan, a fake IndexedDB clear, the exporter's contents and the dialog's lock, plus a type check and lint; no live session was opened.

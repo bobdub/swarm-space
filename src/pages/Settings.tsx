@@ -683,7 +683,7 @@ const Settings = () => {
                     Take your posts, conversations and media with you as a .zip you can read offline, and restore it on any device.
                   </p>
                 </div>
-                <AccountExportModal />
+                <AccountExportModal defaultOpen={searchParams.get("export") === "1"} />
                 <ArchiveImportModal />
               </Card>
               <StorageTargetsPanel />
