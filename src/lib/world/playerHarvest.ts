@@ -25,6 +25,8 @@ export const HARVEST_LABOUR_PER_UNIT: Record<string, number> = {
   fibre: 0.03,
   food: 0.04,
   animal: 0.05,
+  honey: 0.04,
+  gem: 0.08,
 };
 
 function localUserId(): string | null {

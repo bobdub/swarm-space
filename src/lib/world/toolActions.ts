@@ -526,8 +526,8 @@ function gatherFromLiving(
     return false;
   }
   emitTargetImpact(point, up, color, probe.intensity, 'collect', true, 'flora');
-  recordPlayerHarvest('food', honey);
-  swingSuccess(toolPrefabId, toolLabel, `Collected honey · +${honey} Food.`);
+  recordPlayerHarvest('honey', honey);
+  swingSuccess(toolPrefabId, toolLabel, `Collected honey · +${honey} Honey.`);
   return true;
 }
 
@@ -766,8 +766,10 @@ async function mineStone(toolPrefabId: string, blockId: string, selfId?: string)
   // Broken. Stone scatters as the boulder falls apart.
   clearTargetIfBlock(blockId);
   const pieces = stoneYieldFor(block.meta.size);
-  swingSuccess(toolPrefabId, toolPrefab.label, `The stone breaks apart · ${pieces} stone to pick up.`);
+  swingSuccess(toolPrefabId, toolPrefab.label, `The stone breaks apart · ${pieces} stone and a gem to pick up.`);
   const stoneDir = localDirFromWorld(point);
+  // Every broken boulder holds one gem, a good traded at the Trading Stand.
+  spawnDrop({ kind: 'gem', qty: 1, localDir: stoneDir, upOffset: 0 });
   for (let i = 0; i < pieces; i++) {
     const angle = (i / pieces) * Math.PI * 2;
     spawnDrop({

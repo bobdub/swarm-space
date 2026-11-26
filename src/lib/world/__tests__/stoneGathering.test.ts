@@ -143,8 +143,10 @@ describe('gathering stone', () => {
     }
     expect(await applyToolToTarget('tool_pick_stone', target, 'peer-a')).toBe(true);
     const drops = listDrops();
-    expect(drops.length).toBe(stoneYieldFor(0.8));
-    expect(drops.every((d) => d.kind === 'stone')).toBe(true);
+    // The stone pieces, plus one gem.
+    expect(drops.filter((d) => d.kind === 'stone').length).toBe(stoneYieldFor(0.8));
+    expect(drops.filter((d) => d.kind === 'gem').length).toBe(1);
+    expect(drops.length).toBe(stoneYieldFor(0.8) + 1);
     expect(engineState.blocks.has(blockId)).toBe(true);
     vi.advanceTimersByTime(BREAK_MS + 10);
     expect(engineState.blocks.has(blockId)).toBe(false);

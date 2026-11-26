@@ -72,6 +72,7 @@ import { DockLayer } from '@/components/brain/sea/DockLayer';
 import { SeaLifeLayer } from '@/components/brain/sea/SeaLifeLayer';
 import { ChickenLayer } from '@/components/brain/land/ChickenLayer';
 import { BoatHoldButton, JumpButton } from '@/components/brain/sea/BoatControls';
+import { TradingStandPrompt } from '@/components/brain/TradingStandModal';
 import { CrewJoystickSkin, ShipControls, useCrewRole } from '@/components/brain/sea/ShipWheel';
 import { getCrewRole } from '@/lib/brain/sea/crew';
 import { decodeBoatPresence, deckPointOn, getFleet } from '@/lib/brain/sea/fleet';
@@ -2913,6 +2914,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           {/* Jump (Space) and the boat's hold-to-board / climb-aboard ring. */}
           {!crewRole && <JumpButton selfId={selfId} mobile={isMobile} />}
           <BoatHoldButton selfId={selfId} mobile={isMobile} />
+          {!crewRole && <TradingStandPrompt selfId={selfId} mobile={isMobile} />}
           <ShipControls mobile={isMobile} readoutTarget={boatReadoutTarget} />
         </>
       )}

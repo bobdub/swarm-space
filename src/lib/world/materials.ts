@@ -114,7 +114,7 @@ export function isStarterTool(prefabId: string): boolean {
  */
 export function prefabCostFor(prefab: Prefab): MaterialCost {
   if (isStarterTool(prefab.id)) return {};
-  const hasMineral = prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));
+  const hasMineral = !prefab.compositeCost && prefab.constituents.some((c) => MINERAL_SET.has(c.symbol));
   const atoms = emptyTotals();
   for (const c of prefab.constituents) {
     const bucket = hasMineral && c.symbol === 'C' ? 'stone' : materialOf(c.symbol);

@@ -59,7 +59,7 @@ vi.mock('@/lib/world/weather', () => ({ weatherCurvatureBoost: () => 0 }));
 vi.mock('@/lib/world/henHunting', () => ({ tryCatchNearbyHen: () => false, tryTakeNestEgg: () => false }));
 
 import { applyToolToTarget, WOOD_PER_TREE, FIBRE_PER_TREE } from '@/lib/world/toolActions';
-import { _resetHarvestedForTest, recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { _resetHarvestedForTest, getHarvested, recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { materialTotals } from '@/lib/world/materials';
 import { _resetDropsForTest, collectDrop, listDrops, spawnDrop } from '@/lib/world/worldDropsStore';
 import { _resetTreeChopForTest, HITS_TO_FELL, registerTreeHit, TOPPLE_MS, STUMP_FADE_MS } from '@/lib/world/treeChopStore';
@@ -186,11 +186,13 @@ describe('honey, fruit and young trees', () => {
     const hive = nature('hive-0', 'hive');
     expect(await applyToolToTarget(BUCKET, hive)).toBe(true);
     expect(await applyToolToTarget(BUCKET, hive)).toBe(false);
-    expect(materialTotals().food).toBe(HONEY_PER_DAY);
+    // Honey is its own good (traded at the Trading Stand), not Food.
+    expect(getHarvested('good:honey')).toBe(HONEY_PER_DAY);
+    expect(materialTotals().food).toBe(0);
     expect(blocks.has('hive-0')).toBe(true); // the hive stays
     vi.setSystemTime(new Date(2026, 10, 21, 9, 0));
     expect(await applyToolToTarget(BUCKET, hive)).toBe(true);
-    expect(materialTotals().food).toBe(HONEY_PER_DAY * 2);
+    expect(getHarvested('good:honey')).toBe(HONEY_PER_DAY * 2);
   });
 
   it('no honey while the bees are still building', async () => {

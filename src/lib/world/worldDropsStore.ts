@@ -12,7 +12,7 @@
 import type { Vec3 } from '@/lib/brain/earth';
 import { recordPlayerHarvest } from '@/lib/world/playerHarvest';
 
-export type DropKind = 'wood' | 'stone' | 'fibre' | 'food';
+export type DropKind = 'wood' | 'stone' | 'fibre' | 'food' | 'gem';
 
 export interface WorldDrop {
   id: string;

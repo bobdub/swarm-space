@@ -58,6 +58,11 @@ export interface PrefabSpec {
   height: number;
   /** Yaw snap step in radians — π/2 by default for orthogonal builds. */
   yawSnapStep: number;
+  /**
+   * A piece built from several materials (timber on a stone footing), not
+   * one mineral compound: its carbon stays Wood in the material cost.
+   */
+  compositeCost?: boolean;
 }
 
 export interface PrefabDerived {
@@ -113,6 +118,8 @@ const OXIDE_CLOSER = new Set(['O', 'Ne']); // n=2 closure participants
 
 /** The buildable fire pit. Not a held tool, though it lives in the Tools tab. */
 export const FIRE_PIT_ID = 'fire_pit_stone';
+/** The buildable Trading Stand booth. Built, not carried, like the fire pit. */
+export const TRADING_STAND_ID = 'trading_stand_wood';
 
 const SPECS: PrefabSpec[] = [
   // Foundations — granite slab (Si + O + Fe trace)
@@ -248,6 +255,20 @@ const SPECS: PrefabSpec[] = [
     density: 2.4,
     width: 1.2, depth: 1.2, height: 0.3,
     yawSnapStep: Math.PI / 4,
+  },
+  // Trading Stand — a timber booth on a fieldstone footing under a woven
+  // fibre awning. Players walk up to it to buy and sell gathered goods
+  // (see `src/lib/world/tradingStand/`). Built from Wood, Stone and Fibre.
+  {
+    id: TRADING_STAND_ID,
+    label: 'Trading Stand',
+    sectionId: 'tools',
+    formula: 'C₁₀H₈·Si₃Ca',
+    constituents: [{ symbol: 'C', count: 10 }, { symbol: 'H', count: 8 }, { symbol: 'Si', count: 3 }, { symbol: 'Ca', count: 1 }],
+    density: 0.9,
+    width: 2.4, depth: 1.4, height: 2.4,
+    yawSnapStep: Math.PI / 4,
+    compositeCost: true,
   },
   // Consumables — salt rock for honing tools.
   {

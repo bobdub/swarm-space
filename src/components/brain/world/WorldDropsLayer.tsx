@@ -35,6 +35,7 @@ const DROP_COLOR: Record<string, string> = {
   stone: 'hsl(210, 8%, 58%)',
   fibre: 'hsl(48, 55%, 58%)',
   food: 'hsl(348, 60%, 55%)',
+  gem: 'hsl(186, 85%, 62%)',
 };
 
 export function WorldDropsLayer({ selfId }: { selfId?: string }) {
