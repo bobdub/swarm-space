@@ -71,30 +71,17 @@ export async function transferSwarm(params: {
   return transaction;
 }
 
-export async function mintSwarm(params: {
+/**
+ * SWARM is issued only by shared-chain block rewards, mined on the SWARM
+ * Mesh. A mint made here would sit on this device alone: peers can't verify
+ * it, so it would never sync. Refuse instead of creating coins that don't exist.
+ */
+export async function mintSwarm(_params: {
   to: string;
   amount: number;
   reason: string;
 }): Promise<SwarmTransaction> {
-  await assertStorageWritable();
-  const chain = getSwarmChain();
-
-  const transaction: SwarmTransaction = {
-    id: generateTransactionId(),
-    type: "token_mint",
-    from: "system",
-    to: params.to,
-    amount: params.amount,
-    timestamp: new Date().toISOString(),
-    signature: "",
-    publicKey: "system",
-    nonce: Date.now(),
-    fee: 0,
-    meta: { reason: params.reason },
-  };
-
-  chain.addTransaction(transaction);
-  return transaction;
+  throw new Error("SWARM is only issued by block rewards on the shared chain; nothing was minted.");
 }
 
 export async function burnSwarm(params: {
@@ -125,23 +112,6 @@ export async function burnSwarm(params: {
   };
 
   chain.addTransaction(transaction);
-  return transaction;
-}
-
-export async function claimRewardAsSwarm(params: {
-  userId: string;
-  creditAmount: number;
-  reason: string;
-}): Promise<SwarmTransaction> {
-  // Convert credits to SWARM at 1:1 ratio
-  const swarmAmount = params.creditAmount;
-
-  const transaction = await mintSwarm({
-    to: params.userId,
-    amount: swarmAmount,
-    reason: `Credit reward conversion: ${params.reason}`,
-  });
-
   return transaction;
 }
 

@@ -22,7 +22,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getSwarmBalance, getSwarmTicker } from "@/lib/blockchain/token";
 import { getUserNFTs } from "@/lib/blockchain/nft";
 import { getSwarmChain } from "@/lib/blockchain/chain";
-import { getMiningStats, startMining, pauseMining, resumeMining } from "@/lib/blockchain/mining";
+import { getMiningStats, pauseMining } from "@/lib/blockchain/mining";
 import { deployProfileToken, getUserProfileToken, updateCreatorTokenBanner } from "@/lib/blockchain/profileToken";
 import { CoinMarketTab } from "@/components/wallet/CoinMarketTab";
 import type { AssetNetwork } from "@/components/wallet/NetworkActionDialogs";
