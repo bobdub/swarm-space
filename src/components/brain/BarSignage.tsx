@@ -9,6 +9,7 @@ import {
   loadDonorLeaderboard,
   type DonorLeaderboard,
 } from '@/lib/blockchain/infinity/donorLeaderboard';
+import { DRINKS_MENU } from '@/lib/blockchain/infinity/barTab';
 
 /**
  * Signage for the bar: "The Green Cat & Red Dragon" sign art (outside by
@@ -287,6 +288,72 @@ export function DonorLeaderboardBoard({ width, height }: { width: number; height
       <mesh>
         <planeGeometry args={[width, height]} />
         <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.35} roughness={0.7} />
+      </mesh>
+    </group>
+  );
+}
+
+// ── Drinks menu (chalkboard on the counter) ──────────────────────────
+
+const MENU_CANVAS_W = 768;
+
+function drawDrinksMenu(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.fillStyle = '#1d2420';
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = '#6b4a2a';
+  ctx.lineWidth = 22;
+  ctx.strokeRect(11, 11, W - 22, H - 22);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#f4e9c8';
+  ctx.font = 'bold 56px Georgia, serif';
+  ctx.fillText('Drinks', W / 2, 70);
+  ctx.fillStyle = '#a8c98a';
+  ctx.font = 'italic 26px Georgia, serif';
+  ctx.fillText('Order at the bar · put it on the tab', W / 2, 115);
+  const left = 60;
+  const right = W - 60;
+  const rowH = (H - 190) / DRINKS_MENU.length;
+  DRINKS_MENU.forEach((d, i) => {
+    const y = 160 + rowH * (i + 0.5);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#efe6cf';
+    ctx.font = '34px Georgia, serif';
+    ctx.fillText(fit(ctx, d.name, right - left - 170), left, y);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#f4c46a';
+    ctx.font = 'bold 32px Georgia, serif';
+    ctx.fillText(`${d.price} SWARM`, right, y);
+  });
+}
+
+/** A small chalkboard propped on the counter, listing the drinks and prices. */
+export function DrinksMenuBoard({ width, height }: { width: number; height: number }) {
+  const { canvas, texture } = useMemo(() => {
+    const c = document.createElement('canvas');
+    c.width = MENU_CANVAS_W;
+    c.height = Math.round(MENU_CANVAS_W * (height / width));
+    drawDrinksMenu(c);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    return { canvas: c, texture: t };
+  }, [width, height]);
+  useEffect(() => () => texture.dispose(), [texture]);
+  void canvas;
+  return (
+    <group>
+      <mesh position={[0, 0, -0.025]} castShadow>
+        <boxGeometry args={[width + 0.04, height + 0.04, 0.03]} />
+        <meshStandardMaterial color="#4a3018" roughness={0.8} />
+      </mesh>
+      <mesh>
+        <planeGeometry args={[width, height]} />
+        <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={0.3} roughness={0.9} />
       </mesh>
     </group>
   );

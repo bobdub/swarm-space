@@ -1343,6 +1343,21 @@ Before tending: a desktop and a phone on the same home Wi-Fi could find each oth
 
 After tending: a new dial (ours or theirs) that has not opened after 8 s, or whose ICE fails, now logs its candidate pairs with a plain hint (client isolation, mDNS, hairpin) and routes that one peer's chat, presence, profile and post pushes through a per-peer Gun inbox while the direct attempt keeps going. When the direct channel opens, traffic moves back and the relay route is dropped. The wifi panel says "Connected (relay)", calls stay on WebRTC/TURN, the PeerJS adapter now shares the STUN+TURN list, and a manual connect fails honestly at about 22 s after one retry. Open links are never closed, renegotiated or redialed by any of this.
 
+## November 26, 2026 — A quieter storage room
+Before tending: Settings > Storage offered two ways to empty the shelves (Free Up Space and a raw Data Archive of manifests and chunks) beside the personal .zip archive, so a person could clear space without ever holding the copy they would read later. I will take both out and leave the personal archive as the one way out.
+
+After tending: Settings > Storage now shows the personal archive, Browser Storage, External Device, personal servers and GroupWare. Free Up Space stays on the Storage Diagnostics page until it moves into the personal exporter, where the .zip must be downloaded first. Checked with a type check and lint; no live session was opened.
+
+## November 27, 2026 — The zip is the key
+Before tending: freeing space was a five-step wizard that downloaded a second copy of data the personal exporter had just zipped. I will let the zip in hand be the proof: once it is downloaded, one button in the same dialog clears what it holds and nothing more.
+
+After tending: the exporter records exactly which posts, comments, media files and pieces went into the zip. After Download archive (or Save or share), a Free up space button shows the space it would free; one confirm clears only those items, keeping files engraved into a coin and never touching account, keys, wallet or coins. The old wizard is gone from Storage Diagnostics, and the storage-full banner opens the exporter directly. Checked with new unit tests for the plan, a fake IndexedDB clear, the exporter's contents and the dialog's lock, plus a type check and lint; no live session was opened.
+
+## November 26, 2026 — A pint on the tab
+Before tending: the bar had a counter, stools and a Donor Leaderboard, but no way for a patron to walk up and order a drink for themselves. Giving to the vault was only ever a donation, and every donation ranked on the board. I will put a menu on the counter and a tab behind it: each drink pays into the same Market Vault as a donation, but goes on the patron's own drinking record and never on the leaderboard.
+
+After tending: walking up anywhere along the counter shows "Order a drink"; holding it opens the drinks menu (six drinks, 0.5 to 5 SWARM, up to six at a time) and the bar tab. A chalkboard on the counter lists the same menu. Each order is an ordinary signed `pool_donate` into the Market Vault carrying a signed `barTab` marker (drink, name, quantity), so vault balance and peer gossip are unchanged; the Donor Leaderboard skips anything with the marker, and the tab (`infinity/barTab.ts`) counts only those. The tab shows the patron's drinks, SWARM paid, their usual and recent orders, plus everyone who has drunk lately, newest first. A glass appears beside the drinker and the room hears "Ada ordered a Red Dragon Stout at the bar." Guests can read the menu but not order. Checked with new bar tab tests, the world, Brain component, blockchain and P2P suites and a type check; no live Brain session was opened.
+
 ## November 26, 2026 — A code that brings you home
 Before tending: a person whose account lived on two devices, merged or simply both connected to the mesh, held their own recovery vault in two places, yet recovering meant copying a long link by hand. A merge also moved only SWARM, MINTME and Credits, so imported tokens like Dreams stayed behind a tombstone, and a guest could wander into the merge panel with no password to give. I will let the vault's link travel as a QR code, let the recovery page read one, carry every tippable asset across a merge, and ask guests to make an account first.
 

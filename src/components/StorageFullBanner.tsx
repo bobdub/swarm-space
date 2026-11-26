@@ -21,7 +21,7 @@ function isDismissed(): boolean {
  * Storage pressure notice. Warns at 85%, hard-blocks copy at 90% (asset
  * transfers are gated at the same threshold by `assertStorageWritable`).
  * Sits in the page flow so it never covers content, can be closed for the
- * session, and links straight to Settings → Storage.
+ * session, and opens the personal exporter, where Free up space lives.
  */
 export function StorageFullBanner() {
   const [percent, setPercent] = useState<number | null>(null);
@@ -73,7 +73,7 @@ export function StorageFullBanner() {
           : `Local storage ${percent}% full — download a copy of your media soon to protect your tokens and coins.`}
       </span>
       <Link
-        to="/settings?tab=storage"
+        to="/settings?tab=storage&export=1"
         className="rounded-full border border-current/40 px-3 py-1 font-medium underline-offset-2 hover:underline"
       >
         Free up space

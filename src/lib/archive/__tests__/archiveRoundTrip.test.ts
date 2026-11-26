@@ -53,6 +53,20 @@ describe("personal archive", () => {
     expect(md).toContain("> **Mike** · 2026-03-04T07:00:00.000Z");
   });
 
+  it("records exactly what went into the zip so Free up space clears nothing else", async () => {
+    const deps = {
+      loadPosts: async () => [post],
+      loadComments: async () => [...comments, { id: "c9", postId: "post-x", author: "u-ada", text: "elsewhere", createdAt: "2026-03-05T00:00:00Z" }],
+      resolveAttachment: async (id: string) => id === "file-a"
+        ? { manifest: { fileId: "file-a", chunks: ["ch-1", "ch-2"], createdAt: "2026-03-04T05:00:00Z" }, data: image.buffer.slice(0) }
+        : null,
+    };
+    const both = await createAccountExportStream({ includePosts: true, includeMedia: true }, { dependencies: deps });
+    expect(both.summary.contents).toEqual({ postIds: ["post-1"], commentIds: ["c1", "c2"], manifestIds: ["file-a"], chunkRefs: ["ch-1", "ch-2"] });
+    const mediaOnly = await createAccountExportStream({ includePosts: false, includeMedia: true }, { dependencies: deps });
+    expect(mediaOnly.summary.contents).toEqual({ postIds: [], commentIds: [], manifestIds: ["file-a"], chunkRefs: ["ch-1", "ch-2"] });
+  });
+
   it("parses back exactly what it rendered", () => {
     const md = renderPostMarkdown(post, [{ path: "media/file-a-x.png", manifestId: "file-a", name: "x.png", mime: "image/png" }], comments);
     const parsed = parsePostMarkdown(md)!;
