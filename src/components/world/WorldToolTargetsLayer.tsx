@@ -8,6 +8,8 @@ import { isBoundaryMarker } from '@/lib/world/boundaryMarker';
 import { getToolTarget, setToolTarget, subscribeToolTarget } from '@/lib/world/toolTargetStore';
 import type { ToolTarget } from '@/lib/world/toolTargets';
 import { sampleSurfaceClass } from '@/lib/brain/surfaceClass';
+import { isBeachAt } from '@/lib/brain/beach';
+import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { EARTH_RADIUS, getEarthPose, quatRotate, type Vec3 } from '@/lib/brain/earth';
 import {
   digCellKeyFor,
@@ -129,12 +131,13 @@ function SurfaceTarget({ selected }: { selected: Extract<ToolTarget, { kind: 'su
           const r = Math.hypot(dx, dy, dz) || 1;
           const local = quatRotate(pose.invSpinQuat, [dx / r, dy / r, dz / r]);
           const surfaceClass = sampleSurfaceClass(local);
-          const isWater = surfaceClass === 'ocean' || surfaceClass === 'shore';
+          const beach = isBeachAt(local, getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID));
+          const isWater = beach || surfaceClass === 'ocean' || surfaceClass === 'shore';
           if (isWater) {
             setToolTarget({
               kind: 'surface',
               id: `surface:water:${hit.map((v) => v.toFixed(2)).join(':')}`,
-              label: surfaceClass === 'shore' ? 'Beach · sand and water' : 'Water surface',
+              label: beach ? 'Beach · dig sand for salt' : surfaceClass === 'shore' ? 'Shore · water' : 'Water surface',
               surfaceKind: 'water',
               point: hit,
             });

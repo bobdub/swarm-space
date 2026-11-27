@@ -43,6 +43,8 @@ import {
 } from '@/lib/world/carvedCellsStore';
 import { getToolTarget, setToolTarget } from '@/lib/world/toolTargetStore';
 import { weatherCurvatureBoost } from '@/lib/world/weather';
+import { isBeachAt } from '@/lib/brain/beach';
+import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { tryCatchNearbyHen, tryTakeNestEgg } from '@/lib/world/henHunting';
 
 
@@ -126,8 +128,20 @@ function materialForShell(shellId: string): ImpactMaterial {
 
 /** The beach band between sea and land, where the sand is salty. */
 function isBeachSand(point: Vec3): boolean {
-  // Same Earth-local frame the target picker classified the hit in.
-  return sampleSurfaceClass(worldPosToLocalNormal(point, getEarthPose())) === 'shore';
+  // The same sand band the Earth draws and the mini map paints (beach.ts).
+  return isBeachAt(worldPosToLocalNormal(point, getEarthPose()), getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID));
+}
+
+/** Scoop a shovelful of beach sand at `point`: +1 Salt. */
+function scoopBeachSalt(toolPrefabId: string, point: Vec3): boolean {
+  const prefab = getPrefab(toolPrefabId);
+  if (!prefab) return false;
+  const up = unitFrom(point);
+  const probe = resolveSwingProbe(point, up, prefab.color, prefab.mass);
+  emitTargetImpact(point, up, prefab.color, probe.intensity, 'collect', true, 'soil');
+  recordPlayerHarvest('salt', 1);
+  swingSuccess(toolPrefabId, prefab.label, 'Scooped beach sand · +1 Salt.');
+  return true;
 }
 
 /**
@@ -416,7 +430,17 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   // Standing at a flock's nest with an egg in it: any tool's swing takes the egg.
   if (target?.kind !== 'placement' && tryTakeNestEgg(toolPrefabId, selfId)) return true;
   if (!target) target = resolveNearbyTarget(toolPrefabId, selfId);
-  if (!target) return swingToolInAir(toolPrefabId, selfId);
+  if (!target) {
+    // A shovel swung on the beach with nothing picked scoops the sand
+    // just in front of the player.
+    if (verbFor(toolPrefabId) === 'dig') {
+      const body = selfId ? getBrainPhysics().getBody(selfId) : undefined;
+      const spot = pointInFrontOfSelf(selfId, 1.25)?.point
+        ?? (body ? ([body.pos[0], body.pos[1], body.pos[2]] as Vec3) : null);
+      if (spot && isBeachSand(spot)) return scoopBeachSalt(toolPrefabId, spot);
+    }
+    return swingToolInAir(toolPrefabId, selfId);
+  }
   if (target.kind === 'placement') return applyToolToPlacement(toolPrefabId, target.placement, selfId);
 
   const verb = verbFor(toolPrefabId);
@@ -424,16 +448,11 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   if (!prefab || verb === 'none') return false;
 
   if (target.kind === 'surface') {
-    const up = unitFrom(target.point);
-    const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
     // A shovel on the beach takes up salty sand: it counts as Salt, the
     // stuff a Salt Rock is pressed from.
-    if (verb === 'dig' && isBeachSand(target.point)) {
-      emitTargetImpact(target.point, up, prefab.color, probe.intensity, 'collect', true, 'soil');
-      recordPlayerHarvest('salt', 1);
-      swingSuccess(toolPrefabId, prefab.label, 'Scooped beach sand · +1 Salt.');
-      return true;
-    }
+    if (verb === 'dig' && isBeachSand(target.point)) return scoopBeachSalt(toolPrefabId, target.point);
+    const up = unitFrom(target.point);
+    const probe = resolveSwingProbe(target.point, up, prefab.color, prefab.mass);
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
     emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
@@ -445,7 +464,10 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     return true;
   }
 
-  if (target.kind === 'shell') return digShell(toolPrefabId, target, selfId);
+  if (target.kind === 'shell') {
+    if (verb === 'dig' && isBeachSand(target.point)) return scoopBeachSalt(toolPrefabId, target.point);
+    return digShell(toolPrefabId, target, selfId);
+  }
 
 
 
