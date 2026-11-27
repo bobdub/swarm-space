@@ -36,6 +36,29 @@ async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
 }
 
 /**
+ * A truly free mined wallet coin: nothing wrapped, engraved, loaded,
+ * sealed or spent. Coins carrying tokens, chemicals, first artifacts,
+ * media or payloads are not free containers.
+ */
+export function isHollowWalletCoin(c: SwarmCoin, userId: string): boolean {
+  return (
+    c.ownerId === userId &&
+    c.status === "wallet" &&
+    !c.locked &&
+    !c.vaultAddress &&
+    c.kind !== "media" &&
+    c.fillState !== "spent" &&
+    (c.wrappedTokens?.length ?? 0) === 0 &&
+    (c.wrappedChemicals?.length ?? 0) === 0 &&
+    !c.firstArtifactNftId &&
+    !c.wrappedChat &&
+    (c.payloadEntries?.length ?? 0) === 0 &&
+    (c.sealBytes ?? 0) === 0 &&
+    (c.weight ?? 0) <= 0
+  );
+}
+
+/**
  * Hollow (free) mined wallet coins of the signed-in user, least loaded
  * first. Shared with Media Coin Support (mediaCoinRuntime.ts).
  */
@@ -48,22 +71,7 @@ export async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
     // Only truly free mined wallet coins may be engraved. Coins already
     // carrying wrapped tokens, chemicals, first artifacts, media payloads,
     // or spent state are not free containers.
-    const usable = all.filter(
-      (c) =>
-        c.ownerId === user.id &&
-        c.status === "wallet" &&
-        !c.locked &&
-        !c.vaultAddress &&
-        c.kind !== "media" &&
-        c.fillState !== "spent" &&
-        (c.wrappedTokens?.length ?? 0) === 0 &&
-        (c.wrappedChemicals?.length ?? 0) === 0 &&
-        !c.firstArtifactNftId &&
-        !c.wrappedChat &&
-        (c.payloadEntries?.length ?? 0) === 0 &&
-        (c.sealBytes ?? 0) === 0 &&
-        (c.weight ?? 0) <= 0,
-    );
+    const usable = all.filter((c) => isHollowWalletCoin(c, user.id));
     usable.sort((a, b) => (a.wrappedTokens?.length ?? 0) - (b.wrappedTokens?.length ?? 0));
     return usable;
   } catch {

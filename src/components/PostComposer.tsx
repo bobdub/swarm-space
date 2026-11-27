@@ -190,6 +190,10 @@ export const PostComposer = ({
     }
 
     setLoading(true);
+    // Media Coin packing is committed only once the post is saved, so a
+    // failure keeps the attachments' torrent copies for a retry.
+    let courier: import("@/lib/blockchain/mediaCoinRuntime").PreparedCourierPost | null = null;
+    let postSaved = false;
     try {
       // 50 MB or less travels by torrent; above that the whole post goes
       // by Media Coin, so its files are never announced or seeded as torrents.
@@ -198,10 +202,11 @@ export const PostComposer = ({
       let manifestIds = attachedManifests.map((manifest) => manifest.fileId);
       let mediaCoins: MediaCoinPostRef[] | undefined;
       if (distribution === "media-coin" && attachedManifests.length > 0) {
-        const { publishCourierFiles } = await import("@/lib/blockchain/mediaCoinRuntime");
+        const { prepareCourierFiles } = await import("@/lib/blockchain/mediaCoinRuntime");
         const toastId = toast.loading("Packing media into Media Coins…");
         try {
-          mediaCoins = await publishCourierFiles(attachedManifests, { postId, creatorId: user.id });
+          courier = await prepareCourierFiles(attachedManifests, { postId, creatorId: user.id });
+          mediaCoins = courier.refs;
         } finally {
           toast.dismiss(toastId);
         }
@@ -283,6 +288,8 @@ export const PostComposer = ({
       if (cellScope) signedPost = { ...signedPost, _cellScope: cellScope };
 
       await put("posts", signedPost);
+      postSaved = true;
+      if (courier) await courier.commit();
       void import("@/lib/blockchain/contentPayload").then((m) => m.packLocalContent(user.id));
 
       // Handle walled post locking — MUST happen before broadcast so peers
@@ -449,6 +456,7 @@ export const PostComposer = ({
       void loadUserPosts();
       onPostCreated?.(signedPost);
     } catch (error) {
+      if (courier && !postSaved) await courier.abort().catch(() => {});
       toast.error("Failed to create post");
       console.error(error);
     } finally {
