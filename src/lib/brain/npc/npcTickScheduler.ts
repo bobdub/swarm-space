@@ -53,6 +53,7 @@ import {
 } from './npcTools';
 import { resolveLocalAnchorId } from './localAnchor';
 import { isNpcSceneActive } from './npcSceneGate';
+import { needsTopUp, topUpVillage } from './villageFloor';
 
 export { retainNpcScene, isNpcSceneActive } from './npcSceneGate';
 
@@ -298,6 +299,8 @@ function tickOne(npc: Npc, dtSeconds: number): void {
       despawnNpc(aged.id);
       clearNpcSignalMemo(aged.id);
       emitNpcDecision({ npcId: aged.id, verb: 'die', qDelta: pDeath });
+      // Below the floor, or without a female × male pair, refill.
+      if (needsTopUp()) topUpVillage(aged.anchorPeerId);
       return;
     }
   }

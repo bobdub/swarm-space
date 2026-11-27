@@ -68,8 +68,9 @@ export function bootNpcWorld(anchorPeerId?: string): Promise<void> {
         console.log(`[npcBoot] rehydrated ${restored}/${persisted} NPC(s)`);
       }
 
-      // First-boot seed — if nothing was persisted yet, spawn the starter
-      // community so the player always meets the village on arrival.
+      // First boot: seed the full starter community. Afterwards, only top
+      // the saved village up when it is below the floor or has no
+      // female × male pair (e.g. one survivor who can't have children).
       if (reg.listNpcs().length === 0) {
         const { INITIAL_NPCS } = await import('./seedCommunity');
         let seeded = 0;
@@ -87,6 +88,10 @@ export function bootNpcWorld(anchorPeerId?: string): Promise<void> {
           }
         }
         console.log(`[npcBoot] seeded ${seeded}/${INITIAL_NPCS.length} starter NPC(s)`);
+      } else {
+        const { topUpVillage } = await import('./villageFloor');
+        const added = topUpVillage(anchor);
+        if (added > 0) console.log(`[npcBoot] topped up village with ${added} starter NPC(s)`);
       }
 
       const sched = await import('./npcTickScheduler');
