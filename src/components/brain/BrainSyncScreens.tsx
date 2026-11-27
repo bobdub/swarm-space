@@ -69,10 +69,12 @@ export function useBrainScreenShares() {
 interface Props {
   remote: RemoteScreen[];
   nameByPeerId: Record<string, string>;
+  /** CSS `bottom` for the docked box and pill, to clear on-screen controls. */
+  dockBottom?: string;
 }
 
 /** Floating viewer for peers' screen shares, in the Brain and while Brain-synced on other pages. */
-export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
+export function BrainSyncScreens({ remote, nameByPeerId, dockBottom }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -102,6 +104,7 @@ export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
       <button
         type="button"
         onClick={() => setMinimized(false)}
+        style={dockBottom ? { bottom: dockBottom } : undefined}
         className="fixed bottom-4 right-4 z-40 flex items-center gap-2 rounded-full border border-border bg-card/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur hover:bg-muted"
         aria-label={`Show ${label}`}
       >
@@ -115,6 +118,7 @@ export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
     <div
       role="region"
       aria-label="Brain screen share"
+      style={dockBottom && !expanded ? { bottom: dockBottom } : undefined}
       className={cn(
         'fixed z-40 flex flex-col overflow-hidden border border-border shadow-xl',
         // Full size stays opaque: a backdrop blur that large is recomputed

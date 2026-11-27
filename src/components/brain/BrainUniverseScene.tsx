@@ -2787,7 +2787,15 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
         />
       )}
 
-      {ready && <BrainSyncScreens remote={remoteScreens} nameByPeerId={screenNameByPeerId} />}
+      {ready && (
+        <BrainSyncScreens
+          remote={remoteScreens}
+          nameByPeerId={screenNameByPeerId}
+          // On phones the joystick fills the bottom-right corner (up to 15.5rem
+          // when crewing a boat), so dock the box just above it.
+          dockBottom={isMobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16rem)' : undefined}
+        />
+      )}
 
       {/* Desktop look + move controls (no pointer lock).
           While plotting, re-enable joystick + look so the user can walk. */}
