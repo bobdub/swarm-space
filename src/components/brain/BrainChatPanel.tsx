@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import type { InfinityChatMode } from '@/lib/brain/infinityChatSettings';
+import { BuilderDeviceOptions } from '@/components/brain/builder/BuilderDeviceOptions';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -63,6 +64,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
+import { CopyMessageButton } from '@/components/chat/CopyMessageButton';
 import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { networkNow } from '@/lib/time/networkClock';
@@ -961,10 +963,13 @@ export function BrainChatPanel({
                 Saved {new Date(viewingCoin.wrappedChat.savedAt).toLocaleString()} · {viewingCoin.wrappedChat.messageCount} messages · {viewingCoin.wrappedChat.participants.length} participants
               </p>
               {viewingCoin.wrappedChat.messages.map((m, i) => (
-                <div key={`${m.ts}-${i}`} className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
+                <div key={`${m.ts}-${i}`} className="group rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-foreground/60">
                     <span className="truncate font-medium">{m.author}</span>
-                    <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="flex items-center gap-1">
+                      <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <CopyMessageButton text={m.text} />
+                    </div>
                   </div>
                   <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{formatChatMarkdown(m.text)}</ReactMarkdown>
@@ -1002,7 +1007,7 @@ export function BrainChatPanel({
                     <div key={line.id} role="status" className="break-words rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-xs text-foreground">
                       <span className="font-medium text-primary">{line.author}</span>
                       <p className="my-1 whitespace-pre-wrap">{line.text}</p>
-                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => getAppVersionWatch().refreshNow()}>Update App</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => getAppVersionWatch().refreshNow()}>Update Now</Button>
                     </div>
                   );
                 }
@@ -1066,6 +1071,7 @@ export function BrainChatPanel({
                       </div>
                       <div className="flex items-center gap-1">
                         <span>{new Date(line.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <CopyMessageButton text={line.text} />
                         <button
                           type="button"
                           onClick={() => setReplyTo({
@@ -1172,6 +1178,15 @@ export function BrainChatPanel({
               <Switch checked={infinityChatMode === 'text'} onCheckedChange={(checked) => onInfinityChatModeChange?.(checked ? 'text' : 'off')} aria-label="Enable Infinity (Text Only)" />
             </label>
           </div>
+
+          <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">Microphone &amp; camera</h3>
+          <p className="mb-2 text-xs text-foreground/50">
+            Switch inputs without leaving the call. Same picks as Build › Options.
+          </p>
+          <BuilderDeviceOptions
+            testId="chat-device-options"
+            emptyHint="No microphone or camera found yet. Allow access in your browser, then reopen Settings."
+          />
 
           <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">History</h3>
           {historyCoins.length === 0 ? (

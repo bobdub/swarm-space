@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { getWebRTCManager } from "@/lib/webrtc/manager";
 import type { VideoParticipant } from "@/lib/webrtc/types";
 import { isPeerMuted, useMutedPeers } from "@/lib/brain/mutedPeersStore";
+import { resumeCallAudio } from "@/lib/webrtc/sharedAudioContext";
 
 export function PersistentAudioLayer() {
   const { user } = useAuth();
@@ -43,7 +44,11 @@ export function PersistentAudioLayer() {
           <RemoteAudio
             key={`persistent-audio-${p.peerId}`}
             stream={p.stream}
-            muted={isPeerMuted(p.peerId) || p.isMuted}
+            // Only the local Brain mute silences the element. A peer's own
+            // mute already silences their track at the source, and their
+            // mic state can still be a placeholder when audio starts
+            // arriving, which used to keep a live voice muted here.
+            muted={isPeerMuted(p.peerId)}
           />
         ) : null,
       )}
@@ -54,7 +59,9 @@ export function PersistentAudioLayer() {
 /**
  * One <audio> per remote participant. Tracks are merged into the same
  * MediaStream after it is bound, so playback is restarted whenever a track
- * is added or unmutes — otherwise a late mic track stays silent.
+ * is added or unmutes — otherwise a late mic track stays silent. A play()
+ * the browser blocks for autoplay is retried on the next user gesture, and
+ * the shared call AudioContext is resumed with it.
  */
 function RemoteAudio({ stream, muted }: { stream: MediaStream; muted: boolean }) {
   const ref = useRef<HTMLAudioElement>(null);
@@ -62,13 +69,46 @@ function RemoteAudio({ stream, muted }: { stream: MediaStream; muted: boolean })
     const el = ref.current;
     if (!el) return;
     if (el.srcObject !== stream) el.srcObject = stream;
-    const kick = () => { void el.play().catch(() => {}); };
+    let waitingForGesture = false;
+    const onGesture = () => {
+      waitingForGesture = false;
+      removeGesture();
+      kick();
+    };
+    const removeGesture = () => {
+      window.removeEventListener("pointerdown", onGesture, true);
+      window.removeEventListener("keydown", onGesture, true);
+      window.removeEventListener("touchend", onGesture, true);
+    };
+    const kick = () => {
+      resumeCallAudio();
+      if (!el.paused && el.srcObject === stream) return;
+      if (el.srcObject !== stream) el.srcObject = stream;
+      void el.play().catch((err: unknown) => {
+        // Autoplay policy: wait for the next tap or key, then try again.
+        if ((err as { name?: string } | null)?.name !== "NotAllowedError" || waitingForGesture) return;
+        waitingForGesture = true;
+        window.addEventListener("pointerdown", onGesture, true);
+        window.addEventListener("keydown", onGesture, true);
+        window.addEventListener("touchend", onGesture, true);
+      });
+    };
     const bindTrack = (t: MediaStreamTrack) => t.addEventListener("unmute", kick);
     stream.getAudioTracks().forEach(bindTrack);
     const onAdd = (e: MediaStreamTrackEvent) => { bindTrack(e.track); kick(); };
     stream.addEventListener("addtrack", onAdd);
+    // Something paused playback (route change, a media key, a stalled
+    // element): resume while the stream still carries live audio.
+    const onPause = () => {
+      if (stream.getAudioTracks().some((t) => t.readyState === "live")) kick();
+    };
+    el.addEventListener("pause", onPause);
+    el.addEventListener("stalled", kick);
     kick();
     return () => {
+      removeGesture();
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("stalled", kick);
       stream.removeEventListener("addtrack", onAdd);
       stream.getAudioTracks().forEach((t) => t.removeEventListener("unmute", kick));
     };

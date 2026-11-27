@@ -124,12 +124,13 @@ describe("asset sweep plan", () => {
       asset("custom:0xdream", "DREAMS", 120),
       asset("custom:eth:0xmtcg", "MTCG", 0, "becomes spendable once shared"),
       asset("native:ETH", "ETH", 0.5),
-      asset("creator:tok", "TOK", 9, "awaits settlement"),
+      asset("creator:tok", "TOK", 9),
+      asset("chain:SUB", "SUB", 4, "awaits settlement"),
       asset("custom:0xempty", "NONE", 0),
     ]);
-    expect(plan.movable.map((a) => a.ticker)).toEqual(["DREAMS", "ETH"]);
+    expect(plan.movable.map((a) => a.ticker)).toEqual(["DREAMS", "ETH", "TOK"]);
     expect(plan.pendingImported.map((a) => a.ticker)).toEqual(["MTCG"]);
-    expect(plan.staying.map((a) => a.ticker)).toEqual(["TOK"]);
+    expect(plan.staying.map((a) => a.ticker)).toEqual(["SUB"]);
   });
 });
 

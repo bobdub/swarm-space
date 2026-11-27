@@ -1,17 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AppVersionWatch,
-  MAX_FUTURE_SKEW_MS,
-  parseBuildStamp,
-  isNewerBuild,
+  appReleasePacket,
+  isNewerRelease,
+  parseReleaseStamp,
   type AppVersionDeps,
-  type BuildStamp,
+  type ReleaseStamp,
 } from '../appVersion';
 
-const DAY = 24 * 3_600_000;
-const T0 = new Date('2026-11-21T20:00:00Z').getTime();
-const OLD: BuildStamp = { id: 'aaa111', builtAt: T0 - 3_600_000 };
-const NEW: BuildStamp = { id: 'bbb222', builtAt: T0 - 60_000 };
+const V12: ReleaseStamp = { release: 12, id: 'aaa111' };
+const V14: ReleaseStamp = { release: 14, id: 'a4f89c0' };
+const ATTEMPT_KEY = 'swarm-app-release-reload-attempt';
 
 function memoryStorage() {
   const m = new Map<string, string>();
@@ -23,257 +22,227 @@ function memoryStorage() {
   };
 }
 
-function harness(opts: { local?: BuildStamp; deployed?: unknown; call?: boolean; storage?: ReturnType<typeof memoryStorage> | null } = {}) {
-  let clock = T0;
+function harness(opts: { local?: ReleaseStamp; deployed?: unknown; call?: boolean; storage?: ReturnType<typeof memoryStorage> | null } = {}) {
   const call = { active: opts.call ?? false };
-  const deployed = { value: 'deployed' in opts ? opts.deployed : NEW };
+  const deployed = { value: 'deployed' in opts ? opts.deployed : V14, fail: false };
   const storage = opts.storage === undefined ? memoryStorage() : opts.storage;
   const deps: AppVersionDeps = {
-    local: opts.local ?? OLD,
-    now: () => clock,
-    fetchDeployed: vi.fn(async () => deployed.value),
+    local: opts.local ?? V12,
+    fetchDeployed: vi.fn(async () => {
+      if (deployed.fail) throw new Error('offline');
+      return deployed.value;
+    }),
     reload: vi.fn(),
     isCallActive: () => call.active,
     storage,
   };
-  const advance = async (ms: number) => {
-    clock += ms;
-    await flush();
-  };
-  return { deps, call, deployed, storage, advance, watch: () => new AppVersionWatch(deps) };
+  return { deps, call, deployed, storage, watch: () => new AppVersionWatch(deps) };
 }
 const flush = () => new Promise<void>(r => setTimeout(r, 0));
 
-describe('build stamp parsing', () => {
-  it('refuses malformed, oversized and far-future stamps', () => {
-    expect(parseBuildStamp(NEW, T0)).toEqual(NEW);
-    expect(parseBuildStamp({ id: '', builtAt: 5 }, T0)).toBeNull();
-    expect(parseBuildStamp({ id: 'x'.repeat(65), builtAt: 5 }, T0)).toBeNull();
-    expect(parseBuildStamp({ id: 'x', builtAt: '5' }, T0)).toBeNull();
-    expect(parseBuildStamp({ id: 'x', builtAt: 1.5 }, T0)).toBeNull();
-    expect(parseBuildStamp({ id: 'x', builtAt: T0 + MAX_FUTURE_SKEW_MS + 1 }, T0)).toBeNull();
-    expect(parseBuildStamp(null, T0)).toBeNull();
+describe('release stamps', () => {
+  it('accepts only a sane release counter and a short id', () => {
+    expect(parseReleaseStamp(V14)).toEqual(V14);
+    expect(parseReleaseStamp({ release: 14 })).toEqual({ release: 14, id: '' });
+    expect(parseReleaseStamp({ release: 0, id: 'x' })).toBeNull();
+    expect(parseReleaseStamp({ release: -1, id: 'x' })).toBeNull();
+    expect(parseReleaseStamp({ release: 1.5, id: 'x' })).toBeNull();
+    expect(parseReleaseStamp({ release: '14', id: 'x' })).toBeNull();
+    expect(parseReleaseStamp({ release: 10_000_001, id: 'x' })).toBeNull();
+    expect(parseReleaseStamp({ release: 14, id: 'x'.repeat(65) })).toBeNull();
+    expect(parseReleaseStamp({ release: 14, id: 7 })).toBeNull();
+    expect(parseReleaseStamp(null)).toBeNull();
+    expect(parseReleaseStamp('<!doctype html>')).toBeNull();
   });
 
-  it('keeps a sane release number for display and drops a bad one', () => {
-    expect(parseBuildStamp({ ...NEW, release: 13 }, T0)).toEqual({ ...NEW, release: 13 });
-    expect(parseBuildStamp({ ...NEW, release: -1 }, T0)).toEqual(NEW);
-    expect(parseBuildStamp({ ...NEW, release: 1.5 }, T0)).toEqual(NEW);
-    expect(parseBuildStamp({ ...NEW, release: '13' }, T0)).toEqual(NEW);
+  it('puts no timestamp on the wire', () => {
+    const packet = appReleasePacket(V14);
+    expect(packet).toEqual({ type: 'app-release', release: 14, id: 'a4f89c0' });
+    expect(Object.keys(packet).sort()).toEqual(['id', 'release', 'type']);
+  });
+
+  it('orders strictly by the release counter', () => {
+    expect(isNewerRelease(V14, V12)).toBe(true);
+    expect(isNewerRelease(V12, V14)).toBe(false);
+    expect(isNewerRelease(V14, { release: 14, id: 'other' })).toBe(false);
+    expect(isNewerRelease(V12, null)).toBe(true);
   });
 });
 
-describe('app version handoff', () => {
-  it('ignores peers on the same or an older build without asking the host', async () => {
+describe('Infinity verification loop', () => {
+  it('release 12 learns of 14, the host confirms, the notice shows', async () => {
     const h = harness();
     const w = h.watch();
-    expect(w.notePeerBuild(OLD)).toBe(false);
-    expect(w.notePeerBuild({ id: 'older', builtAt: OLD.builtAt - 1 })).toBe(false);
-    await h.advance(0);
+    expect(w.notePeerRelease(appReleasePacket(V14))).toBe(true);
+    await flush();
+    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual', deadline: null, deployed: V14 });
+    expect(h.deps.reload).not.toHaveBeenCalled();
+  });
+
+  it('ignores peers on the same or an older release without asking the host', async () => {
+    const h = harness({ local: V14 });
+    const w = h.watch();
+    expect(w.notePeerRelease(V14)).toBe(false);
+    expect(w.notePeerRelease(V12)).toBe(false);
+    await flush();
     expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
-    expect(w.getState().status).toBe('idle');
   });
 
-  it('holds the current version indefinitely until Update App is explicitly chosen', async () => {
-    const h = harness();
+  it('drops a spoofed release silently when the host does not back it', async () => {
+    const h = harness({ deployed: V12 });
     const w = h.watch();
-    expect(w.notePeerBuild(NEW)).toBe(true);
-    await h.advance(0);
-    expect(w.getState()).toMatchObject({ status: 'available', mode: 'manual', deadline: null, deployed: NEW });
-    await h.advance(7 * DAY);
-    expect(h.deps.reload).not.toHaveBeenCalled();
-    w.refreshNow();
-    expect(h.deps.reload).toHaveBeenCalledTimes(1);
-    expect(h.storage?.map.get('swarm-app-reload-attempt')).toBe(String(NEW.builtAt));
-  });
-
-  it('a fake higher stamp cannot force a refresh when the host has nothing newer', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    w.notePeerBuild({ id: 'fake', builtAt: T0 + 60_000 });
-    await h.advance(30_000 * 2);
+    const states: unknown[] = [];
+    w.subscribe(s => states.push(s));
+    expect(w.notePeerRelease({ type: 'app-release', release: 99999, id: 'evil' })).toBe(true);
+    await flush();
+    expect(states).toEqual([]);
+    expect(w.getState()).toEqual({ status: 'idle' });
+    // The same spoof again never costs another read.
+    expect(w.notePeerRelease({ release: 99999, id: 'evil' })).toBe(false);
+    await flush();
     expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-    expect(h.deps.reload).not.toHaveBeenCalled();
+  });
+
+  it('a claim above what the host serves is refused even when the host is ahead of us', async () => {
+    const h = harness({ deployed: V14 });
+    const w = h.watch();
+    w.notePeerRelease({ release: 99999, id: 'evil' });
+    await flush();
     expect(w.getState().status).toBe('idle');
+    // A genuine peer on 14 is then confirmed by that same read, no new request.
+    expect(w.notePeerRelease(V14)).toBe(false);
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: V14 });
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
+  });
+
+  it('the host confirms the claim when it already serves a newer release', async () => {
+    const h = harness({ deployed: { release: 15, id: 'b' } });
+    const w = h.watch();
+    w.notePeerRelease(V14);
+    await flush();
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: { release: 15 } });
+  });
+
+  it('asks the host once per release however many peers claim it', async () => {
+    const h = harness({ deployed: V12 });
+    const w = h.watch();
+    expect(w.notePeerRelease(V14)).toBe(true);
+    for (let i = 0; i < 20; i++) w.notePeerRelease(V14);
+    await flush();
+    for (let i = 0; i < 20; i++) w.notePeerRelease(V14);
+    await flush();
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
+  });
+
+  it('claims made during a read are answered together by one follow-up read', async () => {
+    const h = harness({ deployed: V12 });
+    const w = h.watch();
+    w.notePeerRelease(V14);
+    expect(w.notePeerRelease({ release: 15, id: 'c' })).toBe(false);
+    expect(w.notePeerRelease({ release: 16, id: 'd' })).toBe(false);
+    h.deployed.value = { release: 16, id: 'd' };
+    await flush();
+    await flush();
+    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: { release: 16 } });
   });
 
   it('a host without version.json (dev server, error page) changes nothing', async () => {
     const h = harness({ deployed: '<!doctype html>' });
     const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(30_000 * 2);
+    w.notePeerRelease(V14);
+    await flush();
     expect(w.getState().status).toBe('idle');
+  });
+
+  it('an unreachable host does not block a later retry of the same release', async () => {
+    const h = harness();
+    h.deployed.fail = true;
+    const w = h.watch();
+    w.notePeerRelease(V14);
+    await flush();
+    expect(w.getState().status).toBe('idle');
+    h.deployed.fail = false;
+    expect(w.notePeerRelease(V14)).toBe(true);
+    await flush();
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: V14 });
+  });
+
+  it('does nothing when its own release is unknown', async () => {
+    const h = harness({ local: { release: 0, id: 'unknown' } });
+    const w = h.watch();
+    expect(w.notePeerRelease(V14)).toBe(false);
+    await flush();
+    expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
+  });
+});
+
+describe('the person chooses when to update', () => {
+  it('holds the current version until Update Now is chosen', async () => {
+    const h = harness();
+    const w = h.watch();
+    w.notePeerRelease(V14);
+    await flush();
     expect(h.deps.reload).not.toHaveBeenCalled();
+    w.refreshNow();
+    expect(h.deps.reload).toHaveBeenCalledTimes(1);
+    expect(h.storage?.map.get(ATTEMPT_KEY)).toBe('14');
   });
 
-  it('asks the host once per version however many peers claim it', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    expect(w.notePeerBuild(NEW)).toBe(true);
-    await h.advance(0);
-    for (let i = 0; i < 20; i++) w.notePeerBuild(NEW);
-    await h.advance(DAY);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(1);
-  });
-
-  it('a newer version claimed while a read is in flight gets its own read after it', async () => {
-    const h = harness({ deployed: OLD });
-    const w = h.watch();
-    const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 30_000 };
-    w.notePeerBuild(NEW);
-    expect(w.notePeerBuild(NEWER)).toBe(false);
-    h.deployed.value = NEWER;
-    await h.advance(0);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('never loops: after one refresh for a build, the old build coming back stays manual', async () => {
+  it('never loops: the old build coming back after a refresh stays manual', async () => {
     const storage = memoryStorage();
     const first = harness({ storage });
     const w1 = first.watch();
-    w1.notePeerBuild(NEW);
-    await first.advance(0);
+    w1.notePeerRelease(V14);
+    await flush();
     w1.refreshNow();
-    expect(first.deps.reload).toHaveBeenCalledTimes(1);
 
-    // Stale cache: the reloaded tab still runs OLD.
     const second = harness({ storage });
     const w2 = second.watch();
-    w2.notePeerBuild(NEW);
-    await second.advance(30_000 * 3);
-    expect(w2.getState()).toMatchObject({ status: 'available', mode: 'manual', reason: 'stale-cache', deadline: null });
+    w2.notePeerRelease(V14);
+    await flush();
+    expect(w2.getState()).toMatchObject({ status: 'available', reason: 'stale-cache' });
     expect(second.deps.reload).not.toHaveBeenCalled();
   });
 
-  it('clears the attempt once the tab runs the target build', () => {
+  it('clears the attempt once the tab runs the target release', () => {
     const storage = memoryStorage();
-    storage.setItem('swarm-app-reload-attempt', String(NEW.builtAt));
-    harness({ storage, local: NEW }).watch();
-    expect(storage.map.has('swarm-app-reload-attempt')).toBe(false);
+    storage.setItem(ATTEMPT_KEY, '14');
+    harness({ storage, local: V14 }).watch();
+    expect(storage.map.has(ATTEMPT_KEY)).toBe(false);
   });
 
-  it('without tab storage the notice is manual, since a loop cannot be ruled out', async () => {
+  it('without tab storage the notice says a loop cannot be ruled out', async () => {
     const h = harness({ storage: null });
     const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(30_000 * 2);
-    expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'no-guard' });
-    expect(h.deps.reload).not.toHaveBeenCalled();
+    w.notePeerRelease(V14);
+    await flush();
+    expect(w.getState()).toMatchObject({ reason: 'no-guard' });
   });
 
-  it('holds without auto-refresh even when tab storage later fails', async () => {
-    const storage = memoryStorage();
-    const h = harness({ storage });
-    const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(0);
-    storage.setItem = () => { throw new Error('QuotaExceededError'); };
-    await h.advance(30_000);
-    expect(h.deps.reload).not.toHaveBeenCalled();
-    expect(w.getState()).toMatchObject({ mode: 'manual', deadline: null });
-    w.refreshNow();
-    expect(h.deps.reload).toHaveBeenCalledTimes(1);
-  });
-
-  it('never interrupts a live call, including one that starts after the notice', async () => {
+  it('never interrupts a live call', async () => {
     const h = harness({ call: true });
     const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(30_000 * 2);
+    w.notePeerRelease(V14);
+    await flush();
     expect(w.getState()).toMatchObject({ mode: 'manual', reason: 'call' });
     expect(h.deps.reload).not.toHaveBeenCalled();
-
-    const h2 = harness();
-    const w2 = h2.watch();
-    w2.notePeerBuild(NEW);
-    await h2.advance(1_000);
-    h2.call.active = true;
-    await h2.advance(30_000);
-    expect(w2.getState()).toMatchObject({ mode: 'manual', deadline: null });
-    expect(h2.deps.reload).not.toHaveBeenCalled();
-    w2.refreshNow();
-    expect(h2.deps.reload).toHaveBeenCalledTimes(1);
   });
 
-  it('"Not now" hides the invitation and hides that build for the tab, but a newer one shows again', async () => {
+  it('"Not now" hides that release for the tab, but a newer one shows again', async () => {
     const h = harness();
     const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(1_000);
+    w.notePeerRelease(V14);
+    await flush();
     w.dismiss();
-    await h.advance(30_000 * 2);
-    expect(h.deps.reload).not.toHaveBeenCalled();
+    w.notePeerRelease(V14);
+    await flush();
     expect(w.getState().status).toBe('idle');
 
-    w.notePeerBuild(NEW);
-    await h.advance(DAY);
-    expect(w.getState().status).toBe('idle');
-
-    const NEWER = { id: 'ccc333', builtAt: NEW.builtAt + 1_000 };
-    h.deployed.value = NEWER;
-    w.notePeerBuild(NEWER);
-    await h.advance(0);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('does nothing when its own build is unknown', async () => {
-    const h = harness({ local: { id: 'unknown', builtAt: 0 } });
-    const w = h.watch();
-    expect(w.notePeerBuild(NEW)).toBe(false);
-    await h.advance(30_000 * 2);
-    expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
-  });
-
-  it('a new release is checked on reconnect right after an earlier release was checked', async () => {
-    const h = harness({ deployed: NEW });
-    const w = h.watch();
-    w.notePeerBuild(NEW);
-    await h.advance(0);
-    w.dismiss();
-    // Minutes later another release ships; a refreshed peer reconnects.
-    await h.advance(5 * 60_000);
-    const NEWER: BuildStamp = { id: 'ccc333', builtAt: T0 + 60_000, release: 13 };
-    h.deployed.value = NEWER;
-    expect(w.notePeerBuild(NEWER)).toBe(true);
-    await h.advance(0);
-    expect(h.deps.fetchDeployed).toHaveBeenCalledTimes(2);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: NEWER });
-  });
-
-  it('compares release numbers: 0.010 learns of 0.012, the host confirms, the notice shows', async () => {
-    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 3_600_000, release: 10 };
-    const V12: BuildStamp = { id: 'v12', builtAt: T0 - 60_000, release: 12 };
-    const h = harness({ local: V10, deployed: V12 });
-    const w = h.watch();
-    expect(w.notePeerBuild(V12)).toBe(true);
-    await h.advance(0);
-    expect(w.getState()).toMatchObject({ status: 'available', deployed: { release: 12 } });
-  });
-
-  it('the peer on 0.012 is never told to update by a peer on 0.010', async () => {
-    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 60_000, release: 10 };
-    const V12: BuildStamp = { id: 'v12', builtAt: T0 - 3_600_000, release: 12 };
-    const h = harness({ local: V12, deployed: V12 });
-    const w = h.watch();
-    // Even with a later build time, a lower release is behind.
-    expect(w.notePeerBuild(V10)).toBe(false);
-    await h.advance(0);
-    expect(h.deps.fetchDeployed).not.toHaveBeenCalled();
-  });
-
-  it('no notice when the host is not truly ahead of this tab', async () => {
-    const V10: BuildStamp = { id: 'v10', builtAt: T0 - 3_600_000, release: 10 };
-    const h = harness({ local: V10, deployed: { ...V10, builtAt: T0 - 1_000 } });
-    const w = h.watch();
-    expect(w.notePeerBuild({ id: 'v12', builtAt: T0 - 60_000, release: 12 })).toBe(true);
-    await h.advance(0);
-    expect(w.getState().status).toBe('idle');
-  });
-
-  it('falls back to build time when either stamp has no release number', () => {
-    expect(isNewerBuild({ id: 'a', builtAt: 2, release: 1 }, { id: 'b', builtAt: 1 })).toBe(true);
-    expect(isNewerBuild({ id: 'a', builtAt: 1 }, { id: 'b', builtAt: 2, release: 1 })).toBe(false);
-    expect(isNewerBuild({ id: 'a', builtAt: 1, release: 12 }, { id: 'b', builtAt: 2, release: 10 })).toBe(true);
+    const V15 = { release: 15, id: 'c' };
+    h.deployed.value = V15;
+    expect(w.notePeerRelease(V15)).toBe(true);
+    await flush();
+    expect(w.getState()).toMatchObject({ status: 'available', deployed: V15 });
   });
 });

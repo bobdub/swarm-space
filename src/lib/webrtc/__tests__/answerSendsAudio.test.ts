@@ -5,6 +5,7 @@ const sent: Array<{ to: string; type: string; data: unknown }> = [];
 let signalHandler: ((e: SignalEnvelope) => void) | null = null;
 
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendSignalViaMesh: (to: string, _r: string, type: string, data: unknown) => { sent.push({ to, type, data }); },
   sendReconnectRequest: vi.fn(),
   sendScreenShareState: vi.fn(),

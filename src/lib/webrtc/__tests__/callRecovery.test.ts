@@ -7,6 +7,7 @@ let signalHandler: ((e: SignalEnvelope) => void) | null = null;
 let peerPresent = true;
 
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendSignalViaMesh: (to: string, _room: string, type: string, data: unknown) => {
     sentSignals.push({ to, type, data });
   },

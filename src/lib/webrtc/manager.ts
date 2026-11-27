@@ -10,6 +10,7 @@ import {
   announceJoinRoom,
   announceLeaveRoom,
   onSignal,
+  onRoomWebPeer,
   getLocalMeshPeerId,
   isBridgeActive,
   isRoomPeerPresent,
@@ -32,6 +33,39 @@ const MEDIA_REPAIR_COOLDOWN_MS = 12_000;
 /** After every recovery attempt failed, wait this long and start over while
  *  the peer is still in the room, instead of dropping their audio for good. */
 const RECOVERY_BACKOFF_MS = 20_000;
+/** Health samples in a row with no inbound audio packets before the per-pair
+ *  audio watchdog acts (about 16 s at the health interval). */
+const AUDIO_WATCHDOG_STALLS = 2;
+/** Minimum gap between quiet renegotiations of one silent pair. */
+const AUDIO_WATCHDOG_COOLDOWN_MS = 30_000;
+/** Quiet renegotiations per connection before the watchdog leaves a silent
+ *  pair alone (a listen-only peer has no microphone to repair). */
+const AUDIO_WATCHDOG_MAX_REPAIRS = 2;
+/** Re-offers per connection to fix a stale transceiver direction. */
+const DIRECTION_REPAIR_MAX = 2;
+
+/**
+ * Glare tie-break. Both ends compare the same pair of mesh peer IDs, so one
+ * side is always polite (yields) and the other always pushes: the lower mesh
+ * ID is polite. Never mix in account user IDs, or each side can judge a
+ * different pair and both yield (deadlock) or both push (glare loop).
+ */
+export function isPoliteMeshPair(localMeshPeerId: string, remoteMeshPeerId: string): boolean {
+  return localMeshPeerId < remoteMeshPeerId;
+}
+
+/** Sum of inbound audio packets in a getStats() report, or null if none. */
+export function inboundAudioPackets(
+  report: { forEach: (cb: (entry: Record<string, unknown>) => void) => void },
+): number | null {
+  let packets: number | null = null;
+  report.forEach((e) => {
+    if (e.type !== 'inbound-rtp' || (e.kind !== 'audio' && e.mediaType !== 'audio')) return;
+    const n = typeof e.packetsReceived === 'number' && Number.isFinite(e.packetsReceived) ? e.packetsReceived : 0;
+    packets = (packets ?? 0) + n;
+  });
+  return packets;
+}
 
 /** Dispatched on the local MediaStream after a camera or mic switch. */
 export const LOCAL_INPUT_SWITCHED_EVENT = 'swarm-input-switched';
@@ -165,6 +199,7 @@ export class WebRTCManager {
   private userId: string;
   private username: string;
   private signalUnsub: (() => void) | null = null;
+  private roomWebUnsub: (() => void) | null = null;
 
   // ── Negotiation glare prevention ────────────────────────────────
   private negotiationLock = new Map<string, boolean>();
@@ -197,11 +232,21 @@ export class WebRTCManager {
   private meshSilentAt = new Map<string, number>();
   /** Unknown microphone state must not be mistaken for missing audio. */
   private remoteMicExpected = new Map<string, boolean>();
+  /** Peers whose own media-state told us their mic state (not a placeholder). */
+  private micStateHeard = new Set<string>();
+  /** Last inbound audio packet count per peer, for the per-pair watchdog. */
+  private inboundAudio = new Map<string, { pc: RTCPeerConnection; packets: number; stalls: number }>();
+  private audioWatchdogAt = new Map<string, number>();
+  private audioWatchdogRepairs = new WeakMap<RTCPeerConnection, number>();
+  private directionRepairs = new WeakMap<RTCPeerConnection, number>();
+  /** Our mesh peer ID as last seen, for glare checks during a mesh restart. */
+  private lastLocalMeshPeerId: string | null = null;
 
   constructor(userId: string, username: string) {
     this.userId = userId;
     this.username = username;
     this.setupSignalListener();
+    this.roomWebUnsub = onRoomWebPeer((roomId, peerId) => this.handleRoomWebPeer(roomId, peerId));
     // Torrents throttle themselves while any call connection is live.
     registerCallActivityProbe(() => {
       for (const pc of this.connections.values()) {
@@ -225,10 +270,21 @@ export class WebRTCManager {
     }
   }
 
-  /** Polite peer = lexicographically smaller ID */
+  private localMeshId(): string | null {
+    const id = getLocalMeshPeerId();
+    if (id) this.lastLocalMeshPeerId = id;
+    return id ?? this.lastLocalMeshPeerId;
+  }
+
+  /**
+   * Polite peer = lower mesh peer ID. Remote IDs are always mesh IDs (the
+   * envelope sender), so the local side must be one too: falling back to
+   * our account user ID compared two different kinds of ID.
+   */
   private isPolite(remotePeerId: string): boolean {
-    const localId = getLocalMeshPeerId() ?? this.userId;
-    return localId < remotePeerId;
+    const localId = this.localMeshId();
+    // Without a mesh ID no signal could have reached us: yield, never push.
+    return localId ? isPoliteMeshPair(localId, remotePeerId) : true;
   }
 
   private setupSignalListener(): void {
@@ -353,6 +409,7 @@ export class WebRTCManager {
           participant.isVideoEnabled = data?.camera === true;
           if (typeof data?.mic === 'boolean') {
             this.remoteMicExpected.set(meshPeerId, data.mic);
+            this.micStateHeard.add(meshPeerId);
             participant.isMuted = !data.mic;
           }
           this.broadcastMessage({
@@ -422,6 +479,32 @@ export class WebRTCManager {
         }
       }
     });
+  }
+
+  /**
+   * A room member seen in the Gun room graph. Closes the web: every pair
+   * gets a call even when gossip down a line of members never introduced
+   * them. The lower mesh ID dials, so the two sides never offer at once.
+   * A pair that is connected, negotiating or under recovery is left alone.
+   */
+  private handleRoomWebPeer(roomId: string, peerId: string): void {
+    if (!this.currentRoomId || roomId !== this.currentRoomId) return;
+    const localId = this.localMeshId();
+    if (!localId || peerId === localId) return;
+    const isNew = !this.participants.has(peerId);
+    this.ensureParticipant(peerId);
+    if (isNew) {
+      this.broadcastMessage({ type: 'peer-joined', roomId, peerId });
+      this.announceMediaState();
+    }
+    const pc = this.connections.get(peerId);
+    if (pc && pc.connectionState !== 'closed') return;
+    if (this.negotiationLock.get(peerId) || this.applyingRemoteOffer.has(peerId) ||
+        this.disconnectTimers.has(peerId) || this.reconnectTimers.has(peerId)) return;
+    if (!isPoliteMeshPair(localId, peerId)) return;
+    console.log(`[WebRTC] 🕸️ ${peerId} is in the room graph with no call — dialing`);
+    void this.createOfferForPeer(peerId).catch(e =>
+      console.error('[WebRTC] Room graph offer failed:', e));
   }
 
   // ── WebRTC Negotiation ─────────────────────────────────────────────
@@ -1455,6 +1538,8 @@ export class WebRTCManager {
         if (this.connections.get(peerId) !== pc) return;
         if (!isScreenTrack && !participant.stream?.getTracks().includes(event.track)) return;
         if (isCameraTrack) participant.isVideoEnabled = true;
+        // RTP is arriving on their mic: a placeholder "muted" goes away.
+        if (event.track.kind === 'audio') this.clearMicPlaceholder(peerId);
         this.broadcastMessage({
           type: isScreenTrack ? 'screen-share-started' : 'peer-joined',
           roomId: this.currentRoomId ?? '',
@@ -1665,6 +1750,9 @@ export class WebRTCManager {
     this.participants.delete(peerId);
     this.meshSilentAt.delete(peerId);
     this.remoteMicExpected.delete(peerId);
+    this.micStateHeard.delete(peerId);
+    this.inboundAudio.delete(peerId);
+    this.audioWatchdogAt.delete(peerId);
     this.clearDisconnectTimer(peerId);
     this.clearReconnectTimer(peerId);
     this.reconnectAttempts.delete(peerId);
@@ -1729,7 +1817,20 @@ export class WebRTCManager {
   private async adoptOfferedTransceivers(peerId: string, pc: RTCPeerConnection): Promise<void> {
     for (const kind of ['audio', 'video'] as const) {
       const main = this.mediaTransceiver(pc, kind);
-      if (!main || main.mid === null) continue;
+      if (!main) {
+        // The offer had no slot of this kind (an older client, or a camera-
+        // less offer). Keep both directions symmetrical: add our own
+        // sendrecv slot now; the browser raises negotiationneeded once this
+        // answer settles and our offer negotiates it.
+        try {
+          const added = pc.addTransceiver(kind, { direction: 'sendrecv' });
+          const local = (kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks())
+            ?.find(t => t.readyState === 'live') ?? null;
+          if (local) await added?.sender?.replaceTrack(local);
+        } catch { /* ignore */ }
+        continue;
+      }
+      if (main.mid === null) continue;
       const local = (kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks())
         ?.find(t => t.readyState === 'live') ?? null;
       const screenSenders = new Set(this.screenSenders.values());
@@ -1921,6 +2022,9 @@ export class WebRTCManager {
     this.participants.clear();
     this.meshSilentAt.clear();
     this.remoteMicExpected.clear();
+    this.micStateHeard.clear();
+    this.inboundAudio.clear();
+    this.audioWatchdogAt.clear();
     this.reconnectAttempts.clear();
     this.negotiationLock.clear();
     this.negotiationNeeded.clear();
@@ -2086,9 +2190,16 @@ export class WebRTCManager {
           (!micTransceiver || micTransceiver.mid === null || micTransceiver.sender.track !== liveMic ||
             (micTransceiver.currentDirection !== 'sendrecv' && micTransceiver.currentDirection !== 'sendonly'));
 
-        if (halfOpen || receivingNothing || notSending) {
+        // Our camera/mic slots must stay sendrecv. A rollback or an old
+        // answer can leave a slot negotiated recvonly/inactive on our side
+        // while we want to send: re-offer (bounded) to bring it back.
+        const staleDirection = !!pc && state === 'connected' && !halfOpen && !notSending &&
+          this.enforceSendRecv(pc) && (this.directionRepairs.get(pc) ?? 0) < DIRECTION_REPAIR_MAX;
+        if (staleDirection && pc) this.directionRepairs.set(pc, (this.directionRepairs.get(pc) ?? 0) + 1);
+
+        if (halfOpen || receivingNothing || notSending || staleDirection) {
           this.lastRepairAt.set(peerId, now);
-          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending });
+          console.log(`[WebRTC] 🩺 media health repair for ${peerId}`, { state, receivingNothing, notSending, staleDirection });
           if (halfOpen) {
             this.attemptRecovery(peerId);
           } else if (notSending && liveMic && pc) {
@@ -2099,11 +2210,114 @@ export class WebRTCManager {
           } else {
             void this.ensureOfferToPeer(peerId).catch(() => {});
           }
+          continue;
         }
+        if (pc && state === 'connected') void this.watchInboundAudio(peerId, pc);
       }
       // Keep our own state fresh for anyone who missed the last announce.
       this.announceMediaState();
     }, MEDIA_HEALTH_INTERVAL_MS);
+  }
+
+  /**
+   * Make sure our camera and mic slots ask for sendrecv. Returns true when
+   * a negotiated slot is (or was) not carrying our side, so the caller
+   * renegotiates that one connection.
+   */
+  private enforceSendRecv(pc: RTCPeerConnection): boolean {
+    let stale = false;
+    for (const kind of ['audio', 'video'] as const) {
+      const t = this.mediaTransceiver(pc, kind);
+      if (!t || t.mid === null) continue;
+      if (t.direction !== 'sendrecv') {
+        try { t.direction = 'sendrecv'; } catch { /* ignore */ }
+        stale = true;
+      } else if (t.currentDirection === 'recvonly' || t.currentDirection === 'inactive') {
+        stale = true;
+      }
+    }
+    return stale;
+  }
+
+  /** Their audio is flowing: a placeholder "muted" (no media-state yet) clears. */
+  private clearMicPlaceholder(peerId: string): void {
+    if (this.micStateHeard.has(peerId)) return;
+    const participant = this.participants.get(peerId);
+    if (!participant || !participant.isMuted) return;
+    participant.isMuted = false;
+    this.remoteMicExpected.set(peerId, true);
+    this.broadcastMessage({
+      type: 'peer-media-state',
+      roomId: this.currentRoomId ?? '',
+      peerId,
+      username: participant.username || undefined,
+      camera: participant.isVideoEnabled,
+      mic: true,
+    });
+  }
+
+  private isPeerInRoom(peerId: string): boolean {
+    return !!this.currentRoomId && isRoomPeerPresent(this.currentRoomId, peerId);
+  }
+
+  /**
+   * Per-pair audio watchdog. When a connected peer who says their mic is on
+   * (and is still in the room) delivers no inbound audio packets for a few
+   * health samples, quietly renegotiate that one connection on the same
+   * RTCPeerConnection. Nobody else's call is touched, nothing is closed,
+   * and repairs are bounded per connection.
+   */
+  private async watchInboundAudio(peerId: string, pc: RTCPeerConnection): Promise<void> {
+    let packets: number | null;
+    try {
+      packets = inboundAudioPackets(await pc.getStats() as unknown as {
+        forEach: (cb: (entry: Record<string, unknown>) => void) => void;
+      });
+    } catch { return; }
+    if (!this.currentRoomId || this.connections.get(peerId) !== pc) return;
+    const prev = this.inboundAudio.get(peerId);
+    const samePc = prev?.pc === pc;
+    const flowing = packets !== null && packets > (samePc ? prev!.packets : 0);
+    // The repair budget is per connection for its whole life: a pair that
+    // keeps stalling and briefly recovering must not renegotiate forever.
+    if (flowing) this.clearMicPlaceholder(peerId);
+    // First sample on a connection only sets the baseline.
+    const stalls = samePc && !flowing ? prev!.stalls + 1 : 0;
+    this.inboundAudio.set(peerId, { pc, packets: packets ?? 0, stalls });
+    if (stalls < AUDIO_WATCHDOG_STALLS) return;
+
+    if (this.remoteMicExpected.get(peerId) !== true || !this.micStateHeard.has(peerId)) return;
+    if (!this.isPeerInRoom(peerId)) return;
+    if (pc.connectionState !== 'connected' || pc.signalingState !== 'stable') return;
+    if (this.negotiationLock.get(peerId) || this.applyingRemoteOffer.has(peerId) ||
+        this.disconnectTimers.has(peerId) || this.reconnectTimers.has(peerId)) return;
+    const now = Date.now();
+    const last = this.audioWatchdogAt.get(peerId);
+    if (last !== undefined && now - last < AUDIO_WATCHDOG_COOLDOWN_MS) return;
+    const repairs = this.audioWatchdogRepairs.get(pc) ?? 0;
+    if (repairs >= AUDIO_WATCHDOG_MAX_REPAIRS) return;
+    this.audioWatchdogRepairs.set(pc, repairs + 1);
+    this.audioWatchdogAt.set(peerId, now);
+    this.lastRepairAt.set(peerId, now);
+    this.inboundAudio.set(peerId, { pc, packets: packets ?? 0, stalls: 0 });
+    console.log(`[WebRTC] 🔈 No audio from ${peerId} — quiet renegotiation of that pair only`);
+    // Re-attach our tracks to the negotiated slots first, then re-offer.
+    await this.adoptLocalTracks(pc).catch(() => undefined);
+    void this.ensureOfferToPeer(peerId).catch(() => {});
+  }
+
+  /** Put our live mic/camera back on the negotiated sendrecv slots. */
+  private async adoptLocalTracks(pc: RTCPeerConnection): Promise<void> {
+    for (const kind of ['audio', 'video'] as const) {
+      const t = this.mediaTransceiver(pc, kind);
+      if (!t || t.mid === null) continue;
+      const local = (kind === 'audio' ? this.localStream?.getAudioTracks() : this.localStream?.getVideoTracks())
+        ?.find(track => track.readyState === 'live') ?? null;
+      if (local && t.sender.track !== local) await t.sender.replaceTrack(local);
+      if (t.direction !== 'sendrecv') {
+        try { t.direction = 'sendrecv'; } catch { /* ignore */ }
+      }
+    }
   }
 
   private stopMediaHealthCheck(): void {
@@ -2119,6 +2333,8 @@ export class WebRTCManager {
       this.signalUnsub();
       this.signalUnsub = null;
     }
+    this.roomWebUnsub?.();
+    this.roomWebUnsub = null;
     this.leaveRoom();
     this.stopMediaHealthCheck();
     this.messageHandlers.clear();

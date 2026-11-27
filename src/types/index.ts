@@ -65,8 +65,8 @@ export interface Notification {
   title?: string;
   /** Label for the `link` button, e.g. "Open wallet". */
   linkLabel?: string;
-  /** Host-verified deployment timestamp for app-update actions. */
-  appBuildAt?: number;
+  /** Host-verified release counter for app-update actions. */
+  appRelease?: number;
   read: boolean;
   createdAt: string;
 }

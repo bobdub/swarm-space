@@ -372,10 +372,14 @@ export class BlockchainP2PSync {
           await saveCreatorVault(v);
           addedVaults++;
         }
+        const { getCurrentUser } = await import("@/lib/auth");
+        const me = getCurrentUser()?.id;
         for (const h of data.profileTokenHoldings ?? []) {
           if (!h?.userId || !h?.tokenId) continue;
           const existing = await getProfileTokenHolding(h.userId, h.tokenId);
-          if (existing) continue;
+          // Our own holdings are never overwritten. Another member's (shown on their
+          // market, such as what the owner holds) follows the newest copy a peer has.
+          if (existing && (h.userId === me || !isNewerHolding(h, existing))) continue;
           await saveProfileTokenHolding(h);
           addedHoldings++;
         }
@@ -409,4 +413,12 @@ export class BlockchainP2PSync {
       interval: this.SYNC_INTERVAL,
     };
   }
+}
+
+/** Whether a peer's copy of another member's holding is newer than ours. */
+export function isNewerHolding(incoming: ProfileTokenHolding, existing: ProfileTokenHolding): boolean {
+  const next = Date.parse(incoming.lastUpdated);
+  const prev = Date.parse(existing.lastUpdated);
+  return Number.isFinite(incoming.amount) && incoming.amount >= 0 && Number.isFinite(next)
+    && next <= Date.now() + 5 * 60_000 && (!Number.isFinite(prev) || next > prev);
 }

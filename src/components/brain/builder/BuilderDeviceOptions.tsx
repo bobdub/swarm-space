@@ -4,6 +4,10 @@
  * so nobody drops; with the camera or mic off, the pick is remembered and
  * used the next time it turns on. Kept here, not in the live HUD, so the
  * world isn't crowded with buttons.
+ *
+ * Also shown in the Brain chat Settings tab. Every mounted copy reads the
+ * same WebRTC manager and saved preference, and a switch made in one copy
+ * is broadcast (`DEVICE_OPTIONS_CHANGED_EVENT`) so the other refreshes.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { Mic, Video } from 'lucide-react';
@@ -12,6 +16,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { getWebRTCManager } from '@/lib/webrtc/manager';
 
 const PREFS_KEY = 'swarm-preferred-devices';
+
+/** Fired on window after any copy of these pickers switches an input. */
+export const DEVICE_OPTIONS_CHANGED_EVENT = 'swarm-device-options-changed';
 
 type Kind = 'audio' | 'video';
 
@@ -27,7 +34,17 @@ function preferredId(kind: Kind): string | null {
   }
 }
 
-export function BuilderDeviceOptions() {
+interface BuilderDeviceOptionsProps {
+  /** Test id for the wrapper; lets two mounted copies be told apart. */
+  testId?: string;
+  /** Shown instead of nothing when no inputs can be listed. */
+  emptyHint?: string;
+}
+
+export function BuilderDeviceOptions({
+  testId = 'builder-device-options',
+  emptyHint,
+}: BuilderDeviceOptionsProps = {}) {
   const { user } = useAuth();
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
@@ -56,7 +73,11 @@ export function BuilderDeviceOptions() {
     if (!md?.addEventListener) return;
     const onChange = () => { void refresh(); };
     md.addEventListener('devicechange', onChange);
-    return () => md.removeEventListener('devicechange', onChange);
+    window.addEventListener(DEVICE_OPTIONS_CHANGED_EVENT, onChange);
+    return () => {
+      md.removeEventListener('devicechange', onChange);
+      window.removeEventListener(DEVICE_OPTIONS_CHANGED_EVENT, onChange);
+    };
   }, [refresh]);
 
   const pick = useCallback(async (kind: Kind, deviceId: string) => {
@@ -72,13 +93,18 @@ export function BuilderDeviceOptions() {
     } finally {
       setBusy(null);
       void refresh();
+      window.dispatchEvent(new Event(DEVICE_OPTIONS_CHANGED_EVENT));
     }
   }, [busy, refresh, user]);
 
-  if (cameras.length === 0 && mics.length === 0) return null;
+  if (cameras.length === 0 && mics.length === 0) {
+    return emptyHint ? (
+      <p className="text-xs text-foreground/50" data-testid={`${testId}-empty`}>{emptyHint}</p>
+    ) : null;
+  }
 
   return (
-    <div className="rounded-lg border border-border/40 bg-muted/20 p-2" data-testid="builder-device-options">
+    <div className="rounded-lg border border-border/40 bg-muted/20 p-2" data-testid={testId}>
       <DeviceRow
         kind="video"
         label="Camera"

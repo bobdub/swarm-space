@@ -2,7 +2,8 @@ import { getCurrentUser, getCachedPrivateKey } from "@/lib/auth";
 import { getCreditBalance, tipUser, transferCredits, CREDIT_REWARDS } from "@/lib/credits";
 import { getSwarmChain } from "../chain";
 import { getAllLiveChains, getChainBalance } from "../multiChainManager";
-import { getUserProfileTokenHoldings } from "../profileTokenBalance";
+import { applyCreatorTokenTips, getUserProfileTokenHoldings } from "../profileTokenBalance";
+import { creatorTipMove, creatorTokenAmount, creatorTokenUnits, holdingUnits, isCreatorTokenTip, planCreatorTokenTip } from "./creatorTokenTips";
 import { getAppWalletBalances } from "./appWallet";
 import { customTokenNetwork, customTokenRef, getAvailableTokenBalance, getRecordedTokenBalance, listCustomTokens } from "../deposits/customTokens";
 import { TOKEN_NETWORKS, tokenCurrency } from "../deposits/tokenNetworks";
@@ -26,6 +27,9 @@ export type { TipAsset } from "./tipRules";
 export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
   const chain = getSwarmChain();
   await chain.whenReady();
+  const ledger = [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()];
+  // Holdings first take in every signed creator-token tip this device has on its ledger.
+  await reconcileCreatorTokenTips(userId, ledger).catch(() => 0);
   const [credits, chains, holdings, weights] = await Promise.all([
     getCreditBalance(userId), getAllLiveChains(), getUserProfileTokenHoldings(userId), getTipWeights(userId),
   ]);
@@ -40,10 +44,13 @@ export async function getWalletTipAssets(userId: string): Promise<TipAsset[]> {
     });
   }
   for (const holding of holdings) {
-    if (holding.amount > 0) assets.push({ id: `creator:${holding.tokenId}`, ticker: holding.ticker,
+    if (!(holding.amount > 0)) continue;
+    // What the signed creator-token ledger lets this holder move, never more than is held here.
+    const { spendableUnits } = planCreatorTokenTip(ledger, userId, holding.tokenId, holdingUnits(holding.amount));
+    assets.push({ id: `creator:${holding.tokenId}`, ticker: holding.ticker,
       name: "Creator token", kind: "creator", tokenId: holding.tokenId,
-      creatorUserId: holding.creatorUserId, balance: holding.amount,
-      unavailable: "Creator token tips await verified ownership settlement. No funds will be deducted." });
+      creatorUserId: holding.creatorUserId, balance: creatorTokenAmount(spendableUnits),
+      ...(spendableUnits > 0n ? {} : { unavailable: "This creator-token holding cannot be settled on the ledger yet. No funds will be deducted." }) });
   }
   const bridge = getAppWalletBalances(userId);
   const external = { ...bridge, MINTME: mintMeAmount(chain.getNativeMintMeBalanceUnits(userId)) };
@@ -72,6 +79,16 @@ export async function getTipWeights(userId: string): Promise<TipWeight[]> {
   return availableTipWeights(coins, userId);
 }
 
+/** Apply the signed creator-token tips on `ledger` that send to or from `userId` to this device's holdings, once each. */
+export async function reconcileCreatorTokenTips(userId: string, ledger: readonly SwarmTransaction[]): Promise<number> {
+  const moves = ledger.filter(tx => tx.from === userId || tx.to === userId).map(creatorTipMove)
+    .filter((m): m is NonNullable<typeof m> => m !== null);
+  if (moves.length === 0) return 0;
+  const applied = await applyCreatorTokenTips(userId, moves);
+  if (applied > 0 && typeof window !== "undefined") window.dispatchEvent(new CustomEvent("creator-vault-update", { detail: { source: "tip" } }));
+  return applied;
+}
+
 export async function receiveWalletTip(tx: SwarmTransaction): Promise<boolean> {
   // A peer's gift to the donations vault: note what happened to it for the donor board.
   const peerGift = tx?.to === INFINITY_GIFT_VAULT && tx.from !== getCurrentUser()?.id;
@@ -87,6 +104,10 @@ export async function receiveWalletTip(tx: SwarmTransaction): Promise<boolean> {
   const known = chain.hasTransaction(tx.id);
   if (!await chain.acceptWalletTip(tx)) { note("the sender's balance on this ledger doesn't cover it"); return false; }
   if (!known) note(null);
+  const uid = getCurrentUser()?.id;
+  if (uid && isCreatorTokenTip(tx) && (tx.from === uid || tx.to === uid)) {
+    await reconcileCreatorTokenTips(uid, [tx]).catch(() => 0);
+  }
   window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: tx }));
   window.dispatchEvent(new Event("wallet-tip-updated"));
   return true;
@@ -129,6 +150,8 @@ export async function sendWalletTip(params: {
       throw new Error("Only SWARM tips carry an engraving weight");
     }
     const weight = asset.id === "chain:SWARM" ? resolveTipWeight(params.weight, asset.weights ?? ["hollow"]) : undefined;
+    const creatorSettlement = asset.kind === "creator" && asset.tokenId
+      ? await planCreatorSettlement(user.id, asset.tokenId, params.amount) : undefined;
     await assertStorageWritable();
     const privateKey = await getCachedPrivateKey();
     if (!privateKey) throw new Error("Your wallet is locked. Sign in again before sending tokens.");
@@ -144,6 +167,7 @@ export async function sendWalletTip(params: {
           currency: tokenCurrency(asset.id.slice(CUSTOM_TIP_ASSET_PREFIX.length)), decimals: asset.decimals,
           amountUnits: customTipUnits(params.amount, asset.decimals).toString(),
         } : {}),
+        ...(creatorSettlement ?? {}),
         intent: params.intent ?? "tip", message: message ?? null,
         ...(weight ? { tipFormat: TIP_FORMAT_VERSION, weight } : {}),
         fromAddress: await nativeWalletAddress(user.id), toAddress: await nativeWalletAddress(recipient.id) },
@@ -153,6 +177,17 @@ export async function sendWalletTip(params: {
     await broadcastTip(tx).catch(() => {});
     return tx;
   } finally { sending = false; }
+}
+
+/** The signed settlement fields of a creator-token tip: exact units and the sender's opening. */
+async function planCreatorSettlement(userId: string, tokenId: string, amount: number): Promise<{ amountUnits: string; openingUnits: string }> {
+  const chain = getSwarmChain();
+  const ledger = [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()];
+  const holding = (await getUserProfileTokenHoldings(userId)).find(h => h.tokenId === tokenId);
+  const { openingUnits, spendableUnits } = planCreatorTokenTip(ledger, userId, tokenId, holdingUnits(holding?.amount ?? 0));
+  const units = creatorTokenUnits(amount);
+  if (units > spendableUnits) throw new Error("Insufficient creator-token balance");
+  return { amountUnits: units.toString(), openingUnits: openingUnits.toString() };
 }
 
 /** App-wide reception and durable-ledger rebroadcast; no route owns delivery. */
@@ -184,7 +219,10 @@ export function startWalletTipSync(): () => void {
     if (!uid || stopped) return;
     const chain = getSwarmChain();
     await chain.whenReady();
-    await notifyReceivedTips([...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()], uid);
+    const ledger = [...chain.getChain().flatMap(b => b.transactions), ...chain.getPendingTransactions()];
+    // Creator-token tips that arrived inside a synced block land in holdings here too.
+    await reconcileCreatorTokenTips(uid, ledger).catch(() => 0);
+    await notifyReceivedTips(ledger, uid);
   };
   const replay = async () => {
     void notifyMine().catch(() => {});

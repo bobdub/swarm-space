@@ -283,9 +283,9 @@ const Notifications = () => {
                           </Link>
                         )}
                         {notif.type === 'app_update' && (
-                          updateState.status === 'available' && (notif.appBuildAt ?? 0) <= updateState.deployed.builtAt ? (
-                            <Button type="button" size="sm" className="h-7 gap-1 text-xs" onClick={() => watch.refreshNow()}>Update App</Button>
-                          ) : <span className="text-xs text-muted-foreground">{watch.getLocalBuild().builtAt >= (notif.appBuildAt ?? Infinity) ? 'Updated' : 'Waiting for update confirmation'}</span>
+                          updateState.status === 'available' && (notif.appRelease ?? 0) <= updateState.deployed.release ? (
+                            <Button type="button" size="sm" className="h-7 gap-1 text-xs" onClick={() => watch.refreshNow()}>Update Now</Button>
+                          ) : <span className="text-xs text-muted-foreground">{watch.getLocalRelease().release >= (notif.appRelease ?? Infinity) ? 'Updated' : 'Waiting for update confirmation'}</span>
                         )}
                       </div>
                     </div>
