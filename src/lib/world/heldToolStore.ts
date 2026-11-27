@@ -11,6 +11,7 @@
  * because we only mutate the store after pickup commits delete.
  */
 import type { PlacementRecord } from '@/lib/world/worldPlacementsStore';
+import { setToolTarget } from '@/lib/world/toolTargetStore';
 
 export interface HeldTool {
   prefabId: string;
@@ -30,6 +31,9 @@ function notify(): void {
 export function getHeldTool(): HeldTool | null { return held; }
 
 export function setHeldTool(next: HeldTool | null): void {
+  // A spot picked for one tool is not a spot for the next: switching tools
+  // (or putting one down) forgets it, so the new tool works where it swings.
+  if ((held?.prefabId ?? null) !== (next?.prefabId ?? null)) setToolTarget(null);
   held = next;
   notify();
 }
