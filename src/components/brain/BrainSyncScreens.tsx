@@ -11,6 +11,7 @@ import { isPeerMuted, subscribeMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { TileVideo } from './BrainVideoGrid';
 import { cn } from '@/lib/utils';
 import { useFloatingRect, type FloatingRect } from '@/hooks/useFloatingRect';
+import { NO_LOOK } from '@/lib/brain/lookGuard';
 
 interface RemoteScreen {
   peerId: string;
@@ -231,6 +232,7 @@ function ScreenWindow({ share, label, expanded = false, floating, onExpand, onDo
     <div
       role="region"
       aria-label={label}
+      {...NO_LOOK}
       className={cn(
         'flex flex-col overflow-hidden border border-border shadow-xl',
         // Full size stays opaque: a backdrop blur that large is recomputed
