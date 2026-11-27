@@ -2111,7 +2111,6 @@ export class StandaloneSwarmMesh {
     // Listen for profile updates so avatar changes propagate in real-time
     if (typeof window !== 'undefined') {
       window.addEventListener('profile-updated', this._onProfileUpdated);
-      window.addEventListener('media-coin-torrent-filled', this._onCoinTorrentFilled);
     }
 
     await this.attachContentLifecycle();
@@ -2189,24 +2188,6 @@ export class StandaloneSwarmMesh {
         this.sendProfileExchange(conn);
       }
     }
-  };
-
-  /**
-   * A media coin filled the empty spots of a post's torrent
-   * (`TORRENT_FILLED_EVENT` in mediaCoinTorrentFill.ts). Show the new
-   * progress, and once every chunk is here treat it like a finished pull:
-   * stop retrying, seed it, and let the post re-render its media.
-   */
-  private _onCoinTorrentFilled = (evt: Event) => {
-    const detail = (evt as CustomEvent<{ fileId?: string; status?: string; filled?: number }>).detail;
-    const fileId = typeof detail?.fileId === 'string' ? detail.fileId : null;
-    if (!fileId) return;
-    void this.emitTransferProgress(fileId);
-    if (detail.status !== 'complete') return;
-    this.clearAssetRetry(fileId);
-    clearRetryExhausted(fileId);
-    this.announceSeeding(fileId);
-    if (detail.filled) window.dispatchEvent(new Event('p2p-posts-updated'));
   };
 
   // ── Departures ────────────────────────────────────────────────────
@@ -2299,7 +2280,6 @@ export class StandaloneSwarmMesh {
     this.stopRelayFallback();
     if (typeof window !== 'undefined') {
       window.removeEventListener('profile-updated', this._onProfileUpdated);
-      window.removeEventListener('media-coin-torrent-filled', this._onCoinTorrentFilled);
     }
     const peer = this.peer;
     this.peer = null;

@@ -53,6 +53,16 @@ interface FileUploadProps {
   onEncryptingChange?: (encrypting: boolean) => void;
   maxFiles?: number;
   maxFileSize?: number; // in bytes
+  /** Upload space shared by every file (defaults to no shared cap). */
+  maxTotalSize?: number;
+  /**
+   * Announce each file to the mesh as soon as it is ready. PostComposer
+   * turns this off and announces at post time, because a post above the
+   * torrent size goes by Media Coin and must never be seeded as a torrent.
+   */
+  announceOnReady?: boolean;
+  /** Extra line under the limits (e.g. how the post will travel). */
+  hint?: string;
   acceptedTypes?: string[];
 }
 
@@ -78,6 +88,9 @@ export const FileUpload = ({
   onEncryptingChange,
   maxFiles = 10,
   maxFileSize = 20 * 1024 * 1024, // 20MB
+  maxTotalSize,
+  announceOnReady = true,
+  hint,
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
   const [files, setFiles] = useState<FileWithProgress[]>([]);
@@ -109,11 +122,13 @@ export const FileUpload = ({
 
     const fileArray = Array.from(selectedFiles);
     
-    // Validate file count
-    if (files.length + fileArray.length > maxFiles) {
+    // Validate file count (failed files no longer hold a slot)
+    const kept = files.filter((f) => f.status !== "error");
+    if (kept.length + fileArray.length > maxFiles) {
       toast.error(`Maximum ${maxFiles} files allowed`);
       return;
     }
+    let usedBytes = kept.reduce((sum, f) => sum + f.file.size, 0);
 
     // Validate and add files
     const newFiles: FileWithProgress[] = [];
@@ -126,6 +141,13 @@ export const FileUpload = ({
         );
         continue;
       }
+      if (maxTotalSize && usedBytes + file.size > maxTotalSize) {
+        toast.error(
+          `${file.name} would take this post over ${formatUploadLimit(maxTotalSize)} of uploads.`
+        );
+        continue;
+      }
+      usedBytes += file.size;
 
       let previewUrl: string | undefined;
       if (isVideo(file)) {
@@ -202,8 +224,8 @@ export const FileUpload = ({
 
       updateFile(item.id, { status: "done", manifest, progress: 100 });
 
-      // Announce to P2P network
-      announceContent(manifest.fileId);
+      // Announce to P2P network (PostComposer announces at post time instead)
+      if (announceOnReady) announceContent(manifest.fileId);
 
       onFilesReady([manifest]);
       toast.success(`${source.name} encrypted and ready`);
@@ -279,8 +301,11 @@ export const FileUpload = ({
         <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
         <p className="text-lg font-medium mb-2">Drop files here or click to browse</p>
         <p className="text-sm text-muted-foreground">
-          Max {maxFiles} files, up to {limitLabel} each (mesh limit)
+          {maxTotalSize
+            ? `Max ${maxFiles} files, ${formatUploadLimit(maxTotalSize)} in total (mesh limit)`
+            : `Max ${maxFiles} files, up to ${limitLabel} each (mesh limit)`}
         </p>
+        {hint && <p className="text-xs text-muted-foreground mt-1">{hint}</p>}
         <p className="text-xs text-muted-foreground mt-1">
           Longer audio is compressed to fit automatically.
         </p>

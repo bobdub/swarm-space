@@ -35,7 +35,11 @@ async function hydrateMissingMinedWalletCoins(limit: number): Promise<number> {
   return user ? hydrateMinedWalletCoins(user.id, limit) : 0;
 }
 
-async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
+/**
+ * Hollow (free) mined wallet coins of the signed-in user, least loaded
+ * first. Shared with Media Coin Support (mediaCoinRuntime.ts).
+ */
+export async function freeMinedWalletCoins(): Promise<SwarmCoin[]> {
   try {
     const { getCurrentUser } = await import("@/lib/auth");
     const user = getCurrentUser();
@@ -187,11 +191,10 @@ export async function runWrapSweep(): Promise<{ engraved: number; waiting: numbe
 
     await transferEngravedCoinToVault(coin, peerId, file);
     engraved += 1;
-
-    // Send a copy of the content, engraved in this coin, around the mesh.
-    void import("./mediaCoinRuntime")
-      .then((m) => m.launchMediaCoinLoop(coin.coinId, file))
-      .catch(() => {});
+    // Vault files travel by torrent; the coin is their archival record
+    // only. Media Coin courier content launches its own coins at post
+    // time (mediaCoinRuntime.publishCourierFiles), so nothing here sends
+    // bytes or back-fills a torrent.
   }
 
   const waiting = awaiting.length - engraved;

@@ -1,4 +1,5 @@
 import { Share2, MoreHorizontal, Loader2, Coins, Pencil, Trash2, Ban, Eye, EyeOff, Lock, Unlock, CloudOff, Upload, WifiOff, Download, Star, Unplug } from "lucide-react";
+import { MediaCoinAttachments, MediaCoinSupportedBadge } from "@/components/MediaCoinAttachments";
 import { notifyModeration } from "@/lib/notifications";
 import { usePostFavorite } from "@/hooks/usePostFavorite";
 import { formatDistanceToNow } from "date-fns";
@@ -1370,10 +1371,18 @@ function PostCardBody({ post }: PostCardProps) {
                 </>
               )}
 
+              {!nsfwHidden && !isWalledHidden && !isStreamPost && (post.mediaCoins?.length ?? 0) > 0 && (
+                <div className="space-y-2">
+                  <MediaCoinAttachments refs={post.mediaCoins!} />
+                  <MediaCoinSupportedBadge refs={post.mediaCoins!} authorId={post.author} extraNames={post._mediaSupporters} />
+                </div>
+              )}
+
               {!nsfwHidden &&
                 !isWalledHidden &&
                 !isStreamPost &&
                 post.type !== "text" &&
+                (post.mediaCoins?.length ?? 0) === 0 &&
                 (!post.manifestIds || post.manifestIds.length === 0) && (
                 <div
                   className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-[hsla(174,59%,56%,0.18)] bg-[hsla(245,70%,12%,0.45)] text-sm text-foreground/60 backdrop-blur"

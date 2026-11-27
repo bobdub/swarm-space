@@ -30,7 +30,15 @@ import { containsEntityMention, bindMentions, insertMention, mentionNotification
 import type { MentionBinding } from "@/types";
 import { createNotification } from "@/lib/notifications";
 import { canUseMemberFeatures, isGuestUser } from '@/lib/preview/guestAccess';
-import { MESH_POST_UPLOAD_LIMIT_BYTES } from "@/lib/media/meshUploadLimits";
+import {
+  MEDIA_COIN_PASS_MAX_BYTES,
+  POST_UPLOAD_MAX_FILES,
+  POST_UPLOAD_TOTAL_LIMIT_BYTES,
+  TORRENT_DISTRIBUTION_MAX_BYTES,
+  formatUploadLimit,
+  postDistributionFor,
+} from "@/lib/media/meshUploadLimits";
+import type { MediaCoinPostRef } from "@/types";
 
 interface PostComposerProps {
   onCancel?: () => void;
@@ -171,10 +179,35 @@ export const PostComposer = ({
       return;
     }
 
+    const totalMediaBytes = attachedManifests.reduce((sum, m) => sum + (m.size || 0), 0);
+    if (attachedManifests.length > POST_UPLOAD_MAX_FILES) {
+      toast.error(`A post holds at most ${POST_UPLOAD_MAX_FILES} uploads`);
+      return;
+    }
+    if (totalMediaBytes > POST_UPLOAD_TOTAL_LIMIT_BYTES) {
+      toast.error(`A post holds at most ${formatUploadLimit(POST_UPLOAD_TOTAL_LIMIT_BYTES)} of uploads`);
+      return;
+    }
+
     setLoading(true);
     try {
-      const manifestIds = attachedManifests.map((manifest) => manifest.fileId);
-      const postType = manifestIds.length > 0
+      // 50 MB or less travels by torrent; above that the whole post goes
+      // by Media Coin, so its files are never announced or seeded as torrents.
+      const distribution = postDistributionFor(totalMediaBytes);
+      const postId = `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      let manifestIds = attachedManifests.map((manifest) => manifest.fileId);
+      let mediaCoins: MediaCoinPostRef[] | undefined;
+      if (distribution === "media-coin" && attachedManifests.length > 0) {
+        const { publishCourierFiles } = await import("@/lib/blockchain/mediaCoinRuntime");
+        const toastId = toast.loading("Packing media into Media Coins…");
+        try {
+          mediaCoins = await publishCourierFiles(attachedManifests, { postId, creatorId: user.id });
+        } finally {
+          toast.dismiss(toastId);
+        }
+        manifestIds = [];
+      }
+      const postType = attachedManifests.length > 0
         ? (attachedManifests[0].mime.startsWith("image/")
           ? "image"
           : attachedManifests[0].mime.startsWith("video/")
@@ -220,7 +253,7 @@ export const PostComposer = ({
       } catch { /* non-critical */ }
 
       const post: Post = {
-        id: `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: postId,
         author: user.id,
         authorName: user.displayName || user.username,
         authorAvatarRef: user.profile?.avatarRef,
@@ -233,6 +266,7 @@ export const PostComposer = ({
         content: content.trim(),
         mentions: await bindMentions(content.trim(), trimMentionBindings(content, mentions)),
         manifestIds,
+        ...(mediaCoins?.length ? { mediaCoins } : {}),
         createdAt: new Date().toISOString(),
         nsfw: isNSFW,
         likes: 0,
@@ -638,6 +672,15 @@ export const PostComposer = ({
           {attachedManifests.length > 0 && (
             <div className="space-y-2">
               <Label className="text-sm font-semibold uppercase tracking-wider">Attachments</Label>
+              <p className="text-xs text-muted-foreground" data-testid="post-distribution">
+                {(() => {
+                  const total = attachedManifests.reduce((sum, m) => sum + (m.size || 0), 0);
+                  const mb = (total / (1024 * 1024)).toFixed(1);
+                  return postDistributionFor(total) === "media-coin"
+                    ? `${mb} MB · travels by Media Coin (over ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)})`
+                    : `${mb} MB · travels by torrent`;
+                })()}
+              </p>
               <div className="flex flex-wrap gap-2">
                 {attachedManifests.map((manifest) => (
                   <div
@@ -664,8 +707,11 @@ export const PostComposer = ({
             <FileUpload
               onFilesReady={handleFilesReady}
               onEncryptingChange={setIsEncrypting}
-              maxFiles={10}
-              maxFileSize={MESH_POST_UPLOAD_LIMIT_BYTES}
+              maxFiles={POST_UPLOAD_MAX_FILES}
+              maxFileSize={MEDIA_COIN_PASS_MAX_BYTES}
+              maxTotalSize={POST_UPLOAD_TOTAL_LIMIT_BYTES}
+              announceOnReady={false}
+              hint={`Up to ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)} travels by torrent; bigger posts go by Media Coin.`}
             />
           ) : (
             <Button
