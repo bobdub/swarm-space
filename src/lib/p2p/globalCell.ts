@@ -135,6 +135,37 @@ const BC_BEACON_CHANNEL = 'global-cell-beacon';
 /** Debounce window for event-driven Bus evaluation after a new beacon arrives. */
 const BUS_EVENT_DEBOUNCE_MS = 300;
 
+/**
+ * Knock-back: when a connected peer first hears an unknown peer, it answers
+ * with its own beacon so the newcomer learns about it within one relay hop
+ * instead of waiting for the next scheduled beacon. Throttled so a burst of
+ * newcomers (or a relay replaying history) costs at most one extra beacon
+ * per window.
+ */
+export const KNOCK_BACK_MIN_INTERVAL_MS = 2_500;
+
+/** Knock-back decision (pure — exported for tests). */
+export function shouldKnockBack(
+  isNew: boolean,
+  beaconTs: number,
+  localConns: number,
+  lastBeaconAt: number,
+  nowTs = Date.now(),
+): boolean {
+  if (!isNew || localConns <= 0) return false;
+  // Replayed history from the relay is not a live newcomer.
+  if (nowTs - beaconTs > GLOBAL_CELL_STALE_THRESHOLD) return false;
+  return nowTs - lastBeaconAt >= KNOCK_BACK_MIN_INTERVAL_MS;
+}
+
+/**
+ * How long an isolated newcomer may wait before a helper on duty stops
+ * waiting for it to dial and dials it instead. The newcomer normally dials
+ * first (see shouldLocalDial); the grace keeps both sides from offering at
+ * once while it does.
+ */
+export const NEWCOMER_RESCUE_GRACE_MS = 10_000;
+
 /** Coarse location tag used to prioritise peers sharing the same surface. */
 function currentLocationTag(): string {
   try {
@@ -706,6 +737,7 @@ class GlobalCell {
 
     const rolesChanged = (existing?.roles?.join(',') ?? '') !== (beacon.roles?.join(',') ?? '');
     if (isNew || rolesChanged) this.emitGatewayPeers();
+    if (isNew) this.maybeKnockBack(beacon);
 
     recordP2PDiagnostic({
       level: 'info',
@@ -730,6 +762,22 @@ class GlobalCell {
 
     // Event-driven Bus evaluation: don't wait up to 15s for the prune tick.
     this.scheduleBusEvaluation();
+  }
+
+  /** Answer a newly discovered peer with our own beacon (throttled). */
+  private maybeKnockBack(beacon: PresenceBeacon): void {
+    if (!this.running) return;
+    let localConns = 0;
+    try {
+      const stats = getSwarmMeshStandalone().getStats();
+      if (stats.phase !== 'online') return;
+      localConns = stats.connectedPeers ?? 0;
+    } catch {
+      return;
+    }
+    if (!shouldKnockBack(true, beacon.ts, localConns, this.lastBeaconAt)) return;
+    console.log(`${LOG} 🚪 Knock-back to new peer ${beacon.peerId.slice(0, 16)}`);
+    this.announcePresence();
   }
 
   /** Debounced Bus cycle triggered by beacon arrivals. */
@@ -846,8 +894,12 @@ class GlobalCell {
         };
       })
       // Deterministic arbitration — exactly one side of every pair dials,
-      // which removes the simultaneous-offer (glare) collisions.
-      .filter((peer) => shouldLocalDial(localConns, peer.remoteConns, localId, peer.peerId));
+      // which removes the simultaneous-offer (glare) collisions. Helpers on
+      // duty also pull in newcomers that have waited past the grace window.
+      .filter((peer) => shouldLocalDial(localConns, peer.remoteConns, localId, peer.peerId, {
+        helperOnDuty: isHelperOnDuty(localId, localConns, nowTs),
+        remoteWaitMs: peer.waitAgeMs,
+      }));
 
     if (waiting.length === 0) {
       this.maybeForceLoopGuarantee(nowTs);
@@ -964,7 +1016,10 @@ function clamp01(x: number): number {
  * at once, which forces both into a retry cooldown).
  *
  * Rules:
- *   - Isolated peer dials a connected peer (the connected side stays passive).
+ *   - Isolated peer dials a connected peer (the connected side stays passive),
+ *     except that a helper on duty dials an isolated newcomer that has waited
+ *     at least NEWCOMER_RESCUE_GRACE_MS: by then the newcomer's own dial has
+ *     either failed or never happened (it may not have heard us).
  *   - Otherwise (both isolated, both connected, or unknown) the lower peerId dials.
  */
 export function shouldLocalDial(
@@ -972,10 +1027,13 @@ export function shouldLocalDial(
   remoteConns: number | null,
   localPeerId: string,
   remotePeerId: string,
+  options: { helperOnDuty?: boolean; remoteWaitMs?: number } = {},
 ): boolean {
   if (remoteConns !== null) {
     if (localConns === 0 && remoteConns > 0) return true;
-    if (localConns > 0 && remoteConns === 0) return false;
+    if (localConns > 0 && remoteConns === 0) {
+      return options.helperOnDuty === true && (options.remoteWaitMs ?? 0) >= NEWCOMER_RESCUE_GRACE_MS;
+    }
   }
   return localPeerId < remotePeerId;
 }
