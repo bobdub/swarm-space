@@ -13,6 +13,8 @@ export function isBrainScenePath(pathname: string): boolean {
 }
 
 let open = false;
+/** Collapsed into the bar at the bottom of the screen (like a minimized screen share). */
+let docked = false;
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -20,9 +22,22 @@ function emit(): void {
 }
 
 export function setNetworkChatOpen(next: boolean): void {
-  if (open === next) return;
+  // Closing forgets the dock, so Chat from the menu always opens the window.
+  const nextDocked = next ? docked : false;
+  if (open === next && docked === nextDocked) return;
   open = next;
+  docked = nextDocked;
   emit();
+}
+
+export function setNetworkChatDocked(next: boolean): void {
+  if (docked === next) return;
+  docked = next;
+  emit();
+}
+
+export function isNetworkChatDocked(): boolean {
+  return docked;
 }
 
 export function isNetworkChatOpen(): boolean {
@@ -40,7 +55,12 @@ export function useNetworkChatOpen(): boolean {
   return useSyncExternalStore(subscribeNetworkChat, isNetworkChatOpen, () => false);
 }
 
-/** Open the network chat panel (main-menu "Chat"). */
+export function useNetworkChatDocked(): boolean {
+  return useSyncExternalStore(subscribeNetworkChat, isNetworkChatDocked, () => false);
+}
+
+/** Open the network chat panel (main-menu "Chat"); a docked chat pops back up. */
 export function requestOpenNetworkChat(): void {
   setNetworkChatOpen(true);
+  setNetworkChatDocked(false);
 }
