@@ -21,6 +21,7 @@ import {
   spendHarvested,
   recordHarvestMany,
   recordHarvestForProject,
+  type BagScope,
 } from './harvestedInventory';
 import {
   materialBagParts,
@@ -32,6 +33,12 @@ import {
 } from './labMaterials';
 
 export const CRAFT_FILL_CAP = 0.85;
+
+/**
+ * A coin is an online asset, so crafting draws only goods gathered in
+ * online play; offline gathers stay local. Refunds go back to the online bag.
+ */
+const ONLINE_ONLY: BagScope = { onlineOnly: true };
 
 /** Standard atomic mass for the elements available in-world (g/mol). */
 const ATOMIC_MASS: Record<string, number> = {
@@ -241,7 +248,7 @@ export type DepositResult =
 
 /**
  * Deposit `count` atoms of `symbol` into the coin's craft buffer.
- * Spends from the global harvested inventory. Hard-capped at 0.85 fill.
+ * Spends from the online harvested inventory. Hard-capped at 0.85 fill.
  */
 export function deposit(
   coin: SwarmCoin,
@@ -258,7 +265,7 @@ export function deposit(
   };
   if (cur.fill >= CRAFT_FILL_CAP) return { ok: false, reason: 'at-cap' };
 
-  const spent = spendHarvested([{ symbol, count }]);
+  const spent = spendHarvested([{ symbol, count }], ONLINE_ONLY);
   if (!spent) return { ok: false, reason: 'insufficient-atoms' };
 
   const nextContents = { ...cur.contents, [symbol]: (cur.contents[symbol] ?? 0) + count };
@@ -299,7 +306,7 @@ export function depositMaterial(
   const nextContents = { ...cur.contents, [key]: (cur.contents[key] ?? 0) + units };
   const raw = coin.maxWeight > 0 ? contentsMass(nextContents) / coin.maxWeight : 0;
   if (raw > CRAFT_FILL_CAP + 1e-9) return { ok: false, reason: 'at-cap' };
-  if (!spendLabMaterial(material, units)) return { ok: false, reason: 'insufficient-atoms' };
+  if (!spendLabMaterial(material, units, ONLINE_ONLY)) return { ok: false, reason: 'insufficient-atoms' };
 
   const updated: CraftProgress = { ...cur, contents: nextContents, fill: Math.min(CRAFT_FILL_CAP, raw), updatedAt: now };
   progress.set(coin.coinId, updated);
@@ -327,10 +334,10 @@ export async function cancelCraft(coinId: string): Promise<void> {
   const parts: { symbol: string; count: number }[] = [];
   for (const [key, count] of Object.entries(cur.contents)) {
     const mat = materialFromKey(key);
-    if (mat) refundLabMaterial(mat.id, count);
+    if (mat) refundLabMaterial(mat.id, count, 'online');
     else parts.push({ symbol: key, count });
   }
-  if (parts.length) recordHarvestMany(parts);
+  if (parts.length) recordHarvestMany(parts, 'online');
   progress.delete(coinId);
   await deleteOne(coinId);
   broadcast({ type: 'delete', coinId });

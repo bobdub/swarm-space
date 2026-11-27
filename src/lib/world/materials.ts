@@ -14,7 +14,9 @@ import {
   getHarvested,
   listHarvested,
   subscribeHarvested,
-  spendHarvested,
+  spendHarvestedDraws,
+  type BagDraw,
+  type BagScope,
 } from '@/lib/remix/harvestedInventory';
 import { getPrefab, type Prefab } from '@/lib/brain/prefabHouseCatalog';
 
@@ -66,9 +68,9 @@ export function isGatheredGood(id: string): id is GatheredGoodId {
   return GATHERED_GOOD_IDS.has(id);
 }
 
-export function gatheredGoodTotals(): Record<GatheredGoodId, number> {
+export function gatheredGoodTotals(scope?: BagScope): Record<GatheredGoodId, number> {
   const out = {} as Record<GatheredGoodId, number>;
-  for (const g of GATHERED_GOODS) out[g.id] = Math.floor(getHarvested(`good:${g.id}`));
+  for (const g of GATHERED_GOODS) out[g.id] = Math.floor(getHarvested(`good:${g.id}`, scope));
   return out;
 }
 
@@ -107,15 +109,24 @@ function emptyTotals(): Record<MaterialId, number> {
   return { wood: 0, stone: 0, water: 0, fibre: 0, food: 0 };
 }
 
-/** Current player totals, in whole display units. */
-export function materialTotals(): Record<MaterialId, number> {
+/** Whole display units of each material in a list of element entries. */
+export function foldMaterialTotals(parts: { symbol: string; count: number }[]): Record<MaterialId, number> {
   const atoms = emptyTotals();
-  for (const { symbol, count } of listHarvested()) {
+  for (const { symbol, count } of parts) {
+    if (symbol.startsWith('good:')) continue;
     atoms[materialOf(symbol)] += count;
   }
   const out = emptyTotals();
   for (const m of MATERIALS) out[m.id] = Math.floor(atoms[m.id] / ATOMS_PER_UNIT[m.id]);
   return out;
+}
+
+/**
+ * Current player totals, in whole display units: what local play can use
+ * by default, the online bag alone with `{ onlineOnly: true }`.
+ */
+export function materialTotals(scope?: BagScope): Record<MaterialId, number> {
+  return foldMaterialTotals(listHarvested(scope));
 }
 
 export function subscribeMaterials(fn: (totals: Record<MaterialId, number>) => void): () => void {
@@ -199,12 +210,13 @@ export interface Affordability {
   missing: { id: CostId; label: string; short: number }[];
 }
 
-export function checkAffordable(cost: MaterialCost, totals = materialTotals()): Affordability {
+export function checkAffordable(cost: MaterialCost, totals?: Record<MaterialId, number>, scope?: BagScope): Affordability {
+  const haveTotals = totals ?? materialTotals(scope);
   const missing: Affordability['missing'] = [];
   for (const e of costEntries(cost)) {
     const held = isGatheredGood(e.id)
-      ? Math.floor(getHarvested(`good:${e.id}`))
-      : (totals[e.id] ?? 0);
+      ? Math.floor(getHarvested(`good:${e.id}`, scope))
+      : (haveTotals[e.id] ?? 0);
     const short = e.qty - held;
     if (short > 0) missing.push({ id: e.id, label: e.label, short });
   }
@@ -222,11 +234,16 @@ export function describeMissing(missing: Affordability['missing']): string {
  * bag. Elements inside a material are drained largest-pile first so the
  * player never loses a rare symbol while a common one sits unused.
  */
-export function spendMaterials(cost: MaterialCost): boolean {
-  if (!checkAffordable(cost).ok) return false;
+export function spendMaterials(cost: MaterialCost, scope?: BagScope): boolean {
+  return spendMaterialsDraws(cost, scope) !== null;
+}
+
+/** `spendMaterials`, saying which bags it drew from (null when nothing was spent). */
+export function spendMaterialsDraws(cost: MaterialCost, scope?: BagScope): BagDraw[] | null {
+  if (!checkAffordable(cost, undefined, scope).ok) return null;
 
   const pools = new Map<MaterialId, { symbol: string; count: number }[]>();
-  for (const held of listHarvested()) {
+  for (const held of listHarvested(scope)) {
     const m = materialOf(held.symbol);
     const arr = pools.get(m) ?? [];
     arr.push({ ...held });
@@ -249,9 +266,9 @@ export function spendMaterials(cost: MaterialCost): boolean {
         need -= take;
       }
     }
-    if (need > 0) return false;
+    if (need > 0) return null;
   }
-  return spendHarvested(parts);
+  return spendHarvestedDraws(parts, scope);
 }
 
 /**

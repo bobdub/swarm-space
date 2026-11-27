@@ -8,6 +8,7 @@ import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./bl
 import { blockForbidsLegacyClaims, blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isLegacyRewardClaim, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
 import { verifyLegacyRewardClaim, verifyPoolDonation, verifyWalletTip } from "./wallets/tipSignature";
 import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
+import { canSettleCreatorTokenTip, isCreatorTokenTip } from "./wallets/creatorTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
 import { verifyNativeMintMeDeposit } from "./wallets/nativeMintmeCustody";
 import { isNativeEthCustody, isNativeEthTip, isNativeEthWithdraw, nativeEthBalanceUnits, nativeEthUnits, verifyNativeEthCustody } from "./wallets/nativeEth";
@@ -265,6 +266,8 @@ export class SwarmChain {
       if (units === null || nativeEthBalanceUnits(transactions, transaction.from) < units) return false;
     } else if (isCustomTokenTip(transaction)) {
       if (!canSettleCustomTokenTip(transactions, transaction)) return false;
+    } else if (isCreatorTokenTip(transaction)) {
+      if (!canSettleCreatorTokenTip(transactions, transaction)) return false;
     } else if (this.getSpendableBalance(transaction.from) < (transaction.amount ?? 0)) return false;
     this.pendingTransactions.push(transaction);
     this._markDirtyAndScheduleFlush();
@@ -1047,6 +1050,8 @@ export class SwarmChain {
             if (units === null || nativeEthBalanceUnits(accepted, tx.from) < units) return false;
           } else if (isCustomTokenTip(tx)) {
             if (!canSettleCustomTokenTip(accepted, tx)) return false;
+          } else if (isCreatorTokenTip(tx)) {
+            if (!canSettleCreatorTokenTip(accepted, tx)) return false;
           } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
         }
         seen.add(tx.id);

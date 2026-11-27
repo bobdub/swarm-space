@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ArrowLeft, FolderKanban, Lock, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
+import { FolderKanban, Lock, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
 import { BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -108,8 +108,6 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const isMobile = useIsMobile();
   const [mode, setMode] = useState<RailMode>('projects');
   const [selection, setSelection] = useState<Selection>(BRAIN_SELECTION);
-  // On phones the rail and the conversation share the screen in turns.
-  const [mobileShowRail, setMobileShowRail] = useState(false);
 
   // Who else is in the Brain Chat; also tells them we are here.
   const chatPeers = useNetworkChatPeers(true, BRAIN_ROOM_ID);
@@ -135,17 +133,14 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const selectedPeer = selection.kind === 'peer' ? peers.find((p) => p.peerId === selection.peerId) : undefined;
   const peerUnreadTotal = useMemo(() => [...dmUnread.values()].reduce((a, b) => a + b, 0), [dmUnread]);
 
-  const pick = (next: Selection) => {
-    setSelection(next);
-    if (isMobile) setMobileShowRail(false);
-  };
+  const pick = (next: Selection) => setSelection(next);
 
+  // Phones stack the rail (as a scrolling strip) above the conversation, so
+  // Projects, Peers and every chat stay one tap away.
   const containerStyle: React.CSSProperties = isMobile
-    ? { height: 'min(80vh, 640px)' }
+    ? { height: 'min(82vh, 680px)' }
     : { width: 'min(900px, calc(100vw - 2rem))', height: 'min(72vh, 640px)' };
 
-  const showRail = !isMobile || mobileShowRail;
-  const showMain = !isMobile || !mobileShowRail;
 
   return (
     <div
@@ -159,14 +154,9 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
     >
       <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
         <div className="flex items-center gap-2">
-          {isMobile && !mobileShowRail && (
-            <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setMobileShowRail(true)} aria-label="Show chats">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          )}
           <MessagesSquare className="h-4 w-4 text-primary" />
           <span className="text-xs font-display uppercase tracking-[0.2em] text-foreground/80">Global Chat</span>
-          {isMobile && !mobileShowRail && (
+          {isMobile && (
             <span className="truncate text-xs text-foreground/60">
               · {selection.kind === 'room' ? selection.title : selectedPeer?.displayName ?? 'Peer'}
             </span>
@@ -177,9 +167,8 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 gap-2 p-2">
-        {showMain && (
-          <div className="min-h-0 min-w-0 flex-1">
+      <div className={cn('flex min-h-0 flex-1 gap-2 p-2', isMobile && 'flex-col-reverse')}>
+        <div className="min-h-0 min-w-0 flex-1">
             {selection.kind === 'room' ? (
               <RoomChatView
                 key={selection.roomId}
@@ -197,10 +186,8 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
               </div>
             )}
           </div>
-        )}
 
-        {showRail && (
-          <aside className={cn('flex min-h-0 flex-col', isMobile ? 'w-full' : 'w-60 shrink-0')} aria-label="Chats">
+          <aside className={cn('flex min-h-0 flex-col', isMobile ? 'w-full shrink-0' : 'w-60 shrink-0')} aria-label="Chats">
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-foreground/5 p-1" role="tablist" aria-label="Chat mode">
               {(['projects', 'peers'] as const).map((m) => (
                 <button
@@ -222,10 +209,17 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
               ))}
             </div>
 
-            <div className="mt-2 min-h-0 flex-1 space-y-1 overflow-y-auto">
+            <div
+              className={cn(
+                'mt-2 min-h-0',
+                isMobile ? 'flex gap-1 overflow-x-auto pb-1 [scrollbar-width:thin]' : 'flex-1 space-y-1 overflow-y-auto',
+              )}
+              data-testid="chat-rail-list"
+            >
               {mode === 'projects' ? (
                 <>
                   <RailItem
+                    compact={isMobile}
                     active={activeRoomId === BRAIN_ROOM_ID}
                     onClick={() => pick(BRAIN_SELECTION)}
                     highlight
@@ -235,10 +229,11 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                     unread={roomUnread[BRAIN_ROOM_ID]}
                   />
                   {projects.length === 0 ? (
-                    <p className="px-2 pt-2 text-[11px] text-foreground/50">Projects you join get their own chat here.</p>
+                    <p className={cn('px-2 text-[11px] text-foreground/50', isMobile ? 'self-center whitespace-nowrap' : 'pt-2')}>Projects you join get their own chat here.</p>
                   ) : (
                     projects.map(({ project, roomId, memberCount }) => (
                       <RailItem
+                        compact={isMobile}
                         key={project.id}
                         active={activeRoomId === roomId}
                         onClick={() => pick({ kind: 'room', roomId, title: project.name })}
@@ -251,12 +246,13 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                   )}
                 </>
               ) : peers.length === 0 ? (
-                <p className="px-2 pt-2 text-[11px] text-foreground/50">No peers connected right now. Direct messages need a live link.</p>
+                <p className="px-2 py-2 text-[11px] text-foreground/50">No peers connected right now. Direct messages need a live link.</p>
               ) : (
                 peers.map((p) => {
                   const cid = user && p.userId ? conversationIdFor(user.id, p.userId) : null;
                   return (
                     <RailItem
+                      compact={isMobile}
                       key={p.peerId}
                       active={selection.kind === 'peer' && selection.peerId === p.peerId}
                       onClick={() => pick({ kind: 'peer', peerId: p.peerId })}
@@ -275,7 +271,6 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
               )}
             </div>
           </aside>
-        )}
       </div>
     </div>
   );
@@ -297,6 +292,7 @@ function RailItem({
   subtitle,
   unread,
   highlight = false,
+  compact = false,
 }: {
   active: boolean;
   onClick: () => void;
@@ -305,6 +301,8 @@ function RailItem({
   subtitle: string;
   unread?: number;
   highlight?: boolean;
+  /** Phone strip: a fixed-width chip that scrolls sideways. */
+  compact?: boolean;
 }): JSX.Element {
   return (
     <button
@@ -312,7 +310,8 @@ function RailItem({
       onClick={onClick}
       aria-current={active ? 'true' : undefined}
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors',
+        'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-colors',
+        compact ? 'w-44 shrink-0' : 'w-full',
         highlight && 'border border-primary/40 bg-primary/10',
         active ? 'bg-primary/20' : 'hover:bg-foreground/5',
       )}

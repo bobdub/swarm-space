@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 
 vi.mock("@/config/featureFlags", () => ({ getFeatureFlags: () => ({ scaffoldBus: true }) }));
 vi.mock("@/lib/uqrc/fieldEngine", () => ({ getSharedFieldEngine: () => ({ inject: () => {} }) }));
@@ -19,6 +20,7 @@ beforeEach(() => {
   __resetScaffoldBusForTests();
   _resetLabourLedgerForTest();
   _resetHarvestedForTest();
+  _resetPlayModeForTest({ online: true });
 });
 
 describe("labour ledger across a refresh", () => {
@@ -74,6 +76,8 @@ describe("harvested inventory across a refresh", () => {
     _flushHarvestedForTest();
 
     _resetHarvestedForTest();
+
+    _resetPlayModeForTest({ online: true });
     await hydrateHarvestedInventory();
     expect(getHarvested("C")).toBe(base + 2);
   });
@@ -84,6 +88,8 @@ describe("harvested inventory across a refresh", () => {
     _flushHarvestedForTest();
 
     _resetHarvestedForTest();
+
+    _resetPlayModeForTest({ online: true });
     recordHarvest("Si", 2); // before hydration
     await hydrateHarvestedInventory();
     expect(getHarvested("Si")).toBe(6);
@@ -95,6 +101,7 @@ describe("harvested inventory across a refresh", () => {
     recordHarvest("H", -24);
     _flushHarvestedForTest();
     _resetHarvestedForTest();
+    _resetPlayModeForTest({ online: true });
     await hydrateHarvestedInventory();
     expect(getHarvested("H")).toBe(0);
   });

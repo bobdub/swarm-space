@@ -30,7 +30,7 @@ The mesh itself has a voice. A network-wide entity evolves through six brain-dev
 - **Content Pipeline** — Upload files, chunk and encrypt them client-side (64 KB chunks, unique IVs, SHA-256 addressing), and attach manifests to posts. Torrented files show live seeder counts.
 - **Posts, Projects & Tasks** — Capture updates on the feed, organise work into projects, manage kanban boards and milestones. Local posts queued offline sync automatically when the mesh reconnects.
 - **Virtual Hub & Builder Bar** — Every project owns a walkable 3D room; members can drag walls, doors, windows, roofs, and floor tiles from a Sims-style Builder Bar with magnetic edge-snapping. Pieces persist on the project and sync to peers.
-- **Credits, Mining & Token Economy** — Earn genesis credits, mine SWARM, tip peers, deploy creator tokens, engrave content onto mined coins, run private cell chains, and swap across chains. The on-device blockchain records everything as signed NFT transactions.
+- **Credits, Mining & Token Economy** — Earn genesis credits, mine SWARM, tip peers, deploy creator tokens, engrave content onto mined coins, run private cell chains, and trade on the Market. The on-device blockchain records everything as signed NFT transactions.
 - **Streaming & Video Rooms** — Live streaming with WebRTC, room discovery, recording, and invite flows — all peer-to-peer.
 - **Verification & Achievements** — Human verification via entropy games, achievement badges, and medal systems that reward genuine participation.
 - **Moderation & Content Safety** — Automated scoring, alert dashboards, blocklists with persistence, and community-driven content moderation.

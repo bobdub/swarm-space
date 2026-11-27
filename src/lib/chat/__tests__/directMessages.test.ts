@@ -416,3 +416,34 @@ describe('manual wallet lock', () => {
     expect((await storeA.get(line!.id))?.status).toBe('delivered');
   });
 });
+
+describe('manual wallet lock after a reload', () => {
+  it('greets peers that tried to reach a locked app with no session', async () => {
+    const net = hub(['peer-a', 'peer-b']);
+    const storeA = memoryStore();
+    const storeB = memoryStore();
+    const alice = new DirectMessenger(net.mesh('peer-a'), storeA, { userId: 'alice', displayName: 'Alice' });
+    let bob = new DirectMessenger(net.mesh('peer-b'), storeB, { userId: 'bob', displayName: 'Bob' });
+    alice.start();
+    bob.start();
+    await alice.connect('peer-b');
+    await settle();
+
+    // Bob reloads while his wallet is locked: no sessions, no key.
+    bob.stop();
+    let bobLocked = true;
+    bob = new DirectMessenger(net.mesh('peer-b'), storeB, {
+      userId: 'bob', displayName: 'Bob', isLocked: () => bobLocked,
+    });
+    bob.start();
+    const line = await alice.send('peer-b', 'sent while you were locked');
+    await settle();
+    expect((await storeA.get(line!.id))?.status).toBe('sent');
+
+    bobLocked = false;
+    await bob.resume();
+    await settle(80);
+    expect((await bob.history(conversationIdFor('alice', 'bob'))).map((r) => r.text)).toEqual(['sent while you were locked']);
+    expect((await storeA.get(line!.id))?.status).toBe('delivered');
+  });
+});

@@ -1,7 +1,7 @@
 /**
  * Coin Deployment System
  * ──────────────────────
- * Users can deploy their own coin (sub-chain) on the SWARM network.
+ * Each account can deploy one coin (sub-chain) on the SWARM network.
  * Cost: 10,000 SWARM total:
  *   - 5,000 SWARM locked as liquidity (gives the coin intrinsic floor value)
  *   - 5,000 SWARM sent to the community pool
@@ -20,17 +20,45 @@ const COIN_STORE = "deployedCoins";
 
 // ── Deploy a new Coin ──────────────────────────────────────────────────
 
-export async function deployCoin(params: {
+type DeployParams = {
   userId: string;
   chainName: string;
   ticker: string;
   projectGoal: string;
   maxSupply?: number;
-}): Promise<{ coin: DeployedCoin; transaction: SwarmTransaction }> {
+};
+type DeployResult = { coin: DeployedCoin; transaction: SwarmTransaction };
+
+const deploying = new Map<string, Promise<unknown>>();
+
+/**
+ * Deploy the account's one coin. Check-through-persist runs under an
+ * account-scoped lock (cross-tab via Web Locks when available), so two
+ * tabs can't both see "no chain yet" and both charge.
+ */
+export function deployCoin(params: DeployParams): Promise<DeployResult> {
+  const task = () => deployCoinNow(params);
+  const previous = deploying.get(params.userId) ?? Promise.resolve();
+  const work = previous.catch(() => undefined).then(() =>
+    typeof navigator !== "undefined" && navigator.locks
+      ? navigator.locks.request(`coin-deploy:${params.userId}`, task)
+      : task(),
+  );
+  deploying.set(params.userId, work);
+  void work.finally(() => { if (deploying.get(params.userId) === work) deploying.delete(params.userId); }).catch(() => undefined);
+  return work;
+}
+
+async function deployCoinNow(params: DeployParams): Promise<DeployResult> {
   // ── MineHealth Gate ──────────────────────────────────────────────────
   const health = await validateMineHealth(params.userId);
   if (!health.healthy) {
     throw new Error(`MineHealth check failed: ${health.reason}`);
+  }
+
+  // One chain per account: a deployer mines and shares the chain they have.
+  if ((await getUserCoins(params.userId)).length > 0) {
+    throw new Error("You already have a chain. Each account can deploy one coin.");
   }
 
   // Validate ticker
@@ -149,6 +177,11 @@ export async function deployCoin(params: {
     window.dispatchEvent(new CustomEvent("reward-pool-update", { detail: pool }));
     window.dispatchEvent(new CustomEvent("coin-deployed", { detail: coin }));
   }
+
+  // Sign the coin's own chain genesis now, so "Start Mining my coin" is ready.
+  void import("./coinChainMining")
+    .then((m) => m.ensureOwnedCoinChain(coin))
+    .catch(() => { /* vault locked: signed when mining starts */ });
 
   console.log(
     `[CoinDeploy] 🪙 ${params.chainName} (${params.ticker}) deployed by ${params.userId} — ` +

@@ -181,3 +181,21 @@ describe('Trading Stand', () => {
     expect(TRADING_GOODS.some((g) => g.id.startsWith('cooked'))).toBe(false);
   });
 });
+
+describe('grill and offline catches', () => {
+  it('gives an offline catch back to the offline bag even when it comes off the grill online', async () => {
+    const { _resetPlayModeForTest, setMeshOnline } = await import('@/lib/world/playMode');
+    const { getHarvested } = await import('@/lib/remix/harvestedInventory');
+    _resetPlayModeForTest({ online: false });
+    recordHarvestForResource('fish', 1);
+    recordFuel('pit', 'a', 1, T0);
+    const fish = cookableFor('fish')!;
+    expect(startCooking('pit', 'fish', T0).ok).toBe(true);
+    setMeshOnline(true);
+    settleGrill(T0 + fish.cookMs);
+    expect(getHarvested(`good:${fish.cooked}`, { onlineOnly: true })).toBe(0);
+    setMeshOnline(false);
+    expect(getHarvested(`good:${fish.cooked}`)).toBe(1);
+    _resetPlayModeForTest();
+  });
+});

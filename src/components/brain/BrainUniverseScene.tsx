@@ -1,5 +1,6 @@
 import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { setActiveBrainProject } from '@/lib/world/playMode';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -1276,6 +1277,12 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     // so running it during render is safe and idempotent.
     setActiveUniverse(universeKey);
   }
+  // A project's seed pool (offline gathers its creator paid to bring in)
+  // is usable inside that project's Brain only.
+  useEffect(() => {
+    setActiveBrainProject(projectId ?? null);
+    return () => setActiveBrainProject(null);
+  }, [projectId]);
   const navigate = useNavigate();
   const { user } = useAuth();
   const isMobile = useIsMobile();

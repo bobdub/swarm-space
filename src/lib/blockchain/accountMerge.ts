@@ -69,7 +69,7 @@ export interface MergeAccountSummary {
   /**
    * Every other asset with a balance: imported tokens (Dreams, MTCG, …),
    * deposited ETH and the like. `moves` is false for assets a merge cannot
-   * tip (creator tokens, sub-chain balances, unbridged records); `pending`
+   * tip (sub-chain balances, unbridged records); `pending`
    * marks an imported token whose deposit has not synced to a peer yet.
    * Optional: older peers do not send it.
    */
@@ -280,7 +280,7 @@ export interface AssetSweepPlan {
   movable: TipAsset[];
   /** Imported tokens recorded but not spendable yet: the merge waits for them. */
   pendingImported: TipAsset[];
-  /** Held but not tippable (creator tokens, sub-chains, unbridged records). */
+  /** Held but not tippable (sub-chains, unbridged records). */
   staying: TipAsset[];
 }
 

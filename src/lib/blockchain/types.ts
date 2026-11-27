@@ -319,8 +319,7 @@ export const COIN_LIQUIDITY_LOCK = 5_000;
 /** Half of coin deployment cost goes to the community pool */
 export const COIN_POOL_CONTRIBUTION = 5_000;
 
-/** Swap ratio: sub-chain coins swap 1:1, but swapping TO SWARM costs 2:1 */
-export const SWAP_RATIO_DEFAULT = 1;
+/** Value ratio of a sub-chain coin to SWARM (2:1), used to price walled-post unlocks. Trading itself runs through the Market. */
 export const SWAP_RATIO_TO_SWARM = 2;
 
 /** Creator tokens swap 1:1 with credits, 10:1 for SWARM */

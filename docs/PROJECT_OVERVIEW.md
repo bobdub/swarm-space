@@ -119,7 +119,7 @@ Provide the neural network its own account identity to **create content, respond
 
 ### Multi-Chain Blockchain
 - ✅ **SWARM Main Chain**: SHA-256, 30s blocks, 21M cap, CREATOR Proof mining
-- ✅ **Sub-Chains**: User-deployed coins (10,000 SWARM), cross-chain swaps
+- ✅ **Sub-Chains**: One user-deployed coin per account (10,000 SWARM), mined on its own chain; trading runs through the Market
 - ✅ **Creator Tokens**: Per-account (10,000 supply), credit-gated unlocking
 - ✅ **Media Coins**: NFT-wrapped media with torrent-style P2P streaming
 
