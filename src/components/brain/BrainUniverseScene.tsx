@@ -1,4 +1,5 @@
 import { RenderGovernorProbe, useAdaptiveDpr } from './useGovernedFrame';
+import { blocksLook } from '@/lib/brain/lookGuard';
 import { memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { setActiveBrainProject } from '@/lib/world/playMode';
 import { useNavigate } from 'react-router-dom';
@@ -1117,12 +1118,8 @@ function TouchLookOverlay({ inert = false }: { inert?: boolean }) {
   useEffect(() => {
     if (inert) return;
     let lastX = 0, lastY = 0, active = false;
-    const isInteractiveUi = (target: EventTarget | null) => {
-      const node = target instanceof Element ? target : null;
-      return !!node?.closest('button, a, input, textarea, select, [role="button"], [data-no-look="true"]');
-    };
     const onStart = (e: TouchEvent) => {
-      if (isInteractiveUi(e.target)) return;
+      if (blocksLook(e.target)) return;
       const t = e.touches[0]; if (!t) return;
       lastX = t.clientX; lastY = t.clientY; active = true;
     };
@@ -1157,13 +1154,9 @@ function DesktopLookOverlay({ inert = false }: { inert?: boolean }) {
   useEffect(() => {
     if (inert) return;
     let lastX = 0, lastY = 0, active = false;
-    const isInteractiveUi = (target: EventTarget | null) => {
-      const node = target instanceof Element ? target : null;
-      return !!node?.closest('button, a, input, textarea, select, [role="button"], [data-no-look="true"]');
-    };
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
-      if (isInteractiveUi(e.target)) return;
+      if (blocksLook(e.target)) return;
       active = true;
       lastX = e.clientX; lastY = e.clientY;
       setGrabbing(true);

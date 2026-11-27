@@ -33,6 +33,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { RoomChatView } from './RoomChatView';
 import { DirectMessageThread } from './DirectMessageThread';
+import { NO_LOOK } from '@/lib/brain/lookGuard';
 
 type RailMode = 'projects' | 'peers';
 type Selection = { kind: 'room'; roomId: string; title: string } | { kind: 'peer'; peerId: string };
@@ -202,6 +203,7 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
     <div
       role="dialog"
       aria-label="Global Chat"
+      {...NO_LOOK}
       className={cn(
         'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.85)] shadow-2xl backdrop-blur',
         isMobile && 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]',

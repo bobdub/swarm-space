@@ -15,6 +15,7 @@ import { fahrenheitToCelsius } from '@/lib/world/temperature';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '@/lib/brain/volcanoOrgan';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { NO_LOOK } from '@/lib/brain/lookGuard';
 import { getFleet } from '@/lib/brain/sea/fleet';
 import { getVillageDockSite, travel } from '@/lib/brain/sea/dockSite';
 import { getCrewBoatKey } from '@/lib/brain/sea/crew';
@@ -289,6 +290,8 @@ export function MiniMapHUD({ selfId, onClose }: Props) {
 
   return (
     <div
+      // Dragging the map moves only the map, never the camera.
+      {...NO_LOOK}
       onPointerDown={onDown}
       onPointerMove={onMove}
       onPointerUp={onUp}

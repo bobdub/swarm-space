@@ -9,6 +9,7 @@ import {
   setFloatingLiveDock,
   subscribeFloatingLiveDock,
 } from '@/lib/streaming/floatingLiveDockStore';
+import { NO_LOOK } from '@/lib/brain/lookGuard';
 
 const STORAGE_KEY = 'swarm:floating-live-dock-rect';
 
@@ -61,6 +62,7 @@ export function FloatingLiveDock(): JSX.Element | null {
     <div
       role="dialog"
       aria-label="Live chat window"
+      {...NO_LOOK}
       className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl"
       style={style}
     >
