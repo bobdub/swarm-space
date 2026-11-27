@@ -110,6 +110,11 @@ function postSigningPayload(post: Post): Record<string, unknown> {
     content: post.content,
     ...(post.mentions !== undefined ? { mentions: post.mentions } : {}),
     manifestIds,
+    // Media Coin attachments are signed by content identity (merkleRoot);
+    // absent on torrent-only posts so their signatures are unchanged.
+    ...(Array.isArray(post.mediaCoins) && post.mediaCoins.length
+      ? { mediaCoinRoots: post.mediaCoins.map((m) => m.merkleRoot).sort() }
+      : {}),
     createdAt: post.createdAt,
     editedAt: post.editedAt ?? null,
     nsfw: post.nsfw ?? false,

@@ -14,6 +14,7 @@ import { getEntangledUserIds } from "@/lib/entanglements";
 import { filterPostsByProjectMembership } from "@/lib/projects";
 import { getMyContentOnly, isPostVisibleForContentFilter } from "@/lib/feed";
 import { resolveLocalIdentity } from "@/lib/content/ownContent";
+import { dedupeMediaCoinPosts } from "@/lib/content/mediaCoinFeed";
 
 export default function Posts() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -62,7 +63,7 @@ export default function Posts() {
       return isPostVisibleForContentFilter(post, identity, myContentOnly);
     });
     const membershipFiltered = await filterPostsByProjectMembership(visiblePosts, user?.id ?? null);
-    const sorted = [...membershipFiltered].sort(
+    const sorted = dedupeMediaCoinPosts(membershipFiltered).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     setPosts(sorted);

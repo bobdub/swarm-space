@@ -97,6 +97,19 @@ export interface MentionBinding {
   endIndex: number;
 }
 
+/**
+ * Media carried by Media Coin (courier mode) instead of the torrent swarm.
+ * Identity is the merkleRoot, never a coinId.
+ */
+export interface MediaCoinPostRef {
+  merkleRoot: string;
+  name: string;
+  mime: string;
+  size: number;
+  mediaWidth?: number;
+  mediaHeight?: number;
+}
+
 export interface Post {
   id: string;
   author: string;
@@ -110,6 +123,10 @@ export interface Post {
   content: string;
   mentions?: MentionBinding[];
   manifestIds?: string[];
+  /** Media Coin attachments (posts whose media is above the torrent size). */
+  mediaCoins?: MediaCoinPostRef[];
+  /** Feed-only (never stored): authors of duplicate posts of the same Media Coin content. */
+  _mediaSupporters?: string[];
   createdAt: string;
   editedAt?: string;
   nsfw?: boolean;

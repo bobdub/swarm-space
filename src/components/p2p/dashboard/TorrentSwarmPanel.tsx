@@ -16,6 +16,7 @@ import { getStandaloneBuilderMode } from '@/lib/p2p/builderMode.standalone-archi
 import { openDB } from '@/lib/store';
 import { listVaults, type SyncVault, type VaultIndexEntry } from '@/lib/blockchain/syncVault';
 import { VaultMediaViewerDialog } from './VaultMediaViewerDialog';
+import { MediaCoinsSection } from './MediaCoinsSection';
 import {
   migrateCompletedIntoVaults,
   type MigrationCandidate,
@@ -532,6 +533,9 @@ export function TorrentSwarmPanel() {
           </div>
         </div>
       )}
+
+      {/* Media Coins — courier-mode content, one row per merkleRoot */}
+      <MediaCoinsSection />
 
       {/* Peer Vaults — per-peer local storage backed by sealed SWARM coins */}
       <PeerVaultsSection

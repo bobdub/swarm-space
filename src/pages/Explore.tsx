@@ -1,6 +1,7 @@
 import { isPostUnsupported } from "@/lib/content/unsupportedPostsStore";
 import { getMyContentOnly, isPostVisibleForContentFilter } from "@/lib/feed";
 import { resolveLocalIdentity } from "@/lib/content/ownContent";
+import { dedupeMediaCoinPosts } from "@/lib/content/mediaCoinFeed";
 import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -139,7 +140,7 @@ const Explore = () => {
         if (blockedIds.includes(post.author) || hiddenIds.includes(post.id)) return false;
         return isPostVisibleForContentFilter(post, identity, myContentOnly);
       });
-      const membershipFiltered = await filterPostsByProjectMembership(visible, user?.id ?? null);
+      const membershipFiltered = dedupeMediaCoinPosts(await filterPostsByProjectMembership(visible, user?.id ?? null));
       const query = filtersRef.current.query.trim().toLowerCase();
       if (!query) return membershipFiltered;
       return membershipFiltered.filter((post) => {
