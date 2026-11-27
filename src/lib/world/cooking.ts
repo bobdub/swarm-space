@@ -23,6 +23,7 @@ import {
   recordHarvestInBag,
   spendHarvested,
   spendHarvestedDraws,
+  type BagScope,
 } from '@/lib/remix/harvestedInventory';
 import { burnUntil, isFireLit, litThrough } from '@/lib/world/fireStore';
 
@@ -81,14 +82,14 @@ export function heldRaw(raw: RawFoodId): number {
   return Math.floor(getHarvested(goodKey(raw)));
 }
 
-export function heldCooked(cooked: CookedFoodId): number {
-  return Math.floor(getHarvested(goodKey(cooked)));
+export function heldCooked(cooked: CookedFoodId, scope?: BagScope): number {
+  return Math.floor(getHarvested(goodKey(cooked), scope));
 }
 
-/** Cooked servings held, by id. */
-export function cookedTotals(): Record<CookedFoodId, number> {
+/** Cooked servings held, by id (`{ offlineOnly: true }`: cooked from offline catches). */
+export function cookedTotals(scope?: BagScope): Record<CookedFoodId, number> {
   const out = {} as Record<CookedFoodId, number>;
-  for (const f of COOKABLE_FOODS) out[f.cooked] = heldCooked(f.cooked);
+  for (const f of COOKABLE_FOODS) out[f.cooked] = heldCooked(f.cooked, scope);
   return out;
 }
 

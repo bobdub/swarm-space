@@ -37,6 +37,7 @@ import {
 } from '@/lib/world/materials';
 import { getToolAny } from '@/lib/brain/toolCatalog';
 import { subscribeHarvested } from '@/lib/remix/harvestedInventory';
+import { isOnlinePlay, subscribePlayMode } from '@/lib/world/playMode';
 import { COOKABLE_FOODS, cookedTotals } from '@/lib/world/cooking';
 import { BuilderOptionsPanel } from '@/components/brain/builder/BuilderOptionsPanel';
 import { ToolPurchaseCard } from '@/components/brain/builder/ToolPurchaseCard';
@@ -105,6 +106,28 @@ export function BuilderInventory({
   // Meals cooked on a fire pit's grill (never sold at the Trading Stand).
   const [cooked, setCooked] = useState(() => cookedTotals());
   useEffect(() => subscribeHarvested(() => setCooked(cookedTotals())), []);
+  // Offline play: how much of each count was gathered offline, so the panel
+  // can mark offline goods (they never show online, see `playMode.ts`).
+  const [online, setOnline] = useState(() => isOnlinePlay());
+  useEffect(() => subscribePlayMode(() => setOnline(isOnlinePlay())), []);
+  const readOffline = () => ({
+    materials: materialTotals({ offlineOnly: true }),
+    goods: gatheredGoodTotals({ offlineOnly: true }),
+    cooked: cookedTotals({ offlineOnly: true }),
+  });
+  const [offlineHeld, setOfflineHeld] = useState(readOffline);
+  useEffect(() => subscribeHarvested(() => setOfflineHeld(readOffline())), []);
+  // Totals also follow the play mode: going online hides the offline bag.
+  useEffect(() => subscribePlayMode(() => {
+    setTotals(materialTotals());
+    setGoods(gatheredGoodTotals());
+    setCooked(cookedTotals());
+    setOfflineHeld(readOffline());
+  }), []);
+  const offlineMode = !online;
+  const hasOfflineGoods = Object.values(offlineHeld.materials).some((n) => n > 0)
+    || Object.values(offlineHeld.goods).some((n) => n > 0)
+    || Object.values(offlineHeld.cooked).some((n) => n > 0);
   // Market tools (a `priceSwarm` prefab) this player has bought.
   const [owned, setOwned] = useState<Record<string, boolean>>({});
   const [buying, setBuying] = useState<Prefab | null>(null);
@@ -217,11 +240,16 @@ export function BuilderInventory({
                 key={m.id}
                 data-testid={`material-total-${m.id}`}
                 className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/40 px-2 py-0.5 text-[11px]"
-                title={`${m.label}: ${totals[m.id]}`}
+                title={offlineMode && offlineHeld.materials[m.id] > 0
+                  ? `${m.label}: ${totals[m.id]} (${offlineHeld.materials[m.id]} gathered offline)`
+                  : `${m.label}: ${totals[m.id]}`}
               >
                 <span aria-hidden="true">{m.icon}</span>
                 <span className="text-muted-foreground">{m.label}</span>
                 <span className="font-semibold tabular-nums text-foreground">{totals[m.id]}</span>
+                {offlineMode && offlineHeld.materials[m.id] > 0 && (
+                  <OfflineMark count={offlineHeld.materials[m.id]} testId={`material-offline-${m.id}`} compact />
+                )}
               </span>
             ))}
           </div>
@@ -235,6 +263,27 @@ export function BuilderInventory({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {offlineMode ? (
+          <div
+            role="note"
+            data-testid="builder-offline-notice"
+            className="border-b border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-[11px] leading-snug text-amber-200"
+          >
+            <span className="font-semibold">You're offline.</span>{' '}
+            Counts marked <span className="font-semibold">offline</span> are offline goods: gathered while offline,
+            usable only in offline play, never traded or synced. They won't show in your online counts, so those
+            will be lower when you reconnect.
+          </div>
+        ) : hasOfflineGoods ? (
+          <div
+            role="note"
+            data-testid="builder-offline-held-note"
+            className="border-b border-border/40 px-3 py-1 text-[10px] text-muted-foreground"
+          >
+            You also hold offline goods. They're shown and usable only in offline play.
+          </div>
+        ) : null}
 
         <div className="flex min-h-0 flex-1">
           {/* Sections */}
@@ -311,6 +360,9 @@ export function BuilderInventory({
                     <span className="text-[13px] font-semibold tabular-nums text-primary">
                       {totals[m.id]}
                     </span>
+                    {offlineMode && offlineHeld.materials[m.id] > 0 && (
+                      <OfflineMark count={offlineHeld.materials[m.id]} testId={`gathered-offline-${m.id}`} />
+                    )}
                   </div>
                 ))}
                 {GATHERED_GOODS.map((g) => (
@@ -322,6 +374,9 @@ export function BuilderInventory({
                     <span className="text-2xl" aria-hidden="true">{g.icon}</span>
                     <span className="text-[12px] font-medium">{g.label}</span>
                     <span className="text-[13px] font-semibold tabular-nums text-primary">{goods[g.id]}</span>
+                    {offlineMode && offlineHeld.goods[g.id] > 0 && (
+                      <OfflineMark count={offlineHeld.goods[g.id]} testId={`gathered-offline-${g.id}`} />
+                    )}
                   </div>
                 ))}
                 {COOKABLE_FOODS.filter((f) => cooked[f.cooked] > 0).map((f) => (
@@ -334,6 +389,9 @@ export function BuilderInventory({
                     <span className="text-2xl" aria-hidden="true">{f.cookedIcon}</span>
                     <span className="text-[12px] font-medium">{f.label}</span>
                     <span className="text-[13px] font-semibold tabular-nums text-primary">{cooked[f.cooked]}</span>
+                    {offlineMode && offlineHeld.cooked[f.cooked] > 0 && (
+                      <OfflineMark count={offlineHeld.cooked[f.cooked]} testId={`cooked-offline-${f.cooked}`} />
+                    )}
                   </div>
                 ))}
               </div>
@@ -372,6 +430,22 @@ export function BuilderInventory({
         </div>
       </div>
     </div>
+  );
+}
+
+/** "N offline": how much of a count was gathered in offline play. */
+function OfflineMark({ count, testId, compact = false }: { count: number; testId: string; compact?: boolean }) {
+  return (
+    <span
+      data-testid={testId}
+      title={`${count} gathered offline: usable in offline play only, never traded or synced`}
+      className={[
+        'inline-flex items-center rounded-full border border-amber-400/40 bg-amber-400/15 font-medium text-amber-200',
+        compact ? 'px-1 text-[9px]' : 'px-1.5 py-px text-[10px]',
+      ].join(' ')}
+    >
+      {count} offline
+    </span>
   );
 }
 
