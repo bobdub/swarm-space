@@ -192,20 +192,8 @@ export function BrainVideoGrid({
           });
         }
       }
-      if (
-        p.screenStream &&
-        p.screenStream.getVideoTracks().some((t) => t.readyState === "live")
-      ) {
-        out.push({
-          key: `${p.peerId}-screen`,
-          label: `${name}'s screen`,
-          stream: p.screenStream,
-          isSelf: false,
-          muted: true,
-          isScreen: true,
-          peerId: p.peerId,
-        });
-      }
+      // Peers' screen shares are shown in the dockable BrainSyncScreens box,
+      // not as tiles here.
     }
     return out;
   }, [cameraOn, localStream, localMuted, localUsername, localScreenStream, participants, nameByPeerId]);

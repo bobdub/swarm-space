@@ -42,6 +42,7 @@ import { getWebRTCManager, SCREEN_CAPTURE_CONSTRAINTS } from '@/lib/webrtc/manag
 import { sameParticipants } from '@/lib/webrtc/participantsEqual';
 import { useAuth } from '@/hooks/useAuth';
 import { BrainVideoGrid } from '@/components/brain/BrainVideoGrid';
+import { BrainSyncScreens } from '@/components/brain/BrainSyncScreens';
 import {
   getBrainPhysics,
   FIELD_HZ,
@@ -1565,6 +1566,23 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
     return map;
   }, [voicePeers]);
 
+  // Peers' screen shares get the same box as everywhere else on the site:
+  // docked at the bottom right, expandable, minimisable and closable.
+  const remoteScreens = useMemo(
+    () => visibleRtcParticipants
+      .filter((p) => p.screenStream?.getVideoTracks().some((t) => t.readyState === 'live'))
+      .map((p) => ({ peerId: p.peerId, stream: p.screenStream as MediaStream })),
+    [visibleRtcParticipants],
+  );
+  const screenNameByPeerId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of visibleRtcParticipants) {
+      const raw = (voiceNameByPeerId[p.peerId] || p.username || '').trim();
+      if (raw && raw !== 'Peer' && raw !== 'Unknown') map[p.peerId] = raw;
+    }
+    return map;
+  }, [visibleRtcParticipants, voiceNameByPeerId]);
+
   // Subscribe to raw WebRTC participants (with media streams) for the video grid.
   useEffect(() => {
     if (!ready || !user) return;
@@ -2768,6 +2786,8 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           nameByPeerId={voiceNameByPeerId}
         />
       )}
+
+      {ready && <BrainSyncScreens remote={remoteScreens} nameByPeerId={screenNameByPeerId} />}
 
       {/* Desktop look + move controls (no pointer lock).
           While plotting, re-enable joystick + look so the user can walk. */}

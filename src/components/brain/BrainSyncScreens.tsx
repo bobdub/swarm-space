@@ -71,7 +71,7 @@ interface Props {
   nameByPeerId: Record<string, string>;
 }
 
-/** Floating viewer for peers' screen shares while Brain-synced off the Brain page. */
+/** Floating viewer for peers' screen shares, in the Brain and while Brain-synced on other pages. */
 export function BrainSyncScreens({ remote, nameByPeerId }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [minimized, setMinimized] = useState(false);
