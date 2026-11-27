@@ -104,7 +104,8 @@ export async function buySwarmFromVault(userId: string, swarm: number) {
 
 const POOL = "community-pool";
 
-const tokenCurrencyOf = (contract: string) => `MINTME:${contract.toLowerCase()}`;
+// A bare contract is a MintMe token; a `network:0x…` ref names its own chain.
+const tokenCurrencyOf = (contract: string) => tokenCurrency(contract.toLowerCase());
 
 /** Tokens the vault holds according to mined blocks: the same figure on every peer. */
 export async function getVaultTokenHeld(contract: string): Promise<number> {

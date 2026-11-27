@@ -92,6 +92,12 @@ export interface StandVaultState {
   stock: Partial<Record<TradingGood, number>>;
   /** Live Market Vault figures, for the Credits spot rate. */
   market: MarketVaultState;
+  /** Synced tokens the stand vault holds, by ledger currency (`MINTME:0x…`). */
+  tokens?: Record<string, number>;
+  /** Each held token's Market Vault price, in SWARM per token. */
+  tokenPrices?: Record<string, number>;
+  /** Display symbol of each held token. */
+  tokenSymbols?: Record<string, string>;
 }
 
 const clean = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0);
@@ -289,4 +295,89 @@ export function splitStandPayment(amount: number, currency: StandCurrency, owner
   const community = part(CREATOR_VAULT_COMMUNITY_SHARE);
   const rest = total - owner - community;
   return { owner, community, vault: currency === 'CREDITS' ? rest : Math.round(rest * 1e6) / 1e6 };
+}
+
+// ── Trading in a token the stand holds ───────────────────────────────
+
+const ceil8 = (n: number) => Math.ceil(n * 1e8 - 1e-9) / 1e8;
+const floor8 = (n: number) => Math.floor(n * 1e8 + 1e-9) / 1e8;
+
+/** A token held by the stand, at the main Market Vault's price for it. */
+export interface StandTokenOption {
+  currency: string;
+  symbol: string;
+  held: number;
+  /** SWARM per token at the Market Vault's price. */
+  swarmPerToken: number;
+}
+
+/** Tokens the stand holds that have a market price, so it can trade in them. */
+export function standTokenOptions(state: StandVaultState): StandTokenOption[] {
+  const out: StandTokenOption[] = [];
+  for (const [currency, raw] of Object.entries(state.tokens ?? {})) {
+    const held = clean(raw);
+    const price = clean(state.tokenPrices?.[currency]);
+    if (held <= 0 || price <= 0) continue;
+    out.push({ currency, symbol: state.tokenSymbols?.[currency] ?? currency.split(':')[0], held, swarmPerToken: price });
+  }
+  return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+/**
+ * SWARM value of the stand's whole liquid layer: its liquid SWARM plus each
+ * held token's liquid layer valued at the Market Vault's price. Each currency
+ * still pays out only from what the stand actually holds of it.
+ */
+export function standLiquidSwarmValue(state: StandVaultState): number {
+  let total = standLayers(state).swarmLiquid;
+  for (const t of standTokenOptions(state)) total += t.held * (1 - MARKET_VAULT_FLOOR_SHARE) * t.swarmPerToken;
+  return floor6(total);
+}
+
+export interface StandTokenQuote extends StandQuote {
+  /** Token units paid (buy) or received (sell). */
+  tokenAmount: number;
+  token: string;
+}
+
+/** Buy goods paying in a token the stand holds: the SWARM price at the token's market price, rounded up. */
+export function quoteStandBuyToken(state: StandVaultState, good: TradingGood, qty: number, token: string, userBalance: number): StandTokenQuote {
+  const swarmQuote = quoteStandBuy(state, good, qty, 'SWARM', Number.POSITIVE_INFINITY);
+  const opt = standTokenOptions(state).find((t) => t.currency === token);
+  const base = { ...swarmQuote, token, tokenAmount: 0 };
+  if (!opt) return { ...base, error: base.error ?? 'The stand does not trade in this token.' };
+  if (swarmQuote.error) return base;
+  const tokenAmount = ceil8(swarmQuote.swarm / opt.swarmPerToken);
+  let error: string | null = null;
+  if (tokenAmount <= 0) error = 'Amount too small to price.';
+  else if (tokenAmount > clean(userBalance) + 1e-9) error = `Not enough ${opt.symbol} in your wallet.`;
+  return { ...base, amount: tokenAmount, tokenAmount, error };
+}
+
+/**
+ * Sell goods for a token the stand holds, at the token's market price,
+ * rounded down. Paid only from the token's liquid layer above the 40%
+ * floor, at most 10% of that layer in one trade.
+ */
+export function quoteStandSellToken(state: StandVaultState, good: TradingGood, qty: number, token: string, userHeld: number): StandTokenQuote {
+  // The SWARM value of the goods, without the SWARM vault's own payout limits.
+  const g = GOOD_BY_ID.get(good);
+  const opt = standTokenOptions(state).find((t) => t.currency === token);
+  const spot = standCreditsPerSwarm(state);
+  const base: StandTokenQuote = { good, qty, currency: 'SWARM', swarm: 0, credits: 0, amount: 0, spot, error: null, token, tokenAmount: 0 };
+  if (!g) return { ...base, error: 'The stand does not trade this good.' };
+  if (!opt) return { ...base, error: 'The stand does not trade in this token.' };
+  const qtyError = validQty(qty);
+  if (qtyError) return { ...base, error: qtyError };
+  const s = stockOf(state, good);
+  const K = g.virtualReserve;
+  const swarm = floor6(g.baseSwarm * K * Math.log((s + qty + K) / (s + K)));
+  const tokenAmount = floor8(swarm / opt.swarmPerToken);
+  const liquid = opt.held * (1 - MARKET_VAULT_FLOOR_SHARE);
+  const cap = floor8(liquid * MARKET_VAULT_MAX_TRADE_SHARE);
+  let error: string | null = null;
+  if (qty > Math.floor(clean(userHeld))) error = `You don't have ${qty} ${g.label.toLowerCase()}.`;
+  else if (tokenAmount <= 0) error = 'Amount too small to receive anything.';
+  else if (tokenAmount > cap + 1e-9) error = `One trade can take at most ${cap} ${opt.symbol} (10% of the stand's liquid ${opt.symbol}).`;
+  return { ...base, swarm, credits: Math.floor(swarm * spot + 1e-9), amount: tokenAmount, tokenAmount, error };
 }

@@ -17,7 +17,8 @@
  * Goods move between the player's material bag (`goods.ts`) and the stand's
  * recorded stock. A goods leg is a `custom_token_transfer` in the `GOOD:<id>`
  * currency between the player and the stand address. Unsupported payment
- * fails closed: the stand settles only in SWARM or Credits.
+ * fails closed: the stand settles only in SWARM, Credits, or a synced token
+ * it holds (priced at the main Market Vault's rate for that token).
  *
  * Every trade, stocking and funding is online play only (`assertOnlineStand`):
  * offline the ledger can't be synced, so nothing is charged or recorded.
@@ -32,9 +33,11 @@ import {
   localVaultTotals,
   sharedMarketVaultState,
   vaultCredits,
+  vaultTokenHeld,
   type VaultLedgerSource,
 } from '@/lib/blockchain/poolLedger';
-import type { MarketVaultState } from '@/lib/blockchain/marketVaultPricing';
+import { TOKEN_VIRTUAL_RESERVE, marketVaultLayers, type MarketVaultState } from '@/lib/blockchain/marketVaultPricing';
+import { tokenRefFromCurrency } from '@/lib/blockchain/deposits/tokenNetworks';
 import {
   TRADING_GOODS,
   getTradingGood,
@@ -44,7 +47,11 @@ import {
   splitStandPayment,
   STAND_FLOOR_SHARE,
   quoteStandSell,
+  quoteStandBuyToken,
+  quoteStandSellToken,
+  standTokenOptions,
   type StandCurrency,
+  type StandTokenQuote,
   type StandQuote,
   type StandVaultState,
   type TradingGood,
@@ -113,15 +120,24 @@ export interface StandTotals {
   stock: Map<TradingGood, number>;
   /** Credits held at the stand address (private Cells only). */
   credits: number;
+  /** Synced tokens held at the stand address, by ledger currency. */
+  tokens: Map<string, number>;
+  /** A token's symbol, from the `ticker` its funding carried. */
+  symbols: Map<string, string>;
   seen: Set<string>;
 }
 
 function emptyTotals(): StandTotals {
-  return { stock: new Map(), credits: 0, seen: new Set() };
+  return { stock: new Map(), credits: 0, tokens: new Map(), symbols: new Map(), seen: new Set() };
 }
 
 function cloneTotals(t: StandTotals): StandTotals {
-  return { stock: new Map(t.stock), credits: t.credits, seen: new Set(t.seen) };
+  return { stock: new Map(t.stock), credits: t.credits, tokens: new Map(t.tokens), symbols: new Map(t.symbols), seen: new Set(t.seen) };
+}
+
+/** True for a synced token's ledger currency (`MINTME:0x…`, `ETHEREUM:0x…`). */
+export function isTokenCurrency(currency: unknown): currency is string {
+  return typeof currency === 'string' && tokenRefFromCurrency(currency) !== null;
 }
 
 /** Fold one ledger entry into the totals of the stand at `address`. */
@@ -136,6 +152,11 @@ export function stepStandTotals(t: StandTotals, tx: SwarmTransaction, address: s
   if (sign === 0) return;
   if (m.currency === VAULT_CREDITS_CURRENCY) {
     t.credits += sign * amount;
+    return;
+  }
+  if (isTokenCurrency(m.currency)) {
+    t.tokens.set(m.currency, Math.round(((t.tokens.get(m.currency) ?? 0) + sign * amount) * 1e8) / 1e8);
+    if (typeof m.ticker === 'string' && m.ticker.trim()) t.symbols.set(m.currency, m.ticker.trim().slice(0, 11));
     return;
   }
   if (typeof m.currency === 'string' && m.currency.startsWith(GOOD_CURRENCY_PREFIX)) {
@@ -198,7 +219,23 @@ export function sharedStandVaultState(chain: VaultLedgerSource, scope: StandScop
     return { swarmPool: market.poolBalance, creditReserve: vaultCredits(confirmedVaultTotals(chain)), stock: standStock(totals), market };
   }
   const swarm = Math.max(0, chain.getConfirmedBalance(scope.address));
-  return { swarmPool: round6(swarm), creditReserve: Math.max(0, Math.floor(totals.credits)), stock: standStock(totals), market };
+  // Held tokens are priced the way the main Market Vault prices them:
+  // SWARM per token = its liquid SWARM / (virtual reserve + what it holds).
+  const tokens: Record<string, number> = {};
+  const tokenPrices: Record<string, number> = {};
+  const tokenSymbols: Record<string, string> = {};
+  const { liquid } = marketVaultLayers(market);
+  let vaultTotals: ReturnType<typeof confirmedVaultTotals> | null = null;
+  for (const [currency, held] of totals.tokens) {
+    if (!(held > 0)) continue;
+    tokens[currency] = held;
+    vaultTotals ??= confirmedVaultTotals(chain);
+    const price = liquid / (TOKEN_VIRTUAL_RESERVE + vaultTokenHeld(vaultTotals, currency));
+    if (Number.isFinite(price) && price > 0) tokenPrices[currency] = price;
+    const symbol = totals.symbols.get(currency);
+    if (symbol) tokenSymbols[currency] = symbol;
+  }
+  return { swarmPool: round6(swarm), creditReserve: Math.max(0, Math.floor(totals.credits)), stock: standStock(totals), market, tokens, tokenPrices, tokenSymbols };
 }
 
 /**
@@ -220,6 +257,7 @@ export function spendableStandVaultState(chain: VaultLedgerSource, scope: StandS
     swarmPool: round6(Math.min(shared.swarmPool, Math.max(0, chain.getBalance(scope.address)))),
     creditReserve: Math.min(shared.creditReserve, Math.max(0, Math.floor(local.credits))),
     stock,
+    tokens: Object.fromEntries(Object.entries(shared.tokens ?? {}).map(([c, n]) => [c, Math.max(0, Math.min(n, local.tokens.get(c) ?? 0))])),
   };
 }
 
@@ -270,7 +308,8 @@ export interface StandTradeRequest {
   scope: StandScope;
   good: TradingGood;
   qty: number;
-  currency: StandCurrency;
+  /** SWARM, Credits, or the ledger currency of a token the stand holds. */
+  currency: StandCurrency | (string & {});
   /** The stand being traded at, so its owner takes their 15% of sales. */
   stand?: { placementId: string; ownerId: string } | null;
 }
@@ -282,7 +321,7 @@ function assertOwnVault(scope: StandScope) {
 
 function assertSupported(currency: string): asserts currency is StandCurrency {
   if (currency !== 'SWARM' && currency !== 'CREDITS') {
-    throw new Error('The Trading Stand settles only in SWARM or Credits. Nothing was charged.');
+    throw new Error('The Trading Stand settles only in SWARM, Credits or a token it holds. Nothing was charged.');
   }
 }
 
@@ -325,7 +364,13 @@ async function addRecord(params: {
 export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> {
   assertOnlineStand('trade at the stand');
   assertOwnVault(req.scope);
-  assertSupported(req.currency);
+  if (isTokenCurrency(req.currency)) return buyFromStandWithToken(req, req.currency);
+  const currency = req.currency;
+  assertSupported(currency);
+  return buyInStandCurrency({ ...req, currency });
+}
+
+async function buyInStandCurrency(req: StandTradeRequest & { currency: StandCurrency }): Promise<StandQuote> {
   if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
   const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
   return withCreatorMarketOperation(lockFor(req.scope), async () => {
@@ -407,7 +452,13 @@ export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> 
 export async function sellToStand(req: StandTradeRequest): Promise<StandQuote> {
   assertOnlineStand('trade at the stand');
   assertOwnVault(req.scope);
-  assertSupported(req.currency);
+  if (isTokenCurrency(req.currency)) return sellToStandForToken(req, req.currency);
+  const currency = req.currency;
+  assertSupported(currency);
+  return sellInStandCurrency({ ...req, currency });
+}
+
+async function sellInStandCurrency(req: StandTradeRequest & { currency: StandCurrency }): Promise<StandQuote> {
   if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
   const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
   return withCreatorMarketOperation(lockFor(req.scope), async () => {
@@ -462,6 +513,93 @@ export async function sellToStand(req: StandTradeRequest): Promise<StandQuote> {
       const { derivePoolFromChain } = await import('@/lib/blockchain/storage');
       await derivePoolFromChain().catch(() => {});
     }
+    announce(req.scope, payout);
+    announce(req.scope, goods);
+    return quote;
+  });
+}
+
+async function tokenBalanceOf(userId: string, currency: string): Promise<number> {
+  const ref = tokenRefFromCurrency(currency);
+  if (!ref) return 0;
+  const { getAvailableTokenBalance } = await import('@/lib/blockchain/deposits/customTokens');
+  return getAvailableTokenBalance(userId, ref);
+}
+
+/**
+ * Buy goods paying in a token the stand holds, at the Market Vault's price
+ * for it. Splits like every sale: 15% to the owner, 5% to the community pool
+ * (the Market Vault, which then holds that token), 80% into the stand.
+ */
+async function buyFromStandWithToken(req: StandTradeRequest, token: string): Promise<StandTokenQuote> {
+  if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
+  const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
+  return withCreatorMarketOperation(lockFor(req.scope), async () => {
+    await assertSignedIn(req.userId);
+    const chain = await readyChain();
+    const shared = sharedStandVaultState(chain, req.scope);
+    const spendable = spendableStandVaultState(chain, req.scope);
+    const quote = quoteStandBuyToken(shared, req.good, req.qty, token, await tokenBalanceOf(req.userId, token));
+    if (quote.error) throw new Error(quote.error);
+    if (req.qty > maxBuyQty(spendable.stock[req.good] ?? 0)) {
+      throw new Error('That stock is promised to trades still waiting for a block. Nothing was charged.');
+    }
+    const ticker = standTokenOptions(shared).find((t) => t.currency === token)?.symbol;
+    const operationId = crypto.randomUUID();
+    const standMeta = req.stand ? { standId: req.stand.placementId, standOwner: req.stand.ownerId } : {};
+    const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-buy', operationId, good: req.good, goodQty: req.qty, ...(ticker ? { ticker } : {}), ...standMeta };
+    const total = quote.tokenAmount;
+    const ownerBuys = !!req.stand && req.stand.ownerId === req.userId;
+    const owner = req.stand ? Math.floor(total * 0.15 * 1e8) / 1e8 : 0;
+    const community = Math.floor(total * 0.05 * 1e8) / 1e8;
+    const vault = Math.round((total - owner - community) * 1e8) / 1e8;
+    // As with SWARM and Credits, the owner buying at their own stand pays the
+    // full price and the vault pays their 15% back.
+    const toVault = ownerBuys ? Math.round((vault + owner) * 1e8) / 1e8 : vault;
+    if (owner > 0 && req.stand && !ownerBuys) await addRecord({ from: req.userId, to: req.stand.ownerId, amount: owner, currency: token, meta: { ...meta, tradeLeg: 'owner-cut' } });
+    if (community > 0) await addRecord({ from: req.userId, to: COMMUNITY_POOL, amount: community, currency: token, meta: { ...meta, tradeLeg: 'community', marketVault: true } });
+    const payment = await addRecord({ from: req.userId, to: req.scope.address, amount: toVault, currency: token, meta: { ...meta, tradeLeg: 'payment' } });
+    const refund = ownerBuys && owner > 0
+      ? await addRecord({ from: req.scope.address, to: req.userId, amount: owner, currency: token, meta: { ...meta, tradeLeg: 'owner-cut' } })
+      : undefined;
+    const goods = await addRecord({ from: req.scope.address, to: req.userId, amount: req.qty, currency: goodCurrency(req.good),
+      meta: { ...meta, tradeLeg: 'goods', paidAmount: total, paidAsset: token } });
+    giveGood(req.good, req.qty);
+    announce(req.scope, payment);
+    if (refund) announce(req.scope, refund);
+    announce(req.scope, goods);
+    return quote;
+  });
+}
+
+/** Sell goods for a token the stand holds, paid from its liquid layer of that token. */
+async function sellToStandForToken(req: StandTradeRequest, token: string): Promise<StandTokenQuote> {
+  if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
+  const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
+  return withCreatorMarketOperation(lockFor(req.scope), async () => {
+    await assertSignedIn(req.userId);
+    const chain = await readyChain();
+    const shared = sharedStandVaultState(chain, req.scope);
+    const spendable = spendableStandVaultState(chain, req.scope);
+    const quote = quoteStandSellToken(shared, req.good, req.qty, token, heldGood(req.good));
+    if (quote.error) throw new Error(quote.error);
+    const held = shared.tokens?.[token] ?? 0;
+    if (quote.tokenAmount > (spendable.tokens?.[token] ?? 0) - held * STAND_FLOOR_SHARE + 1e-9) {
+      throw new Error('The stand vault can pay less of this token from this device until your earlier trades are mined. Nothing was taken.');
+    }
+    if (!takeGood(req.good, req.qty)) throw new Error(shortGoodMessage(req.good, req.qty));
+    const ticker = standTokenOptions(shared).find((t) => t.currency === token)?.symbol;
+    const operationId = crypto.randomUUID();
+    const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-sell', operationId, good: req.good, goodQty: req.qty, ...(ticker ? { ticker } : {}) };
+    let payout: SwarmTransaction;
+    try {
+      payout = await addRecord({ from: req.scope.address, to: req.userId, amount: quote.tokenAmount, currency: token,
+        meta: { ...meta, tradeLeg: 'payout', paidAmount: req.qty, paidAsset: req.good, receivedAsset: token } });
+    } catch (error) {
+      giveGood(req.good, req.qty);
+      throw error;
+    }
+    const goods = await addRecord({ from: req.userId, to: req.scope.address, amount: req.qty, currency: goodCurrency(req.good), meta: { ...meta, tradeLeg: 'goods' } });
     announce(req.scope, payout);
     announce(req.scope, goods);
     return quote;

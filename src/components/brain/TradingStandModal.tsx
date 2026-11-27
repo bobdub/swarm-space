@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { customTokenRef, getAvailableTokenBalance, listCustomTokens } from '@/lib/blockchain/deposits/customTokens';
+import { tokenRefFromCurrency } from '@/lib/blockchain/deposits/tokenNetworks';
 import { getBrainPhysics } from '@/lib/brain/uqrcPhysics';
 import { blockWorldPos, getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { TRADING_STAND_ID } from '@/lib/brain/prefabHouseCatalog';
@@ -25,6 +26,10 @@ import {
   TRADING_GOODS,
   quoteStandBuy,
   quoteStandSell,
+  quoteStandBuyToken,
+  quoteStandSellToken,
+  standLiquidSwarmValue,
+  standTokenOptions,
   standCreditsPerSwarm,
   STAND_OWNER_SHARE,
   STAND_BUYBACK_SHARE,
@@ -196,6 +201,23 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const held = heldGood(selected);
   const label = TRADING_GOODS.find((g) => g.id === selected)?.label ?? selected;
 
+  // Tokens this stand holds (e.g. Dreams), priced at the main Market Vault's rate.
+  const tokenOptions = useMemo(() => (state ? standTokenOptions(state) : []), [state]);
+  const [payIn, setPayIn] = useState<string>('SWARM');
+  const payToken = tokenOptions.find((t) => t.currency === payIn) ?? null;
+  useEffect(() => { if (payIn !== 'SWARM' && !payToken && state) setPayIn('SWARM'); }, [payIn, payToken, state]);
+  const tokenBalance = (() => {
+    const ref = payToken ? tokenRefFromCurrency(payToken.currency) : null;
+    try { return ref ? getAvailableTokenBalance(selfId, ref) : 0; } catch { return 0; }
+  })();
+  const tokenQuotes = useMemo(() => {
+    if (!state || !payToken || units <= 0) return null;
+    return {
+      buy: quoteStandBuyToken(state, selected, units, payToken.currency, tokenBalance),
+      sell: quoteStandSellToken(state, selected, units, payToken.currency, held),
+    };
+  }, [state, payToken, selected, units, tokenBalance, held]);
+
   const quotes = useMemo(() => {
     if (!state || units <= 0) return null;
     return {
@@ -206,7 +228,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
     };
   }, [state, selected, units, balances, held]);
 
-  const trade = async (side: 'buy' | 'sell' | 'donate', currency: StandCurrency) => {
+  const trade = async (side: 'buy' | 'sell' | 'donate', currency: StandCurrency | string) => {
     if (!scope || busy) return;
     setBusy(true);
     try {
@@ -216,7 +238,8 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
       } else {
         const fn = side === 'buy' ? buyFromStand : sellToStand;
         const q = await fn({ userId: selfId, scope, good: selected, qty: units, currency, stand });
-        const money = currency === 'SWARM' ? `${fmtSwarm(q.swarm)} SWARM` : `${fmtCredits(q.credits)} Credits`;
+        const tokenName = tokenOptions.find((t) => t.currency === currency)?.symbol;
+        const money = tokenName ? `${q.amount} ${tokenName}` : currency === 'SWARM' ? `${fmtSwarm(q.swarm)} SWARM` : `${fmtCredits(q.credits)} Credits`;
         toast.success(side === 'buy' ? `Bought ${units} ${label.toLowerCase()} for ${money}.` : `Sold ${units} ${label.toLowerCase()} for ${money}.`);
       }
     } catch (err) {
@@ -292,6 +315,32 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
               className="ml-auto h-8 w-20" aria-label="Units"
             />
           </div>
+          {tokenOptions.length > 0 && (
+            <label className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Trade in</span>
+              <select
+                aria-label="Trade in" data-testid="stand-pay-in" value={payToken ? payToken.currency : 'SWARM'} onChange={(e) => setPayIn(e.target.value)} disabled={busy}
+                className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-xs"
+              >
+                <option value="SWARM">SWARM or Credits</option>
+                {tokenOptions.map((t) => (
+                  <option key={t.currency} value={t.currency}>{t.symbol} · stand holds {t.held} · 1 {t.symbol} = {fmtSwarm(t.swarmPerToken)} SWARM</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {payToken ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                {action(`Buy for ${tokenQuotes ? tokenQuotes.buy.tokenAmount : '—'} ${payToken.symbol}`, tokenQuotes?.buy, () => void trade('buy', payToken.currency))}
+                {action(`Sell for ${tokenQuotes ? tokenQuotes.sell.tokenAmount : '—'} ${payToken.symbol}`, tokenQuotes?.sell, () => void trade('sell', payToken.currency))}
+              </div>
+              {tokenQuotes && (tokenQuotes.buy.error || tokenQuotes.sell.error) && (
+                <p className="text-[11px] text-muted-foreground">{tokenQuotes.buy.error ?? tokenQuotes.sell.error}</p>
+              )}
+              <p className="text-[11px] text-muted-foreground">You hold {tokenBalance} {payToken.symbol}. Priced at the main Market Vault's {payToken.symbol} rate.</p>
+            </>
+          ) : (<>
           <div className="grid grid-cols-2 gap-2">
             {action(`Buy for ${quotes ? fmtSwarm(quotes.buySwarm.swarm) : '—'} SWARM`, quotes?.buySwarm, () => void trade('buy', 'SWARM'))}
             {action(`Buy for ${quotes ? fmtCredits(quotes.buyCredits.credits) : '—'} Credits`, quotes?.buyCredits, () => void trade('buy', 'CREDITS'))}
@@ -301,6 +350,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
           {quotes && (quotes.buySwarm.error || quotes.sellSwarm.error) && (
             <p className="text-[11px] text-muted-foreground">{quotes.buySwarm.error ?? quotes.sellSwarm.error}</p>
           )}
+          </>)}
           {isOwner && scope && !scope.settlesMain && (
             <Button type="button" size="sm" variant="ghost" data-testid="stand-stock-button" disabled={busy || !!offline || units <= 0 || units > held} onClick={() => void trade('donate', 'SWARM')} className="w-full text-xs">
               Stock this stand with {units > 0 ? units : ''} {label.toLowerCase()} (nothing back)
@@ -315,7 +365,8 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
             </p>
           )}
           <p className="text-[11px] text-muted-foreground">
-            Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits. 40% of the stand vault is a protected floor; one sale to the stand takes at most 10% of its liquid layer. You can buy all of a good but the stand's last unit in one go.
+            Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits.
+            {state && tokenOptions.length > 0 && ` Stand liquidity ≈ ${fmtSwarm(standLiquidSwarmValue(state))} SWARM, counting its tokens at market price; each currency pays out only from what the stand holds of it.`} 40% of the stand vault is a protected floor; one sale to the stand takes at most 10% of its liquid layer. You can buy all of a good but the stand's last unit in one go.
           </p>
         </div>
         {isOwner && scope && stand && !offline && (
@@ -373,7 +424,7 @@ function StandFundingForm({ selfId, scope, stand, onDone }: {
   };
   return (
     <div className="space-y-2">
-      <p className="text-[11px] text-muted-foreground">Goes into this stand's own vault, not the main Market Vault. It pays players who sell goods here; 40% always stays as the protected floor.</p>
+      <p className="text-[11px] text-muted-foreground">Goes into this stand's own vault, not the main Market Vault. It pays players who sell goods here; 40% always stays as the protected floor. A token you add (for example Dreams) stays a token: players can then buy and sell here in it, at the main Market Vault's price for it.</p>
       <div className="flex gap-2">
         <select
           aria-label="Asset" value={option.id} onChange={(e) => setAssetId(e.target.value)} disabled={busy}
