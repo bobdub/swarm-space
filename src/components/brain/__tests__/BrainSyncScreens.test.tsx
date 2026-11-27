@@ -39,3 +39,22 @@ describe('BrainSyncScreens', () => {
     expect(screen.getByRole('button', { name: "Watch bo's screen full size" })).toBeTruthy();
   });
 });
+
+describe('BrainSyncScreens dragging', () => {
+  it('moves a window to where the user drags it, and opens it bottom right', () => {
+    window.localStorage.clear();
+    Object.assign(window, { innerWidth: 1200, innerHeight: 800 });
+    render(<BrainSyncScreens remote={[share('a')]} nameByPeerId={names} />);
+    const win = screen.getByRole('region', { name: "ana's screen" });
+    const startLeft = parseFloat(win.style.left);
+    const startTop = parseFloat(win.style.top);
+    expect(startLeft).toBeGreaterThan(600);
+    expect(startTop).toBeGreaterThan(400);
+    const header = win.firstElementChild as HTMLElement;
+    fireEvent.pointerDown(header, { button: 0, clientX: 900, clientY: 600 });
+    fireEvent.pointerMove(window, { clientX: 500, clientY: 300 });
+    fireEvent.pointerUp(window);
+    expect(parseFloat(win.style.left)).toBe(startLeft - 400);
+    expect(parseFloat(win.style.top)).toBe(startTop - 300);
+  });
+});

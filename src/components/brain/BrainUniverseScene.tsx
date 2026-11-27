@@ -2793,7 +2793,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
           nameByPeerId={screenNameByPeerId}
           // On phones the joystick fills the bottom-right corner (up to 15.5rem
           // when crewing a boat), so dock the box just above it.
-          dockBottom={isMobile ? 'calc(env(safe-area-inset-bottom, 0px) + 16rem)' : undefined}
+          dockBottomPx={isMobile ? 256 : undefined}
         />
       )}
 
