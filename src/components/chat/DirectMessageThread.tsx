@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useChatDraft } from '@/lib/chat/chatDrafts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AlertCircle, Check, CheckCheck, Clock, Lock, Send, ShieldAlert, ShieldCheck, ShieldX } from 'lucide-react';
@@ -63,7 +64,7 @@ export function DirectMessageThread({
   const [session, setSession] = useState<DirectPeerSession | null>(() => messenger?.getSession(peer.peerId) ?? null);
   const [handshake, setHandshake] = useState<'pending' | 'ready' | 'failed'>(session ? 'ready' : 'pending');
   const [records, setRecords] = useState<DirectMessageRecord[]>([]);
-  const [text, setText] = useState('');
+  const [text, setText] = useChatDraft(`dm:${peer.peerId}`);
   const [peerTyping, setPeerTyping] = useState(false);
   const [rejected, setRejected] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);

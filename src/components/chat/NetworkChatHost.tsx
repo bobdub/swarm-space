@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { FolderKanban, Lock, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
+import { ChevronDown, FolderKanban, GripHorizontal, Lock, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
 import { BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useFloatingRect, type FloatingRect } from '@/hooks/useFloatingRect';
 import { brainDisplayName } from '@/lib/preview/guestAccess';
-import { isBrainScenePath, setNetworkChatOpen, useNetworkChatOpen } from '@/lib/chat/networkChatStore';
+import {
+  isBrainScenePath,
+  setNetworkChatDocked,
+  setNetworkChatOpen,
+  useNetworkChatDocked,
+  useNetworkChatOpen,
+} from '@/lib/chat/networkChatStore';
 import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 import { startDirectMessages, stopDirectMessages, conversationIdFor } from '@/lib/chat/directMessages';
@@ -31,6 +38,15 @@ type RailMode = 'projects' | 'peers';
 type Selection = { kind: 'room'; roomId: string; title: string } | { kind: 'peer'; peerId: string };
 
 const BRAIN_SELECTION: Selection = { kind: 'room', roomId: BRAIN_ROOM_ID, title: 'Brain Chat' };
+
+const WINDOW_STORAGE_KEY = 'swarm:global-chat-rect';
+
+/** Desktop default: the same spot the chat always opened in, bottom right. */
+function initialWindowRect(vw: number, vh: number): FloatingRect {
+  const w = Math.min(900, vw - 32);
+  const h = Math.min(Math.round(vh * 0.72), 640);
+  return { x: vw - w - 16, y: vh - h - 80, w, h };
+}
 
 /**
  * Global & Direct Mesh Chat, opened from Chat in the main menu.
@@ -106,6 +122,14 @@ export function NetworkChatHost(): JSX.Element | null {
 function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const { user } = useAuth();
   const isMobile = useIsMobile();
+  const docked = useNetworkChatDocked();
+  // Desktop: drag from the header, resize from the corner; the spot is remembered.
+  const { style: windowStyle, beginMove, beginResize } = useFloatingRect({
+    storageKey: WINDOW_STORAGE_KEY,
+    minW: 520,
+    minH: 360,
+    initial: initialWindowRect,
+  });
   const [mode, setMode] = useState<RailMode>('projects');
   const [selection, setSelection] = useState<Selection>(BRAIN_SELECTION);
 
@@ -127,7 +151,8 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const roomUnread = useRoomUnread(
     useMemo(() => [BRAIN_ROOM_ID, ...projects.map((p) => p.roomId)], [projects]),
     user?.id,
-    activeRoomId,
+    // Docked, the open chat is off screen, so its new lines count as unread too.
+    docked ? null : activeRoomId,
   );
 
   const selectedPeer = selection.kind === 'peer' ? peers.find((p) => p.peerId === selection.peerId) : undefined;
@@ -137,10 +162,41 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
 
   // Phones stack the rail (as a scrolling strip) above the conversation, so
   // Projects, Peers and every chat stay one tap away.
-  const containerStyle: React.CSSProperties = isMobile
-    ? { height: 'min(82vh, 680px)' }
-    : { width: 'min(900px, calc(100vw - 2rem))', height: 'min(72vh, 640px)' };
+  const containerStyle: React.CSSProperties = isMobile ? { height: 'min(82vh, 680px)' } : windowStyle;
 
+  const selectionTitle = selection.kind === 'room' ? selection.title : selectedPeer?.displayName ?? 'Peer';
+  const unreadTotal = peerUnreadTotal + Object.values(roomUnread).reduce((a, b) => a + b, 0);
+
+  // Docked: a slim bar at the bottom of the screen, like a minimized screen share.
+  if (docked) {
+    return (
+      <div
+        role="region"
+        aria-label="Global Chat (docked)"
+        className={cn(
+          'fixed z-[40] flex items-center gap-1 rounded-full border border-[hsla(180,80%,60%,0.3)] bg-[hsla(265,70%,8%,0.9)] py-1 pl-1 pr-1 shadow-lg backdrop-blur',
+          isMobile
+            ? 'bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 max-w-[calc(100vw-1rem)] -translate-x-1/2'
+            : 'bottom-4 left-1/2 max-w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2',
+        )}
+      >
+        <button
+          type="button"
+          onClick={() => setNetworkChatDocked(false)}
+          className="flex min-w-0 items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-foreground hover:bg-foreground/10"
+          aria-label="Show Global Chat"
+        >
+          <MessagesSquare className="h-4 w-4 shrink-0 text-primary" />
+          <span className="shrink-0 font-display uppercase tracking-[0.2em] text-foreground/80">Chat</span>
+          <span className="min-w-0 truncate text-foreground/60">· {selectionTitle}</span>
+          {unreadTotal > 0 && <UnreadDot count={unreadTotal} />}
+        </button>
+        <Button type="button" size="icon" variant="ghost" className="h-7 w-7 shrink-0 rounded-full text-foreground/60 hover:text-foreground" onClick={onClose} aria-label="Close">
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -148,23 +204,43 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
       aria-label="Global Chat"
       className={cn(
         'fixed z-[40] flex flex-col rounded-2xl border border-[hsla(180,80%,60%,0.25)] bg-[hsla(265,70%,8%,0.85)] shadow-2xl backdrop-blur',
-        isMobile ? 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]' : 'bottom-20 right-4',
+        isMobile && 'inset-x-2 bottom-[calc(4.5rem+env(safe-area-inset-bottom))]',
       )}
       style={containerStyle}
     >
-      <div className="flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2">
-        <div className="flex items-center gap-2">
-          <MessagesSquare className="h-4 w-4 text-primary" />
-          <span className="text-xs font-display uppercase tracking-[0.2em] text-foreground/80">Global Chat</span>
-          {isMobile && (
-            <span className="truncate text-xs text-foreground/60">
-              · {selection.kind === 'room' ? selection.title : selectedPeer?.displayName ?? 'Peer'}
-            </span>
+      <div
+        onPointerDown={isMobile ? undefined : beginMove}
+        className={cn(
+          'flex items-center justify-between border-b border-[hsla(180,80%,60%,0.18)] px-3 py-2',
+          !isMobile && 'cursor-move touch-none select-none',
+        )}
+        data-testid="global-chat-header"
+      >
+        <div className="flex min-w-0 items-center gap-2">
+          <MessagesSquare className="h-4 w-4 shrink-0 text-primary" />
+          <span className="shrink-0 text-xs font-display uppercase tracking-[0.2em] text-foreground/80">Global Chat</span>
+          {isMobile ? (
+            <span className="truncate text-xs text-foreground/60">· {selectionTitle}</span>
+          ) : (
+            <GripHorizontal className="h-3.5 w-3.5 shrink-0 text-foreground/35" aria-hidden />
           )}
         </div>
-        <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-foreground/60 hover:text-foreground" onClick={onClose} aria-label="Close">
-          <X className="h-3.5 w-3.5" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 text-foreground/60 hover:text-foreground"
+            onClick={() => setNetworkChatDocked(true)}
+            aria-label="Dock to bottom"
+            title="Dock to bottom"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button type="button" size="icon" variant="ghost" className="h-7 w-7 text-foreground/60 hover:text-foreground" onClick={onClose} aria-label="Close">
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </div>
 
       <div className={cn('flex min-h-0 flex-1 gap-2 p-2', isMobile && 'flex-col-reverse')}>
@@ -272,6 +348,13 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
             </div>
           </aside>
       </div>
+      {!isMobile && (
+        <div
+          onPointerDown={beginResize}
+          className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize touch-none rounded-br-2xl bg-gradient-to-br from-transparent to-[hsla(180,80%,60%,0.5)]"
+          aria-label="Resize chat window"
+        />
+      )}
     </div>
   );
 }

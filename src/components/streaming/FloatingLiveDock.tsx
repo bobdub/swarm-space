@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import { LivePostBoxBody } from './LivePostBoxBody';
 import { useStreaming } from '@/hooks/useStreaming';
+import { useFloatingRect, type FloatingRect } from '@/hooks/useFloatingRect';
 import {
   getFloatingLiveDock,
   setFloatingLiveDock,
@@ -11,33 +12,9 @@ import {
 
 const STORAGE_KEY = 'swarm:floating-live-dock-rect';
 
-interface Rect { x: number; y: number; w: number; h: number; }
-
-function clampRect(r: Rect): Rect {
-  if (typeof window === 'undefined') return r;
-  const vw = window.innerWidth;
-  const vh = window.innerHeight;
-  const w = Math.max(340, Math.min(r.w, vw - 16));
-  const h = Math.max(440, Math.min(r.h, vh - 16));
-  const x = Math.max(8, Math.min(r.x, vw - w - 8));
-  const y = Math.max(8, Math.min(r.y, vh - h - 8));
-  return { x, y, w, h };
-}
-
-function loadRect(): Rect {
-  if (typeof window === 'undefined') {
-    return { x: 24, y: 80, w: 440, h: 660 };
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as Rect;
-      if (typeof parsed.x === 'number') return clampRect(parsed);
-    }
-  } catch { /* ignore */ }
-  const vw = window.innerWidth;
+function initialRect(vw: number): FloatingRect {
   const w = Math.min(440, vw - 32);
-  return clampRect({ x: vw - w - 24, y: 72, w, h: 660 });
+  return { x: vw - w - 24, y: 72, w, h: 660 };
 }
 
 /**
@@ -70,62 +47,12 @@ export function FloatingLiveDock(): JSX.Element | null {
     setFloatingLiveDock(null);
   }, [entry, roomEnded]);
 
-  const [rect, setRect] = useState<Rect>(() => loadRect());
-  const dragRef = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; orig: Rect } | null>(null);
-  const pendingRectRef = useRef<Rect | null>(null);
-  const rafIdRef = useRef<number | null>(null);
-
-  // Re-clamp on resize.
-  useEffect(() => {
-    const onResize = () => setRect((r) => clampRect(r));
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Persist
-  useEffect(() => {
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rect)); } catch { /* ignore */ }
-  }, [rect]);
-
-  const onPointerMove = useCallback((e: PointerEvent) => {
-    const d = dragRef.current;
-    if (!d) return;
-    const dx = e.clientX - d.startX;
-    const dy = e.clientY - d.startY;
-    const next = d.mode === 'move'
-      ? clampRect({ ...d.orig, x: d.orig.x + dx, y: d.orig.y + dy })
-      : clampRect({ ...d.orig, w: d.orig.w + dx, h: d.orig.h + dy });
-    pendingRectRef.current = next;
-    if (rafIdRef.current != null) return;
-    rafIdRef.current = window.requestAnimationFrame(() => {
-      rafIdRef.current = null;
-      const pending = pendingRectRef.current;
-      pendingRectRef.current = null;
-      if (pending) setRect(pending);
-    });
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null;
-    if (rafIdRef.current != null) {
-      window.cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    if (pendingRectRef.current) {
-      const pending = pendingRectRef.current;
-      pendingRectRef.current = null;
-      setRect(pending);
-    }
-    window.removeEventListener('pointermove', onPointerMove);
-    window.removeEventListener('pointerup', onPointerUp);
-  }, [onPointerMove]);
-
-  const beginDrag = (mode: 'move' | 'resize') => (e: React.PointerEvent) => {
-    e.preventDefault();
-    dragRef.current = { mode, startX: e.clientX, startY: e.clientY, orig: { ...rect } };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-  };
+  const { style, beginMove, beginResize } = useFloatingRect({
+    storageKey: STORAGE_KEY,
+    minW: 340,
+    minH: 440,
+    initial: initialRect,
+  });
 
   if (!entry || typeof document === 'undefined') return null;
   const headerTitle = (entry.title || liveRoom?.title || 'Live room').trim();
@@ -135,10 +62,10 @@ export function FloatingLiveDock(): JSX.Element | null {
       role="dialog"
       aria-label="Live chat window"
       className="fixed z-[70] flex flex-col overflow-hidden rounded-2xl border border-[hsla(180,80%,60%,0.3)] bg-[hsla(245,70%,8%,0.85)] shadow-2xl"
-      style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+      style={style}
     >
       <div
-        onPointerDown={beginDrag('move')}
+        onPointerDown={beginMove}
         className="flex h-9 shrink-0 cursor-move items-center justify-between gap-3 bg-black/45 px-3 text-foreground"
       >
         <span className="min-w-0 truncate text-sm font-semibold">{headerTitle}</span>
@@ -154,7 +81,7 @@ export function FloatingLiveDock(): JSX.Element | null {
         />
       </div>
       <div
-        onPointerDown={beginDrag('resize')}
+        onPointerDown={beginResize}
         className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize bg-gradient-to-br from-transparent to-[hsla(180,80%,60%,0.5)]"
         aria-label="Resize window"
       />
