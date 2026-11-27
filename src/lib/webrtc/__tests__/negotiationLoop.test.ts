@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const sentSignals: Array<{ to: string; type: string; data: unknown }> = [];
 const reconnectSignals: Array<{ to: string; kind: string }> = [];
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendSignalViaMesh: (to: string, _room: string, type: string, data: unknown) => {
     sentSignals.push({ to, type, data });
   },
