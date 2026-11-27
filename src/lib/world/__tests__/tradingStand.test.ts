@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 import {
   STAND_FLOOR_SHARE,
   TRADING_GOODS,
@@ -237,6 +238,7 @@ describe("each stand is its own market", () => {
 
   it('lets only the owner stock their stand with goods, and takes nothing from anyone else', async () => {
     _resetHarvestedForTest();
+    _resetPlayModeForTest({ online: true });
     recordHarvestForResource('honey', 4);
     const own = standVaultScope('p1', 'Ada');
     const stand = { placementId: 'p1', ownerId: 'owner' };
@@ -249,7 +251,7 @@ describe("each stand is its own market", () => {
 });
 
 describe('Trading Stand in the Brain', () => {
-  beforeEach(() => _resetHarvestedForTest());
+  beforeEach(() => { _resetHarvestedForTest(); _resetPlayModeForTest({ online: true }); });
 
   it('is built from wood, stone and fibre', () => {
     expect(getPrefab(TRADING_STAND_ID)?.label).toBe('Trading Stand');

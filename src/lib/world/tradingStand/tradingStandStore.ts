@@ -46,7 +46,7 @@ import {
   type StandVaultState,
   type TradingGood,
 } from './pricing';
-import { giveGood, heldGood, takeGood } from './goods';
+import { giveGood, heldGood, shortGoodMessage, takeGood } from './goods';
 
 export const STAND_ADDRESS_PREFIX = 'trading-stand:';
 export const GOOD_CURRENCY_PREFIX = 'GOOD:';
@@ -414,7 +414,7 @@ export async function sellToStand(req: StandTradeRequest): Promise<StandQuote> {
     } else if (quote.credits > spendable.creditReserve - Math.ceil(shared.creditReserve * STAND_FLOOR_SHARE)) {
       throw new Error('The stand vault can pay fewer Credits from this device until your earlier trades are mined. Nothing was taken.');
     }
-    if (!takeGood(req.good, req.qty)) throw new Error(`You don't have ${req.qty} ${req.good}.`);
+    if (!takeGood(req.good, req.qty)) throw new Error(shortGoodMessage(req.good, req.qty));
     const operationId = crypto.randomUUID();
     const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-sell', operationId, good: req.good, goodQty: req.qty };
     let payout: SwarmTransaction | undefined;
@@ -472,7 +472,7 @@ export async function donateGoodsToStand(
   const { withCreatorMarketOperation } = await import('@/lib/blockchain/creatorMarketOperation');
   await withCreatorMarketOperation(lockFor(scope), async () => {
     await assertSignedIn(userId);
-    if (!takeGood(good, qty)) throw new Error(`You don't have ${qty} ${good}.`);
+    if (!takeGood(good, qty)) throw new Error(shortGoodMessage(good, qty));
     try {
       const tx = await addRecord({ from: userId, to: scope.address, amount: qty, currency: goodCurrency(good),
         meta: { tradingStand: true, standKey: scope.key, standId: stand.placementId, direction: 'donation', operationId: crypto.randomUUID(), tradeLeg: 'goods' } });

@@ -5,6 +5,7 @@
  * Salt, which is what a Salt Rock costs.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 
 const toastFns = vi.hoisted(() => ({ message: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock('sonner', () => ({ toast: toastFns }));
@@ -71,6 +72,7 @@ const beach: ToolTarget = { kind: 'surface', id: 'surface:beach', label: 'Beach'
 
 beforeEach(() => {
   _resetHarvestedForTest();
+  _resetPlayModeForTest({ online: true });
   _resetSwingFeedbackForTest();
   setToolTarget(null);
   impact.cut = true;

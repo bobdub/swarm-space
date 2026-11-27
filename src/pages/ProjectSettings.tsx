@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Avatar } from "@/components/Avatar";
+import { OfflineSeedCard } from "@/components/OfflineSeedCard";
 import { FileUpload } from "@/components/FileUpload";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
@@ -708,6 +709,8 @@ const ProjectSettings = () => {
                 })}
               </div>
             </Card>
+
+            {isOwner && currentUser && <OfflineSeedCard project={project} userId={currentUser.id} />}
 
             {isOwner && (
               <Card className="space-y-6 border-[hsla(174,59%,56%,0.25)] bg-[hsla(245,70%,8%,0.6)] p-6">

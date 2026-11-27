@@ -22,6 +22,8 @@ import {
   recordHarvestMany,
   spendHarvested,
   subscribeHarvested,
+  type BagScope,
+  type HarvestOrigin,
 } from './harvestedInventory';
 import { materialTotals, spendMaterials, type MaterialId } from '@/lib/world/materials';
 import type { Molecule, MoleculeConstituent } from './moleculeCatalog';
@@ -125,24 +127,31 @@ export function subscribeLabMaterialStocks(fn: (stocks: Record<LabMaterialId, nu
   });
 }
 
-/** Spend `units` of a material from the bag. False (nothing spent) when short. */
-export function spendLabMaterial(id: LabMaterialId, units: number): boolean {
+/**
+ * Spend `units` of a material from the bag. False (nothing spent) when
+ * short. Coin crafting passes `{ onlineOnly: true }`: a coin is an online
+ * asset, so offline gathers never go into one.
+ */
+export function spendLabMaterial(id: LabMaterialId, units: number, scope?: BagScope): boolean {
   if (!Number.isSafeInteger(units) || units <= 0) return false;
   const bag = BAG_MATERIAL[id];
-  if (bag) return spendMaterials({ [bag]: units });
+  if (bag) return spendMaterials({ [bag]: units }, scope);
   const good = GOOD_KIND[id];
   if (!good) return false;
-  return spendHarvested([{ symbol: `good:${good}`, count: units }]);
+  return spendHarvested([{ symbol: `good:${good}`, count: units }], scope);
 }
 
-/** Put `units` of a material back in the bag (cancelled crafts, refunds). */
-export function refundLabMaterial(id: LabMaterialId, units: number): void {
+/**
+ * Put `units` of a material back in the bag (cancelled crafts, refunds).
+ * An online-only spend refunds with `origin` 'online'.
+ */
+export function refundLabMaterial(id: LabMaterialId, units: number, origin?: HarvestOrigin): void {
   if (!Number.isSafeInteger(units) || units <= 0) return;
   const bag = BAG_MATERIAL[id];
-  if (bag) { recordHarvestForResource(bag, units); return; }
+  if (bag) { recordHarvestForResource(bag, units, origin); return; }
   // Goods go straight back under their own bag key (one per unit).
   const good = GOOD_KIND[id];
-  if (good) recordHarvestMany([{ symbol: `good:${good}`, count: units }]);
+  if (good) recordHarvestMany([{ symbol: `good:${good}`, count: units }], origin);
 }
 
 // ── Strokes → composition → Molecule ─────────────────────────────────────

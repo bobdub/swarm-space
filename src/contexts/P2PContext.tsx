@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, useEffect, ReactNode } from 'react';
 import type {
   P2PStats,
   EnsureManifestOptions,
@@ -14,6 +14,7 @@ import type { Post, Comment } from '@/types';
 import type { DiscoveredPeer } from '@/lib/p2p/discovery';
 import type { Manifest } from '@/lib/store';
 import { useP2P } from '@/hooks/useP2P';
+import { setMeshOnline } from '@/lib/world/playMode';
 import type { P2PDiagnosticEvent } from '@/lib/p2p/diagnostics';
 import type { ConnectionHealthSummary } from '@/lib/p2p/connectionHealth';
 import type { BlocklistEntry, BlocklistDirection } from '@/lib/p2p/blocklistStore';
@@ -98,6 +99,10 @@ const P2PContext = createContext<P2PContextValue | null>(null);
 
 export function P2PProvider({ children }: { children: ReactNode }) {
   const p2p = useP2P();
+  // The one mesh-running instance says whether play is online, so gathers
+  // made offline stay local (see `src/lib/world/playMode.ts`).
+  const meshOnline = p2p.isEnabled && p2p.stats.connectedPeers > 0;
+  useEffect(() => { setMeshOnline(meshOnline); }, [meshOnline]);
 
   return (
     <P2PContext.Provider value={p2p}>

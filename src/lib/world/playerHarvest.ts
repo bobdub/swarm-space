@@ -9,6 +9,10 @@
  *   3. journals the harvest so the coin engraving writer can engrave it
  *      onto the player's open coin.
  *
+ * A gather in offline play (`playMode.ts`) lands in the offline bag and
+ * earns no labour and no engraving: labour coins and engravings sync to the
+ * mesh, and offline gathers stay local.
+ *
  * NPC harvests do not come through here: NPC yield goes to the NPC's own
  * stores and is credited to `labour:<npcId>` by coin.bus.
  */
@@ -16,6 +20,7 @@ import { recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { journalHarvest } from '@/lib/remix/harvestJournal';
 import { emitScaffold } from '@/lib/uqrc/scaffoldBus';
 import { getCurrentUser } from '@/lib/auth';
+import { currentHarvestOrigin } from './playMode';
 
 /** Labour credited per unit harvested; on the same scale as NPC verbs in coin.bus. */
 export const HARVEST_LABOUR_PER_UNIT: Record<string, number> = {
@@ -43,8 +48,9 @@ function localUserId(): string | null {
 
 export function recordPlayerHarvest(kind: string, qty: number, userId: string | null = localUserId()): void {
   if (!Number.isFinite(qty) || qty <= 0) return;
-  recordHarvestForResource(kind, qty);
-  if (!userId) return;
+  const origin = currentHarvestOrigin();
+  recordHarvestForResource(kind, qty, origin);
+  if (!userId || origin === 'offline') return;
   const perUnit = HARVEST_LABOUR_PER_UNIT[kind];
   if (perUnit) {
     try {
