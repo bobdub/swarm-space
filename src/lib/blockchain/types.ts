@@ -498,6 +498,12 @@ export interface SwarmCoin {
   mediaRole?: "primary" | "seal-assist" | "courier" | "support";
   /** Media Coin content identity this coin carries (never the coinId). */
   mediaContentRoot?: string;
+  /**
+   * Set while a Media Coin reservation waits for its content (a large file
+   * being minted): when it was made and the coin's fields before it, so an
+   * interrupted reservation (tab closed mid-pack) can be given back.
+   */
+  mediaReservation?: { at: number; prev: Partial<SwarmCoin> };
   /** Assist coin breadcrumb back to the primary wrapper coin. */
   mediaPrimaryCoinId?: string;
   /** Primary wrapper breadcrumb to any seal-assist wallet coins. */

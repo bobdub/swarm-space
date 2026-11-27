@@ -51,6 +51,8 @@ import {
   prepareCourierFiles,
   supportMediaCoin,
   deleteMediaCoinSync,
+  recoverInterruptedReservations,
+  MEDIA_COIN_RESERVATION_STALE_MS,
 } from "../mediaCoinRuntime";
 import { getMediaCoinContent, _resetMediaCoinContentStoreForTest } from "../mediaCoinContentStore";
 import { isMediaCoinRefused, _resetRefusedMediaCoinsForTest } from "../refusedMediaCoinsStore";
@@ -197,6 +199,29 @@ describe("mediaCoinRuntime courier mode", () => {
     expect(coinAt("hollow-1").kind).toBeUndefined();
     expect(await getMediaCoinContent(prepared.refs[0].merkleRoot)).toBeNull();
     expect(deleted).toEqual([]);
+  });
+
+  it("gives back a coin whose reservation was interrupted, and leaves a fresh one alone", async () => {
+    const now = Date.now();
+    coin("stale", { kind: "media", mediaRole: "courier", mediaReservation: { at: now - MEDIA_COIN_RESERVATION_STALE_MS - 1, prev: { kind: undefined, fillState: undefined } } });
+    coin("fresh", { kind: "media", mediaRole: "courier", mediaReservation: { at: now, prev: {} } });
+    coin("engraved", { kind: "media", mediaRole: "courier", mediaContentRoot: "root-x" });
+
+    expect(await recoverInterruptedReservations(now)).toBe(1);
+    expect(coinAt("stale").kind).toBeUndefined();
+    expect(coinAt("stale").mediaReservation).toBeUndefined();
+    expect(coinAt("fresh").kind).toBe("media");
+    expect(coinAt("engraved").mediaContentRoot).toBe("root-x");
+  });
+
+  it("never releases a reservation a running pack still holds", async () => {
+    coin("hollow-1");
+    const file = await torrentFile("file-h", new Uint8Array(1000).fill(6));
+    const prepared = await prepareCourierFiles([file], { postId: "post-7", creatorId: "user-alice" });
+    expect(await recoverInterruptedReservations(Date.now() + MEDIA_COIN_RESERVATION_STALE_MS * 2)).toBe(0);
+    await prepared.commit();
+    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaContentRoot: prepared.refs[0].merkleRoot });
+    expect(coinAt("hollow-1").mediaReservation).toBeUndefined();
   });
 
   it("clears the retired whole-coin launch queue at start", () => {

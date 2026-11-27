@@ -144,6 +144,7 @@ export function startMediaCoinRuntime(transport: MeshTransportAdapter): void {
   unsubs.push(engine.onUnpack((u) => note(u.manifest, u.route.hops.length - 1)));
   unsubs.push(engine.onAlreadyHeld((h) => note(h.manifest, h.route.hops.length - 1)));
   void refreshMediaCoinContents();
+  void recoverInterruptedReservations().catch(() => 0);
   void drainPendingLaunches().catch(() => {});
   pendingTimer = setInterval(() => { void drainPendingLaunches().catch(() => {}); }, 5_000);
 }
@@ -201,7 +202,8 @@ async function claimHollowCoin(
       kind: coin.kind, mediaRole: coin.mediaRole, mediaContentRoot: coin.mediaContentRoot, sealBytes: coin.sealBytes,
       mediaTargets: coin.mediaTargets, fillState: coin.fillState, sealedAt: coin.sealedAt,
     };
-    await put("swarmCoins", { ...coin, kind: "media", mediaRole: role });
+    await put("swarmCoins", { ...coin, kind: "media", mediaRole: role, mediaReservation: { at: Date.now(), prev: snapshot } });
+    activeReservations.add(coin.coinId);
     return { coinId: coin.coinId, snapshot };
   });
 }
@@ -223,7 +225,9 @@ async function engraveReservedCoin(userId: string, coinId: string, role: CoinRol
       mediaTargets: [...(coin.mediaTargets ?? []), { peerId, contentHashes: [mediaCoinContentKey(merkleRoot)] }],
       fillState: "sealed",
       sealedAt: coin.sealedAt ?? now,
+      mediaReservation: undefined,
     });
+    activeReservations.delete(coinId);
     return true;
   });
 }
@@ -233,9 +237,39 @@ async function releaseReservedCoin(userId: string, coinId: string, role: CoinRol
   const { withEngravingLock } = await import("./contentPayload");
   const { get, put } = await import("@/lib/store");
   await withEngravingLock(userId, async () => {
+    activeReservations.delete(coinId);
     const coin = await get<SwarmCoin>("swarmCoins", coinId);
     if (!coin || coin.kind !== "media" || coin.mediaRole !== role || coin.mediaContentRoot) return;
-    await put("swarmCoins", { ...coin, ...snapshot });
+    await put("swarmCoins", { ...coin, ...snapshot, mediaReservation: undefined });
+  });
+}
+
+/** Reservations this tab holds right now (a pack in progress). */
+const activeReservations = new Set<string>();
+/** A reservation older than this, held by no running pack, was interrupted. */
+export const MEDIA_COIN_RESERVATION_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * Give back coins whose reservation was interrupted (the tab closed or
+ * reloaded while a post was being packed): reserved, never engraved, not
+ * held by a pack in this tab, and older than the stale window so another
+ * tab's pack in progress is left alone.
+ */
+export async function recoverInterruptedReservations(now = Date.now()): Promise<number> {
+  const userId = await currentUserId();
+  if (!userId) return 0;
+  const { withEngravingLock } = await import("./contentPayload");
+  const { getAll, put } = await import("@/lib/store");
+  return withEngravingLock(userId, async () => {
+    let released = 0;
+    for (const coin of await getAll<SwarmCoin>("swarmCoins")) {
+      const r = coin.mediaReservation;
+      if (!r || coin.ownerId !== userId || coin.mediaContentRoot || activeReservations.has(coin.coinId)) continue;
+      if (now - (r.at || 0) < MEDIA_COIN_RESERVATION_STALE_MS) continue;
+      await put("swarmCoins", { ...coin, ...(r.prev ?? {}), mediaReservation: undefined });
+      released++;
+    }
+    return released;
   });
 }
 
