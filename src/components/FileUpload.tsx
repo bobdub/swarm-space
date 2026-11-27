@@ -48,19 +48,32 @@ function getMediaDimensions(file: File): Promise<{ width: number; height: number
   });
 }
 
+/**
+ * A file held raw (not yet encrypted anywhere) for a parent that chooses
+ * its distribution later. PostComposer uses this so a post over the
+ * torrent size is minted straight into Media Coins and never touches the
+ * torrent store.
+ */
+export interface PendingAttachment {
+  id: string;
+  file: File;
+  mediaWidth?: number;
+  mediaHeight?: number;
+}
+
 interface FileUploadProps {
-  onFilesReady: (manifests: Manifest[]) => void;
+  onFilesReady?: (manifests: Manifest[]) => void;
+  /**
+   * Hold files raw instead of encrypting them into the torrent store, and
+   * hand them to `onAttachmentsReady`. Nothing is written or announced.
+   */
+  deferEncryption?: boolean;
+  onAttachmentsReady?: (attachments: PendingAttachment[]) => void;
   onEncryptingChange?: (encrypting: boolean) => void;
   maxFiles?: number;
   maxFileSize?: number; // in bytes
   /** Upload space shared by every file (defaults to no shared cap). */
   maxTotalSize?: number;
-  /**
-   * Announce each file to the mesh as soon as it is ready. PostComposer
-   * turns this off and announces at post time, because a post above the
-   * torrent size goes by Media Coin and must never be seeded as a torrent.
-   */
-  announceOnReady?: boolean;
   /** Extra line under the limits (e.g. how the post will travel). */
   hint?: string;
   acceptedTypes?: string[];
@@ -85,11 +98,12 @@ const isVideo = (file: File) => file.type.startsWith("video/");
 
 export const FileUpload = ({
   onFilesReady,
+  deferEncryption = false,
+  onAttachmentsReady,
   onEncryptingChange,
   maxFiles = 10,
   maxFileSize = 20 * 1024 * 1024, // 20MB
   maxTotalSize,
-  announceOnReady = true,
   hint,
   acceptedTypes = ["image/*", "video/*", "audio/*", "application/pdf"]
 }: FileUploadProps) => {
@@ -206,6 +220,18 @@ export const FileUpload = ({
 
       updateFile(item.id, { status: "encrypting" });
 
+      if (deferEncryption) {
+        const dims = await getMediaDimensions(source);
+        updateFile(item.id, { status: "done", progress: 100 });
+        onAttachmentsReady?.([{
+          id: item.id,
+          file: source,
+          ...(dims ? { mediaWidth: dims.width, mediaHeight: dims.height } : {}),
+        }]);
+        toast.success(`${source.name} ready`);
+        return;
+      }
+
       // Generate file key and encrypt
       const fileKey = await genFileKey();
       const manifest = await chunkAndEncryptFile(
@@ -224,10 +250,10 @@ export const FileUpload = ({
 
       updateFile(item.id, { status: "done", manifest, progress: 100 });
 
-      // Announce to P2P network (PostComposer announces at post time instead)
-      if (announceOnReady) announceContent(manifest.fileId);
+      // Announce to P2P network
+      announceContent(manifest.fileId);
 
-      onFilesReady([manifest]);
+      onFilesReady?.([manifest]);
       toast.success(`${source.name} encrypted and ready`);
     } catch (error) {
       if (error instanceof AudioTranscodeError) {
@@ -236,8 +262,8 @@ export const FileUpload = ({
         return;
       }
       console.error("Encryption error:", error);
-      updateFile(item.id, { status: "error", error: "Encryption failed" });
-      toast.error(`Failed to encrypt ${item.file.name}`);
+      updateFile(item.id, { status: "error", error: deferEncryption ? "Couldn't prepare file" : "Encryption failed" });
+      toast.error(deferEncryption ? `Failed to prepare ${item.file.name}` : `Failed to encrypt ${item.file.name}`);
     }
   };
 
@@ -347,8 +373,8 @@ export const FileUpload = ({
                     {formatFileSize(fileWithProgress.file.size)}
                     {fileWithProgress.status === "queued" && !isVideo(fileWithProgress.file) && " • Queued"}
                     {fileWithProgress.status === "transcoding" && " • Compressing audio to fit the mesh..."}
-                    {fileWithProgress.status === "encrypting" && " • Encrypting..."}
-                    {fileWithProgress.status === "done" && " • Encrypted ✓"}
+                    {fileWithProgress.status === "encrypting" && (deferEncryption ? " • Preparing..." : " • Encrypting...")}
+                    {fileWithProgress.status === "done" && (deferEncryption ? " • Ready ✓" : " • Encrypted ✓")}
                     {fileWithProgress.status === "error" && ` • ${fileWithProgress.error}`}
                   </p>
                   

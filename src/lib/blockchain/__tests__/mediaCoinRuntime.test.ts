@@ -6,8 +6,7 @@ const s = (n: string) => {
   if (!stores.has(n)) stores.set(n, new Map());
   return stores.get(n)!;
 };
-const keyOf = (n: string, v: Record<string, unknown>) =>
-  (n === "manifests" ? v.fileId : n === "chunks" ? v.ref : n === "swarmCoins" ? v.coinId : v.id) as string;
+const keyOf = (n: string, v: Record<string, unknown>) => (n === "swarmCoins" ? v.coinId : v.id) as string;
 
 vi.mock("@/lib/store", () => ({
   put: async (n: string, v: Record<string, unknown>) => { s(n).set(keyOf(n, v), v); },
@@ -16,11 +15,12 @@ vi.mock("@/lib/store", () => ({
   remove: async (n: string, k: string) => { s(n).delete(k); },
 }));
 
-let fileKey: CryptoKey;
-const deleted: string[] = [];
+// Media Coin posting must never reach the torrent store.
+const torrentCalls: string[] = [];
 vi.mock("@/lib/fileEncryption", () => ({
-  importFileKey: async () => fileKey,
-  deleteManifest: async (id: string) => { deleted.push(id); s("manifests").delete(id); },
+  importFileKey: async () => { torrentCalls.push("importFileKey"); throw new Error("torrent store touched"); },
+  deleteManifest: async () => { torrentCalls.push("deleteManifest"); },
+  chunkAndEncryptFile: async () => { torrentCalls.push("chunkAndEncryptFile"); throw new Error("torrent store touched"); },
 }));
 
 const isHollow = (c: Record<string, unknown>, userId: string) =>
@@ -57,26 +57,16 @@ import {
 import { getMediaCoinContent, _resetMediaCoinContentStoreForTest } from "../mediaCoinContentStore";
 import { isMediaCoinRefused, _resetRefusedMediaCoinsForTest } from "../refusedMediaCoinsStore";
 
-const b64 = (u: Uint8Array) => {
-  let out = "";
-  for (let i = 0; i < u.length; i += 8192) out += String.fromCharCode(...u.subarray(i, i + 8192));
-  return btoa(out);
-};
+/** A file the user attached, held raw (never written to the torrent store). */
+function attached(name: string, data: Uint8Array) {
+  return { file: new File([data], `${name}.mp4`, { type: "video/mp4" }) };
+}
 
-/** A post file in the torrent store: two encrypted chunks. */
-async function torrentFile(fileId: string, data: Uint8Array) {
-  const half = Math.ceil(data.byteLength / 2);
-  const refs: string[] = [];
-  for (const [i, part] of [data.subarray(0, half), data.subarray(half)].entries()) {
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, fileKey, part));
-    const ref = `chunk-${fileId}-${i}`;
-    s("chunks").set(ref, { ref, seq: i, iv: b64(iv), cipher: b64(cipher) });
-    refs.push(ref);
-  }
-  const manifest = { fileId, chunks: refs, mime: "video/mp4", size: data.byteLength, originalName: `${fileId}.mp4`, createdAt: "" };
-  s("manifests").set(fileId, manifest);
-  return manifest;
+/** A file whose bytes can no longer be read (e.g. it was moved on disk). */
+function unreadable(name: string, size: number) {
+  const blob = new Blob([new Uint8Array(size)], { type: "video/mp4" });
+  blob.slice = () => ({ arrayBuffer: () => Promise.reject(new Error(`${name} missing`)) }) as unknown as Blob;
+  return { file: blob, name: `${name}.mp4` };
 }
 
 function transport(sent: Array<{ type: string; coinId: string }>): MeshTransportAdapter {
@@ -92,23 +82,21 @@ function transport(sent: Array<{ type: string; coinId: string }>): MeshTransport
 beforeEach(async () => {
   stopMediaCoinRuntime();
   stores.clear();
-  deleted.length = 0;
+  torrentCalls.length = 0;
   localStorage.clear();
   lockRuns.length = 0;
-  fileKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
   await _resetMediaCoinContentStoreForTest();
   _resetRefusedMediaCoinsForTest();
 });
 
 describe("mediaCoinRuntime courier mode", () => {
-  it("publishes a post's files as Media Coins on a hollow coin and drops the torrent copy", async () => {
+  it("publishes a post's files as Media Coins straight from the file, never through the torrent store", async () => {
     coin("hollow-1");
     const data = new Uint8Array(300_000).map((_, i) => i % 199);
-    const file = await torrentFile("file-a", data);
+    const file = attached("file-a", data);
 
     const prepared = await prepareCourierFiles([file], { postId: "post-1", creatorId: "user-alice" });
-    // Nothing destructive until the post is saved.
-    expect(deleted).toEqual([]);
+    // Nothing launched until the post is saved.
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
     expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier" }); // reserved
     await prepared.commit();
@@ -120,7 +108,10 @@ describe("mediaCoinRuntime courier mode", () => {
     expect(rec?.postId).toBe("post-1");
     expect(rec?.coinIds).toEqual(["hollow-1"]);
     expect(rec?.createdBySelf).toBe(true);
-    expect(deleted).toEqual(["file-a"]);
+    expect(rec?.name ?? refs[0].name).toBe("file-a.mp4");
+    expect(torrentCalls).toEqual([]);
+    expect(s("manifests").size).toBe(0);
+    expect(s("chunks").size).toBe(0);
     expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier", mediaContentRoot: refs[0].merkleRoot, fillState: "sealed" });
     expect(lockRuns.length).toBeGreaterThan(0);
 
@@ -134,7 +125,7 @@ describe("mediaCoinRuntime courier mode", () => {
 
   it("support coin uses a different coinId than the original and records the supporter", async () => {
     coin("hollow-1");
-    const file = await torrentFile("file-b", new Uint8Array(5000).fill(7));
+    const file = attached("file-b", new Uint8Array(5000).fill(7));
     const prepared = await prepareCourierFiles([file], { postId: "post-2", creatorId: "user-alice" });
     await prepared.commit();
     const [ref] = prepared.refs;
@@ -150,7 +141,7 @@ describe("mediaCoinRuntime courier mode", () => {
   });
 
   it("support coin is refused without a hollow coin", async () => {
-    const file = await torrentFile("file-c", new Uint8Array(100).fill(1));
+    const file = attached("file-c", new Uint8Array(100).fill(1));
     const prepared = await prepareCourierFiles([file], { postId: "post-3", creatorId: "user-alice" });
     await prepared.commit();
     // The content packer loaded this coin after the snapshot was taken.
@@ -160,7 +151,7 @@ describe("mediaCoinRuntime courier mode", () => {
   });
 
   it("Delete Sync removes the local copy and refuses the content", async () => {
-    const file = await torrentFile("file-d", new Uint8Array(100).fill(2));
+    const file = attached("file-d", new Uint8Array(100).fill(2));
     const prepared = await prepareCourierFiles([file], { postId: "post-4", creatorId: "user-alice" });
     await prepared.commit();
     const [ref] = prepared.refs;
@@ -170,35 +161,33 @@ describe("mediaCoinRuntime courier mode", () => {
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
   });
 
-  it("a failed file keeps every torrent copy and gives the coins back, so the post can be retried", async () => {
+  it("a failed file gives the coins back and drops packed content, so the post can be retried", async () => {
     coin("hollow-1");
     coin("hollow-2");
-    const good = await torrentFile("file-e", new Uint8Array(4000).fill(3));
-    const bad = await torrentFile("file-f", new Uint8Array(4000).fill(4));
-    s("chunks").delete(bad.chunks[1]);
+    const good = attached("file-e", new Uint8Array(4000).fill(3));
+    const bad = unreadable("file-f", 4000);
 
     await expect(prepareCourierFiles([good, bad], { postId: "post-5", creatorId: "user-alice" })).rejects.toThrow(/missing/);
 
-    expect(deleted).toEqual([]);
-    expect(s("manifests").has("file-e")).toBe(true);
+    expect(torrentCalls).toEqual([]);
     expect(coinAt("hollow-1").kind).toBeUndefined();
     expect(coinAt("hollow-2").kind).toBeUndefined();
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
 
-    // Retry with the same attachments once the chunk is back.
-    const fixed = await torrentFile("file-f", new Uint8Array(4000).fill(4));
+    // Retry once the file can be read again.
+    const fixed = attached("file-f", new Uint8Array(4000).fill(4));
     const prepared = await prepareCourierFiles([good, fixed], { postId: "post-5", creatorId: "user-alice" });
     expect(prepared.refs).toHaveLength(2);
   });
 
   it("abort before the post is saved releases the reserved coin and drops the packed content", async () => {
     coin("hollow-1");
-    const file = await torrentFile("file-g", new Uint8Array(1000).fill(5));
+    const file = attached("file-g", new Uint8Array(1000).fill(5));
     const prepared = await prepareCourierFiles([file], { postId: "post-6", creatorId: "user-alice" });
     await prepared.abort();
     expect(coinAt("hollow-1").kind).toBeUndefined();
     expect(await getMediaCoinContent(prepared.refs[0].merkleRoot)).toBeNull();
-    expect(deleted).toEqual([]);
+    expect(torrentCalls).toEqual([]);
   });
 
   it("gives back a coin whose reservation was interrupted, and leaves a fresh one alone", async () => {
@@ -216,7 +205,7 @@ describe("mediaCoinRuntime courier mode", () => {
 
   it("never releases a reservation a running pack still holds", async () => {
     coin("hollow-1");
-    const file = await torrentFile("file-h", new Uint8Array(1000).fill(6));
+    const file = attached("file-h", new Uint8Array(1000).fill(6));
     const prepared = await prepareCourierFiles([file], { postId: "post-7", creatorId: "user-alice" });
     expect(await recoverInterruptedReservations(Date.now() + MEDIA_COIN_RESERVATION_STALE_MS * 2)).toBe(0);
     await prepared.commit();

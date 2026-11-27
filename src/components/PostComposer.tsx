@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { FileUpload } from "@/components/FileUpload";
+import { FileUpload, type PendingAttachment } from "@/components/FileUpload";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { FolderOpen, X, Lock, Coins } from "lucide-react";
@@ -18,7 +18,6 @@ import { awardPostCredits } from "@/lib/credits";
 import { evaluateAchievementEvent } from "@/lib/achievements";
 import { listUserAchievementProgress } from "@/lib/achievementsStore";
 import type { PostBadgeSnapshot } from "@/types";
-import type { Manifest } from "@/lib/fileEncryption";
 import type { Post, Project } from "@/types";
 import { toast } from "sonner";
 import { selfLearnStamp } from "@/lib/brain/agent/learnConsent";
@@ -70,7 +69,7 @@ export const PostComposer = ({
   const [mentions, setMentions] = useState<MentionBinding[]>([]);
   const [loading, setLoading] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
-  const [attachedManifests, setAttachedManifests] = useState<Manifest[]>([]);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(defaultProjectId ?? "");
   const [userProjects, setUserProjects] = useState<Project[]>([]);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
@@ -179,8 +178,8 @@ export const PostComposer = ({
       return;
     }
 
-    const totalMediaBytes = attachedManifests.reduce((sum, m) => sum + (m.size || 0), 0);
-    if (attachedManifests.length > POST_UPLOAD_MAX_FILES) {
+    const totalMediaBytes = attachments.reduce((sum, a) => sum + a.file.size, 0);
+    if (attachments.length > POST_UPLOAD_MAX_FILES) {
       toast.error(`A post holds at most ${POST_UPLOAD_MAX_FILES} uploads`);
       return;
     }
@@ -190,32 +189,42 @@ export const PostComposer = ({
     }
 
     setLoading(true);
-    // Media Coin packing is committed only once the post is saved, so a
-    // failure keeps the attachments' torrent copies for a retry.
+    // Attachments are held raw until now, so each distribution gets its own
+    // copy and the two never meet: 50 MB or less is encrypted into the
+    // torrent store; above that the whole post is minted straight into
+    // Media Coins and never touches the torrent store, announce or sync.
+    // Either is undone if the post is not saved, so a retry starts clean.
     let courier: import("@/lib/blockchain/mediaCoinRuntime").PreparedCourierPost | null = null;
+    const torrentFileIds: string[] = [];
     let postSaved = false;
     try {
-      // 50 MB or less travels by torrent; above that the whole post goes
-      // by Media Coin, so its files are never announced or seeded as torrents.
       const distribution = postDistributionFor(totalMediaBytes);
       const postId = `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      let manifestIds = attachedManifests.map((manifest) => manifest.fileId);
+      let manifestIds: string[] = [];
       let mediaCoins: MediaCoinPostRef[] | undefined;
-      if (distribution === "media-coin" && attachedManifests.length > 0) {
+      if (distribution === "media-coin" && attachments.length > 0) {
         const { prepareCourierFiles } = await import("@/lib/blockchain/mediaCoinRuntime");
         const toastId = toast.loading("Packing media into Media Coins…");
         try {
-          courier = await prepareCourierFiles(attachedManifests, { postId, creatorId: user.id });
+          courier = await prepareCourierFiles(attachments, { postId, creatorId: user.id });
           mediaCoins = courier.refs;
         } finally {
           toast.dismiss(toastId);
         }
-        manifestIds = [];
+      } else if (attachments.length > 0) {
+        const { encryptTorrentAttachments } = await import("@/lib/media/torrentAttachments");
+        const toastId = toast.loading("Encrypting attachments…");
+        try {
+          manifestIds = await encryptTorrentAttachments(attachments, (fileId) => torrentFileIds.push(fileId));
+        } finally {
+          toast.dismiss(toastId);
+        }
       }
-      const postType = attachedManifests.length > 0
-        ? (attachedManifests[0].mime.startsWith("image/")
+      const firstMime = attachments[0]?.file.type ?? "";
+      const postType = attachments.length > 0
+        ? (firstMime.startsWith("image/")
           ? "image"
-          : attachedManifests[0].mime.startsWith("video/")
+          : firstMime.startsWith("video/")
             ? "video"
             : "file")
         : "text";
@@ -445,7 +454,7 @@ export const PostComposer = ({
 
       setContent("");
       setMentions([]);
-      setAttachedManifests([]);
+      setAttachments([]);
       setSelectedProjectId("");
       setIsNSFW(false);
       setIsWalled(false);
@@ -457,6 +466,10 @@ export const PostComposer = ({
       onPostCreated?.(signedPost);
     } catch (error) {
       if (courier && !postSaved) await courier.abort().catch(() => {});
+      if (torrentFileIds.length && !postSaved) {
+        const { discardTorrentAttachments } = await import("@/lib/media/torrentAttachments");
+        await discardTorrentAttachments(torrentFileIds).catch(() => {});
+      }
       toast.error("Failed to create post");
       console.error(error);
     } finally {
@@ -464,12 +477,12 @@ export const PostComposer = ({
     }
   };
 
-  const handleFilesReady = (manifests: Manifest[]) => {
-    setAttachedManifests((prev) => [...prev, ...manifests]);
+  const handleAttachmentsReady = (ready: PendingAttachment[]) => {
+    setAttachments((prev) => [...prev, ...ready]);
   };
 
-  const removeAttachment = (fileId: string) => {
-    setAttachedManifests((prev) => prev.filter((manifest) => manifest.fileId !== fileId));
+  const removeAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
   };
 
   const wrapperClasses = useMemo(() => {
@@ -677,12 +690,12 @@ export const PostComposer = ({
             )}
           </div>
 
-          {attachedManifests.length > 0 && (
+          {attachments.length > 0 && (
             <div className="space-y-2">
               <Label className="text-sm font-semibold uppercase tracking-wider">Attachments</Label>
               <p className="text-xs text-muted-foreground" data-testid="post-distribution">
                 {(() => {
-                  const total = attachedManifests.reduce((sum, m) => sum + (m.size || 0), 0);
+                  const total = attachments.reduce((sum, a) => sum + a.file.size, 0);
                   const mb = (total / (1024 * 1024)).toFixed(1);
                   return postDistributionFor(total) === "media-coin"
                     ? `${mb} MB · travels by Media Coin (over ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)})`
@@ -690,18 +703,18 @@ export const PostComposer = ({
                 })()}
               </p>
               <div className="flex flex-wrap gap-2">
-                {attachedManifests.map((manifest) => (
+                {attachments.map((attachment) => (
                   <div
-                    key={manifest.fileId}
+                    key={attachment.id}
                     className="flex items-center gap-2 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)] px-3 py-2 text-sm"
                   >
-                    <span className="max-w-[200px] truncate">{manifest.originalName}</span>
+                    <span className="max-w-[200px] truncate">{attachment.file.name}</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-auto p-0"
-                      onClick={() => removeAttachment(manifest.fileId)}
+                      onClick={() => removeAttachment(attachment.id)}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -713,12 +726,12 @@ export const PostComposer = ({
 
           {showFileUpload ? (
             <FileUpload
-              onFilesReady={handleFilesReady}
+              deferEncryption
+              onAttachmentsReady={handleAttachmentsReady}
               onEncryptingChange={setIsEncrypting}
               maxFiles={POST_UPLOAD_MAX_FILES}
               maxFileSize={MEDIA_COIN_PASS_MAX_BYTES}
               maxTotalSize={POST_UPLOAD_TOTAL_LIMIT_BYTES}
-              announceOnReady={false}
               hint={`Up to ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)} travels by torrent; bigger posts go by Media Coin.`}
             />
           ) : (

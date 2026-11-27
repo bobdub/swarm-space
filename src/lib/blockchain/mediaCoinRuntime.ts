@@ -6,8 +6,8 @@
  *  - Publish: a post whose media is above the torrent size goes by Media
  *    Coin. Each file is minted once into the content store (keyed by its
  *    merkleRoot), engraved onto a hollow wallet coin when one is free,
- *    and launched. Its torrent copy is dropped, so it is never announced
- *    or seeded as a torrent.
+ *    and launched. It is minted from the user's File and never touches the
+ *    torrent store, torrent announce or personal-server sync.
  *  - Arrivals: content that arrives whole, or a coin for content already
  *    held (0 bytes), is noted on the content record: the coin, its hops
  *    and, for Support Coins, the supporter. Torrents are never re-filled
@@ -24,8 +24,8 @@ import {
   getActiveMediaCoinEngine,
   resetMediaCoinEngine,
   mintMediaCoinContent,
+  mediaCoinSourceOf,
   MEDIA_COIN_PASS_MAX_BYTES,
-  type MediaCoinSource,
   type MeshTransportAdapter,
   type MediaCoinManifest,
 } from "./mediaCoin.standalone";
@@ -275,43 +275,23 @@ export async function recoverInterruptedReservations(now = Date.now()): Promise<
 
 // ── Publish (post time) ───────────────────────────────────────────────
 
-interface TorrentManifestLike {
-  fileId: string;
-  chunks: string[];
-  mime: string;
-  size: number;
-  originalName: string;
+/**
+ * A file attached to a post that goes by Media Coin. It is minted straight
+ * from the user's File: it is never written to, read from, announced by or
+ * synced through the torrent store. Torrent and Media Coin are separate
+ * distributions.
+ */
+export interface CourierFile {
+  file: File | Blob;
+  name?: string;
   mediaWidth?: number;
   mediaHeight?: number;
-}
-
-/** A post file's plaintext, read from the torrent store one chunk at a time. */
-function torrentFileSource(m: TorrentManifestLike): MediaCoinSource {
-  return {
-    name: m.originalName,
-    type: m.mime,
-    size: m.size,
-    async *pieces() {
-      const { get } = await import("@/lib/store");
-      const { importFileKey } = await import("@/lib/fileEncryption");
-      const stored = await get<TorrentManifestLike & Record<string, unknown>>("manifests", m.fileId);
-      if (!stored?.chunks?.length) throw new Error(`file ${m.fileId} is not on this device`);
-      const key = await importFileKey(stored as Parameters<typeof importFileKey>[0]);
-      for (const ref of stored.chunks) {
-        const chunk = await get<{ iv: string; cipher: string }>("chunks", ref);
-        if (!chunk) throw new Error(`chunk ${ref} of ${m.fileId} missing`);
-        const iv = Uint8Array.from(atob(chunk.iv), (c) => c.charCodeAt(0));
-        const cipher = Uint8Array.from(atob(chunk.cipher), (c) => c.charCodeAt(0));
-        yield new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher));
-      }
-    },
-  };
 }
 
 /** A post's files packed as Media Coins, not yet committed. */
 export interface PreparedCourierPost {
   refs: MediaCoinPostRef[];
-  /** After the post is saved: engrave the coins, launch them, drop the torrent copies. */
+  /** After the post is saved: engrave the coins and launch them. */
   commit(): Promise<void>;
   /** The post was not saved: give the coins back and drop the packed content. */
   abort(): Promise<void>;
@@ -320,18 +300,19 @@ export interface PreparedCourierPost {
 /**
  * Pack a post's files for Media Coin courier mode: reserve a hollow coin
  * per file when one is free (else the coin gets a generated id) and mint
- * each file into the content store. Nothing destructive happens here: the
- * torrent copies stay until `commit()`, so a failure (here or before the
- * post is saved) can be retried with the same attachments.
+ * each file, straight from the user's File, into the Media Coin content
+ * store. The torrent store is never touched. Nothing is launched until
+ * `commit()`, so a failure (here or before the post is saved) can be
+ * retried with the same attachments.
  */
 export async function prepareCourierFiles(
-  files: TorrentManifestLike[],
+  files: CourierFile[],
   opts: { postId: string; creatorId: string; onProgress?: (fileIndex: number, percent: number) => void },
 ): Promise<PreparedCourierPost> {
-  const total = files.reduce((s, f) => s + (f.size || 0), 0);
+  const total = files.reduce((s, f) => s + (f.file.size || 0), 0);
   if (total > MEDIA_COIN_PASS_MAX_BYTES) throw new Error("Post media is over the Media Coin limit");
   const userId = (await currentUserId()) ?? opts.creatorId;
-  const packed: Array<{ file: TorrentManifestLike; manifest: MediaCoinManifest; claim: { coinId: string; snapshot: CoinSnapshot } | null }> = [];
+  const packed: Array<{ file: CourierFile; manifest: MediaCoinManifest; claim: { coinId: string; snapshot: CoinSnapshot } | null }> = [];
   const claimed = new Set<string>();
 
   const abort = async () => {
@@ -347,7 +328,7 @@ export async function prepareCourierFiles(
     const claim = await claimHollowCoin(userId, "courier", claimed).catch(() => null);
     if (claim) claimed.add(claim.coinId);
     try {
-      const manifest = await mintMediaCoinContent(torrentFileSource(f), opts.creatorId, mediaCoinContentStore, {
+      const manifest = await mintMediaCoinContent(mediaCoinSourceOf(f.file, f.name), opts.creatorId, mediaCoinContentStore, {
         encrypt: true,
         coinId: claim?.coinId,
         postId: opts.postId,
@@ -373,17 +354,10 @@ export async function prepareCourierFiles(
   }));
 
   const commit = async () => {
-    for (const { file, manifest, claim } of packed) {
+    for (const { manifest, claim } of packed) {
       if (claim) await engraveReservedCoin(userId, claim.coinId, "courier", manifest.merkleRoot, manifest.totalSize).catch(() => false);
       await markMediaCoinContentSelf(manifest.merkleRoot);
       queueLaunch({ coinId: manifest.coinId, merkleRoot: manifest.merkleRoot });
-      // The courier copy is the only one: the torrent copy is never seeded.
-      try {
-        const { deleteManifest } = await import("@/lib/fileEncryption");
-        await deleteManifest(file.fileId);
-      } catch (err) {
-        console.warn("[mediaCoinRuntime] could not drop torrent copy of", file.fileId, err);
-      }
     }
     void drainPendingLaunches().catch(() => {});
   };
