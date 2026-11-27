@@ -75,9 +75,10 @@ export const BUOYANT_CAPACITY = Math.floor(
   ((BOAT_DECK_Y - MIN_FREEBOARD) * WATER_DENSITY * WATERPLANE_AREA) / PERSON_KG,
 );
 
-/** A boat's party: the most people aboard at once, crew included. A 7 m
- *  open boat is crowded well before it is low in the water. */
-export const PARTY_SIZE = 10;
+/** A boat's party: the most people aboard at once, crew included. The
+ *  11 m deck gives a dozen people room to move about; buoyancy alone
+ *  would float far more. */
+export const PARTY_SIZE = 12;
 
 /** People the boat takes: the party, or fewer if buoyancy says so. */
 export const BOAT_CAPACITY = Math.min(PARTY_SIZE, BUOYANT_CAPACITY);
@@ -85,6 +86,26 @@ export const BOAT_CAPACITY = Math.min(PARTY_SIZE, BUOYANT_CAPACITY);
 /** True when one more person could board a boat already carrying `people`. */
 export function canBoard(people: number): boolean {
   return people + 1 <= BOAT_CAPACITY && freeboardFor(people + 1) >= MIN_FREEBOARD;
+}
+
+/** Oar places: three benches, a rower each side. */
+export const MAX_ROWERS = 6;
+/** Up to this sea state every oar can pull together (a calm or an
+ *  ordinary breeze, 1 … 1.6). */
+export const ROW_CALM_SEA = 1.6;
+/** From this sea state on, only one rower can keep a stroke. */
+export const ROW_ROUGH_SEA = 2.6;
+
+/**
+ * How many rowers can pull together in sea state `sea`: every bench on a
+ * calm day; as the swell builds the oars catch the waves out of time, so
+ * fewer strokes count, down to a single rower in a rough sea.
+ */
+export function rowersAllowed(sea: number): number {
+  if (!(sea > ROW_CALM_SEA)) return MAX_ROWERS;
+  if (sea >= ROW_ROUGH_SEA) return 1;
+  const u = (sea - ROW_CALM_SEA) / (ROW_ROUGH_SEA - ROW_CALM_SEA);
+  return Math.max(1, Math.min(MAX_ROWERS, Math.round(MAX_ROWERS - u * (MAX_ROWERS - 1))));
 }
 
 /** Calmest sea (1) and the roughest the weather can make it. */
@@ -263,8 +284,9 @@ export function stepMotion(
 
   // Forces along the heading: sail + oars.
   const sail = sailForce(h, n, wind, cmd.sail);
-  // Several rowers add up (each pulls one stroke's worth); cap at four.
-  const row = ROW_ACCEL * Math.max(-4, Math.min(4, cmd.row));
+  // Several rowers add up (each pulls one stroke's worth), one per oar
+  // place at most; the fleet already dropped strokes the sea won't allow.
+  const row = ROW_ACCEL * Math.max(-MAX_ROWERS, Math.min(MAX_ROWERS, cmd.row));
   let u = dot3(vel, h);
   let v = dot3(vel, s);
   const aSail = dot3(sail, h);

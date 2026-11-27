@@ -20,7 +20,7 @@ const DEFAULT_KEY = 'current';
  * older than ours are pinned to the structural shell so they cannot
  * appear to fall through Earth (see RemoteAvatarBody.tsx).
  */
-export const BRAIN_PHYSICS_VERSION = 5;
+export const BRAIN_PHYSICS_VERSION = 6;
 
 /** Compose the IndexedDB key for a given universe namespace. */
 function fieldKey(ns?: string): string {

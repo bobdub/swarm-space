@@ -13,7 +13,10 @@
  *   • Hand-recorded off-mesh donations from `manualDonations.ts`: ETH/BTC
  *     sent to the external donation addresses, gift cards, cash, and so on.
  *
- * Not counted: credit gifts to Infinity (credits live in each node's local
+ * Not counted: drinks bought at the bar. They pay into the same Market Vault
+ * but are their own record, the bar tab (`barTab.ts`), and never rank here.
+ *
+ * Also not counted: credit gifts to Infinity (credits live in each node's local
  * store, not on the chain, so other peers can't see them).
  */
 import type { SwarmTransaction } from "../types";
@@ -21,6 +24,7 @@ import { INFINITY_GIFT_VAULT } from "./vaults";
 import { isNativeMintMeTip } from "../wallets/nativeMintmeLedger";
 import { isNativeEthTip } from "../wallets/nativeEth";
 import { MANUAL_DONATIONS, type ManualDonation } from "./manualDonations";
+import { isBarTabTx } from "./barTab";
 import { loadMarketPrices } from "./donationPrices";
 import { parseTokenRef, tokenCurrency, tokenRefFromCurrency } from "../deposits/tokenNetworks";
 
@@ -93,6 +97,8 @@ function tokenLabel(raw: unknown): string | undefined {
 export function donationFromTx(tx: SwarmTransaction): DonationGift | null {
   const amount = Number(tx.amount);
   if (!Number.isFinite(amount) || amount <= 0 || !tx.from || tx.from === "system") return null;
+  // A drink at the bar fills the same vault but goes on the bar tab, never the board.
+  if (isBarTabTx(tx)) return null;
   if (tx.type === "wallet_tip" && tx.to === INFINITY_GIFT_VAULT) {
     // The settled asset decides the currency, never the sender's display ticker.
     if (isNativeMintMeTip(tx)) return { ticker: "MINTME", amount, priceRef: "MINTME" };

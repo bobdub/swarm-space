@@ -30,10 +30,12 @@ export const JETTY_TOP = 0.6;
 export const JETTY_WIDTH = 2.2;
 /** Water depth the moored boat needs under its keel (m). */
 export const BOAT_MOOR_DEPTH = 1.8;
-/** Boat length (m), bow to stern. */
-export const BOAT_LENGTH = 7;
-/** Boat beam (m), widest point. */
-export const BOAT_BEAM = 2.6;
+/** Boat length (m), bow to stern: long enough for three rowing benches,
+ *  the mast, the helm and a party of a dozen standing room. */
+export const BOAT_LENGTH = 11;
+/** Boat beam (m), widest point: two people pass each other between the
+ *  rails and the rowing benches seat a rower each side. */
+export const BOAT_BEAM = 3.8;
 /** Gap between the jetty edge and the boat's side (m). */
 const BERTH_GAP = 0.35;
 /** Sideways offset from the jetty centreline to the boat's centreline. */
@@ -126,7 +128,7 @@ function tryBearing(center: Vec3, fwd: Vec3, right: Vec3, bearing: number): Dock
 
   // 2. Walk on until a full boat length beside the jetty lies in water
   //    deep enough to berth.
-  for (let len = 6; len <= MAX_JETTY_M; len += STEP_M) {
+  for (let len = Math.max(6, Math.ceil(BOAT_LENGTH)); len <= MAX_JETTY_M; len += STEP_M) {
     const endArc = startArc + len;
     const endN = travel(center, dir, endArc);
     // Boat lies alongside the outer BOAT_LENGTH of the jetty, bow seaward.

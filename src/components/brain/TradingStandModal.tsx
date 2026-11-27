@@ -230,7 +230,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto" data-testid="trading-stand-modal">
+      <DialogContent className="max-h-[90vh] w-[calc(100vw-1rem)] max-w-lg overflow-y-auto overflow-x-hidden p-3 sm:p-6" data-testid="trading-stand-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Store className="h-5 w-5 text-amber-500" aria-hidden />{STAND_TITLE}</DialogTitle>
           <DialogDescription>
@@ -240,10 +240,10 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
         </DialogHeader>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full table-fixed text-[11px] sm:text-xs">
             <thead className="text-muted-foreground">
               <tr className="text-left">
-                <th className="py-1 pr-2 font-medium">Good</th>
+                <th className="w-[34%] py-1 pr-2 font-medium">Good</th>
                 <th className="py-1 pr-2 text-right font-medium">Stock</th>
                 <th className="py-1 pr-2 text-right font-medium">Buy</th>
                 <th className="py-1 text-right font-medium">Sell</th>
@@ -257,7 +257,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
                   className={`cursor-pointer border-t border-border/50 ${selected === row.good.id ? 'bg-accent/40' : ''}`}
                   data-testid={`stand-row-${row.good.id}`}
                 >
-                  <td className="py-1.5 pr-2">{row.good.icon} {row.good.label} <span className="text-muted-foreground">({heldGood(row.good.id)})</span></td>
+                  <td className="break-words py-1.5 pr-2">{row.good.icon} {row.good.label} <span className="text-muted-foreground">({heldGood(row.good.id)})</span></td>
                   <td className="py-1.5 pr-2 text-right tabular-nums" data-testid={`stand-stock-${row.good.id}`}>
                     {localStock[row.good.id] ?? row.stock}
                     {(localStock[row.good.id] ?? row.stock) !== row.stock && (

@@ -21,8 +21,9 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/components/ui/input-otp";
-import { AlertTriangle, CheckCircle2, Copy, Crown, Link2, Loader2, LogOut, RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Copy, Crown, Link2, Loader2, LogOut, RefreshCw, ShieldCheck, Smartphone, UserPlus } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth";
+import { guestSignupHref, isGuestUser } from "@/lib/preview/guestAccess";
 import {
   MERGE_CODE_TTL_MS,
   ensureMergeAttached,
@@ -31,7 +32,7 @@ import {
   type MergeOffer,
   type MergeSessionView,
 } from "@/lib/p2p/mergeProtocol";
-import type { MergeAccountSummary } from "@/lib/blockchain/accountMerge";
+import type { MergeAccountSummary, MergeExtraAsset } from "@/lib/blockchain/accountMerge";
 
 const STEPS = ["Pair", "Verify", "Compare", "Authorize", "Merge", "Finish"] as const;
 
@@ -102,6 +103,12 @@ function fmt(n: number, digits = 2): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: digits });
 }
 
+/** "120 DREAMS, 0.5 ETH" for the comparison row; "None" when empty. */
+function extraAssetsLabel(assets: readonly MergeExtraAsset[] | undefined): string {
+  if (!assets || assets.length === 0) return "None";
+  return assets.map((a) => (a.pending ? `${a.ticker} (syncing)` : `${fmt(a.balance, 4)} ${a.ticker}`)).join(", ");
+}
+
 function joined(iso: string): string {
   const d = new Date(iso);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—";
@@ -155,6 +162,7 @@ function ComparisonTable({ local, remote, master, onPick, disabled }: {
     ["SWARM", (s) => `${fmt(s.swarm, 4)} SWARM`],
     ["Credits", (s) => `${fmt(s.credits)} Credits`],
     ["MintMe", (s) => `${fmt(s.mintme, 4)} MINTME`],
+    ["Imported tokens & other assets", (s) => extraAssetsLabel(s.extraAssets)],
     ["Published posts", (s) => `${s.posts} posts`],
     ["Contacts", (s) => `${s.contacts} contacts`],
   ];
@@ -255,6 +263,10 @@ export function AccountMergeWizard({ open, onOpenChange }: { open: boolean; onOp
   const localIsMaster = !!master && master === local?.userId;
   const retiringSummary = master ? (master === local?.userId ? remote : local) : null;
   const masterSummary = master ? (master === local?.userId ? local : remote) : null;
+  const retiringExtras = retiringSummary?.extraAssets ?? [];
+  const movingExtras = retiringExtras.filter((a) => a.moves && !a.pending);
+  const pendingExtras = retiringExtras.filter((a) => a.pending);
+  const stayingExtras = retiringExtras.filter((a) => !a.moves);
 
   const close = (next: boolean) => {
     if (!next && session?.phase === "executing") return; // never hide a running merge
@@ -263,6 +275,20 @@ export function AccountMergeWizard({ open, onOpenChange }: { open: boolean; onOp
 
   const body = () => {
     if (!me) return <p className="text-sm text-foreground/60">Sign in to merge accounts.</p>;
+    if (isGuestUser(me)) {
+      return (
+        <div className="space-y-3 rounded-2xl border border-primary/30 bg-primary/5 p-4">
+          <p className="flex items-center gap-2 text-sm font-semibold"><UserPlus className="h-4 w-4" /> Create an account to merge</p>
+          <p className="text-xs text-foreground/70">
+            You are exploring as a guest. Guests have no password or recovery vault, so they cannot merge. Create an
+            account on this device first, then open Merge Account again.
+          </p>
+          <Button asChild size="sm">
+            <a href={guestSignupHref("/settings")}>Create an account</a>
+          </Button>
+        </div>
+      );
+    }
     if (attachError) {
       return (
         <Alert className="border-amber-500/50 bg-amber-500/10">
@@ -407,7 +433,18 @@ export function AccountMergeWizard({ open, onOpenChange }: { open: boolean; onOp
                   Retiring identity (merged &amp; closed): <span className="font-mono">{handleOf(retiringSummary.username, retiringSummary.discriminator)}</span>
                 </p>
                 <ul className="list-disc space-y-1 pl-5 text-xs text-foreground/80">
-                  <li>Assets moving to Master: +{fmt(retiringSummary.swarm, 4)} SWARM, +{fmt(retiringSummary.credits)} Credits, +{fmt(retiringSummary.mintme, 4)} MINTME.</li>
+                  <li>
+                    Tipped to Master automatically: +{fmt(retiringSummary.swarm, 4)} SWARM, +{fmt(retiringSummary.credits)} Credits, +{fmt(retiringSummary.mintme, 4)} MINTME
+                    {movingExtras.length > 0 && <>, {movingExtras.map((a) => `+${fmt(a.balance, 4)} ${a.ticker}`).join(", ")}</>}.
+                  </li>
+                  {pendingExtras.length > 0 && (
+                    <li className="text-amber-500">
+                      {pendingExtras.map((a) => a.ticker).join(", ")} has not synced to a peer yet. The merge waits for it, so keep both devices connected for a minute.
+                    </li>
+                  )}
+                  {stayingExtras.length > 0 && (
+                    <li>Cannot be tipped yet and stays with the retiring account: {stayingExtras.map((a) => `${fmt(a.balance, 4)} ${a.ticker}`).join(", ")}.</li>
+                  )}
                   <li>{retiringSummary.posts} posts re-attributed with a verified merge link; {retiringSummary.contacts} contacts added to Master's library.</li>
                   <li>Retirement: the retiring key signs an account tombstone and its recovery vault is retired across the mesh.</li>
                   <li>Comments the retiring account left on other posts are removed by its tombstone. Engraved or locked coins are not spendable balances and stay with it.</li>

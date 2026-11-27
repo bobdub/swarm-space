@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { ArrowLeft, FolderKanban, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
+import { ArrowLeft, FolderKanban, Lock, MessagesSquare, Sparkles, Users, X } from 'lucide-react';
 import { BRAIN_ROOM_ID } from '@/hooks/useBrainVoice';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -10,12 +10,15 @@ import { useNetworkChatPeers } from '@/hooks/useNetworkChatPeers';
 import { getSwarmMeshStandalone } from '@/lib/p2p/swarmMesh.standalone';
 import { startDirectMessages, stopDirectMessages, conversationIdFor } from '@/lib/chat/directMessages';
 import { chirpForRemoteLine } from '@/lib/brain/chatChirp';
+import { isWalletExplicitlyLocked, WALLET_LOCK_EVENT } from '@/lib/auth';
+import { DirectMessageUnlockGate } from './DirectMessageUnlockGate';
 import {
   useConnectedChatPeers,
   useDirectMessenger,
   useDirectUnread,
   useMemberProjects,
   useRoomUnread,
+  useWalletManuallyLocked,
 } from '@/hooks/useGlobalChat';
 import { Avatar } from '@/components/Avatar';
 import { Badge } from '@/components/ui/badge';
@@ -82,9 +85,17 @@ export function NetworkChatHost(): JSX.Element | null {
     } catch {
       /* mesh not available */
     }
+    // Unlocking resumes direct messages: both sides re-send what waited.
+    const onLockChange = () => {
+      if (!isWalletExplicitlyLocked()) void messenger.resume();
+    };
+    window.addEventListener(WALLET_LOCK_EVENT, onLockChange);
+    window.addEventListener('storage', onLockChange);
     return () => {
       offDm();
       offPeers();
+      window.removeEventListener(WALLET_LOCK_EVENT, onLockChange);
+      window.removeEventListener('storage', onLockChange);
     };
   }, [userId, displayName, identityKey]);
 
@@ -105,6 +116,14 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const projects = useMemberProjects(user?.id);
   const messenger = useDirectMessenger();
   const peers = useConnectedChatPeers(messenger);
+  // Menu chat lists everyone linked to us too, not only those who announced in the room.
+  const roomPeers = useMemo(() => {
+    const byId = new Map(chatPeers.map((m) => [m.peerId, m]));
+    for (const p of peers) if (!byId.has(p.peerId)) byId.set(p.peerId, { peerId: p.peerId, username: p.displayName, inBrain: false });
+    return [...byId.values()];
+  }, [chatPeers, peers]);
+  // A manual wallet lock pauses direct messages only; room chats stay open.
+  const walletLocked = useWalletManuallyLocked();
   const dmUnread = useDirectUnread(messenger);
   const activeRoomId = selection.kind === 'room' ? selection.roomId : null;
   const roomUnread = useRoomUnread(
@@ -166,8 +185,10 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                 key={selection.roomId}
                 roomId={selection.roomId}
                 title={selection.title}
-                chatPeers={selection.roomId === BRAIN_ROOM_ID ? chatPeers : undefined}
+                chatPeers={selection.roomId === BRAIN_ROOM_ID ? roomPeers : undefined}
               />
+            ) : walletLocked ? (
+              <DirectMessageUnlockGate peerName={selectedPeer?.displayName} />
             ) : selectedPeer ? (
               <DirectMessageThread key={selectedPeer.peerId} peer={selectedPeer} messenger={messenger} />
             ) : (
@@ -195,6 +216,7 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                 >
                   {m === 'projects' ? <FolderKanban className="h-3.5 w-3.5" /> : <Users className="h-3.5 w-3.5" />}
                   {m}
+                  {m === 'peers' && walletLocked && <Lock className="h-3 w-3" aria-label="Wallet locked" />}
                   {m === 'peers' && peerUnreadTotal > 0 && <UnreadDot count={peerUnreadTotal} />}
                 </button>
               ))}

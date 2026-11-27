@@ -8,6 +8,8 @@ import {
   WrongRecoveryPassphraseError,
   recoveryUrl,
   parseRecoveryParams,
+  recoverySearchFromLink,
+  chooseRecoveryHolder,
   canonicalRecoverHref,
   VAULT_PBKDF2_ITERATIONS,
 } from "../recoveryVault";
@@ -84,5 +86,33 @@ describe("recovery links", () => {
     expect(canonicalRecoverHref("/", "#/recover?id=0123456789abcdef&v=2", "")).toBe("/recover?id=0123456789abcdef&v=2");
     expect(canonicalRecoverHref("/recover", "", "?id=0123456789abcdef")).toBeNull();
     expect(canonicalRecoverHref("/", "#/connect#peer-x", "")).toBeNull();
+  });
+});
+
+describe("scanned and pasted recovery links", () => {
+  const origin = "https://swarm.example";
+  it("reads the link from a full URL, a hash-routed wrapper or a bare query", () => {
+    const want = "?id=0123456789abcdef&v=3&peer=peer-abc_1";
+    expect(recoverySearchFromLink("https://other.example/recover?id=0123456789abcdef&v=3&peer=peer-abc_1", origin)).toBe(want);
+    expect(recoverySearchFromLink(" https://swarm.example/#/recover?id=0123456789abcdef&v=3&peer=peer-abc_1 ", origin)).toBe(want);
+    expect(recoverySearchFromLink("?id=0123456789abcdef&v=3&peer=peer-abc_1", origin)).toBe(want);
+  });
+
+  it("refuses anything that is not a Recovery Link", () => {
+    expect(recoverySearchFromLink("https://swarm.example/connect#peer-x", origin)).toBeNull();
+    expect(recoverySearchFromLink("https://swarm.example/profile?id=0123456789abcdef", origin)).toBeNull();
+    expect(recoverySearchFromLink("hello", origin)).toBeNull();
+    expect(recoverySearchFromLink("", origin)).toBeNull();
+  });
+});
+
+describe("recovery link holder", () => {
+  it("names the chosen custodian, else a connected one, else any custodian, else this node", () => {
+    const custodians = ["peer-a", "peer-b", "peer-c"];
+    expect(chooseRecoveryHolder({ custodians, connected: ["peer-c"], selected: "peer-b", self: "peer-me" })).toBe("peer-b");
+    expect(chooseRecoveryHolder({ custodians, connected: new Set(["peer-c"]), selected: "peer-gone", self: "peer-me" })).toBe("peer-c");
+    expect(chooseRecoveryHolder({ custodians, connected: [], self: "peer-me" })).toBe("peer-a");
+    expect(chooseRecoveryHolder({ custodians: [], connected: [], self: "peer-me" })).toBe("peer-me");
+    expect(chooseRecoveryHolder({ custodians: [], connected: [] })).toBeNull();
   });
 });

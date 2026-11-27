@@ -49,11 +49,13 @@ export function unregisterDeckSurface(id: string): void {
 
 /**
  * Highest deck top over `localN` (m above sea level) that can hold feet at
- * `feet`, or −Infinity. With `feet` omitted every deck counts.
+ * `feet`, or −Infinity. With `feet` omitted every deck counts; the deck
+ * `excludeId` (a boat asking what lies beside it) never does.
  */
-export function deckElevationAt(localN: Vec3, feet?: number): number {
+export function deckElevationAt(localN: Vec3, feet?: number, excludeId?: string): number {
   let best = -Infinity;
   for (const deck of decks.values()) {
+    if (excludeId !== undefined && deck.id === excludeId) continue;
     const h = deck.elevationAt(localN);
     if (h === null || h <= best) continue;
     if (feet !== undefined && feet < h - DECK_STEP_UP) continue;
