@@ -1002,7 +1002,7 @@ export function BrainChatPanel({
                     <div key={line.id} role="status" className="break-words rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-xs text-foreground">
                       <span className="font-medium text-primary">{line.author}</span>
                       <p className="my-1 whitespace-pre-wrap">{line.text}</p>
-                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => getAppVersionWatch().refreshNow()}>Update App</Button>
+                      <Button type="button" size="sm" variant="outline" className="h-7 text-xs" onClick={() => getAppVersionWatch().refreshNow()}>Update Now</Button>
                     </div>
                   );
                 }
