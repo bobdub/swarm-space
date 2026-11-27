@@ -102,7 +102,7 @@ export async function createDmSigner(opts: {
     discriminator: ns.discriminator,
     keyMaterial: opts.identityPrivateKey,
     async signIdentity(data) {
-      const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data);
+      const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, data as BufferSource);
       return arrayBufferToBase64(sig);
     },
     signWallet: (message) => opts.wallet.signMessage(message),
@@ -274,7 +274,7 @@ function sealAad(id: string, conversationId: string): Uint8Array {
 export async function sealText(key: CryptoKey, id: string, conversationId: string, text: string): Promise<SealedText> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv, additionalData: sealAad(id, conversationId) },
+    { name: 'AES-GCM', iv, additionalData: sealAad(id, conversationId) as BufferSource },
     key,
     new TextEncoder().encode(text),
   );
@@ -283,7 +283,7 @@ export async function sealText(key: CryptoKey, id: string, conversationId: strin
 
 export async function openText(key: CryptoKey, id: string, conversationId: string, sealed: SealedText): Promise<string> {
   const plain = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(sealed.iv)), additionalData: sealAad(id, conversationId) },
+    { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(sealed.iv)), additionalData: sealAad(id, conversationId) as BufferSource },
     key,
     base64ToArrayBuffer(sealed.ct),
   );

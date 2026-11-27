@@ -474,7 +474,7 @@ export class DirectMessenger {
     let ok = false;
     try {
       const ct = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv, additionalData: messageAad(meta) },
+        { name: 'AES-GCM', iv, additionalData: messageAad(meta) as BufferSource },
         session.key,
         new TextEncoder().encode(record.text),
       );
@@ -630,7 +630,7 @@ export class DirectMessenger {
     let text: string;
     try {
       const plain = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(msg.iv)), additionalData: messageAad(msg) },
+        { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(msg.iv)), additionalData: messageAad(msg) as BufferSource },
         session.key,
         base64ToArrayBuffer(msg.ct),
       );
