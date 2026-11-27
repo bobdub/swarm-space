@@ -87,9 +87,9 @@ describe('Trading Stand pricing', () => {
     const credits = quoteStandSell(vault({ creditReserve: 1000 }), 'gem', 100, 'CREDITS', 100);
     expect(credits.error).toMatch(/at most 60 Credits/);
 
-    expect(maxBuyQty(100)).toBe(10);
-    expect(quoteStandBuy(vault(), 'wood', 10, 'SWARM', 1e9).error).toBeNull();
-    expect(quoteStandBuy(vault(), 'wood', 11, 'SWARM', 1e9).error).toMatch(/10% of the stand's stock/);
+    expect(maxBuyQty(100)).toBe(99);
+    expect(maxBuyQty(2)).toBe(1);
+    expect(maxBuyQty(1)).toBe(0);
   });
 
   it('raises the price after buys and lowers it after sells', () => {
@@ -104,6 +104,24 @@ describe('Trading Stand pricing', () => {
     // A buy never costs less than selling the same units back pays.
     const back = quoteStandSell(vault({ stock: { wood: 95 } }), 'wood', 5, 'SWARM', 5).swarm;
     expect(first).toBeGreaterThanOrEqual(back);
+  });
+
+  it('lets a bulk buy take whatever stock and funds cover', () => {
+    // 20 wood, enough SWARM: buying 15 at once must be allowed, since 15
+    // one-unit buys in a row would be.
+    const state = vault({ stock: { wood: 20 } });
+    const bulk = quoteStandBuy(state, 'wood', 15, 'SWARM', 1e9);
+    expect(bulk.error).toBeNull();
+    let singles = 0;
+    for (let s = 20; s > 5; s--) singles += quoteStandBuy(vault({ stock: { wood: s } }), 'wood', 1, 'SWARM', 1e9).swarm;
+    // Same curve either way: bulk never costs more than one at a time.
+    expect(bulk.swarm).toBeLessThanOrEqual(singles + 1e-9);
+    expect(bulk.swarm).toBeGreaterThan(singles - 15e-6);
+    // Funds still gate it.
+    expect(quoteStandBuy(state, 'wood', 15, 'SWARM', bulk.swarm - 0.001).error).toMatch(/Not enough SWARM/);
+    // The stand keeps its last unit.
+    expect(quoteStandBuy(state, 'wood', 19, 'SWARM', 1e9).error).toBeNull();
+    expect(quoteStandBuy(state, 'wood', 20, 'SWARM', 1e9).error).toMatch(/keeps its last one/);
   });
 
   it('can never be bought out to zero', () => {
