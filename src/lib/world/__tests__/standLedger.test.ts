@@ -4,6 +4,7 @@
  * reload, and every trade appears in the Wallet's stand ledger.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 import type { SwarmTransaction } from '@/lib/blockchain/types';
 
 const h = vi.hoisted(() => ({ pending: [] as SwarmTransaction[], mined: [] as SwarmTransaction[], blocks: 1 }));
@@ -47,6 +48,7 @@ beforeEach(() => {
   h.blocks += 1;
   h.mined.splice(0, h.mined.length, seed('stock-wood', goodCurrency('wood'), 100), seed('stock-credits', 'CREDITS', 100_000));
   _resetHarvestedForTest();
+  _resetPlayModeForTest({ online: true });
   recordHarvestForResource('honey', 5);
 });
 

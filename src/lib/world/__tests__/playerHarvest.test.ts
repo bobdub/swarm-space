@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 
 vi.mock('@/config/featureFlags', () => ({ getFeatureFlags: () => ({ scaffoldBus: true }) }));
 vi.mock('@/lib/uqrc/fieldEngine', () => ({ getSharedFieldEngine: () => ({ inject: () => {} }) }));
@@ -21,6 +22,7 @@ beforeEach(() => {
   __resetScaffoldBusForTests();
   _resetHarvestJournalForTest();
   _resetHarvestedForTest();
+  _resetPlayModeForTest({ online: true });
 });
 
 describe('player harvest', () => {

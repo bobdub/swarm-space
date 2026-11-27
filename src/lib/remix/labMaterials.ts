@@ -20,10 +20,14 @@ import {
   getHarvested,
   recordHarvestForResource,
   recordHarvestMany,
-  spendHarvested,
+  restoreDraws,
+  spendHarvestedDraws,
   subscribeHarvested,
+  type BagDraw,
+  type BagScope,
+  type HarvestOrigin,
 } from './harvestedInventory';
-import { materialTotals, spendMaterials, type MaterialId } from '@/lib/world/materials';
+import { materialTotals, spendMaterialsDraws, type MaterialId } from '@/lib/world/materials';
 import type { Molecule, MoleculeConstituent } from './moleculeCatalog';
 
 export type LabMaterialId = 'wood' | 'stone' | 'fiber' | 'water' | 'honey' | 'gem' | 'gold';
@@ -125,24 +129,97 @@ export function subscribeLabMaterialStocks(fn: (stocks: Record<LabMaterialId, nu
   });
 }
 
-/** Spend `units` of a material from the bag. False (nothing spent) when short. */
-export function spendLabMaterial(id: LabMaterialId, units: number): boolean {
-  if (!Number.isSafeInteger(units) || units <= 0) return false;
-  const bag = BAG_MATERIAL[id];
-  if (bag) return spendMaterials({ [bag]: units });
-  const good = GOOD_KIND[id];
-  if (!good) return false;
-  return spendHarvested([{ symbol: `good:${good}`, count: units }]);
+/**
+ * What each Lab spend drew, per material, newest last. A refund without an
+ * explicit origin (a cleared drawing, leaving the Lab) gives the newest
+ * reservations back to the bags they came from, so an offline gather never
+ * comes back as an online one after the player reconnects.
+ */
+interface Reservation { units: number; draws: BagDraw[] }
+const reservations = new Map<LabMaterialId, Reservation[]>();
+const MAX_RESERVATIONS = 500;
+
+function reserve(id: LabMaterialId, units: number, draws: BagDraw[]): void {
+  const stack = reservations.get(id) ?? [];
+  stack.push({ units, draws });
+  if (stack.length > MAX_RESERVATIONS) stack.splice(0, stack.length - MAX_RESERVATIONS);
+  reservations.set(id, stack);
 }
 
-/** Put `units` of a material back in the bag (cancelled crafts, refunds). */
-export function refundLabMaterial(id: LabMaterialId, units: number): void {
+/**
+ * Spend `units` of a material from the bag. False (nothing spent) when
+ * short. Coin crafting passes `{ onlineOnly: true }`: a coin is an online
+ * asset, so offline gathers never go into one.
+ */
+export function spendLabMaterial(id: LabMaterialId, units: number, scope?: BagScope): boolean {
+  if (!Number.isSafeInteger(units) || units <= 0) return false;
+  const bag = BAG_MATERIAL[id];
+  const good = GOOD_KIND[id];
+  let draws: BagDraw[] | null = null;
+  if (bag) draws = spendMaterialsDraws({ [bag]: units }, scope);
+  else if (good) draws = spendHarvestedDraws([{ symbol: `good:${good}`, count: units }], scope);
+  if (!draws) return false;
+  // Online-only spends refund with an explicit 'online' origin.
+  if (!scope?.onlineOnly) reserve(id, units, draws);
+  return true;
+}
+
+/** Take the newest `atoms` worth of draws off a reservation, newest draw first. */
+function takeDraws(draws: BagDraw[], atoms: number): BagDraw[] {
+  const out: BagDraw[] = [];
+  let left = atoms;
+  while (left > 0 && draws.length > 0) {
+    const last = draws[draws.length - 1];
+    const take = Math.min(left, last.count);
+    out.push({ key: last.key, count: take });
+    last.count -= take;
+    left -= take;
+    if (last.count <= 0) draws.pop();
+  }
+  return out;
+}
+
+/**
+ * Put `units` of a material back in the bag (cancelled crafts, refunds).
+ * With an `origin` (an online-only spend refunds 'online') it goes to that
+ * bag. Without one, it goes back to the bags the Lab drew it from; any
+ * amount the Lab has no record of returns to the offline bag, never the
+ * online one.
+ */
+export function refundLabMaterial(id: LabMaterialId, units: number, origin?: HarvestOrigin): void {
   if (!Number.isSafeInteger(units) || units <= 0) return;
   const bag = BAG_MATERIAL[id];
-  if (bag) { recordHarvestForResource(bag, units); return; }
-  // Goods go straight back under their own bag key (one per unit).
   const good = GOOD_KIND[id];
-  if (good) recordHarvestMany([{ symbol: `good:${good}`, count: units }]);
+  let left = units;
+  if (!origin) {
+    const stack = reservations.get(id) ?? [];
+    const back: BagDraw[] = [];
+    while (left > 0 && stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top.units <= left) {
+        back.push(...top.draws);
+        left -= top.units;
+        stack.pop();
+      } else {
+        const atoms = top.draws.reduce((n, d) => n + d.count, 0);
+        const perUnit = top.units > 0 ? atoms / top.units : 0;
+        back.push(...takeDraws(top.draws, Math.round(perUnit * left)));
+        top.units -= left;
+        left = 0;
+      }
+    }
+    restoreDraws(back);
+    if (left <= 0) return;
+  }
+  const to: HarvestOrigin = origin ?? 'offline';
+  if (bag) { recordHarvestForResource(bag, left, to); return; }
+  // Goods go straight back under their own bag key (one per unit).
+  if (good) recordHarvestMany([{ symbol: `good:${good}`, count: left }], to);
+}
+
+/** Test seam. */
+export function _resetLabReservationsForTest(): void {
+  reservations.clear();
 }
 
 // ── Strokes → composition → Molecule ─────────────────────────────────────

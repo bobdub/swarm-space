@@ -15,6 +15,16 @@
  * Mapping helper:
  *   recordHarvestForResource(kind: 'wood'|'stone'|'water'|'fibre'|'food'|'animal', qty)
  *
+ * Online and offline gathers are kept apart (see `playMode.ts`). Gathered
+ * goods are tradable, so a gather made in offline play lands in the offline
+ * bag (`offline:<symbol>` keys): it is usable in local play while offline,
+ * locked away while online, and never drawn by a ledger, coin or stand path
+ * (`{ onlineOnly: true }`). A project's creator can move the offline bag
+ * into that project's seed pool (`seed:<projectId>|<symbol>` keys, see
+ * `offlineProjectSeed.ts`), which only that project's Brain can build with.
+ * Plain keys are the online bag; bags stored before the split read as
+ * online, since nothing then recorded where a gather happened.
+ *
  * Throttled IDB writes (1.5s) per project core rule on browser perf.
  * Every change is also mirrored synchronously to localStorage, so a
  * refresh inside the 1.5 s window (or an unload that drops the IDB
@@ -22,6 +32,56 @@
  * loaded are kept as deltas and applied on top of it; nothing is written
  * until that load finishes, so an early write cannot wipe the inventory.
  */
+
+import {
+  activeBrainProject,
+  currentHarvestOrigin,
+  isOnlinePlay,
+  subscribePlayMode,
+  type HarvestOrigin,
+} from '@/lib/world/playMode';
+
+export type { HarvestOrigin } from '@/lib/world/playMode';
+
+/** Which bags a read or spend may use. */
+export interface BagScope {
+  /**
+   * Only the online bag: for anything that leaves the device or reaches the
+   * ledger (Trading Stand trades and stock, coin crafting).
+   */
+  onlineOnly?: boolean;
+}
+
+const OFFLINE_PREFIX = 'offline:';
+const SEED_PREFIX = 'seed:';
+const offlineKey = (symbol: string) => `${OFFLINE_PREFIX}${symbol}`;
+const seedKey = (projectId: string, symbol: string) => `${SEED_PREFIX}${projectId}|${symbol}`;
+
+/** The bag a raw key belongs to, and its symbol. */
+function parseKey(key: string): { bag: 'online' | 'offline' | 'seed'; symbol: string; projectId?: string } {
+  if (key.startsWith(OFFLINE_PREFIX)) return { bag: 'offline', symbol: key.slice(OFFLINE_PREFIX.length) };
+  if (key.startsWith(SEED_PREFIX)) {
+    const rest = key.slice(SEED_PREFIX.length);
+    const bar = rest.indexOf('|');
+    if (bar > 0) return { bag: 'seed', projectId: rest.slice(0, bar), symbol: rest.slice(bar + 1) };
+  }
+  return { bag: 'online', symbol: key };
+}
+
+/** Raw keys a scope may draw `symbol` from, in spend order. */
+function visibleKeys(symbol: string, scope?: BagScope): string[] {
+  if (scope?.onlineOnly) return [symbol];
+  const keys: string[] = [];
+  const project = activeBrainProject();
+  if (project) keys.push(seedKey(project, symbol));
+  if (!isOnlinePlay()) keys.push(offlineKey(symbol));
+  keys.push(symbol);
+  return keys;
+}
+
+function rawKeyFor(symbol: string, origin: HarvestOrigin): string {
+  return origin === 'offline' ? offlineKey(symbol) : symbol;
+}
 
 const DB_NAME = 'swarm-harvested-inventory';
 const STORE = 'inventory';
@@ -153,19 +213,28 @@ function notify(): void {
   }
 }
 
-export function recordHarvest(symbol: string, count: number): void {
+/**
+ * Add `count` of `symbol` to the bag `origin` names: by default where the
+ * player is right now (offline play → the offline bag). Ledger-backed
+ * receipts (a Trading Stand buy, a refund of an online-only spend) pass
+ * 'online'.
+ */
+export function recordHarvest(symbol: string, count: number, origin: HarvestOrigin = currentHarvestOrigin()): void {
   if (!symbol || !Number.isFinite(count) || count === 0) return;
-  bump(symbol, count);
+  bump(rawKeyFor(symbol, origin), count);
   scheduleWrite();
   notify();
 }
 
-export function recordHarvestMany(parts: { symbol: string; count: number }[]): void {
+export function recordHarvestMany(
+  parts: { symbol: string; count: number }[],
+  origin: HarvestOrigin = currentHarvestOrigin(),
+): void {
   if (!parts || parts.length === 0) return;
   let changed = false;
   for (const { symbol, count } of parts) {
     if (!symbol || !Number.isFinite(count) || count === 0) continue;
-    bump(symbol, count);
+    bump(rawKeyFor(symbol, origin), count);
     changed = true;
   }
   if (changed) { scheduleWrite(); notify(); }
@@ -210,22 +279,82 @@ const KIND_MAP: Record<string, { symbol: string; count: number }[]> = {
 /** Bag keys for goods that are not elements (honey, gems). */
 export const GOOD_KEY_PREFIX = 'good:';
 
-export function recordHarvestForResource(kind: string, qty: number): void {
+export function recordHarvestForResource(
+  kind: string,
+  qty: number,
+  origin: HarvestOrigin = currentHarvestOrigin(),
+): void {
   const parts = KIND_MAP[kind];
   if (!parts || !Number.isFinite(qty) || qty <= 0) return;
-  recordHarvestMany(parts.map((p) => ({ symbol: p.symbol, count: p.count * qty })));
+  recordHarvestMany(parts.map((p) => ({ symbol: p.symbol, count: p.count * qty })), origin);
 }
 
-export function getHarvested(symbol: string): number {
-  return counts.get(symbol) ?? 0;
+/**
+ * How much of `symbol` the player can use right now: the online bag, plus
+ * the offline bag in offline play, plus the active project's seed pool.
+ * `{ onlineOnly: true }` reads the online bag alone.
+ */
+export function getHarvested(symbol: string, scope?: BagScope): number {
+  let total = 0;
+  for (const key of visibleKeys(symbol, scope)) total += counts.get(key) ?? 0;
+  return total;
 }
 
 /** Held elements. Non-element goods (`good:` keys) are read with getHarvested. */
-export function listHarvested(): { symbol: string; count: number }[] {
-  return [...counts.entries()]
-    .filter(([k, v]) => v > 0 && !k.startsWith(GOOD_KEY_PREFIX))
-    .map(([symbol, count]) => ({ symbol, count }))
-    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+export function listHarvested(scope?: BagScope): { symbol: string; count: number }[] {
+  const symbols = new Set<string>();
+  for (const [k, v] of counts) {
+    if (v <= 0) continue;
+    const { symbol } = parseKey(k);
+    if (!symbol.startsWith(GOOD_KEY_PREFIX)) symbols.add(symbol);
+  }
+  const out: { symbol: string; count: number }[] = [];
+  for (const symbol of symbols) {
+    const count = getHarvested(symbol, scope);
+    if (count > 0) out.push({ symbol, count });
+  }
+  return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+/** Everything gathered in offline play (elements and goods), still held. */
+export function listOfflineHarvested(): { symbol: string; count: number }[] {
+  const out: { symbol: string; count: number }[] = [];
+  for (const [k, v] of counts) {
+    if (v <= 0) continue;
+    const parsed = parseKey(k);
+    if (parsed.bag === 'offline') out.push({ symbol: parsed.symbol, count: v });
+  }
+  return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+/** A project's seed pool (offline gathers its creator brought in). */
+export function listSeededHarvested(projectId: string): { symbol: string; count: number }[] {
+  const out: { symbol: string; count: number }[] = [];
+  if (!projectId) return out;
+  for (const [k, v] of counts) {
+    if (v <= 0) continue;
+    const parsed = parseKey(k);
+    if (parsed.bag === 'seed' && parsed.projectId === projectId) out.push({ symbol: parsed.symbol, count: v });
+  }
+  return out.sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
+/**
+ * Move the whole offline bag into `projectId`'s seed pool and return what
+ * moved. The caller (`seedProjectWithOfflineGathers`) checks the project
+ * and takes the fee first.
+ */
+export function moveOfflineToProjectSeed(projectId: string): { symbol: string; count: number }[] {
+  if (!projectId) return [];
+  const moved = listOfflineHarvested();
+  if (moved.length === 0) return moved;
+  for (const { symbol, count } of moved) {
+    bump(offlineKey(symbol), -count);
+    bump(seedKey(projectId, symbol), count);
+  }
+  scheduleWrite();
+  notify();
+  return moved;
 }
 
 export function subscribeHarvested(fn: Listener): () => void {
@@ -264,16 +393,79 @@ export function hydrateHarvestedInventory(): Promise<void> {
   return hydrating;
 }
 
-/** Best-effort spend — returns false if not enough is held. */
-export function spendHarvested(parts: { symbol: string; count: number }[]): boolean {
+/** One draw from one bag: the raw bag key and how much was taken from it. */
+export interface BagDraw { key: string; count: number }
+
+/**
+ * Spend, and say which bags it drew from (null, nothing spent, when not
+ * enough is held in the bags `scope` may use). Draws the project seed pool
+ * first, then the offline bag, then the online bag, so local play uses up
+ * local goods before tradable ones. A later refund passes the draws to
+ * `restoreDraws` so goods go back to the bag they came from.
+ */
+export function spendHarvestedDraws(parts: { symbol: string; count: number }[], scope?: BagScope): BagDraw[] | null {
+  const need = new Map<string, number>();
   for (const { symbol, count } of parts) {
-    if ((counts.get(symbol) ?? 0) < count) return false;
+    if (!symbol || !Number.isFinite(count) || count <= 0) continue;
+    need.set(symbol, (need.get(symbol) ?? 0) + count);
   }
-  for (const { symbol, count } of parts) bump(symbol, -count);
+  for (const [symbol, count] of need) {
+    if (getHarvested(symbol, scope) < count) return null;
+  }
+  const draws: BagDraw[] = [];
+  for (const [symbol, count] of need) {
+    let left = count;
+    for (const key of visibleKeys(symbol, scope)) {
+      if (left <= 0) break;
+      const take = Math.min(left, counts.get(key) ?? 0);
+      if (take > 0) { bump(key, -take); left -= take; draws.push({ key, count: take }); }
+    }
+  }
   scheduleWrite();
   notify();
-  return true;
+  return draws;
 }
+
+/** Best-effort spend — returns false (nothing spent) if not enough is held. */
+export function spendHarvested(parts: { symbol: string; count: number }[], scope?: BagScope): boolean {
+  return spendHarvestedDraws(parts, scope) !== null;
+}
+
+/** Put drawn goods back into exactly the bags they were drawn from. */
+export function restoreDraws(draws: BagDraw[]): void {
+  let changed = false;
+  for (const { key, count } of draws) {
+    if (!key || !Number.isFinite(count) || count <= 0) continue;
+    bump(key, count);
+    changed = true;
+  }
+  if (changed) { scheduleWrite(); notify(); }
+}
+
+/**
+ * The bag a draw came from, as a key prefix ('' is the online bag). With
+ * `recordHarvestInBag`, something made from a drawn good (a grilled fish)
+ * lands in the same bag as what it was made from.
+ */
+export function bagOfDraw(key: string): string {
+  const parsed = parseKey(key);
+  if (parsed.bag === 'offline') return OFFLINE_PREFIX;
+  if (parsed.bag === 'seed') return `${SEED_PREFIX}${parsed.projectId}|`;
+  return '';
+}
+
+export function recordHarvestInBag(bag: string, symbol: string, count: number): void {
+  if (!symbol || !Number.isFinite(count) || count === 0) return;
+  const known = bag === '' || bag === OFFLINE_PREFIX || (bag.startsWith(SEED_PREFIX) && bag.endsWith('|'));
+  // An unknown bag is treated as offline, never as online.
+  bump(`${known ? bag : OFFLINE_PREFIX}${symbol}`, count);
+  scheduleWrite();
+  notify();
+}
+
+// What the player can use changes when they go online/offline or step
+// into another project's Brain.
+subscribePlayMode(() => notify());
 
 export function _resetHarvestedForTest(): void {
   counts.clear();

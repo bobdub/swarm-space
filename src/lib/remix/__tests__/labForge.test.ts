@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
 
 const coins = new Map<string, Record<string, unknown>>();
 vi.mock('@/lib/store', () => ({
@@ -44,6 +45,7 @@ function hollowCoin(id = 'coin-a'): SwarmCoin {
 
 beforeEach(() => {
   _resetHarvestedForTest();
+  _resetPlayModeForTest({ online: true });
   coins.clear();
 });
 
