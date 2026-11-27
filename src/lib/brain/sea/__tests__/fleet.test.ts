@@ -15,7 +15,18 @@ import { isSwimmingAt } from '../../groundHeight';
 import { _resetDecksForTest } from '../deckSupport';
 import { toBoatFrame } from '../boatDeck';
 import { getVillageDockSite, starboardOf } from '../dockSite';
-import { Vessel, _resetVillageBoatForTest, hullCapsule, resolveHullContact } from '../vessel';
+import {
+  MAX_ROWERS,
+  ROW_CALM_SEA,
+  ROW_ROUGH_SEA,
+  SEA_MAX,
+  Vessel,
+  _resetVillageBoatForTest,
+  hullCapsule,
+  resolveHullContact,
+  rowersAllowed,
+} from '../vessel';
+import { OAR_SPOTS } from '../boatLayout';
 import {
   Fleet,
   OARS_SPOT,
@@ -122,6 +133,57 @@ describe('remote strokes', () => {
     // A fresh presence does.
     A.remoteRow('peerB', r, t, 5333);
     expect(aBoat.rowers.get('peerB')?.at).toBe(t);
+  });
+});
+
+describe('several rowers', () => {
+  /** Peers B.. pull every tick on A's boat for `secs`; returns the boat. */
+  function rowWith(rowers: number, sea: number, secs = 6) {
+    const A = new Fleet({ selfPeer: () => 'peerA', registerDecks: false, localCrew: false });
+    const boat = A.claimDock()!;
+    const start = boat.vessel.motion.n;
+    let stamp = 0;
+    let maxRow = 0;
+    for (let i = 0; i < secs * PHYSICS_HZ; i++) {
+      advance();
+      for (let k = 0; k < rowers; k++) {
+        A.remoteRow(`rower${k}`, { o: 'peerA', id: boat.wireId, s: 1, tn: 0 }, t, ++stamp);
+      }
+      boat.vessel.sea = sea;
+      boat.vessel.seaTarget = sea;
+      A.tick(null, DT, CALM);
+      maxRow = Math.max(maxRow, boat.vessel.cmd.row);
+    }
+    return { maxRow, moved: metres(start, boat.vessel.motion.n) };
+  }
+
+  it('every bench pulls together on a calm day, and the boat goes faster for it', () => {
+    expect(OAR_SPOTS).toHaveLength(MAX_ROWERS);
+    expect(rowersAllowed(1)).toBe(MAX_ROWERS);
+    expect(rowersAllowed(ROW_CALM_SEA)).toBe(MAX_ROWERS);
+    const one = rowWith(1, 1);
+    const six = rowWith(6, 1);
+    expect(one.maxRow).toBe(1);
+    expect(six.maxRow).toBe(6);
+    expect(six.moved).toBeGreaterThan(one.moved * 2);
+  });
+
+  it('a rough sea lets fewer strokes count, down to one in a gale', () => {
+    expect(rowersAllowed(ROW_ROUGH_SEA)).toBe(1);
+    expect(rowersAllowed(SEA_MAX)).toBe(1);
+    const mid = rowersAllowed((ROW_CALM_SEA + ROW_ROUGH_SEA) / 2);
+    expect(mid).toBeGreaterThan(1);
+    expect(mid).toBeLessThan(MAX_ROWERS);
+    expect(rowWith(6, SEA_MAX, 1).maxRow).toBe(1);
+  });
+
+  it('a rower on each oar place is offered that place', () => {
+    const A = getFleet();
+    const boat = A.dock()!;
+    for (const [x, z] of OAR_SPOTS) {
+      const a = boatActionFor(deckPointOn(boat, x, z + 0.1));
+      expect(a).toMatchObject({ kind: 'take', role: 'oars', spot: [x, z] });
+    }
   });
 });
 

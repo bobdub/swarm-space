@@ -14,12 +14,12 @@ const h = vi.hoisted(() => {
     send: (_c: string, peerId: string, payload: { kind: string }) => { sent.push({ peerId, payload }); return true; },
     onMessage: (c: string, fn: (peerId: string, payload: unknown) => void) => { handlers.set(c, fn); return () => handlers.delete(c); },
   };
-  return { handlers, sent, mesh };
+  return { handlers, sent, mesh, guest: false };
 });
 
 vi.mock("@/lib/p2p/swarmMesh.standalone", () => ({ getSwarmMeshStandalone: () => h.mesh }));
 vi.mock("@/lib/auth", () => ({
-  getCurrentUser: () => ({ id: "aaaaaaaaaaaaaaaa", username: "DeviceA", publicKey: "pk-a", wrappedKeyRef: "w", createdAt: "2026-11-12T00:00:00.000Z" }),
+  getCurrentUser: () => ({ id: "aaaaaaaaaaaaaaaa", username: "DeviceA", publicKey: "pk-a", wrappedKeyRef: "w", createdAt: "2026-11-12T00:00:00.000Z", ...(h.guest ? { _guest: true } : {}) }),
 }));
 vi.mock("@/lib/crypto", () => ({ computeUserId: async (pk: string) => (pk === "pk-c" ? "cccccccccccccccc" : "x") }));
 vi.mock("@/lib/blockchain/accountMerge", () => ({
@@ -32,6 +32,7 @@ import { getMergeController } from "@/lib/p2p/mergeProtocol";
 beforeEach(() => {
   h.sent.length = 0;
   h.mesh.peers = ["peer-b"];
+  h.guest = false;
   getMergeController().clear();
 });
 
@@ -69,5 +70,13 @@ describe("AccountMergeWizard", () => {
     const input = await screen.findByLabelText("Device invite link");
     expect((input as HTMLInputElement).value).toContain("/connect#peer-a");
     expect(screen.getByLabelText("Device invite QR code")).toBeInTheDocument();
+  });
+
+  it("asks a guest to create an account instead of offering a merge", async () => {
+    h.guest = true;
+    render(<AccountMergeWizard open onOpenChange={() => {}} />);
+    expect(await screen.findByText("Create an account to merge")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Create an account" }).getAttribute("href")).toContain("/auth?signup=1");
+    expect(screen.queryByRole("button", { name: "Initiate Merge" })).toBeNull();
   });
 });

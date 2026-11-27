@@ -18,7 +18,8 @@ import { _resetDecksForTest, registerDeckSurface, straightDeck } from '../deckSu
 import { JETTY_TOP, JETTY_WIDTH, getVillageDockSite } from '../dockSite';
 import { fromBoatFrame, toBoatFrame, confineInBoatFrame } from '../boatDeck';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from '../boatHull';
-import { BOAT_RAIL_H } from '../boatSpec';
+import { BOAT_RAIL_H, RAIL_HOLD_H } from '../boatSpec';
+import { restSinkFor, PERSON_KG, PARTY_SIZE } from '../vessel';
 import { _resetVillageBoatForTest, getVillageBoat } from '../vessel';
 import { BOARD_REACH_M, HOLD_SLACK_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
 
@@ -113,11 +114,22 @@ describe('walls in the boat frame', () => {
     // Aboard, standing in the open gate: free to step off.
     expect(confineInBoatFrame(-(railHalfWidthAt(0) - 0.1), 0, 0, 0.35, true)).toBeNull();
   });
-  it('makes the hull solid to a swimmer and lets a jumper clear the rail', () => {
+  it('makes the hull solid to a swimmer, and holds anyone not thrown well over the rail', () => {
     const z = 1;
     const pushed = confineInBoatFrame(0.5, z, -1.85, 0.35)!;
     expect(pushed.x).toBeCloseTo(hullHalfBeam(tAt(z)) + 0.35, 6);
-    expect(confineInBoatFrame(railHalfWidthAt(z) - 0.1, z, BOAT_RAIL_H + 0.05, 0.35)).toBeNull();
+    expect(RAIL_HOLD_H).toBeGreaterThan(BOAT_RAIL_H);
+    expect(confineInBoatFrame(railHalfWidthAt(z) - 0.1, z, BOAT_RAIL_H + 0.05, 0.35)).not.toBeNull();
+    expect(confineInBoatFrame(railHalfWidthAt(z) - 0.1, z, RAIL_HOLD_H + 0.05, 0.35)).toBeNull();
+  });
+  it('keeps the gates shut from inside when there is nothing beside them to step onto', () => {
+    const shut = () => false;
+    const out = confineInBoatFrame(-(railHalfWidthAt(0) - 0.1), 0, 0, 0.35, false, shut)!;
+    expect(out.x).toBeCloseTo(-(railHalfWidthAt(0) - 0.35), 6);
+    // Only the side asked about: starboard open, port shut.
+    const portOnly = (side: -1 | 1) => side === 1;
+    expect(confineInBoatFrame(railHalfWidthAt(0) - 0.1, 0, 0, 0.35, false, portOnly)).toBeNull();
+    expect(confineInBoatFrame(-(railHalfWidthAt(0) - 0.1), 0, 0, 0.35, false, portOnly)).not.toBeNull();
   });
 });
 
@@ -181,7 +193,7 @@ describe('aboard the village boat', () => {
     addWalker('b', deckWorldPos(0, 2.2)!);
     step(300);
     expect(getVillageBoat().people).toBe(3);
-    expect(getVillageBoat().heave.sink).toBeGreaterThan(0.015);
+    expect(getVillageBoat().heave.sink).toBeGreaterThan(restSinkFor(3 * PERSON_KG) * 0.8);
   });
 
   it('keeps offering the oars when a completing hold adds slack', () => {
@@ -201,34 +213,92 @@ describe('aboard the village boat', () => {
     expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
   });
 
-  it('jumps high enough to clear the rail', () => {
-    addWalker('self', deckWorldPos(0, 1.2)!);
+  it('a running jump at the rail lands back on the deck', () => {
+    addWalker('self', deckWorldPos(0.3, 1.6)!);
     step(30);
     const deck = getVillageBoat().deckTopAt(t);
-    expect(physics.jump('self')).toBe(true);
-    let apex = -Infinity;
-    step(120, () => { apex = Math.max(apex, place('self').feet); });
-    expect(apex - deck).toBeGreaterThan(BOAT_RAIL_H + 0.1);
-    // ...and lands back on the deck.
-    step(120);
-    expect(physics.isAirborne('self')).toBe(false);
-    expect(Math.abs(place('self').feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
-  });
-
-  it('a jump out of the gate lands in the sea, swimming', () => {
-    addWalker('self', deckWorldPos(-(railHalfWidthAt(0) - 0.5), 0)!);
-    step(30);
-    // Run for the port gate (the jetty side) and jump on the way.
-    push('self', -1, 0);
+    push('self', 1, 0);
     step(6);
     expect(physics.jump('self')).toBe(true);
-    step(240, () => push('self', -1, 0));
+    let apex = -Infinity;
+    step(120, () => { push('self', 1, 0); apex = Math.max(apex, place('self').feet); });
+    // A real jump, but not over the rail.
+    expect(apex - deck).toBeGreaterThan(0.8);
+    expect(apex - deck).toBeLessThan(RAIL_HOLD_H);
+    physics.setIntent('self', { fwd: 0, right: 0, yaw: 0 });
+    step(120);
+    const p = place('self');
+    expect(physics.isAirborne('self')).toBe(false);
+    expect(Math.abs(p.x)).toBeLessThanOrEqual(railHalfWidthAt(p.z) - 0.3);
+    expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
+  });
+
+  it('out at sea, nobody walks or jumps out of a gate', () => {
+    // No jetty here: open water on both sides.
+    for (const side of [-1, 1]) {
+      const id = side < 0 ? 'self' : 'b';
+      addWalker(id, deckWorldPos(side * (railHalfWidthAt(0) - 0.6), 0)!);
+    }
+    step(30);
+    push('self', -1, 0);
+    push('b', 1, 0);
+    step(6);
+    physics.jump('self');
+    physics.jump('b');
+    step(300, () => { push('self', -1, 0); push('b', 1, 0); });
+    for (const id of ['self', 'b']) {
+      const p = place(id);
+      expect(Math.abs(p.x)).toBeLessThanOrEqual(railHalfWidthAt(p.z) - 0.3);
+      expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
+    }
+  });
+
+  it('alongside the jetty, the port gate opens onto it and a jump off the far side lands in the sea', () => {
+    const site = getVillageDockSite()!;
+    registerDeckSurface(straightDeck({
+      id: 'jetty', start: site.jettyStart, dir: site.jettyDir,
+      length: site.jettyLength, width: JETTY_WIDTH, top: JETTY_TOP, radius: EARTH_RADIUS,
+    }));
+    addWalker('self', deckWorldPos(-(railHalfWidthAt(0) - 0.5), 0)!);
+    addWalker('b', deckWorldPos(railHalfWidthAt(0) - 0.5, 0)!);
+    step(30);
+    // Starboard faces open water: that gate stays shut.
+    step(240, () => { push('self', -1, 0); push('b', 1, 0); });
+    const b = place('b');
+    expect(b.x).toBeLessThanOrEqual(railHalfWidthAt(b.z) - 0.3);
+    // Port walked out across the jetty and off its far edge into the sea.
     physics.setIntent('self', { fwd: 0, right: 0, yaw: 0 });
     step(240);
     const p = place('self');
     expect(Math.abs(p.x)).toBeGreaterThan(railHalfWidthAt(0));
     expect(isSwimmingAt(p.n, p.feet)).toBe(true);
     expect(p.feet).toBeLessThan(-SWIM_FEET_DEPTH + 0.15);
+  });
+
+  it('a party of twelve fits on deck with room to walk the length of the boat', () => {
+    // Twelve people spread over the deck, then one walks bow to stern and
+    // back down the aisle while the rest stand. Nobody ends off the deck.
+    const spots: [number, number][] = [
+      [-0.8, -2.6], [0.8, -2.6], [-0.9, -0.4], [0.9, -0.4],
+      [-0.8, 1.25], [0.8, 1.25], [-0.8, 2.25], [0.8, 2.25], [-0.8, 3.25], [0.8, 3.25],
+      [0, 4.7],
+    ];
+    spots.forEach(([x, z], i) => addWalker(`p${i}`, deckWorldPos(x, z)!));
+    addWalker('self', deckWorldPos(0, -3.2)!);
+    expect(spots.length + 1).toBe(PARTY_SIZE);
+    step(30);
+    step(300, () => push('self', 0, 1));
+    expect(place('self').z).toBeGreaterThan(3.5);
+    step(300, () => push('self', 0, -1));
+    expect(place('self').z).toBeLessThan(-2.5);
+    physics.setIntent('self', { fwd: 0, right: 0, yaw: 0 });
+    step(60);
+    expect(getVillageBoat().people).toBe(PARTY_SIZE);
+    for (const id of ['self', ...spots.map((_, i) => `p${i}`)]) {
+      const p = place(id);
+      expect(Math.abs(p.x)).toBeLessThan(railHalfWidthAt(p.z));
+      expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
+    }
   });
 
   it('keeps a swimmer out of the hull and offers the ladder', () => {
@@ -277,7 +347,7 @@ describe('aboard the village boat', () => {
     b.vel = [0, 0, 0];
     step(60);
     const q = place('self');
-    expect(Math.hypot(q.x - 0.45, q.z)).toBeLessThan(0.1);
+    expect(Math.hypot(q.x - 0.7, q.z)).toBeLessThan(0.1);
     expect(q.feet).toBeGreaterThan(0.2);
   });
 
@@ -306,8 +376,8 @@ describe('aboard the village boat', () => {
     const p = place('self');
     expect(Math.abs(p.x)).toBeLessThan(railHalfWidthAt(p.z));
     expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
-    // Aboard, the ring offers a station instead of boarding.
-    expect(boatActionFor(physics.getBody('self')!.pos)?.kind).toBe('take');
+    // Aboard, the ring no longer offers boarding.
+    expect(boatActionFor(physics.getBody('self')!.pos)).toBeNull();
   });
 
   it('keeps a jetty walker from stepping over the rail away from the gate', () => {

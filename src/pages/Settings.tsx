@@ -54,11 +54,13 @@ import { AccountExportModal } from "@/components/AccountExportModal";
 import { SovereignSecurityPanel } from "@/components/settings/SovereignSecurityPanel";
 import { ArchiveImportModal } from "@/components/settings/ArchiveImportModal";
 import { StorageTargetsPanel } from "@/components/settings/StorageTargetsPanel";
-import { FreeUpSpacePanel } from "@/components/settings/FreeUpSpacePanel";
 import { PersonalServersPanel } from "@/components/settings/PersonalServersPanel";
 import { GroupWarePanel } from "@/components/settings/GroupWarePanel";
 import { ExternalTimestampsPanel } from "@/components/settings/ExternalTimestampsPanel";
 import { TestConnectPanel } from "@/components/settings/TestConnectPanel";
+
+/** Test Connect / Test Mode stay in code as a dev artifact but are hidden from Account Settings. */
+const SHOW_TEST_CONNECT = false;
 import {
   getLoadingPriority,
   setLoadingPriority,
@@ -642,7 +644,7 @@ const Settings = () => {
 
               <LoadingChainEditor />
               <SessionHealthCard />
-              <TestConnectPanel />
+              {SHOW_TEST_CONNECT && <TestConnectPanel />}
             </TabsContent>
 
             <TabsContent value="security" className="space-y-6">
@@ -684,10 +686,10 @@ const Settings = () => {
                     Take your posts, conversations and media with you as a .zip you can read offline, and restore it on any device.
                   </p>
                 </div>
-                <AccountExportModal />
+                <AccountExportModal defaultOpen={searchParams.get("export") === "1"} />
                 <ArchiveImportModal />
               </Card>
-              <StorageTargetsPanel afterBrowserStorage={<FreeUpSpacePanel />} />
+              <StorageTargetsPanel />
               <PersonalServersPanel />
               <GroupWarePanel />
             </TabsContent>

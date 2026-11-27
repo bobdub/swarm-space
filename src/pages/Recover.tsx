@@ -6,6 +6,10 @@
  * highest signed vault envelope for `id`, then opens the outer shell locally
  * with the Recovery Passphrase and rehydrates the identity under a new local
  * password. Nothing typed here is ever sent to a peer.
+ *
+ * The link can be pasted or scanned as a QR code from any device still
+ * signed in (Settings → Security). It names a peer holding the vault: a
+ * connected custodian, or the person's own merged device.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,7 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertTriangle, KeyRound, Loader2, RefreshCw, ShieldCheck, Wifi } from "lucide-react";
+import { AlertTriangle, KeyRound, Loader2, QrCode, RefreshCw, ShieldCheck, Wifi } from "lucide-react";
+import { RecoveryQrScanner } from "@/components/recovery/RecoveryQrScanner";
 import { toast } from "sonner";
 import { useAuthReady } from "@/hooks/useAuthReady";
 import { useP2PContext } from "@/contexts/P2PContext";
@@ -27,6 +32,7 @@ import {
   openRecoveryVault,
   sameEnvelope,
   parseRecoveryParams,
+  recoverySearchFromLink,
   WrongRecoveryPassphraseError,
   type RecoveryVaultEnvelope,
 } from "@/lib/backup/recoveryVault";
@@ -58,6 +64,7 @@ export default function Recover() {
   const [localPassword, setLocalPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [restoring, setRestoring] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const dialedRef = useRef<string | null>(null);
   const queriedRef = useRef(new Map<string, number>());
@@ -142,16 +149,15 @@ export default function Recover() {
     return () => { stopped = true; window.clearInterval(timer); };
   }, [params, phase, isEnabled, stats.status, connectToPeer, consider]);
 
-  const openLink = () => {
-    try {
-      const url = new URL(linkInput.trim(), window.location.origin);
-      const hashQuery = /^#!?\/recover\/?(\?.*)$/.exec(url.hash)?.[1];
-      const search = hashQuery ?? url.search;
-      if (!parseRecoveryParams(search)) throw new Error("bad link");
-      navigate(`/recover${search}`);
-    } catch {
-      toast.error("That doesn't look like a Recovery Link");
+  const openLink = (text = linkInput) => {
+    const search = recoverySearchFromLink(text, window.location.origin);
+    if (!search) {
+      toast.error(scanning ? "That QR code is not a Recovery Link" : "That doesn't look like a Recovery Link");
+      setScanning(false);
+      return;
     }
+    setScanning(false);
+    navigate(`/recover${search}`);
   };
 
   const handleRestore = async () => {
@@ -222,9 +228,18 @@ export default function Recover() {
                 className="font-mono text-xs"
               />
               <p className="text-xs text-muted-foreground">
-                It's in your <code>swarm-identity-*.md</code> file and in Settings → Security on any device still signed in.
+                It's in your <code>swarm-identity-*.md</code> file, and shown as a link and QR code in Settings → Security on
+                any device still signed in, such as one you merged with.
               </p>
-              <Button className="w-full" onClick={openLink} disabled={!linkInput.trim()}>Continue</Button>
+              <Button className="w-full" onClick={() => openLink()} disabled={!linkInput.trim()}>Continue</Button>
+              {scanning ? (
+                <RecoveryQrScanner onResult={(text) => openLink(text)} onClose={() => setScanning(false)} />
+              ) : (
+                <Button variant="outline" className="w-full gap-2" onClick={() => setScanning(true)}>
+                  <QrCode className="h-4 w-4" />
+                  Scan Recovery QR
+                </Button>
+              )}
             </div>
           )}
 

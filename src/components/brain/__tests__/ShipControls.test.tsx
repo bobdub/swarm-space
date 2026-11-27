@@ -12,8 +12,8 @@ vi.mock('@/lib/brain/sea/crew', () => ({
   holdSail: crew.holdSail, stopMastHold: crew.stopMastHold,
   isOutOfFood: () => false, setCrewInput: crew.setCrewInput, setFoodPurse: vi.fn(),
 }));
-vi.mock('@/lib/brain/sea/vessel', () => ({ getVillageBoat: () => ({
-  cmd: { sail: 0 }, windOnBow: () => ({ speed: 1, from: 0 }), speed: () => 0,
+vi.mock('@/lib/brain/sea/vessel', () => ({ MAX_ROWERS: 6, rowersAllowed: () => 6, getVillageBoat: () => ({
+  cmd: { sail: 0 }, windOnBow: () => ({ speed: 1, from: 0 }), speed: () => 0, sea: 1,
 }) }));
 vi.mock('@/lib/world/materials', () => ({ materialTotals: () => ({ food: 5 }), spendMaterials: vi.fn() }));
 vi.mock('@/lib/world/playerHarvest', () => ({ recordPlayerHarvest: vi.fn() }));

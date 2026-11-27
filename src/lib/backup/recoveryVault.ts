@@ -339,3 +339,41 @@ export function canonicalRecoverHref(pathname: string, hash: string, search: str
   const rest = merged.toString();
   return `${RECOVER_PATH}${rest ? `?${rest}` : ""}`;
 }
+
+/**
+ * The canonical `?id=…&v=…` search of a Recovery Link, from whatever a person
+ * pasted or a QR code held: a full `/recover?…` URL, a hash-routed
+ * `/#/recover?…` wrapper, or a bare `?id=…` query. Null for anything else.
+ */
+export function recoverySearchFromLink(text: string, origin: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed, origin);
+  } catch {
+    return null;
+  }
+  const hashQuery = /^#!?\/recover\/?(\?[^#]*)$/.exec(url.hash)?.[1];
+  const onRecoverPath = url.pathname.replace(/\/+$/, "") === RECOVER_PATH;
+  const search = hashQuery ?? (onRecoverPath || trimmed.startsWith("?") ? url.search : "");
+  const params = search ? parseRecoveryParams(search) : null;
+  return params ? `?${new URLSearchParams({ id: params.id, v: String(params.v), ...(params.peer ? { peer: params.peer } : {}) }).toString()}` : null;
+}
+
+/**
+ * Which vault holder a Recovery Link / QR names. The person's pick wins when
+ * it still holds the current shell; otherwise a custodian that is connected
+ * right now, then any custodian, then this node (so a second device can still
+ * recover while this one is online).
+ */
+export function chooseRecoveryHolder(input: {
+  custodians: readonly string[];
+  connected: ReadonlySet<string> | readonly string[];
+  selected?: string | null;
+  self?: string | null;
+}): string | null {
+  const connected = input.connected instanceof Set ? input.connected : new Set(input.connected as readonly string[]);
+  if (input.selected && input.custodians.includes(input.selected)) return input.selected;
+  return input.custodians.find((p) => connected.has(p)) ?? input.custodians[0] ?? input.self ?? null;
+}

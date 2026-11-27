@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isWalletExplicitlyLocked, WALLET_LOCK_EVENT } from '@/lib/auth';
 import type { Project } from '@/types';
 import { getAllProjects, isProjectMember } from '@/lib/projects';
 import { getSwarmMeshStandalone, type LibraryPeer } from '@/lib/p2p/swarmMesh.standalone';
@@ -151,7 +152,7 @@ export function useConnectedChatPeers(messenger: DirectMessenger | null): Connec
           userId: session?.userId ?? lib?.userId,
           displayName: lib?.displayName || session?.displayName || lib?.username || lib?.alias || peerId.slice(0, 8),
           avatarRef: lib?.avatarRef,
-          namespace: peerNamespace(lib, peerId),
+          namespace: session?.verified && session.discriminator ? `#${session.discriminator}` : peerNamespace(lib, peerId),
           session,
         };
       }),
@@ -216,4 +217,20 @@ export function useDirectUnread(messenger: DirectMessenger | null): Map<string, 
     };
   }, [messenger]);
   return counts;
+}
+
+/** True while the user has manually locked their wallet (in this tab or another). */
+export function useWalletManuallyLocked(): boolean {
+  const [locked, setLocked] = useState(isWalletExplicitlyLocked);
+  useEffect(() => {
+    const refresh = () => setLocked(isWalletExplicitlyLocked());
+    refresh();
+    window.addEventListener(WALLET_LOCK_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(WALLET_LOCK_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+  return locked;
 }

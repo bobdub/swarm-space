@@ -15,7 +15,7 @@
  * when launched from a project, otherwise the Main Brain.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Sparkles, RotateCcw, ArrowLeft, Hammer, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,9 +66,20 @@ function actorId(): string {
   return (typeof localStorage !== 'undefined' && localStorage.getItem('peerId')) || 'local';
 }
 
-export function LabTab() {
+export interface LabTabProps {
+  /**
+   * Shown inside the builder panel instead of on the /remix page: the
+   * target comes from `projectId` (not the URL) and the back button
+   * calls `onBack` to return to the Lab list.
+   */
+  embedded?: boolean;
+  /** Brain the panel belongs to (embedded only); null is the Main Brain. */
+  projectId?: string | null;
+  onBack?: () => void;
+}
+
+export function LabTab({ embedded = false, projectId = null, onBack }: LabTabProps = {}) {
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const { toast } = useToast();
 
   const [materialId, setMaterialId] = useState<LabMaterialId>('wood');
@@ -82,7 +93,9 @@ export function LabTab() {
   const [expanded, setExpanded] = useState(false);
   const [clearSignal, setClearSignal] = useState(0);
   const [target, setTarget] = useState<string>(() =>
-    resolveDefaultLabTarget({ projectId: searchParams.get('projectId'), target: searchParams.get('target') }),
+    embedded
+      ? resolveDefaultLabTarget({ projectId })
+      : resolveDefaultLabTarget({ projectId: searchParams.get('projectId'), target: searchParams.get('target') }),
   );
 
   // Leaving the Lab with an unminted drawing returns its materials.
@@ -108,17 +121,25 @@ export function LabTab() {
 
   // Follow the URL if the Lab is re-opened from another Brain mid-session.
   useEffect(() => {
+    if (embedded) return;
     const next = resolveDefaultLabTarget({ projectId: searchParams.get('projectId'), target: searchParams.get('target') });
     setTarget(next);
     if (!isMainBrainTarget(next)) setActiveProjectId(next);
-  }, [searchParams]);
+  }, [searchParams, embedded]);
 
   // Escape leaves the fullscreen canvas.
   useEffect(() => {
     if (!expanded) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // Capture phase + stop: this Esc only leaves fullscreen, nothing else
+    // (the builder panel would otherwise also go back or close).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [expanded]);
 
   const material = getLabMaterial(materialId);
@@ -227,23 +248,32 @@ export function LabTab() {
   );
 
   return (
-    <div className="grid grid-cols-1 gap-3 md:h-[calc(100vh-13rem)] md:grid-cols-[1fr_260px]">
+    <div
+      className={embedded
+        ? 'grid grid-cols-1 gap-3 sm:grid-cols-[1fr_200px]'
+        : 'grid grid-cols-1 gap-3 md:h-[calc(100vh-13rem)] md:grid-cols-[1fr_260px]'}
+      data-testid={embedded ? 'lab-embedded' : undefined}
+    >
       {/* Canvas + HUD */}
       <div className="flex min-h-0 flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => navigate(onMainBrain ? '/brain' : `/projects/${encodeURIComponent(target)}/hub`)}
-              className="h-7 gap-1 text-[11px]"
-              aria-label="Return to the Brain"
-              title="Back to the Brain"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Brain
-            </Button>
+            {/* On the /remix page the page's own Back button does this job. */}
+            {onBack && (
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onBack}
+                className="h-7 gap-1 text-[11px]"
+                aria-label="Back to your Lab creations"
+                title="Back to your Lab creations"
+                data-testid="lab-back"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Back
+              </Button>
+            )}
             <span className="rounded-full bg-primary/15 px-2.5 py-0.5 font-medium text-primary">Lab</span>
             <span className="hidden sm:inline">Draw with what you gather.</span>
           </div>
@@ -268,7 +298,9 @@ export function LabTab() {
         <div
           className={expanded
             ? 'fixed inset-0 z-50 flex flex-col gap-2 bg-background p-3'
-            : 'flex h-[55vh] min-h-[260px] flex-col md:h-auto md:flex-1'}
+            : embedded
+              ? 'flex h-[42vh] min-h-[220px] flex-col'
+              : 'flex h-[55vh] min-h-[260px] flex-col md:h-auto md:flex-1'}
           role={expanded ? 'dialog' : undefined}
           aria-label={expanded ? 'Fullscreen Lab canvas' : undefined}
           data-testid={expanded ? 'lab-canvas-fullscreen' : 'lab-canvas'}
@@ -368,7 +400,7 @@ export function LabTab() {
       {/* Material picker */}
       <aside className="rounded-md border border-border/40 bg-background/40 p-2" aria-label="Materials">
         <div className="mb-2 px-1 text-[10px] uppercase tracking-wider text-muted-foreground">Gathered materials</div>
-        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-1">
+        <div className={embedded ? 'grid grid-cols-2 gap-1.5 sm:grid-cols-1' : 'grid grid-cols-2 gap-1.5 md:grid-cols-1'}>
           {LAB_MATERIALS.map((m) => {
             const held = stocks[m.id] ?? 0;
             const selected = m.id === materialId;

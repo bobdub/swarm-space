@@ -241,3 +241,74 @@ export function formatBytes(bytes: number): string {
   const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
+
+/** What a personal archive (.zip) actually holds, so clearing never reaches past it. */
+export interface ArchivedContents {
+  postIds: string[];
+  commentIds: string[];
+  /** Media file records (manifest fileIds) whose decrypted file is in the zip. */
+  manifestIds: string[];
+  /** Encrypted pieces of those media files. */
+  chunkRefs: string[];
+}
+
+/**
+ * Keys to delete per store for an archive. Engraved files keep their record,
+ * pieces and replica; identity, keys, wallet and coins are never listed.
+ */
+export function planArchivedClear(contents: ArchivedContents, engraved: Set<string> = new Set()): Map<string, string[]> {
+  const keep = (k: string) => !!k && !engraved.has(k);
+  const media = contents.manifestIds.filter(keep);
+  const plan = new Map<string, string[]>([
+    ['manifests', media],
+    ['replicas', media],
+    ['chunks', contents.chunkRefs.filter(keep)],
+    ['posts', contents.postIds.filter(Boolean)],
+    ['comments', contents.commentIds.filter(Boolean)],
+  ]);
+  for (const store of NEVER_CLEAR_STORES) plan.delete(store);
+  for (const [store, keys] of plan) if (keys.length === 0) plan.delete(store);
+  return plan;
+}
+
+async function rowsFor(store: string, keys: string[], available: Set<string>) {
+  const wanted = new Set(keys);
+  const rows = await safeGetAll<Record<string, unknown>>(store, available);
+  const present: string[] = [];
+  let bytes = 0;
+  for (const row of rows) {
+    const key = store === 'replicas' ? (row?.manifestId as string) : clearKeyForRow(row);
+    if (!key || !wanted.has(key)) continue;
+    present.push(key);
+    try { bytes += JSON.stringify(row).length; } catch { /* ignore */ }
+  }
+  return { present, bytes };
+}
+
+async function archivedPlanOnDisk(contents: ArchivedContents) {
+  const db = await openDB();
+  const available = new Set<string>(Array.from(db.objectStoreNames));
+  const engraved = engravedFileKeys(await safeGetAll<Manifest & { _coinId?: string }>('manifests', available));
+  const result: Array<{ store: string; keys: string[]; bytes: number }> = [];
+  for (const [store, keys] of planArchivedClear(contents, engraved)) {
+    const { present, bytes } = await rowsFor(store, keys, available);
+    if (present.length > 0) result.push({ store, keys: present, bytes });
+  }
+  return result;
+}
+
+/** Rough bytes this device would free by clearing what the archive holds. */
+export async function estimateArchivedBytes(contents: ArchivedContents): Promise<number> {
+  return (await archivedPlanOnDisk(contents)).reduce((sum, e) => sum + e.bytes, 0);
+}
+
+/** Remove from this browser only what the downloaded archive holds. */
+export async function clearArchivedLocal(contents: ArchivedContents): Promise<ClearResult> {
+  let removed = 0;
+  let freedBytes = 0;
+  for (const entry of await archivedPlanOnDisk(contents)) {
+    removed += await removeBatch(entry.store, entry.keys);
+    freedBytes += entry.bytes;
+  }
+  return { removed, freedBytes };
+}

@@ -3,9 +3,11 @@
  *
  * Local frame: +Y up (out of the sea), −Z toward the bow, +X starboard.
  * y = 0 is the waterline. The hull is lofted from cross-sections; the
- * deck, rail, mast, furled sail, wheel, rowing bench, stowed oars and the
+ * deck, rail, mast, furled sail, wheel, rowing benches, oars and the
  * stern ladder are plain primitives sized from the plan:
- * 7 m long, 2.6 m beam, 0.6 m draft, deck 0.5 m above the water.
+ * 11 m long, 3.8 m beam, 0.6 m draft, deck 0.5 m above the water. Where
+ * the mast, benches and wheel stand comes from `boatLayout.ts`, the same
+ * numbers that hold the crew at their stations.
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -18,6 +20,7 @@ import { getCrewBoatKey, getCrewRole, getCrewSpot, startMastHold, stopMastHold }
 import { ROD_SPOTS, getFishing } from '@/lib/brain/sea/fishing';
 import { getEarthPoseTime } from '@/lib/brain/earth';
 import { HALF_L, STERN_RAIL_END_T, gunwaleY, hullHalfBeam, keelY, tAt, zAt } from '@/lib/brain/sea/boatHull';
+import { BENCH_ZS, MAST_Z, WHEEL_Z } from '@/lib/brain/sea/boatLayout';
 
 const HULL = COMPOUND_TABLE.door_single.color; // oak
 const TRIM = '#3b2616';
@@ -125,12 +128,12 @@ export function BoatMesh({ vessel, boatKey }: { vessel: Vessel; boatKey?: string
     return out;
   }, []);
 
-  const mastZ = -0.7;
-  const mastH = 6;
-  const boomY = BOAT_DECK_Y + 1.7;
-  const boomLen = 3.1;
-  const wheelZ = 2.55;
-  const benchZ = 0.85;
+  const mastZ = MAST_Z;
+  const mastH = 8;
+  // The boom swings above head height over the benches.
+  const boomY = BOAT_DECK_Y + 2.0;
+  const boomLen = 4.0;
+  const wheelZ = WHEEL_Z;
   const sternZ = HALF_L;
 
   // Live parts: the wheel turns with the helm, the boom swings to leeward,
@@ -289,14 +292,16 @@ export function BoatMesh({ vessel, boatKey }: { vessel: Vessel; boatKey?: string
           <meshStandardMaterial color={TRIM} roughness={0.6} />
         </mesh>
       </group>
-      {/* Rowing bench and the stowed oars */}
-      <mesh position={[0, BOAT_DECK_Y + 0.42, benchZ]} castShadow>
-        <boxGeometry args={[hullHalfBeam(tAt(benchZ)) * 1.85, 0.08, 0.36]} />
-        <meshStandardMaterial color={TRIM} roughness={0.8} />
-      </mesh>
-      <OarsOut vessel={vessel} boatKey={boatKey} benchZ={benchZ} />
+      {/* Rowing benches (a rower each side of each) and the stowed oars */}
+      {BENCH_ZS.map((z) => (
+        <mesh key={`bench-${z}`} position={[0, BOAT_DECK_Y + 0.42, z]} castShadow>
+          <boxGeometry args={[hullHalfBeam(tAt(z)) * 1.85, 0.08, 0.36]} />
+          <meshStandardMaterial color={TRIM} roughness={0.8} />
+        </mesh>
+      ))}
+      <OarsOut vessel={vessel} boatKey={boatKey} />
       {[1, -1].map((side) => (
-        <group key={`oar-${side}`} name="stowed-oar" position={[side * 0.75, BOAT_DECK_Y + 0.08, 0.2]}>
+        <group key={`oar-${side}`} name="stowed-oar" position={[side * 1.3, BOAT_DECK_Y + 0.08, -0.6]}>
           <mesh rotation={[Math.PI / 2, 0, 0]}>
             <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
             <meshStandardMaterial color={HULL} roughness={0.7} />
@@ -475,15 +480,16 @@ function FishingLine({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) 
 }
 
 /**
- * The oars out through the rowlocks while someone rows: they sweep with
- * the stroke (one side harder when turning). Stowed on deck otherwise.
+ * The oars out through the rowlocks while people row: a pair per bench,
+ * as many benches as there are strokes pulling (two rowers to a bench),
+ * sweeping with the stroke (one side harder when turning). Stowed on deck
+ * otherwise.
  */
-function OarsOut({ vessel, boatKey, benchZ }: { vessel: Vessel; boatKey?: string; benchZ: number }) {
+function OarsOut({ vessel, boatKey }: { vessel: Vessel; boatKey?: string }) {
   const groupRef = useRef<THREE.Group>(null);
+  const benchRefs = useRef<(THREE.Group | null)[]>([]);
   const sweepRefs = useRef<(THREE.Group | null)[]>([]);
   const phase = useRef(0);
-  const lastT = useRef(0);
-  const hb = hullHalfBeam(tAt(benchZ));
   useFrame((_, dt) => {
     const g = groupRef.current;
     if (!g) return;
@@ -496,35 +502,48 @@ function OarsOut({ vessel, boatKey, benchZ }: { vessel: Vessel; boatKey?: string
     // Hide the stowed pair while the oars are out.
     g.parent?.children.forEach((c) => { if (c.name === 'stowed-oar') c.visible = !out; });
     if (!out) return;
+    // Each stroke is worth about 1, so the sum says how many pull.
+    const rowers = Math.max(1, Math.ceil(Math.max(Math.abs(row), Math.abs(turn)) - 0.05));
+    const benches = Math.min(BENCH_ZS.length, Math.ceil(rowers / 2));
+    benchRefs.current.forEach((b, i) => { if (b) b.visible = i < benches; });
     const step = Math.min(0.1, dt || 0.016);
-    lastT.current += step;
     if (pulling) phase.current += step * 2.6;
-    [1, -1].forEach((side, i) => {
-      const r = sweepRefs.current[i];
+    // Per-rower stroke (−1 … 1) for the swing.
+    const per = row / rowers;
+    const perTurn = turn / rowers;
+    sweepRefs.current.forEach((r, i) => {
       if (!r) return;
+      const side = i % 2 === 0 ? 1 : -1;
       // Turning to starboard pulls the port oar harder, and the reverse.
-      const strength = Math.min(1, Math.abs(row - side * turn * 0.8));
+      const strength = Math.min(1, Math.abs(per - side * perTurn * 0.8));
       r.rotation.y = pulling ? side * 0.45 * strength * Math.sin(phase.current) : 0;
     });
   });
   return (
     <group ref={groupRef} visible={false}>
-      {[1, -1].map((side, i) => (
-        <group key={`oar-out-${side}`} position={[side * hb, BOAT_DECK_Y + 0.35, benchZ]}>
-          <group ref={(el) => { sweepRefs.current[i] = el; }}>
-            <group rotation={[0, 0, side * -0.45]}>
-              <mesh position={[side * 0.5, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-                <cylinderGeometry args={[0.03, 0.03, 3.2, 6]} />
-                <meshStandardMaterial color={HULL} roughness={0.7} />
-              </mesh>
-              <mesh position={[side * 1.85, 0, 0]}>
-                <boxGeometry args={[0.55, 0.03, 0.16]} />
-                <meshStandardMaterial color={HULL} roughness={0.7} />
-              </mesh>
-            </group>
+      {BENCH_ZS.map((z, b) => {
+        const hb = hullHalfBeam(tAt(z));
+        return (
+          <group key={`oars-${z}`} ref={(el) => { benchRefs.current[b] = el; }}>
+            {[1, -1].map((side, i) => (
+              <group key={`oar-out-${side}`} position={[side * hb, BOAT_DECK_Y + 0.35, z]}>
+                <group ref={(el) => { sweepRefs.current[b * 2 + i] = el; }}>
+                  <group rotation={[0, 0, side * -0.45]}>
+                    <mesh position={[side * 0.7, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+                      <cylinderGeometry args={[0.035, 0.035, 3.8, 6]} />
+                      <meshStandardMaterial color={HULL} roughness={0.7} />
+                    </mesh>
+                    <mesh position={[side * 2.3, 0, 0]}>
+                      <boxGeometry args={[0.6, 0.03, 0.18]} />
+                      <meshStandardMaterial color={HULL} roughness={0.7} />
+                    </mesh>
+                  </group>
+                </group>
+              </group>
+            ))}
           </group>
-        </group>
-      ))}
+        );
+      })}
     </group>
   );
 }

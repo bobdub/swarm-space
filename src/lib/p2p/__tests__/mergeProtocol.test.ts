@@ -10,7 +10,7 @@ import {
   type MergeExecutor,
   type MergePeerIdentity,
 } from "../mergeProtocol";
-import type { MergeAccountSummary } from "@/lib/blockchain/accountMerge";
+import type { MergeAccountSummary, MergeUnionBundle } from "@/lib/blockchain/accountMerge";
 
 const flush = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0)); };
 
@@ -19,7 +19,7 @@ function summary(id: string, name: string, extra: Partial<MergeAccountSummary> =
 }
 
 /** Two controllers joined by an in-memory link. */
-function pair() {
+function pair(opts: { bExtra?: Partial<MergeAccountSummary> } = {}) {
   const handlers = new Map<string, (from: string, payload: unknown) => void>();
   const log: Array<{ from: string; to: string; kind: string }> = [];
   const transport = (self: string, other: string) => ({
@@ -36,6 +36,7 @@ function pair() {
   });
   const identity = (id: string, name: string): MergePeerIdentity => ({ userId: id, username: name, publicKey: `pk-${id}` });
   const calls: string[] = [];
+  const bundles: MergeUnionBundle[] = [];
   const executor = (id: string, name: string, extra: Partial<MergeAccountSummary> = {}): MergeExecutor => ({
     localIdentity: () => identity(id, name),
     verifyIdentity: async (i) => i.publicKey === `pk-${i.userId}`,
@@ -44,7 +45,11 @@ function pair() {
     sweep: async (master, onStep) => {
       calls.push(`sweep:${id}->${master.userId}`);
       onStep("moved");
-      return { txs: [], creditTxId: "credit-1", swarm: 3.2, credits: 450, mintme: 0, mintmeOnChain: null };
+      return {
+        txs: [], creditTxId: "credit-1", swarm: 3.2, credits: 450, mintme: 0, mintmeOnChain: null,
+        tokens: [{ address: "0x" + "d".repeat(40), symbol: "DREAMS", decimals: 12, addedAt: 1 }],
+        custody: Array.from({ length: 3 }, (_, i) => ({ id: `sync-${i}`, type: "external_deposit", from: "x", to: id, amount: 1, timestamp: "t", nonce: i, fee: 0, signature: "", publicKey: "", meta: { custody: "custom-token", pad: "y".repeat(30_000) } }) as unknown as MergeUnionBundle["txs"][number]),
+      };
     },
     collect: async () => ({ posts: [{ id: "p1", author: id, type: "text", content: "x".repeat(60_000), createdAt: "2026-11-18T00:00:00.000Z" }, { id: "p2", author: id, type: "text", content: "hi", createdAt: "2026-11-18T00:00:00.000Z" }], favorites: ["f1"], connections: [], library: [] }),
     attest: async (input) => {
@@ -52,6 +57,7 @@ function pair() {
       return { type: "account_merged", version: 1, retiringId: input.retiringId, masterId: input.masterId, timestamp: "t", transfers: input.transfers, signerPublicKey: input.publicKey, signature: "sig" };
     },
     acceptOnMaster: async ({ bundle, privateKey }) => {
+      bundles.push(bundle);
       calls.push(`accept:${privateKey}:${bundle.posts.length}:${bundle.attestation.transfers.txIds.join(",")}`);
       return { ack: { type: "account_merge_ack", version: 1, masterId: bundle.attestation.masterId, retiringId: bundle.attestation.retiringId, attestationSignature: "sig", timestamp: "t", signerPublicKey: "pk", signature: "ack" }, postsReattributed: bundle.posts.length, contactsAdded: 0 };
     },
@@ -62,8 +68,8 @@ function pair() {
   const a = new MergeController({ now });
   const b = new MergeController({ now });
   a.attach(transport("peer-a", "peer-b"), executor("aaaaaaaaaaaaaaaa", "DeviceA", { swarm: 14.5 }));
-  b.attach(transport("peer-b", "peer-a"), executor("bbbbbbbbbbbbbbbb", "DeviceB", { swarm: 3.2, credits: 450 }));
-  return { a, b, log, calls, advance: (ms: number) => { t += ms; } };
+  b.attach(transport("peer-b", "peer-a"), executor("bbbbbbbbbbbbbbbb", "DeviceB", { swarm: 3.2, credits: 450, ...opts.bExtra }));
+  return { a, b, log, calls, bundles, advance: (ms: number) => { t += ms; } };
 }
 
 describe("merge code", () => {
@@ -158,7 +164,7 @@ describe("merge handshake", () => {
   });
 
   it("mirrors the master choice, needs both passwords, then sweeps, attests, acks and retires in order", async () => {
-    const { a, b, calls } = pair();
+    const { a, b, calls, bundles, log } = pair();
     a.initiate("peer-b");
     await flush();
     const code = a.snapshot().session!.code!;
@@ -203,6 +209,24 @@ describe("merge handshake", () => {
     expect(a.snapshot().session!.absorbed?.postsReattributed).toBe(2);
     expect(b.snapshot().session!.phase).toBe("done");
     expect(b.snapshot().session!.retired?.masterUsername).toBe("DeviceA");
+    // Imported token definitions and their custody records reach the master
+    // (the records in size-bounded parts of their own).
+    expect(bundles[0].tokens?.map((t) => t.symbol)).toEqual(["DREAMS"]);
+    expect(bundles[0].custody?.map((r) => r.id)).toEqual(["sync-0", "sync-1", "sync-2"]);
+    expect(log.filter((m) => m.kind === "merge:custody-part").length).toBeGreaterThan(1);
+  });
+
+  it("refuses to pair with a guest, which must create an account first", async () => {
+    const { a, b } = pair({ bExtra: { guest: true } });
+    a.initiate("peer-b");
+    await flush();
+    b.accept(b.snapshot().offers[0].sessionId);
+    await b.submitCode(a.snapshot().session!.code!);
+    await flush();
+    expect(a.snapshot().session!.phase).toBe("failed");
+    expect(a.snapshot().session!.error).toMatch(/guest/i);
+    expect(b.snapshot().session!.phase).toBe("cancelled");
+    expect(b.snapshot().session!.error).toMatch(/create an account/i);
   });
 
   it("ignores session messages from a different peer", async () => {

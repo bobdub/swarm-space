@@ -18,7 +18,20 @@
  * `direct_messages` store so history loads instantly when switching peers.
  */
 import { CHAT_MESSAGE_MAX_LENGTH } from './chatLimits';
-import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from '../crypto';
+import { arrayBufferToBase64, base64ToArrayBuffer } from '../crypto';
+import {
+  createHelloProof,
+  loadAppDmSigner,
+  openHistoryKey,
+  openText,
+  parseHelloProof,
+  sealText,
+  verifyHelloProof,
+  type DmHelloProof,
+  type DmNamespace,
+  type DmSigner,
+  type SealedText,
+} from './dmIdentity';
 
 export const DM_CHANNEL = 'direct-message';
 const WIRE_VERSION = 1;
@@ -45,6 +58,8 @@ export interface DirectMessageRecord {
   status: DirectMessageStatus;
   seq: number;
   vector: Record<string, number>;
+  /** True when the text is sealed at rest and this session cannot open it yet. */
+  locked?: boolean;
 }
 
 export interface DirectMessageStore {
@@ -52,9 +67,14 @@ export interface DirectMessageStore {
   get(id: string): Promise<DirectMessageRecord | undefined>;
   byConversation(conversationId: string): Promise<DirectMessageRecord[]>;
   all(): Promise<DirectMessageRecord[]>;
+  /** The namespace this device has seen a user prove, if any. */
+  getPin(userId: string): Promise<DmNamespace | undefined>;
+  putPin(ns: DmNamespace): Promise<void>;
 }
 
 export interface DirectMessageMesh {
+  /** Our own link id; bound into handshake proofs so they cannot be replayed from another link. */
+  getPeerId?(): string;
   getConnectedPeerIds(): string[];
   send(channel: string, peerId: string, payload: unknown): Promise<boolean>;
   onMessage(channel: string, handler: (peerId: string, payload: unknown) => void): () => void;
@@ -63,8 +83,17 @@ export interface DirectMessageMesh {
 export interface DirectMessageIdentity {
   userId: string;
   displayName: string;
-  /** The account's public identity key (base64 SPKI); lets the peer check our user id. */
+  /** The account's public identity key (base64 SPKI). */
   identityKey?: string;
+  /** Signs handshakes while the account is unlocked; without it hellos are unproven. */
+  signer?: () => Promise<DmSigner | null>;
+  /**
+   * True while the user has manually locked their wallet. Direct messages
+   * pause entirely until it is unlocked: nothing is sent, and incoming
+   * handshakes and lines are left unacknowledged so the sender re-sends
+   * them after the unlock.
+   */
+  isLocked?: () => boolean | Promise<boolean>;
 }
 
 /** What we know about the other side of a link once it has said hello. */
@@ -73,8 +102,14 @@ export interface DirectPeerSession {
   userId: string;
   displayName: string;
   conversationId: string;
-  /** True when the peer's user id is the hash of the identity key it presented. */
-  identityVerified: boolean;
+  /**
+   * True when the peer proved its user id (identity-key signature) and its
+   * namespace (cold-wallet signature) for this session key.
+   */
+  verified: boolean;
+  /** The proven namespace, when verified. */
+  namespaceId?: string;
+  discriminator?: string;
   /** Short fingerprint of the session key pair, for display. */
   fingerprint: string;
   establishedAt: number;
@@ -84,10 +119,12 @@ export type DirectMessageEvent =
   | { type: 'message'; record: DirectMessageRecord }
   | { type: 'status'; record: DirectMessageRecord }
   | { type: 'session'; session: DirectPeerSession }
-  | { type: 'typing'; peerId: string; conversationId: string; typing: boolean };
+  | { type: 'typing'; peerId: string; conversationId: string; typing: boolean }
+  /** A hello claimed a user whose pinned namespace it could not prove. */
+  | { type: 'rejected'; peerId: string; userId: string; displayName: string; reason: string };
 
 type Wire =
-  | { v: number; kind: 'hello'; userId: string; displayName: string; pub: string; identityKey?: string; reply?: boolean }
+  | { v: number; kind: 'hello'; userId: string; displayName: string; pub: string; proof?: DmHelloProof; reply?: boolean }
   | { v: number; kind: 'msg'; id: string; conversationId: string; senderId: string; ts: number; seq: number; vector: Record<string, number>; iv: string; ct: string }
   | { v: number; kind: 'ack'; ids: string[] }
   | { v: number; kind: 'read'; ids: string[] }
@@ -126,14 +163,13 @@ export function parseWire(raw: unknown): Wire | null {
   switch (w.kind) {
     case 'hello':
       if (!isStr(w.userId, 200) || !isStr(w.pub, 256)) return null;
-      if (w.identityKey !== undefined && !isStr(w.identityKey, 1024)) return null;
       return {
         v: WIRE_VERSION,
         kind: 'hello',
         userId: w.userId,
         displayName: typeof w.displayName === 'string' ? w.displayName.slice(0, 80) : '',
         pub: w.pub,
-        identityKey: w.identityKey as string | undefined,
+        proof: parseHelloProof(w.proof) ?? undefined,
         reply: w.reply === true,
       };
     case 'msg':
@@ -241,7 +277,17 @@ export class DirectMessenger {
    * Entangle with a connected peer: say hello and resolve once both sides
    * hold the conversation key (null if the peer does not answer in time).
    */
+  /** True while direct messages are paused by a manual wallet lock. */
+  async locked(): Promise<boolean> {
+    try {
+      return Boolean(await this.identity.isLocked?.());
+    } catch {
+      return false;
+    }
+  }
+
   async connect(peerId: string, timeoutMs = 8_000): Promise<DirectPeerSession | null> {
+    if (await this.locked()) return null;
     const existing = this.sessions.get(peerId);
     if (existing) {
       // Refresh: the peer answers, and any line still waiting is re-sent.
@@ -270,14 +316,26 @@ export class DirectMessenger {
    * makes us re-send ours.
    */
   async refresh(peerId: string): Promise<void> {
-    if (!this.sessions.has(peerId)) return;
+    if (!this.sessions.has(peerId) || (await this.locked())) return;
     await this.sendHello(peerId, false);
+  }
+
+  /**
+   * After an unlock: say hello again on every connected link we hold a
+   * session with, so both sides re-send what waited while we were locked.
+   */
+  async resume(): Promise<void> {
+    if (await this.locked()) return;
+    const connected = new Set(this.mesh.getConnectedPeerIds());
+    for (const peerId of this.sessions.keys()) {
+      if (connected.has(peerId)) await this.sendHello(peerId, false);
+    }
   }
 
   /** Re-send one of our lines that was not delivered. */
   async retry(id: string): Promise<void> {
     const r = await this.store.get(id);
-    if (!r || r.senderId !== this.identity.userId || r.status === 'delivered' || r.status === 'read') return;
+    if (!r || r.locked || r.senderId !== this.identity.userId || r.status === 'delivered' || r.status === 'read') return;
     const session = this.sessions.get(r.peerId);
     if (!session || session.conversationId !== r.conversationId) {
       await this.connect(r.peerId);
@@ -304,7 +362,7 @@ export class DirectMessenger {
   /** Encrypt and send a line; it is stored first, so it survives a failed send. */
   async send(peerId: string, text: string): Promise<DirectMessageRecord | null> {
     const body = text.trim().slice(0, CHAT_MESSAGE_MAX_LENGTH);
-    if (!body) return null;
+    if (!body || (await this.locked())) return null;
     const session = this.sessions.get(peerId) ?? (await this.connect(peerId).then(() => this.sessions.get(peerId)));
     if (!session) return null;
     const me = this.identity.userId;
@@ -331,12 +389,13 @@ export class DirectMessenger {
   }
 
   async setTyping(peerId: string, typing: boolean): Promise<void> {
-    if (!this.sessions.has(peerId)) return;
+    if (!this.sessions.has(peerId) || (await this.locked())) return;
     await this.mesh.send(DM_CHANNEL, peerId, { v: WIRE_VERSION, kind: 'typing', typing }).catch(() => false);
   }
 
   /** Mark received lines in a conversation read, and tell the sender. */
   async markRead(conversationId: string): Promise<void> {
+    if (await this.locked()) return; // sealed lines have not been read
     const rows = await this.store.byConversation(conversationId);
     const unread = rows.filter((r) => r.senderId !== this.identity.userId && !r.read);
     if (unread.length === 0) return;
@@ -361,13 +420,25 @@ export class DirectMessenger {
 
   private async sendHello(peerId: string, reply: boolean): Promise<void> {
     const { pub } = await this.keyPair;
+    let proof: DmHelloProof | undefined;
+    const self = this.mesh.getPeerId?.();
+    if (self && this.identity.signer) {
+      try {
+        const signer = await this.identity.signer();
+        if (signer && signer.userId === this.identity.userId) {
+          proof = await createHelloProof(signer, { pub, fromPeerId: self, toPeerId: peerId });
+        }
+      } catch {
+        /* locked: the hello goes unproven */
+      }
+    }
     await this.mesh.send(DM_CHANNEL, peerId, {
       v: WIRE_VERSION,
       kind: 'hello',
       userId: this.identity.userId,
       displayName: this.identity.displayName,
       pub,
-      identityKey: this.identity.identityKey,
+      proof,
       reply,
     }).catch(() => false);
   }
@@ -403,7 +474,7 @@ export class DirectMessenger {
     let ok = false;
     try {
       const ct = await crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv, additionalData: messageAad(meta) },
+        { name: 'AES-GCM', iv, additionalData: messageAad(meta) as BufferSource },
         session.key,
         new TextEncoder().encode(record.text),
       );
@@ -427,6 +498,9 @@ export class DirectMessenger {
   private async handle(peerId: string, payload: unknown): Promise<void> {
     const wire = parseWire(payload);
     if (!wire) return;
+    // Locked: take no new handshakes or lines. Without our answer or ack the
+    // sender keeps them and re-sends once we unlock and say hello again.
+    if ((wire.kind === 'hello' || wire.kind === 'msg') && (await this.locked())) return;
     switch (wire.kind) {
       case 'hello':
         return this.onHello(peerId, wire);
@@ -448,32 +522,61 @@ export class DirectMessenger {
     if (hello.userId === this.identity.userId) return;
     const prior = this.sessions.get(peerId);
     const changed = !prior || prior.peerPub !== hello.pub || prior.userId !== hello.userId;
-    if (changed) {
-      const { privateKey, pub } = await this.keyPair;
-      const conversationId = conversationIdFor(this.identity.userId, hello.userId);
-      let key: CryptoKey;
-      try {
-        key = await deriveConversationKey(privateKey, pub, hello.pub, conversationId);
-      } catch {
-        return; // not a valid P-256 point
+    // Check identity on every hello unless this exact session key is
+    // already proven: a peer that was locked may unlock and prove itself
+    // later, and a pin set meanwhile must still be enforced.
+    if (changed || !prior?.verified) {
+      const proven = hello.proof
+        ? await verifyHelloProof(hello.proof, {
+          userId: hello.userId,
+          pub: hello.pub,
+          transportPeerId: peerId,
+          selfPeerId: this.mesh.getPeerId?.(),
+        })
+        : null;
+      // Namespaces protect a user id: once this device has seen a user
+      // prove a namespace, only a hello proving that same namespace may
+      // speak for them.
+      const pin = await this.store.getPin(hello.userId).catch(() => undefined);
+      if (pin && (!proven || proven.identityKey !== pin.identityKey || proven.namespaceId !== pin.namespaceId)) {
+        this.reject(peerId, hello, proven ? 'namespace does not match' : 'no namespace proof');
+        return;
       }
-      let identityVerified = false;
-      if (hello.identityKey) {
-        try { identityVerified = (await computeUserId(hello.identityKey)) === hello.userId; } catch { /* unverifiable */ }
+      if (proven && !pin) await this.store.putPin(proven).catch(() => undefined);
+
+      let session: InternalSession;
+      if (changed) {
+        const { privateKey, pub } = await this.keyPair;
+        const conversationId = conversationIdFor(this.identity.userId, hello.userId);
+        let key: CryptoKey;
+        try {
+          key = await deriveConversationKey(privateKey, pub, hello.pub, conversationId);
+        } catch {
+          return; // not a valid P-256 point
+        }
+        session = {
+          peerId,
+          userId: hello.userId,
+          displayName: hello.displayName || hello.userId.slice(0, 8),
+          conversationId,
+          verified: Boolean(proven),
+          namespaceId: proven?.namespaceId,
+          discriminator: proven?.discriminator,
+          fingerprint: await keyFingerprint(pub, hello.pub),
+          establishedAt: Date.now(),
+          peerPub: hello.pub,
+          key,
+        };
+      } else if (proven) {
+        // Same key, now proven: upgrade the session in place.
+        session = { ...prior!, verified: true, namespaceId: proven.namespaceId, discriminator: proven.discriminator };
+      } else {
+        session = prior!;
       }
-      const session: InternalSession = {
-        peerId,
-        userId: hello.userId,
-        displayName: hello.displayName || hello.userId.slice(0, 8),
-        conversationId,
-        identityVerified,
-        fingerprint: await keyFingerprint(pub, hello.pub),
-        establishedAt: Date.now(),
-        peerPub: hello.pub,
-        key,
-      };
-      this.sessions.set(peerId, session);
-      this.emit({ type: 'session', session: publicSession(session) });
+      if (changed || session !== prior) {
+        this.sessions.set(peerId, session);
+        this.emit({ type: 'session', session: publicSession(session) });
+      }
       const waiters = this.sessionWaiters.get(peerId);
       this.sessionWaiters.delete(peerId);
       for (const w of waiters ?? []) w(publicSession(session));
@@ -482,6 +585,16 @@ export class DirectMessenger {
     // answer a reply, or two peers would bounce hellos forever.
     if (!hello.reply) await this.sendHello(peerId, true);
     await this.resendUndelivered(peerId);
+  }
+
+  private reject(peerId: string, hello: Extract<Wire, { kind: 'hello' }>, reason: string): void {
+    // A link that cannot prove the pinned namespace loses any session it had.
+    const prior = this.sessions.get(peerId);
+    if (prior && prior.userId === hello.userId) this.sessions.delete(peerId);
+    this.emit({ type: 'rejected', peerId, userId: hello.userId, displayName: hello.displayName, reason });
+    const waiters = this.sessionWaiters.get(peerId);
+    this.sessionWaiters.delete(peerId);
+    for (const w of waiters ?? []) w(null);
   }
 
   /** Re-seal and re-send our lines the peer has not acknowledged yet. */
@@ -494,7 +607,7 @@ export class DirectMessenger {
     // same user never receives earlier lines without the user choosing to
     // send to it.
     const pending = rows
-      .filter((r) => r.senderId === this.identity.userId && r.peerId === peerId
+      .filter((r) => r.senderId === this.identity.userId && r.peerId === peerId && !r.locked
         && (r.status === 'sending' || r.status === 'sent' || r.status === 'failed'))
       .slice(-RESEND_LIMIT);
     for (const r of pending) await this.transmit(session, r);
@@ -517,7 +630,7 @@ export class DirectMessenger {
     let text: string;
     try {
       const plain = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(msg.iv)), additionalData: messageAad(msg) },
+        { name: 'AES-GCM', iv: new Uint8Array(base64ToArrayBuffer(msg.iv)), additionalData: messageAad(msg) as BufferSource },
         session.key,
         base64ToArrayBuffer(msg.ct),
       );
@@ -570,7 +683,9 @@ function publicSession(s: InternalSession): DirectPeerSession {
     userId: s.userId,
     displayName: s.displayName,
     conversationId: s.conversationId,
-    identityVerified: s.identityVerified,
+    verified: s.verified,
+    namespaceId: s.namespaceId,
+    discriminator: s.discriminator,
     fingerprint: s.fingerprint,
     establishedAt: s.establishedAt,
   };
@@ -580,23 +695,144 @@ function publicSession(s: InternalSession): DirectPeerSession {
 
 const STORE_NAME = 'direct_messages';
 
-export function createIndexedDbDirectMessageStore(): DirectMessageStore {
+/** Stored row: the text is sealed under the account's wrapped history key when it is open. */
+type StoredRecord = Omit<DirectMessageRecord, 'locked'> & { sealed?: SealedText };
+
+const PIN_KEY = (userId: string) => `dm-namespace-pin:${userId}`;
+const HISTORY_KEY = (userId: string) => `dm-history-key:${userId}`;
+
+/** Same-tab fallback for when the Web Locks API is missing. */
+const localLocks = new Map<string, Promise<unknown>>();
+
+/** Run `fn` while holding a lock shared by every tab of this origin. */
+async function exclusive<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManager }).locks : undefined;
+  if (locks?.request) return locks.request(name, fn) as Promise<T>;
+  const prev = localLocks.get(name) ?? Promise.resolve();
+  const run = prev.catch(() => undefined).then(fn);
+  localLocks.set(name, run.catch(() => undefined));
+  return run;
+}
+
+/**
+ * The account's DM history key, unwrapped from its AES-KW wrap under the
+ * namespace-bound KEK. Null while the account is locked: the key is
+ * dropped the moment the wallet locks and reopened only after it unlocks.
+ */
+export function createHistoryKeyring(
+  userId: string,
+  signer: () => Promise<DmSigner | null>,
+  isLocked: () => boolean | Promise<boolean> = () => false,
+): () => Promise<CryptoKey | null> {
+  let opened: Promise<CryptoKey | null> | null = null;
+  return async () => {
+    if (await isLocked()) {
+      opened = null;
+      return null;
+    }
+    if (!opened) {
+      opened = (async () => {
+        const s = await signer();
+        if (!s || s.userId !== userId) return null;
+        const { get, put } = await import('../store');
+        type Saved = { k: string; v: { wrapped: string; namespaceId: string } };
+        // Read, create and store under one cross-tab lock, so two tabs never
+        // each mint a history key and leave one tab's lines unreadable.
+        return exclusive(HISTORY_KEY(userId), async () => {
+          const saved = await get<Saved>('meta', HISTORY_KEY(userId));
+          const wrapped = saved?.v.namespaceId === s.namespaceId ? saved.v.wrapped : undefined;
+          const { key, wrapped: out, created } = await openHistoryKey(s, wrapped);
+          if (!created) return key;
+          await put('meta', { k: HISTORY_KEY(userId), v: { wrapped: out, namespaceId: s.namespaceId } });
+          // Whatever is stored wins, should a writer without the lock race us.
+          const stored = await get<Saved>('meta', HISTORY_KEY(userId));
+          if (stored && stored.v.wrapped !== out) return (await openHistoryKey(s, stored.v.wrapped)).key;
+          return key;
+        });
+      })().catch(() => null);
+      // A locked session may unlock later: try again next time.
+      void opened.then((k) => { if (!k) opened = null; });
+    }
+    return opened;
+  };
+}
+
+/** True while the signed-in account's wallet is locked (on this tab or another). */
+async function appWalletLocked(): Promise<boolean> {
+  try {
+    const { isWalletExplicitlyLocked } = await import('../auth');
+    return isWalletExplicitlyLocked();
+  } catch {
+    return false;
+  }
+}
+
+export function createIndexedDbDirectMessageStore(historyKey: () => Promise<CryptoKey | null> = async () => null): DirectMessageStore {
+  const seal = async (record: DirectMessageRecord): Promise<StoredRecord> => {
+    const { locked: _locked, ...row } = record;
+    const key = await historyKey();
+    if (!key || record.locked) return row;
+    return { ...row, text: '', sealed: await sealText(key, record.id, record.conversationId, record.text) };
+  };
+  const open = async (row: StoredRecord | undefined, key: CryptoKey | null): Promise<DirectMessageRecord | undefined> => {
+    if (!row) return undefined;
+    const { sealed, ...rest } = row;
+    if (!sealed) {
+      // Written before the history key was open: seal it now.
+      if (key && row.text) {
+        const { put } = await import('../store');
+        await put(STORE_NAME, { ...rest, text: '', sealed: await sealText(key, row.id, row.conversationId, row.text) });
+      }
+      return rest;
+    }
+    if (!key) return { ...rest, text: '', locked: true };
+    try {
+      return { ...rest, text: await openText(key, row.id, row.conversationId, sealed) };
+    } catch {
+      return { ...rest, text: '', locked: true };
+    }
+  };
+  const openAll = async (rows: StoredRecord[]) => {
+    const key = await historyKey();
+    const out: DirectMessageRecord[] = [];
+    for (const r of rows) {
+      const o = await open(r, key);
+      if (o) out.push(o);
+    }
+    return out;
+  };
   return {
     async put(record) {
+      const existing = record.locked ? await (await import('../store')).get<StoredRecord>(STORE_NAME, record.id) : undefined;
       const { put } = await import('../store');
-      await put(STORE_NAME, record);
+      // A locked row's text is unknown here: keep its sealed copy, change the rest.
+      if (existing?.sealed) {
+        const { locked: _locked, ...row } = record;
+        await put(STORE_NAME, { ...row, text: '', sealed: existing.sealed });
+        return;
+      }
+      await put(STORE_NAME, await seal(record));
     },
     async get(id) {
       const { get } = await import('../store');
-      return get<DirectMessageRecord>(STORE_NAME, id);
+      return open(await get<StoredRecord>(STORE_NAME, id), await historyKey());
     },
     async byConversation(conversationId) {
       const { getAllByIndex } = await import('../store');
-      return getAllByIndex<DirectMessageRecord>(STORE_NAME, 'conversationId', conversationId);
+      return openAll(await getAllByIndex<StoredRecord>(STORE_NAME, 'conversationId', conversationId));
     },
     async all() {
       const { getAll } = await import('../store');
-      return getAll<DirectMessageRecord>(STORE_NAME);
+      // Counting unread needs no text; skip unsealing.
+      return (await getAll<StoredRecord>(STORE_NAME)).map(({ sealed: _sealed, ...r }) => r);
+    },
+    async getPin(userId) {
+      const { get } = await import('../store');
+      return (await get<{ k: string; v: DmNamespace }>('meta', PIN_KEY(userId)))?.v;
+    },
+    async putPin(ns) {
+      const { put } = await import('../store');
+      await put('meta', { k: PIN_KEY(ns.userId), v: ns });
     },
   };
 }
@@ -608,7 +844,22 @@ const activeListeners = new Set<(m: DirectMessenger | null) => void>();
 export function startDirectMessages(mesh: DirectMessageMesh, identity: DirectMessageIdentity): DirectMessenger {
   if (active && active.identity.userId === identity.userId) return active;
   active?.stop();
-  active = new DirectMessenger(mesh, createIndexedDbDirectMessageStore(), identity);
+  // Keep the signer while the wallet stays unlocked; drop it (and its key
+  // material) the moment the wallet locks, here or in another tab.
+  let cached: DmSigner | null = null;
+  const signer = identity.signer ?? (async () => {
+    if (await appWalletLocked()) {
+      cached = null;
+      return null;
+    }
+    if (!cached) cached = await loadAppDmSigner(identity.userId, identity.identityKey);
+    return cached;
+  });
+  active = new DirectMessenger(
+    mesh,
+    createIndexedDbDirectMessageStore(createHistoryKeyring(identity.userId, signer, identity.signer ? undefined : appWalletLocked)),
+    { ...identity, signer, isLocked: identity.isLocked ?? appWalletLocked },
+  );
   active.start();
   for (const l of activeListeners) l(active);
   return active;
