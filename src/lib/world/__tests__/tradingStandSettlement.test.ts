@@ -42,7 +42,9 @@ vi.mock('@/lib/credits', () => ({
 }));
 
 import { buyFromStand, goodCurrency, standVaultScope } from '@/lib/world/tradingStand/tradingStandStore';
-import { _resetHarvestedForTest } from '@/lib/remix/harvestedInventory';
+import { _resetHarvestedForTest, recordHarvestForResource } from '@/lib/remix/harvestedInventory';
+import { _resetPlayModeForTest } from '@/lib/world/playMode';
+import { donateGoodsToStand, donateToStandVault, sellToStand } from '@/lib/world/tradingStand/tradingStandStore';
 
 const scope = standVaultScope('p1', 'Owner');
 const VAULT = scope.address;
@@ -56,6 +58,7 @@ describe('selling goods at an owned stand', () => {
     h.pending.length = 0; h.swarm.length = 0; h.creditTransfers.length = 0; h.deducted.length = 0; h.awarded.length = 0;
     h.mined.splice(0, h.mined.length, stocked('wood', 100));
     _resetHarvestedForTest();
+    _resetPlayModeForTest({ online: true });
   });
 
   const part = (n: number, share: number) => Math.floor(n * share * 1e6) / 1e6;
@@ -107,5 +110,37 @@ describe('selling goods at an owned stand', () => {
     const q = await buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 5, currency: 'SWARM', stand: { placementId: 'p1', ownerId: 'owner' } });
     const toPool = h.swarm.filter((t) => t.to === 'community-pool').reduce((a, t) => a + t.amount, 0);
     expect(toPool).toBeCloseTo(part(q.swarm, 0.05), 9);
+  });
+});
+
+describe('the stand offline', () => {
+  beforeEach(() => {
+    h.pending.length = 0; h.swarm.length = 0; h.creditTransfers.length = 0; h.deducted.length = 0; h.awarded.length = 0;
+    h.mined.splice(0, h.mined.length, stocked('wood', 100));
+    _resetHarvestedForTest();
+    _resetPlayModeForTest({ online: false });
+  });
+
+  const stand = { placementId: 'p1', ownerId: 'buyer' };
+
+  it('refuses every buy, sell, stocking and funding, and moves nothing', async () => {
+    _resetPlayModeForTest({ online: true });
+    recordHarvestForResource('wood', 10, 'online');
+    _resetPlayModeForTest({ online: false });
+    for (const currency of ['SWARM', 'CREDITS'] as const) {
+      await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 1, currency, stand })).rejects.toThrow(/offline/);
+      await expect(sellToStand({ userId: 'buyer', scope, good: 'wood', qty: 1, currency, stand })).rejects.toThrow(/offline/);
+    }
+    await expect(donateGoodsToStand('buyer', scope, stand, 'wood', 1)).rejects.toThrow(/offline/);
+    await expect(donateToStandVault('buyer', scope, stand, { kind: 'SWARM' }, 1)).rejects.toThrow(/offline/);
+    expect(h.pending).toEqual([]);
+    expect(h.swarm).toEqual([]);
+    expect(h.deducted).toEqual([]);
+    expect(h.creditTransfers).toEqual([]);
+  });
+
+  it('trades again once the mesh is back', async () => {
+    _resetPlayModeForTest({ online: true });
+    await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 1, currency: 'SWARM', stand })).resolves.toBeTruthy();
   });
 });

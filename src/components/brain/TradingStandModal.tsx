@@ -36,6 +36,8 @@ import {
   type TradingGood,
 } from '@/lib/world/tradingStand/pricing';
 import { heldGood } from '@/lib/world/tradingStand/goods';
+import { offlineSpendProblem } from '@/lib/world/playMode';
+import { useOnlinePlay } from '@/lib/world/useOnlinePlay';
 import {
   TRADING_STAND_EVENT,
   buyFromStand,
@@ -147,6 +149,9 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const [selected, setSelected] = useState<TradingGood>('wood');
   const [qty, setQty] = useState('1');
   const [busy, setBusy] = useState(false);
+  // Trading writes to the SWARM ledger: offline, the window is read-only.
+  const online = useOnlinePlay();
+  const offline = online ? null : offlineSpendProblem('trade at the stand');
 
   // A different stand: drop the last one's figures before this one's load.
   const currentStand = useRef(standId);
@@ -223,7 +228,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   };
 
   const action = (text: string, q: { error: string | null } | undefined, run: () => void) => (
-    <Button type="button" size="sm" variant="secondary" disabled={busy || !q || !!q.error} title={q?.error ?? undefined} onClick={run} className="h-auto whitespace-normal py-1.5 text-xs">
+    <Button type="button" size="sm" variant="secondary" disabled={busy || !!offline || !q || !!q.error} title={offline ?? q?.error ?? undefined} onClick={run} className="h-auto whitespace-normal py-1.5 text-xs">
       {text}
     </Button>
   );
@@ -275,6 +280,9 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
         </div>
 
         <div className="space-y-2 rounded-md border border-border/60 p-3">
+          {offline && (
+            <p className="rounded-md border border-dashed border-amber-500/60 px-2 py-1.5 text-[11px] text-amber-600 dark:text-amber-300" data-testid="stand-offline">{offline}</p>
+          )}
           <div className="flex items-center gap-2 text-sm">
             <span className="font-semibold">{label}</span>
             <span className="text-muted-foreground">· you hold {held}</span>
@@ -294,7 +302,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
             <p className="text-[11px] text-muted-foreground">{quotes.buySwarm.error ?? quotes.sellSwarm.error}</p>
           )}
           {isOwner && scope && !scope.settlesMain && (
-            <Button type="button" size="sm" variant="ghost" data-testid="stand-stock-button" disabled={busy || units <= 0 || units > held} onClick={() => void trade('donate', 'SWARM')} className="w-full text-xs">
+            <Button type="button" size="sm" variant="ghost" data-testid="stand-stock-button" disabled={busy || !!offline || units <= 0 || units > held} onClick={() => void trade('donate', 'SWARM')} className="w-full text-xs">
               Stock this stand with {units > 0 ? units : ''} {label.toLowerCase()} (nothing back)
             </Button>
           )}
@@ -310,7 +318,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
             Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits. 40% of the stand vault is a protected floor; one trade takes at most 10% of its liquid layer or of a good's stock.
           </p>
         </div>
-        {isOwner && scope && stand && (
+        {isOwner && scope && stand && !offline && (
           <details className="rounded-md border border-border/60 p-3" data-testid="stand-owner-funding">
             <summary className="cursor-pointer text-sm font-semibold">Fund your stand</summary>
             <div className="mt-2">

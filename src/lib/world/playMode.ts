@@ -37,6 +37,18 @@ export function isOnlinePlay(): boolean {
   return meshOnline;
 }
 
+/**
+ * Why a SWARM payment (a drink at the bar, a Trading Stand trade, stocking or
+ * funding a stand) can't be made right now, or null in online play. Anything
+ * that moves SWARM or writes to the shared ledger needs the mesh: offline
+ * play is for local gathering and building only, and a payment made against
+ * a ledger no peer can see could be spent twice before it syncs.
+ */
+export function offlineSpendProblem(action: string): string | null {
+  if (meshOnline) return null;
+  return `You're offline. Connect to the mesh to ${action}: SWARM payments need a synced ledger, and offline play is for gathering and building only. Nothing was charged.`;
+}
+
 /** Where a gather made right now belongs. */
 export function currentHarvestOrigin(): HarvestOrigin {
   return meshOnline ? 'online' : 'offline';

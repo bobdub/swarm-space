@@ -16,15 +16,16 @@ import {
   orderCost,
   type BarDrink,
 } from '@/lib/blockchain/infinity/barTab';
+import { offlineSpendProblem } from '@/lib/world/playMode';
 import { serveDrink, type DrinkEvent } from './drinks';
 
 let ordering = false;
 
-/** Why `userId` can't order right now, or null when they can. */
+/** Why `user` can't order right now (signed out, a guest, or offline), or null when they can. */
 export function barOrderProblem(user: ReturnType<typeof getCurrentUser>): string | null {
   if (!user) return 'Sign in to order at the bar.';
   if (isGuestUser(user)) return 'Guests can look at the menu. Sign in as a member to order.';
-  return null;
+  return offlineSpendProblem('order at the bar');
 }
 
 export async function orderAtBar(params: {
