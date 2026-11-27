@@ -42,7 +42,6 @@ import {
   TRADING_GOODS,
   getTradingGood,
   isTradingGood,
-  maxBuyQty,
   quoteStandBuy,
   splitStandPayment,
   STAND_FLOOR_SHARE,
@@ -377,14 +376,10 @@ async function buyInStandCurrency(req: StandTradeRequest & { currency: StandCurr
     await assertSignedIn(req.userId);
     const chain = await readyChain();
     const shared = sharedStandVaultState(chain, req.scope);
-    const spendable = spendableStandVaultState(chain, req.scope);
     const balance = await payerBalance(req.userId, req.currency);
-    const quote = quoteStandBuy(shared, req.good, req.qty, req.currency, balance);
+    const quote = quoteStandBuy({ ...shared, buyable: localStandStock(chain, req.scope) }, req.good, req.qty, req.currency, balance);
     if (quote.error) throw new Error(quote.error);
-    // The stock handed over must still be there after this device's unmined trades.
-    if (req.qty > maxBuyQty(spendable.stock[req.good] ?? 0)) {
-      throw new Error('That stock is promised to trades still waiting for a block. Nothing was charged.');
-    }
+    // The quote's cap already counts this device's unmined buys (`buyable`).
     const operationId = crypto.randomUUID();
     const standMeta = req.stand ? { standId: req.stand.placementId, standOwner: req.stand.ownerId } : {};
     const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-buy', operationId, good: req.good, goodQty: req.qty, ...standMeta };
@@ -538,12 +533,8 @@ async function buyFromStandWithToken(req: StandTradeRequest, token: string): Pro
     await assertSignedIn(req.userId);
     const chain = await readyChain();
     const shared = sharedStandVaultState(chain, req.scope);
-    const spendable = spendableStandVaultState(chain, req.scope);
-    const quote = quoteStandBuyToken(shared, req.good, req.qty, token, await tokenBalanceOf(req.userId, token));
+    const quote = quoteStandBuyToken({ ...shared, buyable: localStandStock(chain, req.scope) }, req.good, req.qty, token, await tokenBalanceOf(req.userId, token));
     if (quote.error) throw new Error(quote.error);
-    if (req.qty > maxBuyQty(spendable.stock[req.good] ?? 0)) {
-      throw new Error('That stock is promised to trades still waiting for a block. Nothing was charged.');
-    }
     const ticker = standTokenOptions(shared).find((t) => t.currency === token)?.symbol;
     const operationId = crypto.randomUUID();
     const standMeta = req.stand ? { standId: req.stand.placementId, standOwner: req.stand.ownerId } : {};

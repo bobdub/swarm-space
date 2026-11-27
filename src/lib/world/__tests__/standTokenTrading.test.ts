@@ -13,6 +13,11 @@ vi.mock('@/lib/auth', () => ({ getCurrentUser: () => ({ id: 'buyer' }) }));
 vi.mock('@/lib/blockchain/creatorMarketOperation', () => ({ withCreatorMarketOperation: (_k: string, fn: () => unknown) => fn() }));
 vi.mock('@/lib/blockchain/crypto', () => ({ generateTransactionId: () => `tx-${Math.random()}` }));
 vi.mock('@/lib/blockchain/storage', () => ({ derivePoolFromChain: async () => {} }));
+vi.mock('@/lib/blockchain/token', () => ({
+  getSwarmBalance: async () => 1000,
+  transferSwarm: async (p: { from: string; to: string; amount: number; meta?: Record<string, unknown> }) =>
+    ({ id: `s-${Math.random()}`, type: 'token_transfer', ...p }) as unknown as SwarmTransaction,
+}));
 vi.mock('@/lib/blockchain/deposits/customTokens', () => ({ getAvailableTokenBalance: () => h.tokenBalance }));
 vi.mock('@/lib/blockchain/chain', () => {
   const chain = {
@@ -135,5 +140,28 @@ describe('trading in a token the stand holds', () => {
   it('refuses a token the stand does not hold', async () => {
     const other = 'MINTME:0x' + 'e'.repeat(40);
     await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 1, currency: other, stand })).rejects.toThrow(/does not trade in this token/);
+  });
+});
+
+describe('bulk buys while stock awaits a block', () => {
+  beforeEach(() => {
+    h.pending.length = 0;
+    // Mined: 2 wood. Stocked on this device, not yet in a block: 20 more.
+    h.mined.splice(0, h.mined.length, leg('stock', 'owner', scope.address, 2, goodCurrency('wood')));
+    h.pending.push(leg('restock', 'owner', scope.address, 20, goodCurrency('wood'), { tradingStand: true, direction: 'donation', operationId: 'op-restock' }));
+    _resetHarvestedForTest();
+    _resetPlayModeForTest({ online: true });
+  });
+
+  it('buys 10 at once from the 22 the stand shows, not only 1 at a time', async () => {
+    const q = await buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 10, currency: 'SWARM', stand });
+    expect(q.error).toBeNull();
+    expect(heldGood('wood')).toBe(10);
+  });
+
+  it('still keeps the last unit and counts earlier unmined buys', async () => {
+    await buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 15, currency: 'SWARM', stand });
+    await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 7, currency: 'SWARM', stand })).rejects.toThrow(/keeps its last one/);
+    await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 6, currency: 'SWARM', stand })).resolves.toBeTruthy();
   });
 });
