@@ -116,6 +116,12 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
   const projects = useMemberProjects(user?.id);
   const messenger = useDirectMessenger();
   const peers = useConnectedChatPeers(messenger);
+  // Menu chat lists everyone linked to us too, not only those who announced in the room.
+  const roomPeers = useMemo(() => {
+    const byId = new Map(chatPeers.map((m) => [m.peerId, m]));
+    for (const p of peers) if (!byId.has(p.peerId)) byId.set(p.peerId, { peerId: p.peerId, username: p.displayName, inBrain: false });
+    return [...byId.values()];
+  }, [chatPeers, peers]);
   // A manual wallet lock pauses direct messages only; room chats stay open.
   const walletLocked = useWalletManuallyLocked();
   const dmUnread = useDirectUnread(messenger);
@@ -179,7 +185,7 @@ function GlobalChatPanel({ onClose }: { onClose: () => void }): JSX.Element {
                 key={selection.roomId}
                 roomId={selection.roomId}
                 title={selection.title}
-                chatPeers={selection.roomId === BRAIN_ROOM_ID ? chatPeers : undefined}
+                chatPeers={selection.roomId === BRAIN_ROOM_ID ? roomPeers : undefined}
               />
             ) : walletLocked ? (
               <DirectMessageUnlockGate peerName={selectedPeer?.displayName} />
