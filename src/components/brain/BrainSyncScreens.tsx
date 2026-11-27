@@ -10,6 +10,7 @@ import { getWebRTCManager } from '@/lib/webrtc/manager';
 import { isPeerMuted, subscribeMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { TileVideo } from './BrainVideoGrid';
 import { cn } from '@/lib/utils';
+import { useFloatingRect, type FloatingRect } from '@/hooks/useFloatingRect';
 
 interface RemoteScreen {
   peerId: string;
@@ -69,17 +70,33 @@ export function useBrainScreenShares() {
 interface Props {
   remote: RemoteScreen[];
   nameByPeerId: Record<string, string>;
-  /** CSS `bottom` for the docked windows and pills, to clear on-screen controls. */
-  dockBottom?: string;
+  /** Pixels above the bottom edge to keep clear (e.g. the Brain's phone joystick). */
+  dockBottomPx?: number;
+}
+
+const WINDOW_W = 352;
+const WINDOW_W_COMPACT = 288;
+const HEADER_H = 29;
+
+/** Where a share's window opens before the user moves it: bottom right, stacking upward. */
+function initialScreenRect(index: number, compact: boolean, bottomPx: number) {
+  return (vw: number, vh: number): FloatingRect => {
+    const w = Math.min(compact ? WINDOW_W_COMPACT : WINDOW_W, vw - 32);
+    const h = Math.round((w * 9) / 16) + HEADER_H;
+    // Leave room under the stack for the docked pills.
+    const y = vh - bottomPx - 56 - (index + 1) * (h + 8);
+    return { x: vw - w - 16, y, w, h };
+  };
 }
 
 /**
  * Floating viewers for peers' screen shares, in the Brain and while
  * Brain-synced on other pages. Every share gets its own window, so several
- * can be watched at once. Each window can be expanded to full size, docked
- * to a pill at the bottom of the screen, or closed.
+ * can be watched at once. Each window can be dragged anywhere and resized
+ * (it reopens where it was left), expanded to full size, docked to a pill at
+ * the bottom right of the screen, or closed.
  */
-export function BrainSyncScreens({ remote, nameByPeerId, dockBottom }: Props) {
+export function BrainSyncScreens({ remote, nameByPeerId, dockBottomPx = 16 }: Props) {
   const [docked, setDocked] = useState<Set<string>>(() => new Set());
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -123,55 +140,48 @@ export function BrainSyncScreens({ remote, nameByPeerId, dockBottom }: Props) {
 
   return (
     <>
-      <div
-        className="pointer-events-none fixed bottom-4 right-4 z-40 flex max-h-[calc(100dvh-8rem)] max-w-[calc(100vw-2rem)] flex-col items-end gap-2"
-        style={dockBottom ? { bottom: dockBottom, maxHeight: `calc(100dvh - ${dockBottom} - 5rem)` } : undefined}
-      >
-        {open.length > 0 && (
-          // Newest windows wrap upward; the column scrolls if they don't fit.
-          <div className="pointer-events-auto flex min-h-0 flex-wrap-reverse justify-end gap-2 overflow-y-auto">
-            {open.map((r) => (
-              <ScreenWindow
-                key={r.peerId}
-                share={r}
-                label={labelFor(r.peerId)}
-                compact={several}
-                onExpand={() => setExpandedId(r.peerId)}
-                onDock={() => dock(r.peerId)}
-                onClose={() => close(r.peerId)}
-              />
-            ))}
-          </div>
-        )}
-        {pills.length > 0 && (
-          <div className="pointer-events-auto flex flex-wrap justify-end gap-2">
-            {pills.map((r) => (
-              <div
-                key={r.peerId}
-                className="flex items-center rounded-full border border-border bg-card/95 shadow-lg backdrop-blur"
+      {open.map((r, i) => (
+        <FloatingScreenWindow
+          key={r.peerId}
+          share={r}
+          label={labelFor(r.peerId)}
+          initial={initialScreenRect(i, several, dockBottomPx)}
+          onExpand={() => setExpandedId(r.peerId)}
+          onDock={() => dock(r.peerId)}
+          onClose={() => close(r.peerId)}
+        />
+      ))}
+      {pills.length > 0 && (
+        <div
+          className="fixed right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-wrap justify-end gap-2"
+          style={{ bottom: `calc(env(safe-area-inset-bottom, 0px) + ${dockBottomPx}px)` }}
+        >
+          {pills.map((r) => (
+            <div
+              key={r.peerId}
+              className="flex items-center rounded-full border border-border bg-card/95 shadow-lg backdrop-blur"
+            >
+              <button
+                type="button"
+                onClick={() => toggle(setDocked, r.peerId, false)}
+                className="flex items-center gap-2 rounded-full py-2 pl-3 pr-1 text-xs font-medium hover:bg-muted"
+                aria-label={`Show ${labelFor(r.peerId)}`}
               >
-                <button
-                  type="button"
-                  onClick={() => toggle(setDocked, r.peerId, false)}
-                  className="flex items-center gap-2 rounded-full py-2 pl-3 pr-1 text-xs font-medium hover:bg-muted"
-                  aria-label={`Show ${labelFor(r.peerId)}`}
-                >
-                  <MonitorUp className="h-4 w-4 text-primary" />
-                  <span className="max-w-[10rem] truncate">{labelFor(r.peerId)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => close(r.peerId)}
-                  className="mr-1 rounded-full p-1.5 hover:bg-muted"
-                  aria-label={`Close ${labelFor(r.peerId)}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+                <MonitorUp className="h-4 w-4 text-primary" />
+                <span className="max-w-[10rem] truncate">{labelFor(r.peerId)}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => close(r.peerId)}
+                className="mr-1 rounded-full p-1.5 hover:bg-muted"
+                aria-label={`Close ${labelFor(r.peerId)}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       {expanded && (
         <ScreenWindow
           share={expanded}
@@ -186,25 +196,37 @@ export function BrainSyncScreens({ remote, nameByPeerId, dockBottom }: Props) {
   );
 }
 
-function ScreenWindow({
-  share,
-  label,
-  expanded = false,
-  compact = false,
-  onExpand,
-  onDock,
-  onClose,
-}: {
+/** A share's window at its own spot: drag it by the header, resize from the corner. */
+function FloatingScreenWindow({
+  initial,
+  ...rest
+}: Omit<ScreenWindowProps, 'expanded' | 'floating'> & { initial: (vw: number, vh: number) => FloatingRect }) {
+  const { style, beginMove, beginResize } = useFloatingRect({
+    storageKey: `swarm:screen-share-rect:${rest.share.peerId}`,
+    minW: 220,
+    minH: 150,
+    initial,
+  });
+  return <ScreenWindow {...rest} floating={{ style, beginMove, beginResize }} />;
+}
+
+interface ScreenWindowProps {
   share: RemoteScreen;
   label: string;
   expanded?: boolean;
-  /** Several windows are open: draw each a little smaller. */
-  compact?: boolean;
+  /** Position and drag handlers when the window floats on its own. */
+  floating?: {
+    style: React.CSSProperties;
+    beginMove: (e: React.PointerEvent) => void;
+    beginResize: (e: React.PointerEvent) => void;
+  };
   /** Toggles full size. */
   onExpand: () => void;
   onDock: () => void;
   onClose: () => void;
-}) {
+}
+
+function ScreenWindow({ share, label, expanded = false, floating, onExpand, onDock, onClose }: ScreenWindowProps) {
   return (
     <div
       role="region"
@@ -215,13 +237,18 @@ function ScreenWindow({
         // on every frame behind the video.
         expanded
           ? 'fixed inset-4 z-40 rounded-lg bg-card'
-          : cn(
-            'rounded-lg bg-card/95 backdrop-blur',
-            compact ? 'w-[min(18rem,calc(100vw-2rem))]' : 'w-[min(22rem,calc(100vw-2rem))]',
-          ),
+          : 'fixed z-40 rounded-lg bg-card/95 backdrop-blur',
       )}
+      style={expanded ? undefined : floating?.style}
     >
-      <div className="flex items-center gap-1 border-b border-border px-2 py-1 text-xs">
+      <div
+        onPointerDown={floating?.beginMove}
+        className={cn(
+          'flex shrink-0 items-center gap-1 border-b border-border px-2 py-1 text-xs',
+          floating && 'cursor-move touch-none select-none',
+        )}
+        title={floating ? 'Drag to move' : undefined}
+      >
         <MonitorUp className="h-3.5 w-3.5 shrink-0 text-primary" />
         <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
         <button type="button" onClick={onExpand} className="rounded p-1 hover:bg-muted" aria-label={expanded ? `Shrink ${label}` : `Watch ${label} full size`}>
@@ -239,8 +266,15 @@ function ScreenWindow({
         muted
         screenOf={share.peerId}
         screenView={expanded ? 'full' : 'preview'}
-        className={cn('block w-full bg-black object-contain', expanded ? 'min-h-0 flex-1' : 'aspect-video')}
+        className="block min-h-0 w-full flex-1 bg-black object-contain"
       />
+      {floating && (
+        <div
+          onPointerDown={floating.beginResize}
+          className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize touch-none rounded-br-lg bg-gradient-to-br from-transparent to-[hsla(180,80%,60%,0.5)]"
+          aria-label="Resize screen share"
+        />
+      )}
     </div>
   );
 }
