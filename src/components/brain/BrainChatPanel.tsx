@@ -30,6 +30,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import type { InfinityChatMode } from '@/lib/brain/infinityChatSettings';
+import { BuilderDeviceOptions } from '@/components/brain/builder/BuilderDeviceOptions';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -1177,6 +1178,15 @@ export function BrainChatPanel({
               <Switch checked={infinityChatMode === 'text'} onCheckedChange={(checked) => onInfinityChatModeChange?.(checked ? 'text' : 'off')} aria-label="Enable Infinity (Text Only)" />
             </label>
           </div>
+
+          <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">Microphone &amp; camera</h3>
+          <p className="mb-2 text-xs text-foreground/50">
+            Switch inputs without leaving the call. Same picks as Build › Options.
+          </p>
+          <BuilderDeviceOptions
+            testId="chat-device-options"
+            emptyHint="No microphone or camera found yet. Allow access in your browser, then reopen Settings."
+          />
 
           <h3 className="mb-2 mt-6 text-sm font-semibold text-foreground">History</h3>
           {historyCoins.length === 0 ? (
