@@ -3,9 +3,9 @@ import { SwarmTransaction, SwarmTokenBalance } from "./types";
 import { getSwarmChain } from "./chain";
 import { generateTransactionId } from "./crypto";
 import { getTokenBalance, saveTokenBalance } from "./storage";
-import { getCurrentUser } from "../auth";
+import { getCachedPrivateKey, getCurrentUser } from "../auth";
 import { assertStorageWritable } from "../storage/quotaGuard";
-import { REWARD_MATURITY_BLOCKS } from "./issuance";
+import { isMemberAddress, REWARD_MATURITY_BLOCKS } from "./issuance";
 
 /**
  * SWARM `address` holds on the shared chain: the figure every peer computes
@@ -94,22 +94,59 @@ export async function transferSwarm(params: {
     throw new Error("Insufficient SWARM balance");
   }
 
-  const transaction: SwarmTransaction = {
+  const unsigned: SwarmTransaction = {
     id: generateTransactionId(),
     type: "token_transfer",
     from: params.from,
     to: params.to,
     amount: params.amount,
     timestamp: new Date().toISOString(),
-    signature: "", // Would be generated with user's private key
+    signature: "",
     publicKey: params.from,
     nonce: Date.now(),
     fee: params.fee || 0,
     meta: params.meta,
   };
+  // A member's SWARM moves only with the member's signature: peers refuse an
+  // unsigned one in a block. Vault, escrow and stand accounts have no key.
+  const transaction = isMemberAddress(params.from) ? await signOwnTransfer(unsigned) : unsigned;
 
   chain.addTransaction(transaction);
   return transaction;
+}
+
+/** Sign a transfer of the signed-in member's own SWARM with their identity key. Fails closed when locked. */
+async function signOwnTransfer(tx: SwarmTransaction): Promise<SwarmTransaction> {
+  const user = getCurrentUser();
+  if (!user || user.id !== tx.from) throw new Error("Sign in to spend from your wallet; nothing was sent.");
+  const privateKey = await getCachedPrivateKey();
+  if (!privateKey) throw new Error("Your wallet is locked. Sign in again to unlock it; nothing was sent.");
+  const { signWalletTip } = await import("./wallets/tipSignature");
+  return signWalletTip({ ...tx, publicKey: user.publicKey }, privateKey);
+}
+
+/**
+ * Transfers of the signed-in member's SWARM made before transfers were
+ * signed still wait in pending. Sign them now, on the member's own device,
+ * so they can be mined; nobody else's transfer is ever touched.
+ */
+export async function signOwnPendingTransfers(chain: {
+  getPendingTransactions(): SwarmTransaction[];
+  replacePendingTransaction(tx: SwarmTransaction): boolean;
+}): Promise<number> {
+  const me = getCurrentUser();
+  if (!me) return 0;
+  const waiting = chain.getPendingTransactions().filter((tx) => tx.type === "token_transfer" && tx.from === me.id && !tx.signature);
+  if (waiting.length === 0) return 0;
+  const privateKey = await getCachedPrivateKey();
+  if (!privateKey) return 0;
+  const { signWalletTip, verifySwarmTransfer } = await import("./wallets/tipSignature");
+  let signed = 0;
+  for (const tx of waiting) {
+    const next = await signWalletTip({ ...tx, publicKey: me.publicKey }, privateKey);
+    if (await verifySwarmTransfer(next) && chain.replacePendingTransaction(next)) signed++;
+  }
+  return signed;
 }
 
 /**

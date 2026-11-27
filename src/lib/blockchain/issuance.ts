@@ -63,3 +63,30 @@ export function blockForbidsLegacyClaims(block: Pick<SwarmBlock, "timestamp">, d
   const stamped = Date.parse(block.timestamp);
   return !Number.isFinite(stamped) || stamped >= deadlineMs;
 }
+
+/**
+ * Hard fork: from this instant on, a block may carry a SWARM spend (a vault
+ * donation or a SWARM transfer, as bar drinks, Support the Vault and the
+ * Trading Stand write) only when the spender holds the amount on the ledger
+ * up to that point in the block. A member's spend must also carry the
+ * member's signature. Without this, one account could spend the same SWARM
+ * from two devices: each device mines its own copy, and the second credits
+ * the receiver with SWARM that no longer exists.
+ */
+export const SPEND_CHECK_CUTOFF_MS = Date.parse("2026-12-04T00:00:00Z");
+
+/** True when a block is stamped late enough that its SWARM spends are balance- and signature-checked. */
+export function blockChecksSpends(block: Pick<SwarmBlock, "timestamp">, cutoffMs = SPEND_CHECK_CUTOFF_MS): boolean {
+  const stamped = Date.parse(block.timestamp);
+  return !Number.isFinite(stamped) || stamped >= cutoffMs;
+}
+
+/** A member's identity address (the first 16 hex characters of their key's hash), as opposed to a vault or escrow. */
+export function isMemberAddress(address: unknown): address is string {
+  return typeof address === "string" && /^[a-f0-9]{16}$/.test(address);
+}
+
+/** A SWARM spend (the ledger counts both types as SWARM) from someone other than "system": checked against the spender's balance once spends are checked. */
+export function isCheckedSwarmSpend(tx: Pick<SwarmTransaction, "type" | "from"> | null | undefined): boolean {
+  return !!tx && !!tx.from && tx.from !== "system" && (tx.type === "pool_donate" || tx.type === "token_transfer");
+}
