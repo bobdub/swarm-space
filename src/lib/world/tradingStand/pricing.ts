@@ -90,6 +90,13 @@ export interface StandVaultState {
   creditReserve: number;
   /** Whole units of each good the stand holds. */
   stock: Partial<Record<TradingGood, number>>;
+  /**
+   * Stock trades price on, as this device's ledger shows it: mined plus this
+   * device's unmined stand entries (its own stocking, sales and buys). This is
+   * the Stock column the player sees, and it caps buys; without it, trades use
+   * `stock`. Buys and sells always use the same figure.
+   */
+  liveStock?: Partial<Record<TradingGood, number>>;
   /** Live Market Vault figures, for the Credits spot rate. */
   market: MarketVaultState;
   /** Synced tokens the stand vault holds, by ledger currency (`MINTME:0x…`). */
@@ -125,6 +132,15 @@ export function standCreditsPerSwarm(state: StandVaultState): number {
 
 export function stockOf(state: StandVaultState, good: TradingGood): number {
   return Math.floor(clean(state.stock[good]));
+}
+
+/**
+ * The stock buys and sells both price on: `liveStock` when set (the stock the
+ * player sees), else mined stock. Buys and sells must share one curve, or a
+ * buy-then-sell round trip could pay more than it cost.
+ */
+export function tradeStockOf(state: StandVaultState, good: TradingGood): number {
+  return state.liveStock ? Math.floor(clean(state.liveStock[good])) : stockOf(state, good);
 }
 
 /** SWARM per unit at the current stock (first unit, before the curve moves). */
@@ -179,7 +195,9 @@ export function quoteStandBuy(
   if (currency !== 'SWARM' && currency !== 'CREDITS') return { ...base, error: 'The stand only settles in SWARM or Credits.' };
   const qtyError = validQty(qty);
   if (qtyError) return { ...base, error: qtyError };
-  const s = stockOf(state, good);
+  // Buys price and cap on the stock the player sees, so a bulk order can take
+  // whatever one-at-a-time buys could, even while a stocking awaits a block.
+  const s = tradeStockOf(state, good);
   const cap = maxBuyQty(s);
   if (cap <= 0) return { ...base, error: `The stand has no ${g.label.toLowerCase()} to sell yet.` };
   if (qty > cap) return { ...base, error: `The stand has ${cap} ${g.label.toLowerCase()} to sell (it keeps its last one).` };
@@ -211,7 +229,7 @@ export function quoteStandSell(
   if (currency !== 'SWARM' && currency !== 'CREDITS') return { ...base, error: 'The stand only settles in SWARM or Credits.' };
   const qtyError = validQty(qty);
   if (qtyError) return { ...base, error: qtyError };
-  const s = stockOf(state, good);
+  const s = tradeStockOf(state, good);
   const K = g.virtualReserve;
   const swarm = floor6(g.baseSwarm * K * Math.log((s + qty + K) / (s + K)));
   const credits = Math.floor(swarm * spot + 1e-9);
@@ -369,7 +387,7 @@ export function quoteStandSellToken(state: StandVaultState, good: TradingGood, q
   if (!opt) return { ...base, error: 'The stand does not trade in this token.' };
   const qtyError = validQty(qty);
   if (qtyError) return { ...base, error: qtyError };
-  const s = stockOf(state, good);
+  const s = tradeStockOf(state, good);
   const K = g.virtualReserve;
   const swarm = floor6(g.baseSwarm * K * Math.log((s + qty + K) / (s + K)));
   const tokenAmount = floor8(swarm / opt.swarmPerToken);

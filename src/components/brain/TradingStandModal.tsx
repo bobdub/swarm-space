@@ -195,7 +195,10 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
     };
   }, [open, refresh]);
 
-  const board = useMemo(() => (state ? standPriceBoard(state) : []), [state]);
+  // Buys draw on the stock shown in the Stock column (mined plus this device's
+  // entries awaiting a block), so a bulk order can take what single buys could.
+  const liveState = useMemo(() => (state ? { ...state, liveStock: { ...state.stock, ...localStock } } : null), [state, localStock]);
+  const board = useMemo(() => (liveState ? standPriceBoard(liveState) : []), [liveState]);
   const n = Number.parseInt(qty, 10);
   const units = Number.isFinite(n) ? n : 0;
   const held = heldGood(selected);
@@ -213,20 +216,20 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
   const tokenQuotes = useMemo(() => {
     if (!state || !payToken || units <= 0) return null;
     return {
-      buy: quoteStandBuyToken(state, selected, units, payToken.currency, tokenBalance),
-      sell: quoteStandSellToken(state, selected, units, payToken.currency, held),
+      buy: quoteStandBuyToken(liveState ?? state, selected, units, payToken.currency, tokenBalance),
+      sell: quoteStandSellToken(liveState ?? state, selected, units, payToken.currency, held),
     };
-  }, [state, payToken, selected, units, tokenBalance, held]);
+  }, [state, liveState, payToken, selected, units, tokenBalance, held]);
 
   const quotes = useMemo(() => {
     if (!state || units <= 0) return null;
     return {
-      buySwarm: quoteStandBuy(state, selected, units, 'SWARM', balances.swarm),
-      buyCredits: quoteStandBuy(state, selected, units, 'CREDITS', balances.credits),
-      sellSwarm: quoteStandSell(state, selected, units, 'SWARM', held),
-      sellCredits: quoteStandSell(state, selected, units, 'CREDITS', held),
+      buySwarm: quoteStandBuy(liveState ?? state, selected, units, 'SWARM', balances.swarm),
+      buyCredits: quoteStandBuy(liveState ?? state, selected, units, 'CREDITS', balances.credits),
+      sellSwarm: quoteStandSell(liveState ?? state, selected, units, 'SWARM', held),
+      sellCredits: quoteStandSell(liveState ?? state, selected, units, 'CREDITS', held),
     };
-  }, [state, selected, units, balances, held]);
+  }, [state, liveState, selected, units, balances, held]);
 
   const trade = async (side: 'buy' | 'sell' | 'donate', currency: StandCurrency | string) => {
     if (!scope || busy) return;
