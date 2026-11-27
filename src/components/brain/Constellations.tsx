@@ -12,7 +12,6 @@ import {
   gazeProgress,
   nightIndexAt,
   stepGaze,
-  tonightsConstellation,
   type GazeState,
 } from '@/lib/brain/starHunt';
 import { foundTonight, getStarHunt, isIndoors, logFind, setGazeProgress } from '@/lib/brain/starHuntStore';
@@ -21,6 +20,7 @@ import { foundTonight, getStarHunt, isIndoors, logFind, setGazeProgress } from '
 const SKY_RADIUS = 75 * WORLD_SCALE;
 /** The hunt checks your gaze five times a second, not every frame. */
 const HUNT_STEP_S = 0.2;
+const MIN_SIN_ALT = Math.sin(MIN_FIND_ALTITUDE_DEG * Math.PI / 180);
 
 const starVertexShader = /* glsl */ `
   attribute float mag;
@@ -61,8 +61,8 @@ const starFragmentShader = /* glsl */ `
  * so every peer sees the same sky.
  *
  * The same loop runs the star hunt (`starHunt.ts`) at 5 Hz: once you have
- * read tonight's chart in the bar, holding your gaze on tonight's figure
- * after dark logs the find.
+ * read the star charts in the bar tonight, holding your gaze on any figure
+ * after dark logs the find (each figure once a night).
  */
 export function Constellations() {
   const groupRef = useRef<THREE.Group>(null);
@@ -74,9 +74,10 @@ export function Constellations() {
     // The background stars' own tint: the figures differ only in strength.
     uTint: { value: new THREE.Color('hsl(220, 80%, 92%)') },
   }), []);
-  const hunt = useRef<{ acc: number; gaze: GazeState; forward: THREE.Vector3 }>({
+  const hunt = useRef<{ acc: number; gaze: GazeState; target: string | null; forward: THREE.Vector3 }>({
     acc: 0,
     gaze: { held: 0, found: false },
+    target: null,
     forward: new THREE.Vector3(),
   });
 
@@ -100,27 +101,36 @@ export function Constellations() {
     const dt = Math.min(h.acc, 1);
     h.acc = 0;
     const night = nightIndexAt(getEarthPoseTime());
-    const { chartNight } = getStarHunt();
-    const tonight = chartNight === night ? tonightsConstellation(night) : null;
-    if (!tonight || foundTonight(tonight.chart.id, night)) {
-      if (h.gaze.held > 0) { h.gaze = { held: 0, found: false }; setGazeProgress(0); }
+    if (getStarHunt().chartNight !== night) {
+      if (h.gaze.held > 0) { h.gaze = { held: 0, found: false }; h.target = null; setGazeProgress(0); }
       return;
     }
-    const centre = centres.get(tonight.chart.id) ?? constellationCentre(tonight.chart);
-    const ux = camPos[0] - pose.center[0];
-    const uy = camPos[1] - pose.center[1];
-    const uz = camPos[2] - pose.center[2];
-    const ul = Math.hypot(ux, uy, uz) || 1;
-    const sinAlt = (centre[0] * ux + centre[1] * uy + centre[2] * uz) / ul;
-    camera.getWorldDirection(h.forward);
-    const onTarget = starOpacity >= MIN_FIND_STAR_OPACITY
-      && !isIndoors()
-      && sinAlt >= Math.sin(MIN_FIND_ALTITUDE_DEG * Math.PI / 180)
-      && gazeOffsetDeg([h.forward.x, h.forward.y, h.forward.z], centre) <= FIND_CONE_DEG;
-    h.gaze = stepGaze(h.gaze, onTarget, dt);
-    if (h.gaze.found) {
+    // Which unfound figure, if any, sits in your gaze right now.
+    let target: string | null = null;
+    if (starOpacity >= MIN_FIND_STAR_OPACITY && !isIndoors()) {
+      const ux = camPos[0] - pose.center[0];
+      const uy = camPos[1] - pose.center[1];
+      const uz = camPos[2] - pose.center[2];
+      const ul = Math.hypot(ux, uy, uz) || 1;
+      camera.getWorldDirection(h.forward);
+      const fwd: Vec3 = [h.forward.x, h.forward.y, h.forward.z];
+      let best = FIND_CONE_DEG;
+      for (const [id, centre] of centres) {
+        if (foundTonight(id, night)) continue;
+        const sinAlt = (centre[0] * ux + centre[1] * uy + centre[2] * uz) / ul;
+        if (sinAlt < MIN_SIN_ALT) continue;
+        const off = gazeOffsetDeg(fwd, centre);
+        if (off <= best) { best = off; target = id; }
+      }
+    }
+    // Moving from one figure to another starts the hold over.
+    if (target !== h.target) h.gaze = { held: 0, found: false };
+    h.target = target;
+    h.gaze = stepGaze(h.gaze, target !== null, dt);
+    if (h.gaze.found && target) {
       h.gaze = { held: 0, found: false };
-      logFind(tonight.chart.id, night);
+      h.target = null;
+      logFind(target, night);
       return;
     }
     setGazeProgress(gazeProgress(h.gaze.held));

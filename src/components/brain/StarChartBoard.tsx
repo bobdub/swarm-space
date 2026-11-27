@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getEarthPoseTime } from '@/lib/brain/earth';
-import { CONSTELLATIONS, type ConstellationChart } from '@/lib/brain/constellations';
-import { nightIndexAt, sightingHint, tonightsConstellation, type NightSighting } from '@/lib/brain/starHunt';
+import type { ConstellationChart } from '@/lib/brain/constellations';
+import { isUpTonight, nightIndexAt, sightingHint, sightingsForNight, type NightSighting } from '@/lib/brain/starHunt';
 import { markChartRead, useStarHunt, type StarLogEntry } from '@/lib/brain/starHuntStore';
 
 /** Standing this close to the chart counts as reading it. */
 const READ_DISTANCE_M = 6;
-const CANVAS_W = 1024;
+const CANVAS_W = 768;
 
 /** Deterministic scatter of faint stars so the chart reads like a sky, not a diagram. */
 function scatter(seed: number, count: number): Array<[number, number, number]> {
@@ -97,11 +97,22 @@ function drawChartPanel(
   ctx.fillText('W', x0 + 24, y0 + h / 2);
 }
 
-// eslint-disable-next-line react-refresh/only-export-components -- exported for the preview test
+function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    const next = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(next).width > maxW) { lines.push(line); line = word; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- exported for the preview page
 export function drawStarChart(
   canvas: HTMLCanvasElement,
   sighting: NightSighting,
-  log: Record<string, StarLogEntry>,
+  entry: StarLogEntry | undefined,
   foundTonight: boolean,
 ) {
   const ctx = canvas.getContext('2d');
@@ -114,73 +125,51 @@ export function drawStarChart(
   ctx.fillStyle = wood;
   ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = '#c9a24a';
-  ctx.lineWidth = 14;
-  ctx.strokeRect(14, 14, W - 28, H - 28);
+  ctx.lineWidth = 12;
+  ctx.strokeRect(12, 12, W - 24, H - 24);
   ctx.strokeStyle = '#7a1f1a';
   ctx.lineWidth = 4;
-  ctx.strokeRect(36, 36, W - 72, H - 72);
-
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#f4c46a';
-  ctx.font = 'bold 72px Georgia, "Times New Roman", serif';
-  ctx.fillText("Tonight's Stars", W / 2, 100);
-  ctx.fillStyle = '#7fae5a';
-  ctx.font = 'italic 32px Georgia, serif';
-  ctx.fillText('Star chart of The Green Cat & Red Dragon', W / 2, 158);
+  ctx.strokeRect(30, 30, W - 60, H - 60);
 
   const chart = sighting.chart;
-  drawChartPanel(ctx, chart, 80, 200, W - 160, 600);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = foundTonight ? '#9fd67a' : '#f4c46a';
+  ctx.font = 'bold 76px Georgia, "Times New Roman", serif';
+  ctx.fillText(foundTonight ? `${chart.name} ✓` : chart.name, W / 2, 92);
 
-  ctx.fillStyle = foundTonight ? '#9fd67a' : '#ffd35a';
-  ctx.font = 'bold 64px Georgia, serif';
-  ctx.fillText(foundTonight ? `${chart.name} ✓` : chart.name, W / 2, 870);
-  ctx.fillStyle = '#f2e6c9';
-  ctx.font = '38px Georgia, serif';
-  ctx.fillText(sightingHint(sighting), W / 2, 935);
-  ctx.fillStyle = 'rgba(232,220,192,0.7)';
-  ctx.font = 'italic 28px Georgia, serif';
-  ctx.fillText(
-    foundTonight ? 'Found tonight. A new chart goes up tomorrow.' : 'Go outside after dark, find it, and hold your gaze on it.',
-    W / 2,
-    985,
-  );
+  drawChartPanel(ctx, chart, 56, 150, W - 112, 500);
 
-  // Star log.
+  // Tonight's hint for this figure, from the shared clock.
+  ctx.fillStyle = isUpTonight(sighting) ? '#f2e6c9' : 'rgba(232,220,192,0.6)';
+  ctx.font = '40px Georgia, serif';
+  wrapLines(ctx, sightingHint(sighting), W - 120).slice(0, 2)
+    .forEach((line, i, all) => ctx.fillText(line, W / 2, 720 + (i - (all.length - 1) / 2) * 48));
+
+  ctx.font = 'italic 32px Georgia, serif';
+  ctx.fillStyle = foundTonight ? '#9fd67a' : 'rgba(232,220,192,0.7)';
+  const status = foundTonight ? 'Found tonight' : isUpTonight(sighting) ? 'Find it outside after dark' : '';
+  if (status) ctx.fillText(status, W / 2, 812);
+
   ctx.strokeStyle = 'rgba(201,162,74,0.5)';
   ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(90, 1030); ctx.lineTo(W - 90, 1030); ctx.stroke();
-  ctx.fillStyle = '#c9a24a';
-  ctx.font = 'bold 34px Georgia, serif';
-  ctx.fillText('Your star log', W / 2, 1070);
-  const colW = (W - 180) / CONSTELLATIONS.length;
-  CONSTELLATIONS.forEach((c, i) => {
-    const entry = log[c.id];
-    const x = 90 + colW * (i + 0.5);
-    ctx.fillStyle = entry ? '#ffd35a' : 'rgba(232,220,192,0.35)';
-    ctx.font = 'bold 44px Georgia, serif';
-    ctx.fillText(entry ? '★' : '☆', x, 1125);
-    ctx.font = `${entry ? 'bold ' : ''}26px Georgia, serif`;
-    ctx.fillStyle = entry ? '#f2e6c9' : 'rgba(232,220,192,0.45)';
-    ctx.fillText(c.name.replace(/^The /, ''), x, 1170);
-    if (entry && entry.count > 1) {
-      ctx.font = '22px Georgia, serif';
-      ctx.fillText(`×${entry.count}`, x, 1200);
-    }
-  });
-  if (CONSTELLATIONS.every((c) => log[c.id])) {
-    ctx.fillStyle = '#ffd35a';
-    ctx.font = 'italic bold 30px Georgia, serif';
-    ctx.fillText('★ Star Navigator ★', W / 2, 1232);
-  }
+  ctx.beginPath(); ctx.moveTo(80, 852); ctx.lineTo(W - 80, 852); ctx.stroke();
+  ctx.font = `${entry ? 'bold ' : ''}36px Georgia, serif`;
+  ctx.fillStyle = entry ? '#ffd35a' : 'rgba(232,220,192,0.45)';
+  ctx.fillText(
+    entry ? `★ In your star log${entry.count > 1 ? ` ×${entry.count}` : ''}` : '☆ Not in your star log yet',
+    W / 2,
+    900,
+  );
 }
 
 /**
- * The star chart on the bar's wall: tonight's constellation, a loose hint of
- * where to look, and your star log. Standing at it opens tonight's hunt.
- * A plane facing local +Z; the caller turns it to face into the room.
+ * One of the four star charts on the bar's wall: its constellation, tonight's
+ * hint for it, and whether it is in your star log. Standing at the charts
+ * opens tonight's hunt. A plane facing local +Z; the caller turns it to face
+ * into the room.
  */
-export function StarChartBoard({ width, height }: { width: number; height: number }) {
+export function StarChartBoard({ chartId, width, height }: { chartId: string; width: number; height: number }) {
   const hunt = useStarHunt();
   const [night, setNight] = useState(() => nightIndexAt(getEarthPoseTime()));
   const groupRef = useRef<THREE.Group>(null);
@@ -196,12 +185,16 @@ export function StarChartBoard({ width, height }: { width: number; height: numbe
   }, [width, height]);
   useEffect(() => () => texture.dispose(), [texture]);
 
-  const sighting = useMemo(() => tonightsConstellation(night), [night]);
-  const found = hunt.log[sighting.chart.id]?.lastNight === night;
+  const sighting = useMemo(
+    () => sightingsForNight(night).find((s) => s.chart.id === chartId) ?? sightingsForNight(night)[0],
+    [night, chartId],
+  );
+  const entry = hunt.log[chartId];
+  const found = entry?.lastNight === night;
   useEffect(() => {
-    drawStarChart(canvas, sighting, hunt.log, found);
+    drawStarChart(canvas, sighting, entry, found);
     texture.needsUpdate = true;
-  }, [canvas, texture, sighting, hunt.log, found]);
+  }, [canvas, texture, sighting, entry, found]);
 
   // Twice a second: has the night turned, and is the player reading the chart?
   useFrame(({ camera }, delta) => {
@@ -218,7 +211,7 @@ export function StarChartBoard({ width, height }: { width: number; height: numbe
   return (
     <group ref={groupRef}>
       <mesh position={[0, 0, -0.04]} castShadow>
-        <boxGeometry args={[width + 0.12, height + 0.12, 0.06]} />
+        <boxGeometry args={[width + 0.08, height + 0.08, 0.06]} />
         <meshStandardMaterial color="#3a2414" roughness={0.8} />
       </mesh>
       <mesh>
