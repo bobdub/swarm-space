@@ -1,8 +1,8 @@
 /**
  * BoatControls — the on-screen pieces for getting on and off the boat.
  *
- * - The hold button appears when you can board: on the jetty beside the
- *   boat ("Hold to board"), or swimming by the stern ladder or a gate
+ * - The hold button appears when you can board: anywhere on the jetty
+ *   along a docked boat ("Hold to board"), or swimming by the stern ladder or a gate
  *   ("Hold to climb aboard"). When one more person would push the boat's
  *   freeboard under 0.2 m it reads "Boat is full" instead.
  * - On deck, beside the wheel, the rowing bench or a rod holder, the same

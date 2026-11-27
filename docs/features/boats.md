@@ -10,8 +10,12 @@ Status: **live** in the Brain world. The full design and build history is in
 - **The boat.** 11 m long and 3.8 m in the beam. Bow to stern: two rod
   holders, the mast, a gate each side midships, three rowing benches, the
   wheel and the stern ladder. An aisle runs down the middle for walking.
-- **Boarding.** On the jetty beside the boat, hold the ring ("Hold to
-  board"), or walk in through a gate midships. From the water, swim to the
+- **Boarding.** While a boat is docked at the jetty, the Board ring is
+  attached to the jetty: it comes up as you walk out along the planks,
+  from 2 m before her stern to her bow, and stays off the deck so it never
+  covers the wheel, oars, sail or rod prompts. Hold it to step aboard, or
+  walk in through a gate midships. Away from the jetty, stand within 3 m
+  of a gate to board. From the water, swim to the
   stern ladder or a gate and hold "Hold to climb aboard".
 - **A party of 12.** A boat takes twelve people at most, crew included,
   with room for all of them to move about. Once she is full the ring says

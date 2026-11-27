@@ -6,15 +6,25 @@
  * along and holding the crew at their stations.
  *
  * It also answers "what can I do from here?" for the hold ring: board
- * from the jetty, climb aboard from the water by the ladder or a gate,
+ * from the jetty (anywhere along it beside a docked boat, or by a gate
+ * elsewhere), climb aboard from the water by the ladder or a gate,
  * take the wheel or the oars, let go of them, or nothing. Boarding is
  * refused once one more person would push the freeboard under 0.2 m.
  */
 
-import { getEarthPoseTime, type Vec3 } from '../earth';
+import {
+  BODY_SHELL_RADIUS,
+  EARTH_RADIUS,
+  FOOT_CUSHION,
+  getEarthPose,
+  getEarthPoseTime,
+  worldPosToLocalNormal,
+  type Vec3,
+} from '../earth';
 import { PHYSICS_HZ, type UqrcPhysics } from '../uqrcPhysics';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from './boatHull';
-import type { BoatFrame } from './boatDeck';
+import { toBoatFrame, type BoatFrame } from './boatDeck';
+import { BERTH_OFFSET, JETTY_TOP, JETTY_WIDTH, getVillageDockSite } from './dockSite';
 import { getCrewBoatKey, getCrewRole, type CrewRole } from './crew';
 import { HELM_SPOT, OARS_SPOT, OAR_SPOTS, nearestOarSpot } from './boatLayout';
 import {
@@ -43,6 +53,12 @@ export const CLIMB_SIDE_REACH_M = 1.4;
 /** Extra reach (m) allowed when a hold completes, so a swimmer drifting
  *  a little while holding still gets aboard. */
 export const HOLD_SLACK_M = 1.0;
+/** A boat whose centre lies this close to the village berth (m), heading
+ *  along the jetty, is docked: the jetty beside her offers Board. */
+export const DOCKED_M = 2.0;
+/** Along the jetty, Board shows from this far (m) before a docked boat's
+ *  stern (or past her bow), so it is up as you walk toward her. */
+export const JETTY_BOARD_MARGIN_M = 2.0;
 const STATION_REACH_M = 1.0;
 /** Rod holders sit by the rail, closer together than the stations. */
 const ROD_REACH_M = 0.9;
@@ -87,7 +103,49 @@ export type BoatAction =
   | { kind: 'leave'; role: CrewRole }
   | { kind: 'busy' };
 
-function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, slack = 0): BoatAction | null {
+const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/**
+ * Where a body stands relative to the jetty, in the berth's frame (the
+ * frame of a boat lying exactly at the berth): `z` along the berth (bow −),
+ * or null when it is not standing on the jetty planks beside the berth.
+ */
+function jettySpot(pos: [number, number, number]): { z: number } | null {
+  const site = getVillageDockSite();
+  if (!site) return null;
+  const pose = getEarthPose();
+  const n = worldPosToLocalNormal(pos, pose) as Vec3;
+  if (dot3(n, site.boatCenter) < Math.cos((HALF_L + 12) / EARTH_RADIUS)) return null;
+  const r = Math.hypot(pos[0] - pose.center[0], pos[1] - pose.center[1], pos[2] - pose.center[2]);
+  const feet = r - BODY_SHELL_RADIUS - FOOT_CUSHION;
+  // On the planks (or hopping on them), not swimming under them.
+  if (feet < JETTY_TOP - 0.4 || feet > JETTY_TOP + 1.2) return null;
+  const berth: BoatFrame = { center: site.boatCenter, heading: site.boatHeading };
+  const { x, z } = toBoatFrame(berth, n, EARTH_RADIUS);
+  // The jetty runs along one side of the berth, BERTH_OFFSET out.
+  const jettyX = toBoatFrame(berth, site.jettyStart, EARTH_RADIUS).x < 0 ? -BERTH_OFFSET : BERTH_OFFSET;
+  if (Math.abs(x - jettyX) > JETTY_WIDTH / 2 + 0.2) return null;
+  return { z };
+}
+
+/** True when `boat` lies at the village berth, alongside the jetty. */
+function dockedAtJetty(boat: FleetBoat): boolean {
+  const site = getVillageDockSite();
+  if (!site) return false;
+  const { n, heading } = boat.vessel.motion;
+  const off = Math.acos(Math.min(1, dot3(n, site.boatCenter))) * EARTH_RADIUS;
+  if (off > DOCKED_M) return false;
+  // Lying along the jetty, bow either way.
+  return Math.abs(dot3(heading, site.boatHeading)) > Math.cos(Math.PI / 9);
+}
+
+function actionOn(
+  boat: FleetBoat,
+  pos: [number, number, number],
+  t: number,
+  slack = 0,
+  jetty: { z: number } | null = null,
+): BoatAction | null {
   const p = placeOn(boat, pos, t);
   if (!p) return null;
   const fleet = getFleet();
@@ -136,6 +194,12 @@ function actionOn(boat: FleetBoat, pos: [number, number, number], t: number, sla
     if (withinHull) return null;
     action = { kind: 'board', boatKey: boat.key };
   }
+  // On the jetty beside a docked boat: Board from anywhere along her,
+  // not only by the gate. The jetty never overlaps the deck, so this can't
+  // cover the wheel, oars, sail or rod prompts aboard.
+  if (!action && jetty && Math.abs(jetty.z) <= HALF_L + JETTY_BOARD_MARGIN_M + slack && dockedAtJetty(boat)) {
+    action = { kind: 'board', boatKey: boat.key };
+  }
   if (action && !boat.vessel.canBoard()) return { kind: 'full', boatKey: boat.key };
   return action;
 }
@@ -149,10 +213,11 @@ export function boatActionFor(pos: [number, number, number], slack = 0): BoatAct
   const role = getCrewRole();
   if (role) return { kind: 'leave', role };
   const t = getEarthPoseTime();
+  const jetty = jettySpot(pos);
   let best: BoatAction | null = null;
   for (const b of getFleet().list()) {
     if (!b.visible) continue;
-    const a = actionOn(b, pos, t, slack);
+    const a = actionOn(b, pos, t, slack, jetty);
     if (!a) continue;
     // A station or deck action beats an approach action on another boat.
     if (a.kind === 'take' || a.kind === 'busy') return a;

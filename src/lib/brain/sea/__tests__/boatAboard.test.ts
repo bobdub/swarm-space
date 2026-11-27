@@ -15,13 +15,13 @@ import {
 import { UqrcPhysics, PHYSICS_HZ } from '../../uqrcPhysics';
 import { isSwimmingAt, SWIM_FEET_DEPTH } from '../../groundHeight';
 import { _resetDecksForTest, registerDeckSurface, straightDeck } from '../deckSupport';
-import { JETTY_TOP, JETTY_WIDTH, getVillageDockSite } from '../dockSite';
+import { BERTH_OFFSET, JETTY_TOP, JETTY_WIDTH, getVillageDockSite, starboardOf, travel } from '../dockSite';
 import { fromBoatFrame, toBoatFrame, confineInBoatFrame } from '../boatDeck';
 import { HALF_L, hullHalfBeam, railHalfWidthAt, tAt } from '../boatHull';
 import { BOAT_RAIL_H, RAIL_HOLD_H } from '../boatSpec';
 import { restSinkFor, PERSON_KG, PARTY_SIZE } from '../vessel';
 import { _resetVillageBoatForTest, getVillageBoat } from '../vessel';
-import { BOARD_REACH_M, HOLD_SLACK_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
+import { BOARD_REACH_M, DOCKED_M, HOLD_SLACK_M, JETTY_BOARD_MARGIN_M, boardingSpot, boatActionFor, deckWorldPos, mountVillageBoat, villageBoatFrame } from '../villageBoat';
 
 const T0 = (Date.UTC(2026, 10, 20) - Date.UTC(2026, 0, 1)) / 1000;
 type P = UqrcPhysics & { tick(): void };
@@ -378,6 +378,43 @@ describe('aboard the village boat', () => {
     expect(Math.abs(p.feet - getVillageBoat().deckTopAt(t))).toBeLessThan(0.08);
     // Aboard, the ring no longer offers boarding.
     expect(boatActionFor(physics.getBody('self')!.pos)).toBeNull();
+  });
+
+  it('offers boarding from anywhere on the jetty beside the docked boat, not only by the gate', () => {
+    const frame = villageBoatFrame()!;
+    // The jetty runs down the boat's port side.
+    const onJetty = (x: number, z: number) => world(fromBoatFrame(frame, x, z, EARTH_RADIUS), JETTY_TOP);
+    for (const x of [-BERTH_OFFSET, -BERTH_OFFSET + JETTY_WIDTH / 2 - 0.1, -BERTH_OFFSET - JETTY_WIDTH / 2 + 0.1]) {
+      // Walking out from the shore: up before the stern, all the way to the bow.
+      for (let z = HALF_L + JETTY_BOARD_MARGIN_M - 0.1; z >= -HALF_L; z -= 0.5) {
+        expect(boatActionFor(onJetty(x, z))).toMatchObject({ kind: 'board' });
+      }
+    }
+    // Further back along the jetty, nothing yet.
+    expect(boatActionFor(onJetty(-BERTH_OFFSET, HALF_L + JETTY_BOARD_MARGIN_M + 0.5))).toBeNull();
+    // A swimmer under the planks isn't on the jetty.
+    expect(boatActionFor(world(fromBoatFrame(frame, -BERTH_OFFSET, HALF_L - 1, EARTH_RADIUS), -1.0))).toBeNull();
+  });
+
+  it('keeps the jetty Board off the deck, so the wheel and oars prompts are untouched', () => {
+    expect(boatActionFor(deckWorldPos(0, -0.2)!)).toBeNull();
+    for (const z of [-HALF_L + 0.6, -2, 2, HALF_L - 0.6]) {
+      const a = boatActionFor(deckWorldPos(-(railHalfWidthAt(z) - 0.4), z)!);
+      expect(a?.kind).not.toBe('board');
+    }
+  });
+
+  it('only offers the jetty Board while the boat lies at the berth', () => {
+    const site = getVillageDockSite()!;
+    const boat = getVillageBoat();
+    const atBerth = villageBoatFrame()!;
+    // A spot on the jetty by the stern, out of the gate's reach.
+    const spot = world(fromBoatFrame(atBerth, -BERTH_OFFSET, HALF_L - 0.5, EARTH_RADIUS), JETTY_TOP);
+    expect(boatActionFor(spot)).toMatchObject({ kind: 'board' });
+    // Pull her off the jetty, further than DOCKED_M.
+    const away = starboardOf(site.boatCenter, site.boatHeading);
+    boat.motion = { ...boat.motion, n: travel(site.boatCenter, away, DOCKED_M + 1) };
+    expect(boatActionFor(spot)).toBeNull();
   });
 
   it('keeps a jetty walker from stepping over the rail away from the gate', () => {
