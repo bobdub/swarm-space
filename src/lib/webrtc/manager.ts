@@ -2278,10 +2278,9 @@ export class WebRTCManager {
     const prev = this.inboundAudio.get(peerId);
     const samePc = prev?.pc === pc;
     const flowing = packets !== null && packets > (samePc ? prev!.packets : 0);
-    if (flowing) {
-      this.clearMicPlaceholder(peerId);
-      this.audioWatchdogRepairs.delete(pc);
-    }
+    // The repair budget is per connection for its whole life: a pair that
+    // keeps stalling and briefly recovering must not renegotiate forever.
+    if (flowing) this.clearMicPlaceholder(peerId);
     // First sample on a connection only sets the baseline.
     const stalls = samePc && !flowing ? prev!.stalls + 1 : 0;
     this.inboundAudio.set(peerId, { pc, packets: packets ?? 0, stalls });

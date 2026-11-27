@@ -94,7 +94,9 @@ interface ActiveGraph {
 
 let active: ActiveGraph | null = null;
 const peerHandlers = new Set<(roomId: string, peerId: string) => void>();
-const peerGoneHandlers = new Set<(roomId: string, peerId: string) => void>();
+/** 'left': the member wrote an explicit leave. 'expired': its heartbeat ran out. */
+export type RoomGraphGoneReason = 'left' | 'expired';
+const peerGoneHandlers = new Set<(roomId: string, peerId: string, reason: RoomGraphGoneReason) => void>();
 const inboxHandlers = new Set<(roomId: string, fromPeerId: string, envelope: Record<string, unknown>) => void>();
 
 function emit<T extends unknown[]>(handlers: Set<(...args: T) => void>, ...args: T): void {
@@ -119,7 +121,8 @@ function onPresence(graph: ActiveGraph, from: string, payload: unknown): void {
   if (!record || record.peerId !== from || record.roomId !== graph.roomId || from === graph.peerId) return;
   if (typeof record.ts !== 'number' || Math.abs(Date.now() - record.ts) > ROOM_GRAPH_TTL_MS) return;
   if (record.left) {
-    if (graph.seen.delete(from)) emit(peerGoneHandlers, graph.roomId, from);
+    graph.seen.delete(from);
+    emit(peerGoneHandlers, graph.roomId, from, 'left' as RoomGraphGoneReason);
     return;
   }
   const isNew = !graph.seen.has(from);
@@ -170,7 +173,7 @@ export function joinRoomGraph(roomId: string, peerId: string): void {
         for (const [id, at] of graph.seen) {
           if (now - at <= ROOM_GRAPH_TTL_MS) continue;
           graph.seen.delete(id);
-          emit(peerGoneHandlers, graph.roomId, id);
+          emit(peerGoneHandlers, graph.roomId, id, 'expired' as RoomGraphGoneReason);
         }
       }, ROOM_GRAPH_HEARTBEAT_MS);
     } catch (err) {
@@ -249,8 +252,10 @@ export function onRoomGraphPeer(handler: (roomId: string, peerId: string) => voi
   return () => { peerHandlers.delete(handler); };
 }
 
-/** A member left the graph or its heartbeat expired. */
-export function onRoomGraphPeerGone(handler: (roomId: string, peerId: string) => void): () => void {
+/** A member left the graph explicitly, or its heartbeat expired (see reason). */
+export function onRoomGraphPeerGone(
+  handler: (roomId: string, peerId: string, reason: RoomGraphGoneReason) => void,
+): () => void {
   peerGoneHandlers.add(handler);
   return () => { peerGoneHandlers.delete(handler); };
 }

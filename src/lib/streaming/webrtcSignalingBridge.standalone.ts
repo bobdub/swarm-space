@@ -23,6 +23,7 @@ import {
   joinRoomGraph,
   leaveRoomGraph,
   onRoomGraphPeer,
+  onRoomGraphPeerGone,
   onRoomInboxSignal,
   sendRoomInboxSignal,
 } from './roomGraph';
@@ -135,6 +136,8 @@ interface MeshLike {
   getPeerId(): string;
   dialViaBus?(peerId: string, source?: 'exchange' | 'manual'): boolean;
   registerPeerConnection?(peerId: string): boolean;
+  /** 'off' while networking is switched off (used to resume the room graph). */
+  getPhase?(): string;
   /** Runs just before the mesh is switched off, while links are still open. */
   onBeforeStop?(handler: () => void): () => void;
   /** A peer said goodbye or went silent for minutes: it is gone. */
@@ -350,6 +353,7 @@ export function onRoomWebPeer(handler: (roomId: string, peerId: string) => void)
 const GRAPH_REJOIN_AFTER_LEAVE_MS = 30_000;
 
 function handleRoomGraphPeer(roomId: string, peerId: string): void {
+  if (roomGraphPaused) return;
   const mesh = meshRef;
   const room = joinedRooms.get(roomId);
   if (!mesh || !room || !room.has(mesh.getPeerId()) || peerId === mesh.getPeerId()) return;
@@ -382,7 +386,7 @@ function handleRoomGraphPeer(roomId: string, peerId: string): void {
 function handleRoomInboxSignal(roomId: string, fromPeerId: string, raw: Record<string, unknown>): void {
   const mesh = meshRef;
   const room = joinedRooms.get(roomId);
-  if (!mesh || !room || !room.has(mesh.getPeerId())) return;
+  if (roomGraphPaused || !mesh || !room || !room.has(mesh.getPeerId())) return;
   const msgType = raw.msgType as SignalEnvelope['msgType'];
   if (typeof msgType !== 'string' || !CALL_SIGNAL_TYPES.has(msgType)) return;
   if (typeof raw.mid !== 'string' || !raw.mid) return;
@@ -414,12 +418,61 @@ function flushPendingInbox(roomId: string, peerId: string): void {
   }
 }
 
+/**
+ * A member wrote an explicit leave to the room graph. Members on another
+ * mesh island never get the mesh leave-room, so this is their goodbye: it
+ * takes the normal leave path. A heartbeat that merely ran out is not a
+ * leave and changes nothing (silence handling stays with the mesh and the
+ * call's own recovery).
+ */
+function handleRoomGraphPeerGone(roomId: string, peerId: string, reason: 'left' | 'expired'): void {
+  if (reason !== 'left' || roomGraphPaused) return;
+  const mesh = meshRef;
+  const room = joinedRooms.get(roomId);
+  if (!mesh || !room || !room.has(mesh.getPeerId()) || peerId === mesh.getPeerId()) return;
+  if (!room.has(peerId) && !lastHeardAt.has(roomKey(roomId, peerId))) return;
+  console.log(`[WebRTC-Bridge] 👋 ${peerId} left ${roomId} (room graph)`);
+  evictRoomPeer(roomId, peerId, 'left');
+  for (const h of signalHandlers) {
+    try { h({ msgType: 'leave-room', from: peerId, roomId, ts: Date.now() }); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * Networking was switched off: the room graph stops with the mesh, so no
+ * heartbeat or inbox message can start a call (and our mic) while the user
+ * has networking off. It resumes once the mesh is back online.
+ */
+let roomGraphPaused = false;
+let roomGraphSawOff = false;
+
+function pauseRoomGraph(): void {
+  roomGraphPaused = true;
+  roomGraphSawOff = false;
+  pendingInbox.clear();
+  leaveRoomGraph();
+}
+
+function maybeResumeRoomGraph(mesh: MeshLike, newPeers: number): void {
+  if (!roomGraphPaused) return;
+  const phase = mesh.getPhase?.();
+  if (phase === 'off') { roomGraphSawOff = true; return; }
+  const back = phase !== undefined ? roomGraphSawOff && phase === 'online' : newPeers > 0;
+  if (!back) return;
+  roomGraphPaused = false;
+  const myPeerId = mesh.getPeerId();
+  for (const [roomId, members] of joinedRooms) {
+    if (members.has(myPeerId)) joinRoomGraph(roomId, myPeerId);
+  }
+}
+
 let unsubRoomGraph: (() => void) | null = null;
 function subscribeRoomGraph(): void {
   if (unsubRoomGraph) return;
   const offPeer = onRoomGraphPeer(handleRoomGraphPeer);
+  const offGone = onRoomGraphPeerGone(handleRoomGraphPeerGone);
   const offInbox = onRoomInboxSignal(handleRoomInboxSignal);
-  unsubRoomGraph = () => { offPeer(); offInbox(); };
+  unsubRoomGraph = () => { offPeer(); offGone(); offInbox(); };
 }
 
 function heartbeatRooms(): void {
@@ -547,7 +600,7 @@ function sendDirected(envelope: SignalEnvelope & { to: string }): void {
   // No open data channel to them yet: call setup also goes through their
   // Gun room inbox (setup strings only; media stays on WebRTC). The mesh
   // route below still runs, and the message id dedups the two copies.
-  if (CALL_SIGNAL_TYPES.has(envelope.msgType) && envelope.mid && !mesh.getConnectedPeerIds().includes(envelope.to)) {
+  if (!roomGraphPaused && CALL_SIGNAL_TYPES.has(envelope.msgType) && envelope.mid && !mesh.getConnectedPeerIds().includes(envelope.to)) {
     sendRoomInboxSignal(envelope.roomId, envelope.to, envelope as unknown as Record<string, unknown>);
   }
   const fallback = () => {
@@ -1171,6 +1224,7 @@ export function handleMeshPeerDeparted(peerId: string, reason: 'left' | 'local' 
  */
 export function announceMeshGoodbye(): void {
   if (!meshRef) return;
+  pauseRoomGraph();
   const myPeerId = meshRef.getPeerId();
   for (const [roomId, members] of joinedRooms) {
     if (!members.has(myPeerId)) continue;
@@ -1217,6 +1271,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
       if (!knownPeerSnapshot.has(pid)) newPeers.push(pid);
     }
     knownPeerSnapshot = currentSet;
+    maybeResumeRoomGraph(meshRef, newPeers.length);
     for (const members of joinedRooms.values()) for (const peer of members) dialRoomPeer(peer);
     if (newPeers.length === 0) return;
     for (const roomId of historyInterest.keys()) {
@@ -1286,6 +1341,8 @@ export function stopSignalingBridge(): void {
   unsubRoomGraph?.();
   unsubRoomGraph = null;
   pendingInbox.clear();
+  roomGraphPaused = false;
+  roomGraphSawOff = false;
   unsubDepartures?.();
   unsubDepartures = null;
   if (unsubChannel) {
@@ -1438,7 +1495,7 @@ export function announceJoinRoom(roomId: string, userId: string, username: strin
   if (!joinedRooms.has(roomId)) joinedRooms.set(roomId, new Set());
   joinedRooms.get(roomId)!.add(meshRef.getPeerId());
   // Everyone in the room also meets in the Gun room graph.
-  joinRoomGraph(roomId, meshRef.getPeerId());
+  if (!roomGraphPaused) joinRoomGraph(roomId, meshRef.getPeerId());
 
   meshRef.broadcast(SIGNAL_CHANNEL, {
     msgType: 'join-room',

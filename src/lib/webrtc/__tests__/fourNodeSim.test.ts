@@ -8,8 +8,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 type Handler = (from: string, payload: unknown) => void;
 const nodes = new Map<string, { handler: Handler | null; edges: Set<string> }>();
 
+const phases = new Map<string, string>();
 function makeMesh(id: string) {
   nodes.set(id, { handler: null, edges: new Set() });
+  phases.set(id, 'online');
   const me = () => nodes.get(id)!;
   const deliver = (to: string, payload: unknown) => {
     const copy = JSON.parse(JSON.stringify(payload));
@@ -25,6 +27,7 @@ function makeMesh(id: string) {
     onMessage: (c: string, h: Handler) => { if (c !== 'webrtc-signal') return () => {}; me().handler = h; return () => { me().handler = null; }; },
     getConnectedPeerIds: () => Array.from(me().edges),
     getPeerId: () => id,
+    getPhase: () => phases.get(id) ?? 'online',
     dialViaBus: () => false,
   };
 }
@@ -160,7 +163,7 @@ class FakePC {
 const allPcs: FakePC[] = [];
 
 beforeEach(() => {
-  nodes.clear(); allPcs.length = 0; gunGraph.clear(); gunSlots.clear(); gunUp = true; gunWrites = 0; gunDelivered.length = 0;
+  nodes.clear(); phases.clear(); allPcs.length = 0; gunGraph.clear(); gunSlots.clear(); gunUp = true; gunWrites = 0; gunDelivered.length = 0;
   vi.useFakeTimers();
   // @ts-expect-error fake
   globalThis.RTCPeerConnection = class extends FakePC { constructor() { super(); allPcs.push(this); } };
@@ -321,6 +324,45 @@ describe('Gun room graph (web closure and signaling inbox)', () => {
   });
 });
 
+describe('Gun room graph and local networking state', () => {
+  it('switching networking off stops graph dialing; switching it back on reconnects', async () => {
+    const [A, D] = [await makeNode('A', { gun: true }), await makeNode('D', { gun: true })];
+    await Promise.all([A, D].map(n => n.m.joinRoom('brain')));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(pairStates([A, D])).toEqual(['A-D:connected/connected']);
+
+    // A switches networking off: the mesh says goodbye, then goes off.
+    A.bridge.announceMeshGoodbye();
+    phases.set('A', 'off');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(pcsOf(A).size).toBe(0);
+    expect(A.graph.isRoomGraphActive('brain')).toBe(false);
+
+    phases.set('A', 'online');
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(A.graph.isRoomGraphActive('brain')).toBe(true);
+    expect(pcsOf(A).get('D')?.connectionState).toBe('connected');
+  });
+
+  it('a member on another mesh island who leaves is dropped through the graph', async () => {
+    const [A, B, C, D] = [
+      await makeNode('A', { gun: true }), await makeNode('B', { gun: true }),
+      await makeNode('C', { gun: true }), await makeNode('D', { gun: true }),
+    ];
+    link('A', 'B'); link('C', 'D');
+    await Promise.all([A, B, C, D].map(n => n.m.joinRoom('brain')));
+    await vi.advanceTimersByTimeAsync(40_000);
+    expectFullWeb([A, B, C, D]);
+    await D.m.leaveRoom();
+    await vi.advanceTimersByTimeAsync(2_000);
+    for (const n of [A, B, C]) {
+      expect(pcsOf(n).has('D')).toBe(false);
+      expect(n.m.getParticipants().some(p => p.peerId === 'D')).toBe(false);
+    }
+    expectFullWeb([A, B, C]);
+  });
+});
+
 describe('per-pair audio watchdog', () => {
   it('quietly renegotiates only the one silent pair and closes nothing', async () => {
     const [A, B, C, D] = [await makeNode('A'), await makeNode('B'), await makeNode('C'), await makeNode('D')];
@@ -345,5 +387,22 @@ describe('per-pair audio watchdog', () => {
     // Bounded: a pair that never recovers is not renegotiated forever.
     await vi.advanceTimersByTimeAsync(300_000);
     expect(silent.offers - before.get(silent)!).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps its two-repair budget when a pair keeps stalling and briefly recovering', async () => {
+    const [A, B] = [await makeNode('A'), await makeNode('B')];
+    link('A', 'B');
+    await Promise.all([A, B].map(n => n.m.joinRoom('brain')));
+    await vi.advanceTimersByTimeAsync(30_000);
+    const pc = pcsOf(A).get('B')!;
+    const start = pc.offers;
+    for (let i = 0; i < 8; i++) {
+      pc.silent = true;
+      await vi.advanceTimersByTimeAsync(45_000);
+      pc.silent = false;
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    expect(pc.offers - start).toBe(2);
+    expect(pcsOf(A).get('B')).toBe(pc);
   });
 });
