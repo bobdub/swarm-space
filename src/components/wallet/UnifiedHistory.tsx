@@ -3,7 +3,6 @@ import { formatDistanceToNow } from "date-fns";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { loadUnifiedHistory } from "@/lib/history/loadUnifiedHistory";
@@ -110,7 +109,9 @@ export function UnifiedHistory({
         </div>
       </CardHeader>
       <CardContent>
-        <ScrollArea className="h-[500px] pr-4">
+        {/* A native scroll box, not ScrollArea: Radix's viewport sizes its content to the
+            widest row and only scrolls vertically, which cut the columns off on phones. */}
+        <div className="max-h-[500px] overflow-auto overscroll-x-contain" data-testid="ledger-scroll">
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -118,7 +119,9 @@ export function UnifiedHistory({
           ) : rows.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">No transactions yet</div>
           ) : (
-            <Table className="text-xs sm:text-sm">
+            <>
+            <p className="mb-2 text-[10px] text-muted-foreground sm:hidden">Swipe the table sideways to see every column.</p>
+            <Table className="min-w-[30rem] whitespace-nowrap text-xs sm:text-sm [&_th]:h-10 [&_th]:px-2 [&_td]:px-2 [&_td]:py-2 sm:[&_th]:px-4 sm:[&_td]:p-4">
               <TableHeader>
                 <TableRow>
                   <TableHead>Asset</TableHead>
@@ -162,8 +165,9 @@ export function UnifiedHistory({
                 ))}
               </TableBody>
             </Table>
+            </>
           )}
-        </ScrollArea>
+        </div>
       </CardContent>
     </Card>
   );
