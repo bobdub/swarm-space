@@ -315,7 +315,7 @@ export function TradingStandModal({ open, onOpenChange, selfId, placementId }: {
             </p>
           )}
           <p className="text-[11px] text-muted-foreground">
-            Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits. 40% of the stand vault is a protected floor; one trade takes at most 10% of its liquid layer or of a good's stock.
+            Wallet: {fmtSwarm(balances.swarm)} SWARM · {fmtCredits(balances.credits)} Credits. 40% of the stand vault is a protected floor; one sale to the stand takes at most 10% of its liquid layer. You can buy all of a good but the stand's last unit in one go.
           </p>
         </div>
         {isOwner && scope && stand && !offline && (

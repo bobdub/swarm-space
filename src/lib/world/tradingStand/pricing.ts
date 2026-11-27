@@ -5,8 +5,7 @@
  * follows the Market Vault's liquidity layers (`marketVaultPricing.ts`):
  *   • 40% of the stand vault's SWARM (and of its Credits) is a protected
  *     floor no trade ever spends; quotes use the 60% liquid layer.
- *   • One trade may take at most 10% of that liquid layer, or 10% of a
- *     good's stock.
+ *   • One sale to the stand may take at most 10% of that liquid layer.
  *   • Credits follow the live market spot (`spotCreditsPerSwarm`), so a sale
  *     for Credits is worth exactly a sale for SWARM.
  *
@@ -17,8 +16,11 @@
  * more of it. Trades integrate that curve:
  *     buy  q from s:  base · K · ln((s + K) / (s − q + K))
  *     sell q into s:  base · K · ln((s + q + K) / (s + K))
- * A buy can take at most 10% of the stock (at least one unit while two or
- * more remain), so stock falls geometrically and never reaches zero.
+ * The buy curve is path-independent: buying q units at once costs the same
+ * as buying them one at a time (one-by-one can only cost a rounding hair
+ * more). So a buy may take every unit but the last in one trade; capping
+ * bulk buys would only make players click q times for the same result. The
+ * stand always keeps its last unit, so its stock never reaches zero.
  */
 import {
   CREATOR_VAULT_COMMUNITY_SHARE,
@@ -127,11 +129,10 @@ export function unitPriceSwarm(good: TradingGood, stock: number): number {
   return (g.baseSwarm * g.virtualReserve) / (s + g.virtualReserve);
 }
 
-/** Most units one buy may take: 10% of stock, at least one while two or more remain. */
+/** Most units one buy may take: all but the stand's last unit. */
 export function maxBuyQty(stock: number): number {
   const s = Math.floor(clean(stock));
-  if (s < 2) return 0;
-  return Math.max(1, Math.floor(s * MARKET_VAULT_MAX_TRADE_SHARE));
+  return s < 2 ? 0 : s - 1;
 }
 
 export interface StandQuote {
@@ -175,7 +176,7 @@ export function quoteStandBuy(
   const s = stockOf(state, good);
   const cap = maxBuyQty(s);
   if (cap <= 0) return { ...base, error: `The stand has no ${g.label.toLowerCase()} to sell yet.` };
-  if (qty > cap) return { ...base, error: `One trade can take at most ${cap} ${g.label.toLowerCase()} (10% of the stand's stock).` };
+  if (qty > cap) return { ...base, error: `The stand has ${cap} ${g.label.toLowerCase()} to sell (it keeps its last one).` };
   const K = g.virtualReserve;
   const swarm = ceil6(g.baseSwarm * K * Math.log((s + K) / (s - qty + K)));
   const credits = Math.ceil(swarm * spot - 1e-9);
