@@ -12,3 +12,11 @@ describe('clampFloatingRect', () => {
     expect(clampFloatingRect({ x: 10, y: 10, w: 100, h: 100 }, 520, 360)).toMatchObject({ w: 520, h: 360 });
   });
 });
+
+describe('clampFloatingRect in a short window', () => {
+  it('lets the viewport win over the minimum height', () => {
+    Object.assign(window, { innerWidth: 1280, innerHeight: 320 });
+    const r = clampFloatingRect({ x: 100, y: 100, w: 600, h: 500 }, 520, 360);
+    expect(r.y + r.h).toBeLessThanOrEqual(320 - 8);
+  });
+});

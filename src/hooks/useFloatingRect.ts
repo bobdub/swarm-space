@@ -16,8 +16,9 @@ export function clampFloatingRect(r: FloatingRect, minW: number, minH: number): 
   if (typeof window === 'undefined') return r;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const w = Math.max(minW, Math.min(r.w, vw - 16));
-  const h = Math.max(minH, Math.min(r.h, vh - 16));
+  // The viewport wins over the minimum, so a short window never hides the bottom.
+  const w = Math.min(Math.max(minW, r.w), Math.max(0, vw - 16));
+  const h = Math.min(Math.max(minH, r.h), Math.max(0, vh - 16));
   const x = Math.max(8, Math.min(r.x, vw - w - 8));
   const y = Math.max(8, Math.min(r.y, vh - h - 8));
   return { x, y, w, h };

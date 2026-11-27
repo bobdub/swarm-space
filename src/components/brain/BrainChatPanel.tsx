@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useChatDraft } from '@/lib/chat/chatDrafts';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
@@ -181,7 +182,7 @@ export function BrainChatPanel({
   const mutedPeers = useMutedPeers();
   const blockedIds = useMemo(() => new Set(blocklist.map((e) => e.peerId)), [blocklist]);
   const isMobile = useIsMobile();
-  const [text, setText] = useState('');
+  const [text, setText] = useChatDraft(roomId ? `room:${roomId}` : null);
   const [fullscreen, setFullscreen] = useState(false);
   const [chirpOn, setChirpOn] = useState(isChatChirpEnabled);
   const toggleChirp = useCallback(() => {
@@ -509,7 +510,7 @@ export function BrainChatPanel({
     setText('');
     setReplyTo(null);
     try { getSharedFieldEngine().inject(trimmed, { amplitude: 0.2 }); } catch { /* ignore */ }
-  }, [text, onSend, replyTo]);
+  }, [text, onSend, replyTo, setText]);
 
   const insertMention = useCallback((username: string) => {
     setText((prev) => {
@@ -518,7 +519,7 @@ export function BrainChatPanel({
       return prev + ' ' + tag;
     });
     composerRef.current?.focus();
-  }, []);
+  }, [setText]);
 
   const scrollToMessage = (id: string) => {
     const el = messageRefs.current.get(id);
