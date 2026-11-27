@@ -3,11 +3,13 @@
  *
  *  - Starts the engine on the live mesh transport (called by SwarmMesh),
  *    with the IndexedDB content store and the device's refused list.
- *  - Publish: a post whose media is above the torrent size goes by Media
- *    Coin. Each file is minted once into the content store (keyed by its
- *    merkleRoot), engraved onto a hollow wallet coin when one is free,
- *    and launched. Its torrent copy is dropped, so it is never announced
- *    or seeded as a torrent.
+ *  - Attach: a file routed to Media Coin is encrypted straight from the
+ *    user's File into the content store (keyed by its merkleRoot) as a
+ *    draft, while it uploads. It never touches the torrent store, torrent
+ *    announce or personal-server sync.
+ *  - Publish: the encrypted drafts are checked (nothing unencrypted is
+ *    posted), bound to the post and a hollow wallet coin when one is free,
+ *    and launched.
  *  - Arrivals: content that arrives whole, or a coin for content already
  *    held (0 bytes), is noted on the content record: the coin, its hops
  *    and, for Support Coins, the supporter. Torrents are never re-filled
@@ -24,8 +26,8 @@ import {
   getActiveMediaCoinEngine,
   resetMediaCoinEngine,
   mintMediaCoinContent,
+  mediaCoinSourceOf,
   MEDIA_COIN_PASS_MAX_BYTES,
-  type MediaCoinSource,
   type MeshTransportAdapter,
   type MediaCoinManifest,
 } from "./mediaCoin.standalone";
@@ -34,6 +36,9 @@ import {
   mediaCoinContentKey,
   getMediaCoinContent,
   markMediaCoinContentSelf,
+  markMediaCoinContentDraft,
+  publishMediaCoinDraft,
+  sweepMediaCoinDrafts,
   recordMediaCoinSighting,
   deleteMediaCoinContent,
   refreshMediaCoinContents,
@@ -47,6 +52,7 @@ export type { MediaCoinPostRef };
 
 let unsubs: Array<() => void> = [];
 let pendingTimer: ReturnType<typeof setInterval> | null = null;
+let recoveryTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Stable identity for a coin's content: its Merkle root never changes between coins or hops. */
 export function unpackedContentHash(merkleRoot: string): string {
@@ -144,6 +150,9 @@ export function startMediaCoinRuntime(transport: MeshTransportAdapter): void {
   unsubs.push(engine.onUnpack((u) => note(u.manifest, u.route.hops.length - 1)));
   unsubs.push(engine.onAlreadyHeld((h) => note(h.manifest, h.route.hops.length - 1)));
   void refreshMediaCoinContents();
+  void recoverInterruptedReservations().catch(() => 0);
+  recoveryTimer = setInterval(() => { void recoverInterruptedReservations().catch(() => 0); }, RESERVATION_RECOVERY_INTERVAL_MS);
+  void sweepMediaCoinDrafts(MEDIA_COIN_DRAFT_STALE_MS).catch(() => 0);
   void drainPendingLaunches().catch(() => {});
   pendingTimer = setInterval(() => { void drainPendingLaunches().catch(() => {}); }, 5_000);
 }
@@ -153,6 +162,8 @@ export function stopMediaCoinRuntime(): void {
   unsubs = [];
   if (pendingTimer) clearInterval(pendingTimer);
   pendingTimer = null;
+  if (recoveryTimer) clearInterval(recoveryTimer);
+  recoveryTimer = null;
   launched.clear();
   resetMediaCoinEngine();
 }
@@ -169,106 +180,225 @@ export async function hasHollowCoin(): Promise<boolean> {
   return (await freeHollowCoins()).length > 0;
 }
 
-/** Engrave Media Coin content (by merkleRoot) onto a hollow wallet coin. */
-async function engraveContentOntoCoin(
-  coin: SwarmCoin,
-  merkleRoot: string,
-  size: number,
-  role: "courier" | "support",
-): Promise<void> {
-  const { put } = await import("@/lib/store");
-  const now = new Date().toISOString();
-  const peerId = getActiveMediaCoinEngine()?.localPeerId ?? coin.ownerId;
-  coin.kind = "media";
-  coin.mediaRole = role;
-  coin.mediaContentRoot = merkleRoot;
-  coin.sealBytes = Math.max(coin.sealBytes ?? 0, size);
-  coin.mediaTargets = [...(coin.mediaTargets ?? []), { peerId, contentHashes: [mediaCoinContentKey(merkleRoot)] }];
-  coin.fillState = "sealed";
-  coin.sealedAt = coin.sealedAt ?? now;
-  await put("swarmCoins", coin);
-}
+type CoinRole = "courier" | "support";
 
-// ── Publish (post time) ───────────────────────────────────────────────
+/** Fields a reservation changes, to put a released coin back as it was. */
+type CoinSnapshot = Pick<SwarmCoin, "kind" | "mediaRole" | "mediaContentRoot" | "sealBytes" | "mediaTargets" | "fillState" | "sealedAt">;
 
-interface TorrentManifestLike {
-  fileId: string;
-  chunks: string[];
-  mime: string;
-  size: number;
-  originalName: string;
-  mediaWidth?: number;
-  mediaHeight?: number;
-}
-
-/** A post file's plaintext, read from the torrent store one chunk at a time. */
-function torrentFileSource(m: TorrentManifestLike): MediaCoinSource {
-  return {
-    name: m.originalName,
-    type: m.mime,
-    size: m.size,
-    async *pieces() {
-      const { get } = await import("@/lib/store");
-      const { importFileKey } = await import("@/lib/fileEncryption");
-      const stored = await get<TorrentManifestLike & Record<string, unknown>>("manifests", m.fileId);
-      if (!stored?.chunks?.length) throw new Error(`file ${m.fileId} is not on this device`);
-      const key = await importFileKey(stored as Parameters<typeof importFileKey>[0]);
-      for (const ref of stored.chunks) {
-        const chunk = await get<{ iv: string; cipher: string }>("chunks", ref);
-        if (!chunk) throw new Error(`chunk ${ref} of ${m.fileId} missing`);
-        const iv = Uint8Array.from(atob(chunk.iv), (c) => c.charCodeAt(0));
-        const cipher = Uint8Array.from(atob(chunk.cipher), (c) => c.charCodeAt(0));
-        yield new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher));
-      }
-    },
-  };
+async function currentUserId(): Promise<string | null> {
+  const { getCurrentUser } = await import("@/lib/auth");
+  return getCurrentUser()?.id ?? null;
 }
 
 /**
- * Move a post's files into Media Coin courier mode: mint each into the
- * content store, engrave it onto a hollow coin when one is free (else the
- * coin gets a generated id), drop its torrent copy, and launch it.
+ * Reserve one hollow coin for Media Coin content. Runs under the shared
+ * engraving lock and re-reads the coin there, so the content packer can
+ * neither take it meanwhile nor be overwritten by a stale snapshot. The
+ * reservation (kind "media") keeps every other writer off the coin while
+ * a large file is minted.
  */
-export async function publishCourierFiles(
-  files: TorrentManifestLike[],
-  opts: { postId: string; creatorId: string; onProgress?: (fileIndex: number, percent: number) => void },
-): Promise<MediaCoinPostRef[]> {
-  const total = files.reduce((s, f) => s + (f.size || 0), 0);
-  if (total > MEDIA_COIN_PASS_MAX_BYTES) throw new Error("Post media is over the Media Coin limit");
-  const refs: MediaCoinPostRef[] = [];
-  const hollow = await freeHollowCoins().catch(() => [] as SwarmCoin[]);
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    const coin = hollow.shift();
-    const manifest = await mintMediaCoinContent(torrentFileSource(f), opts.creatorId, mediaCoinContentStore, {
-      encrypt: true,
-      coinId: coin?.coinId,
-      postId: opts.postId,
-      mediaWidth: f.mediaWidth,
-      mediaHeight: f.mediaHeight,
-      onProgress: (p) => opts.onProgress?.(i, p.phase === "hashing" ? p.percent / 2 : 50 + p.percent / 2),
+async function claimHollowCoin(
+  userId: string,
+  role: CoinRole,
+  exclude: ReadonlySet<string> = new Set(),
+): Promise<{ coinId: string; snapshot: CoinSnapshot } | null> {
+  const { withEngravingLock } = await import("./contentPayload");
+  const { isHollowWalletCoin } = await import("./mediaCoinWrapSweep");
+  const { getAll, put } = await import("@/lib/store");
+  return withEngravingLock(userId, async () => {
+    const coin = (await getAll<SwarmCoin>("swarmCoins")).find((c) => isHollowWalletCoin(c, userId) && !exclude.has(c.coinId));
+    if (!coin) return null;
+    const snapshot: CoinSnapshot = {
+      kind: coin.kind, mediaRole: coin.mediaRole, mediaContentRoot: coin.mediaContentRoot, sealBytes: coin.sealBytes,
+      mediaTargets: coin.mediaTargets, fillState: coin.fillState, sealedAt: coin.sealedAt,
+    };
+    await put("swarmCoins", { ...coin, kind: "media", mediaRole: role, mediaReservation: { at: Date.now(), prev: snapshot } });
+    activeReservations.add(coin.coinId);
+    return { coinId: coin.coinId, snapshot };
+  });
+}
+
+/** Engrave content (by merkleRoot) onto a coin this device reserved, re-read under the lock. */
+async function engraveReservedCoin(userId: string, coinId: string, role: CoinRole, merkleRoot: string, size: number): Promise<boolean> {
+  const { withEngravingLock } = await import("./contentPayload");
+  const { get, put } = await import("@/lib/store");
+  return withEngravingLock(userId, async () => {
+    const coin = await get<SwarmCoin>("swarmCoins", coinId);
+    if (!coin || coin.ownerId !== userId || coin.kind !== "media" || coin.mediaRole !== role) return false;
+    if (coin.mediaContentRoot && coin.mediaContentRoot !== merkleRoot) return false;
+    const now = new Date().toISOString();
+    const peerId = getActiveMediaCoinEngine()?.localPeerId ?? userId;
+    await put("swarmCoins", {
+      ...coin,
+      mediaContentRoot: merkleRoot,
+      sealBytes: Math.max(coin.sealBytes ?? 0, size),
+      mediaTargets: [...(coin.mediaTargets ?? []), { peerId, contentHashes: [mediaCoinContentKey(merkleRoot)] }],
+      fillState: "sealed",
+      sealedAt: coin.sealedAt ?? now,
+      mediaReservation: undefined,
     });
-    if (coin) await engraveContentOntoCoin(coin, manifest.merkleRoot, manifest.totalSize, "courier").catch(() => {});
-    await markMediaCoinContentSelf(manifest.merkleRoot);
-    refs.push({
-      merkleRoot: manifest.merkleRoot,
-      name: manifest.name,
-      mime: manifest.mimeType,
-      size: manifest.totalSize,
-      mediaWidth: f.mediaWidth,
-      mediaHeight: f.mediaHeight,
-    });
-    queueLaunch({ coinId: manifest.coinId, merkleRoot: manifest.merkleRoot });
-    // The courier copy is the only one: the torrent copy is never seeded.
-    try {
-      const { deleteManifest } = await import("@/lib/fileEncryption");
-      await deleteManifest(f.fileId);
-    } catch (err) {
-      console.warn("[mediaCoinRuntime] could not drop torrent copy of", f.fileId, err);
+    activeReservations.delete(coinId);
+    return true;
+  });
+}
+
+/** Give back a reserved coin that never got its content. */
+async function releaseReservedCoin(userId: string, coinId: string, role: CoinRole, snapshot: CoinSnapshot): Promise<void> {
+  const { withEngravingLock } = await import("./contentPayload");
+  const { get, put } = await import("@/lib/store");
+  await withEngravingLock(userId, async () => {
+    activeReservations.delete(coinId);
+    const coin = await get<SwarmCoin>("swarmCoins", coinId);
+    if (!coin || coin.kind !== "media" || coin.mediaRole !== role || coin.mediaContentRoot) return;
+    await put("swarmCoins", { ...coin, ...snapshot, mediaReservation: undefined });
+  });
+}
+
+/** Reservations this tab holds right now (a pack in progress). */
+const activeReservations = new Set<string>();
+/**
+ * A reservation older than this, held by no publish in this tab, was
+ * interrupted. Files are encrypted at attach time, so a reservation only
+ * spans Publish (reserve, save the post, engrave): seconds, not minutes.
+ * The window only has to cover another tab that is mid-publish.
+ */
+export const MEDIA_COIN_RESERVATION_STALE_MS = 5 * 60 * 1000;
+/** How often a running app re-checks for interrupted reservations. */
+const RESERVATION_RECOVERY_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Give back coins whose reservation was interrupted (the tab closed or
+ * reloaded mid-publish). The reservation is persisted on the coin itself
+ * (`mediaReservation`, with the fields it replaced), so this works after a
+ * restart: reserved, never engraved, not held by a publish in this tab,
+ * and older than the stale window so another tab's publish is left alone.
+ * Runs at startup and then every minute, so a reservation that was still
+ * fresh at startup is released once it goes stale.
+ */
+export async function recoverInterruptedReservations(now = Date.now()): Promise<number> {
+  const userId = await currentUserId();
+  if (!userId) return 0;
+  const { withEngravingLock } = await import("./contentPayload");
+  const { getAll, put } = await import("@/lib/store");
+  return withEngravingLock(userId, async () => {
+    let released = 0;
+    for (const coin of await getAll<SwarmCoin>("swarmCoins")) {
+      const r = coin.mediaReservation;
+      if (!r || coin.ownerId !== userId || coin.mediaContentRoot || activeReservations.has(coin.coinId)) continue;
+      if (now - (r.at || 0) < MEDIA_COIN_RESERVATION_STALE_MS) continue;
+      await put("swarmCoins", { ...coin, ...(r.prev ?? {}), mediaReservation: undefined });
+      released++;
     }
+    return released;
+  });
+}
+
+// ── Attach & publish ──────────────────────────────────────────────────
+
+/** Drafts left by a composer closed without posting are dropped after this. */
+export const MEDIA_COIN_DRAFT_STALE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Encrypt a file the user just attached straight into the Media Coin
+ * content store (AES-GCM, its own key), as a draft. This runs while the
+ * file uploads, before Publish, and never touches the torrent store,
+ * torrent announce or personal-server sync. Torrent and Media Coin are
+ * separate distributions.
+ */
+export async function encryptCourierFile(
+  file: File | Blob,
+  opts: {
+    creatorId: string;
+    name?: string;
+    mediaWidth?: number;
+    mediaHeight?: number;
+    onProgress?: (percent: number) => void;
+  },
+): Promise<MediaCoinPostRef> {
+  const manifest = await mintMediaCoinContent(mediaCoinSourceOf(file, opts.name), opts.creatorId, mediaCoinContentStore, {
+    encrypt: true,
+    mediaWidth: opts.mediaWidth,
+    mediaHeight: opts.mediaHeight,
+    onProgress: (p) => opts.onProgress?.(p.phase === "hashing" ? Math.round(p.percent / 2) : 50 + Math.round(p.percent / 2)),
+  });
+  await markMediaCoinContentDraft(manifest.merkleRoot);
+  return {
+    merkleRoot: manifest.merkleRoot,
+    name: manifest.name,
+    mime: manifest.mimeType,
+    size: manifest.totalSize,
+    mediaWidth: opts.mediaWidth,
+    mediaHeight: opts.mediaHeight,
+  };
+}
+
+/** The attachment was removed before posting: drop its encrypted draft. */
+export async function discardCourierFile(merkleRoot: string): Promise<void> {
+  const rec = await getMediaCoinContent(merkleRoot);
+  if (rec?.draft) await deleteMediaCoinContent(merkleRoot);
+}
+
+/** A post's Media Coin attachments, checked and ready to publish. */
+export interface PreparedCourierPost {
+  refs: MediaCoinPostRef[];
+  /** After the post is saved: bind, engrave and launch the coins. */
+  commit(): Promise<void>;
+  /** The post was not saved: give the coins back. The encrypted drafts stay for a retry. */
+  abort(): Promise<void>;
+}
+
+/**
+ * Get a post's already-encrypted Media Coin attachments ready to publish.
+ * Refuses any attachment that is not held whole and encrypted, so nothing
+ * unencrypted is ever posted. Reserves a hollow coin per file when one is
+ * free (else the coin gets a generated id). Nothing launches until
+ * `commit()`.
+ */
+export async function prepareCourierFiles(
+  refs: MediaCoinPostRef[],
+  opts: { postId: string; creatorId: string },
+): Promise<PreparedCourierPost> {
+  const total = refs.reduce((s, r) => s + (r.size || 0), 0);
+  if (total > MEDIA_COIN_PASS_MAX_BYTES) throw new Error("Post media is over the Media Coin limit");
+  for (const ref of refs) {
+    const rec = await getMediaCoinContent(ref.merkleRoot);
+    if (!rec?.complete) throw new Error(`${ref.name} is not encrypted on this device yet`);
+    if (!rec.manifest.encryptionKey) throw new Error(`${ref.name} is not encrypted; it cannot be posted`);
   }
-  void drainPendingLaunches().catch(() => {});
-  return refs;
+  const userId = (await currentUserId()) ?? opts.creatorId;
+  const claims: Array<{ ref: MediaCoinPostRef; claim: { coinId: string; snapshot: CoinSnapshot } | null }> = [];
+  const claimed = new Set<string>();
+
+  const abort = async () => {
+    for (const c of claims) {
+      if (c.claim) await releaseReservedCoin(userId, c.claim.coinId, "courier", c.claim.snapshot).catch(() => {});
+    }
+    claims.length = 0;
+  };
+
+  try {
+    for (const ref of refs) {
+      const claim = await claimHollowCoin(userId, "courier", claimed).catch(() => null);
+      if (claim) claimed.add(claim.coinId);
+      claims.push({ ref, claim });
+    }
+  } catch (err) {
+    await abort();
+    throw err;
+  }
+
+  const commit = async () => {
+    for (const { ref, claim } of claims) {
+      const coinId = claim?.coinId ?? `media-coin-${opts.postId}-${ref.merkleRoot.slice(0, 12)}`;
+      await publishMediaCoinDraft(ref.merkleRoot, { coinId, postId: opts.postId });
+      if (claim) await engraveReservedCoin(userId, claim.coinId, "courier", ref.merkleRoot, ref.size).catch(() => false);
+      await markMediaCoinContentSelf(ref.merkleRoot);
+      queueLaunch({ coinId, merkleRoot: ref.merkleRoot });
+    }
+    void drainPendingLaunches().catch(() => {});
+  };
+
+  return { refs, commit, abort };
 }
 
 // ── Support Coin & Delete Sync ────────────────────────────────────────
@@ -281,12 +411,17 @@ export async function supportMediaCoin(merkleRoot: string): Promise<{ coinId: st
   if (isMediaCoinRefused(merkleRoot)) throw new Error("This content is refused on this device");
   const rec = await getMediaCoinContent(merkleRoot);
   if (!rec?.complete) throw new Error("This content is not held whole on this device");
-  const coin = (await freeHollowCoins()).find((c) => !rec.coinIds.includes(c.coinId));
-  if (!coin) throw new Error("No hollow coin to engrave");
   const { getCurrentUser } = await import("@/lib/auth");
   const user = getCurrentUser();
-  const supporter = { id: user?.id ?? coin.ownerId, name: user?.displayName || user?.username || undefined };
-  await engraveContentOntoCoin(coin, merkleRoot, rec.size, "support");
+  if (!user) throw new Error("Sign in to support content");
+  const claim = await claimHollowCoin(user.id, "support", new Set(rec.coinIds));
+  if (!claim) throw new Error("No hollow coin to engrave");
+  const coin = { coinId: claim.coinId };
+  const supporter = { id: user.id, name: user.displayName || user.username || undefined };
+  if (!(await engraveReservedCoin(user.id, coin.coinId, "support", merkleRoot, rec.size))) {
+    await releaseReservedCoin(user.id, coin.coinId, "support", claim.snapshot).catch(() => {});
+    throw new Error("Couldn't engrave the hollow coin");
+  }
   await recordMediaCoinSighting({ ...rec.manifest, coinId: coin.coinId, supporter }, { hops: 0, supporter });
   queueLaunch({ coinId: coin.coinId, merkleRoot, supporter });
   void drainPendingLaunches().catch(() => {});

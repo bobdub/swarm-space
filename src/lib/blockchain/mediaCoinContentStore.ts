@@ -44,6 +44,11 @@ export interface MediaCoinContentRecord {
   hops: number;
   /** True when this device minted it. */
   createdBySelf?: boolean;
+  /**
+   * Encrypted at attach time for a post not yet published. Drafts are
+   * never listed, launched or offered; publishing clears the flag.
+   */
+  draft?: boolean;
   firstSeenAt: number;
   updatedAt: number;
 }
@@ -176,7 +181,7 @@ export function refreshMediaCoinContents(): Promise<void> {
     try {
       const recs = await allRecords();
       const out: MediaCoinContentSummary[] = [];
-      for (const r of recs) out.push(await summarize(r));
+      for (const r of recs) if (!r.draft) out.push(await summarize(r));
       snapshot = out.sort((a, b) => b.updatedAt - a.updatedAt);
       for (const fn of listeners) { try { fn(); } catch { /* listener errors stay local */ } }
     } catch { /* storage unavailable */ }
@@ -265,6 +270,43 @@ export async function markMediaCoinContentSelf(merkleRoot: string): Promise<void
   changed(merkleRoot);
 }
 
+/** Flag freshly minted content as a draft (attached, not yet posted). */
+export async function markMediaCoinContentDraft(merkleRoot: string): Promise<void> {
+  await updateRecord(merkleRoot, (rec) => (rec ? { ...rec, draft: true, updatedAt: Date.now() } : null));
+}
+
+/**
+ * Publish a draft: bind it to its coin and post. The coin becomes the
+ * original carrier, so `coinIds` starts with it.
+ */
+export async function publishMediaCoinDraft(merkleRoot: string, bind: { coinId: string; postId: string }): Promise<void> {
+  await updateRecord(merkleRoot, (rec) => {
+    if (!rec) return null;
+    const { draft: _d, ...rest } = rec;
+    return {
+      ...rest,
+      manifest: { ...rec.manifest, coinId: bind.coinId, postId: bind.postId },
+      postId: bind.postId,
+      coinIds: [bind.coinId],
+      createdBySelf: true,
+      updatedAt: Date.now(),
+    };
+  });
+  changed(merkleRoot);
+}
+
+/** Drop drafts older than `maxAgeMs` (a composer that was closed without posting). */
+export async function sweepMediaCoinDrafts(maxAgeMs: number, now = Date.now()): Promise<number> {
+  let dropped = 0;
+  for (const rec of await allRecords().catch(() => [] as MediaCoinContentRecord[])) {
+    if (rec.draft && now - rec.updatedAt > maxAgeMs) {
+      await deleteMediaCoinContent(rec.merkleRoot);
+      dropped++;
+    }
+  }
+  return dropped;
+}
+
 /** Remove the local copy (manifest and every chunk). */
 export async function deleteMediaCoinContent(merkleRoot: string): Promise<void> {
   revokeObjectUrl(merkleRoot);
@@ -331,7 +373,9 @@ export const mediaCoinContentStore: MediaCoinChunkStore = {
     if (rec) changed(manifest.merkleRoot);
   },
   async isComplete(root) {
-    return Boolean((await readRecord(root))?.complete);
+    // A draft is held whole but not posted yet: it is never offered or served.
+    const rec = await readRecord(root);
+    return Boolean(rec?.complete && !rec.draft);
   },
   async putChunk(root, index, data) {
     const db = await openDb();

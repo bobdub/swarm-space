@@ -203,6 +203,16 @@ function serialize(userId: string, task: () => Promise<number>): Promise<number>
   return work;
 }
 
+/**
+ * Run a coin write under the same per-account engraving lock (in-tab
+ * queue plus cross-tab Web Lock) as the content packer and sealers, so a
+ * Media Coin engraving and a payload append never overwrite each other.
+ */
+export function withEngravingLock<T>(userId: string, task: () => Promise<T>): Promise<T> {
+  let out: T;
+  return serialize(userId, async () => { out = await task(); return 0; }).then(() => out);
+}
+
 function notify(): void {
   if (typeof window !== "undefined") window.dispatchEvent(new Event("coin-engraving-update"));
 }
