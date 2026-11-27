@@ -393,32 +393,74 @@ export function hydrateHarvestedInventory(): Promise<void> {
   return hydrating;
 }
 
+/** One draw from one bag: the raw bag key and how much was taken from it. */
+export interface BagDraw { key: string; count: number }
+
 /**
- * Best-effort spend — returns false (nothing spent) if not enough is held
- * in the bags `scope` may use. Draws the project seed pool first, then the
- * offline bag, then the online bag, so local play uses up local goods
- * before tradable ones.
+ * Spend, and say which bags it drew from (null, nothing spent, when not
+ * enough is held in the bags `scope` may use). Draws the project seed pool
+ * first, then the offline bag, then the online bag, so local play uses up
+ * local goods before tradable ones. A later refund passes the draws to
+ * `restoreDraws` so goods go back to the bag they came from.
  */
-export function spendHarvested(parts: { symbol: string; count: number }[], scope?: BagScope): boolean {
+export function spendHarvestedDraws(parts: { symbol: string; count: number }[], scope?: BagScope): BagDraw[] | null {
   const need = new Map<string, number>();
   for (const { symbol, count } of parts) {
     if (!symbol || !Number.isFinite(count) || count <= 0) continue;
     need.set(symbol, (need.get(symbol) ?? 0) + count);
   }
   for (const [symbol, count] of need) {
-    if (getHarvested(symbol, scope) < count) return false;
+    if (getHarvested(symbol, scope) < count) return null;
   }
+  const draws: BagDraw[] = [];
   for (const [symbol, count] of need) {
     let left = count;
     for (const key of visibleKeys(symbol, scope)) {
       if (left <= 0) break;
       const take = Math.min(left, counts.get(key) ?? 0);
-      if (take > 0) { bump(key, -take); left -= take; }
+      if (take > 0) { bump(key, -take); left -= take; draws.push({ key, count: take }); }
     }
   }
   scheduleWrite();
   notify();
-  return true;
+  return draws;
+}
+
+/** Best-effort spend — returns false (nothing spent) if not enough is held. */
+export function spendHarvested(parts: { symbol: string; count: number }[], scope?: BagScope): boolean {
+  return spendHarvestedDraws(parts, scope) !== null;
+}
+
+/** Put drawn goods back into exactly the bags they were drawn from. */
+export function restoreDraws(draws: BagDraw[]): void {
+  let changed = false;
+  for (const { key, count } of draws) {
+    if (!key || !Number.isFinite(count) || count <= 0) continue;
+    bump(key, count);
+    changed = true;
+  }
+  if (changed) { scheduleWrite(); notify(); }
+}
+
+/**
+ * The bag a draw came from, as a key prefix ('' is the online bag). With
+ * `recordHarvestInBag`, something made from a drawn good (a grilled fish)
+ * lands in the same bag as what it was made from.
+ */
+export function bagOfDraw(key: string): string {
+  const parsed = parseKey(key);
+  if (parsed.bag === 'offline') return OFFLINE_PREFIX;
+  if (parsed.bag === 'seed') return `${SEED_PREFIX}${parsed.projectId}|`;
+  return '';
+}
+
+export function recordHarvestInBag(bag: string, symbol: string, count: number): void {
+  if (!symbol || !Number.isFinite(count) || count === 0) return;
+  const known = bag === '' || bag === OFFLINE_PREFIX || (bag.startsWith(SEED_PREFIX) && bag.endsWith('|'));
+  // An unknown bag is treated as offline, never as online.
+  bump(`${known ? bag : OFFLINE_PREFIX}${symbol}`, count);
+  scheduleWrite();
+  notify();
 }
 
 // What the player can use changes when they go online/offline or step

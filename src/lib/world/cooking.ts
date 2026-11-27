@@ -17,7 +17,13 @@
  * Grill jobs live on this device only (the bag is per device too), kept in
  * localStorage so a reload mid-cook does not lose the food.
  */
-import { getHarvested, recordHarvest, spendHarvested } from '@/lib/remix/harvestedInventory';
+import {
+  bagOfDraw,
+  getHarvested,
+  recordHarvestInBag,
+  spendHarvested,
+  spendHarvestedDraws,
+} from '@/lib/remix/harvestedInventory';
 import { burnUntil, isFireLit, litThrough } from '@/lib/world/fireStore';
 
 export type RawFoodId = 'egg' | 'fish' | 'chicken' | 'shark';
@@ -120,6 +126,8 @@ export interface GrillJob {
    * time away).
    */
   coveredUntil?: number;
+  /** Bag the raw food was drawn from (`bagOfDraw`); what comes off goes back there. */
+  bag?: string;
 }
 
 export type GrillOutcome = 'cooked' | 'cold';
@@ -199,9 +207,8 @@ export function startCooking(pitId: string, raw: string, now = Date.now()): Star
   if (!food) return { ok: false, reason: 'unknown' };
   if (!isFireLit(pitId, now)) return { ok: false, reason: 'cold' };
   if (grillJobs(pitId).length >= GRILL_SLOTS) return { ok: false, reason: 'full' };
-  if (heldRaw(food.raw) < 1 || !spendHarvested([{ symbol: goodKey(food.raw), count: 1 }])) {
-    return { ok: false, reason: 'none' };
-  }
+  const draws = heldRaw(food.raw) >= 1 ? spendHarvestedDraws([{ symbol: goodKey(food.raw), count: 1 }]) : null;
+  if (!draws || draws.length === 0) return { ok: false, reason: 'none' };
   const job: GrillJob = {
     id: `grill:${pitId}:${now}:${seq++}`,
     pitId,
@@ -211,6 +218,9 @@ export function startCooking(pitId: string, raw: string, now = Date.now()): Star
     // Fuel already on the fire can't be taken back, so it burns at least
     // until its current end.
     coveredUntil: burnUntil(pitId),
+    // Whatever comes off the grill goes back to the bag the raw food came
+    // from, so an offline catch never comes back as an online one.
+    bag: bagOfDraw(draws[0].key),
   };
   jobs.set(job.id, job);
   persist();
@@ -245,7 +255,8 @@ export function settleGrill(now = Date.now()): GrillResult[] {
     }
     if (!outcome) continue;
     jobs.delete(job.id);
-    recordHarvest(goodKey(outcome === 'cooked' ? food.cooked : food.raw), 1);
+    // Jobs saved before the bags were split drew from the online bag.
+    recordHarvestInBag(job.bag ?? '', goodKey(outcome === 'cooked' ? food.cooked : food.raw), 1);
     results.push({ job, outcome });
   }
   if (coverageGrew && results.length === 0) persist();

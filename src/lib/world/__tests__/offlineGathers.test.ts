@@ -35,6 +35,7 @@ import {
   spendHarvested,
 } from '@/lib/remix/harvestedInventory';
 import { _resetHarvestJournalForTest } from '@/lib/remix/harvestJournal';
+import { _resetLabReservationsForTest, refundLabMaterial, spendLabMaterial } from '@/lib/remix/labMaterials';
 import { _resetPlayModeForTest, setActiveBrainProject, setMeshOnline } from '../playMode';
 import { recordPlayerHarvest } from '../playerHarvest';
 import { materialTotals, spendMaterials } from '../materials';
@@ -55,6 +56,7 @@ beforeEach(() => {
   __resetScaffoldBusForTests();
   _resetHarvestJournalForTest();
   _resetHarvestedForTest();
+  _resetLabReservationsForTest();
   _resetPlayModeForTest({ online: false });
 });
 
@@ -100,6 +102,24 @@ describe('offline gathers stay in local play', () => {
     expect(spendMaterials({ wood: 2 })).toBe(true);
     setMeshOnline(false);
     expect(materialTotals().wood).toBe(4);
+  });
+
+  it('gives a Lab drawing back to the bags it came from, even after reconnecting', () => {
+    setMeshOnline(true);
+    recordHarvestForResource('wood', 1);
+    setMeshOnline(false);
+    recordHarvestForResource('wood', 2);
+    // Drawn while offline: two offline pieces first, then the online one.
+    expect(spendLabMaterial('wood', 3)).toBe(true);
+    setMeshOnline(true);
+    refundLabMaterial('wood', 3);
+    expect(materialTotals().wood).toBe(1);
+    setMeshOnline(false);
+    expect(materialTotals().wood).toBe(3);
+    // Nothing on record (say, a refund after a reload) never lands online.
+    refundLabMaterial('honey', 2);
+    expect(getHarvested('good:honey', { onlineOnly: true })).toBe(0);
+    expect(getHarvested('good:honey')).toBe(2);
   });
 
   it('never trades offline goods at a stand, even while offline', () => {

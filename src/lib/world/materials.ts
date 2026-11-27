@@ -14,7 +14,8 @@ import {
   getHarvested,
   listHarvested,
   subscribeHarvested,
-  spendHarvested,
+  spendHarvestedDraws,
+  type BagDraw,
   type BagScope,
 } from '@/lib/remix/harvestedInventory';
 import { getPrefab, type Prefab } from '@/lib/brain/prefabHouseCatalog';
@@ -234,7 +235,12 @@ export function describeMissing(missing: Affordability['missing']): string {
  * player never loses a rare symbol while a common one sits unused.
  */
 export function spendMaterials(cost: MaterialCost, scope?: BagScope): boolean {
-  if (!checkAffordable(cost, undefined, scope).ok) return false;
+  return spendMaterialsDraws(cost, scope) !== null;
+}
+
+/** `spendMaterials`, saying which bags it drew from (null when nothing was spent). */
+export function spendMaterialsDraws(cost: MaterialCost, scope?: BagScope): BagDraw[] | null {
+  if (!checkAffordable(cost, undefined, scope).ok) return null;
 
   const pools = new Map<MaterialId, { symbol: string; count: number }[]>();
   for (const held of listHarvested(scope)) {
@@ -260,9 +266,9 @@ export function spendMaterials(cost: MaterialCost, scope?: BagScope): boolean {
         need -= take;
       }
     }
-    if (need > 0) return false;
+    if (need > 0) return null;
   }
-  return spendHarvested(parts, scope);
+  return spendHarvestedDraws(parts, scope);
 }
 
 /**
