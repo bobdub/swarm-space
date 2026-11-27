@@ -40,6 +40,7 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const [custody, setCustody] = useState(0);
   const refreshVersion = useRef(0);
   const [heldTokens, setHeldTokens] = useState(0);
+  const [ownerHeld, setOwnerHeld] = useState(0);
   const [buyAmount, setBuyAmount] = useState("10");
   const [sellAmount, setSellAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
@@ -48,14 +49,16 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
   const refresh = useCallback(async () => {
     const version = ++refreshVersion.current;
     const t = await getProfileToken(profileUserId);
-    const [v, holding, balance, held] = await Promise.all([
+    const [v, holding, ownerHolding, balance, held] = await Promise.all([
       t ? getCreatorVault(t.tokenId) : Promise.resolve(null),
       t && viewerId ? getProfileTokenHolding(viewerId, t.tokenId) : Promise.resolve(null),
+      t ? getProfileTokenHolding(t.userId, t.tokenId) : Promise.resolve(null),
       viewerId ? getSwarmBalance(viewerId) : Promise.resolve(0),
       t ? getSwarmBalance(creatorVaultAddress(t.tokenId)) : Promise.resolve(0),
     ]);
     if (version !== refreshVersion.current) return;
     setToken(t); setVault(v); setHeldTokens(holding?.amount ?? 0);
+    setOwnerHeld(ownerHolding?.amount ?? 0);
     setSwarm(balance); setCustody(held);
   }, [profileUserId, viewerId]);
 
@@ -205,6 +208,10 @@ export function CreatorMarketTab({ profileUserId, isOwnProfile, viewerId }: Prop
             </div>
             <div className="text-sm text-foreground/60">
               ${token.ticker} · Creator Token Market
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm text-foreground/70" data-testid="creator-market-supply">
+              <span><span className="font-mono text-foreground">{fmt(circulating, 2)}</span> circulating</span>
+              <span>Owner holds <span className="font-mono text-foreground">{fmt(ownerHeld, 2)}</span> ${token.ticker}</span>
             </div>
             {token.description && (
               <p className="mt-2 text-sm text-foreground/70">{token.description}</p>
