@@ -3,6 +3,7 @@ import type { SwarmTransaction } from "../types";
 import { isNativeMintMeTip } from "./nativeMintmeLedger";
 import { isNativeEthTip } from "./nativeEth";
 import { isCustomTokenTip } from "../deposits/customTokenTips";
+import { isCreatorTokenTip } from "./creatorTokenTips";
 import { hasValidTipWeight } from "./tipWeight";
 import { INFINITY_GIFT_VAULT } from "../infinity/vaults";
 import { canonicalJsonBytes } from "@/lib/utils/canonicalJson";
@@ -48,8 +49,10 @@ export async function verifyWalletTip(tx: SwarmTransaction): Promise<boolean> {
   try {
     if (tx.type !== "wallet_tip" || await computeUserId(tx.publicKey) !== tx.from) return false;
     if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || tx.from === tx.to || tx.fee !== 0) return false;
-    if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
-    if (tx.meta?.assetId !== "chain:SWARM" && !isNativeMintMeTip(tx) && !isNativeEthTip(tx) && !isCustomTokenTip(tx)) return false;
+    // Only creator-token tips name a token, and they check it against their asset id.
+    const creator = isCreatorTokenTip(tx);
+    if ((tx.tokenId && !creator) || (tx.chainId ?? "SWARM") !== "SWARM") return false;
+    if (tx.meta?.assetId !== "chain:SWARM" && !isNativeMintMeTip(tx) && !isNativeEthTip(tx) && !isCustomTokenTip(tx) && !creator) return false;
     if (tx.meta?.assetId === "chain:SWARM" && tx.meta?.currency === "MINTME") return false;
     // The weight is inside the signed meta; format 2 must name a known tier and only SWARM carries one.
     if (!hasValidTipWeight(tx)) return false;
