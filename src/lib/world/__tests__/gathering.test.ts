@@ -36,6 +36,8 @@ vi.mock('@/lib/brain/sculpting', () => ({
 }));
 vi.mock('@/lib/brain/surfaceClass', () => ({ sampleSurfaceClass: () => 'ocean' }));
 vi.mock('@/lib/brain/nature/natureCatalog', () => ({ getNatureSpec: () => undefined }));
+vi.mock('@/lib/brain/beach', () => ({ isBeachAt: () => false }));
+vi.mock('@/lib/brain/volcanoOrgan', () => ({ getVolcanoOrgan: () => ({}), SHARED_VOLCANO_ANCHOR_ID: 'volcano' }));
 vi.mock('@/lib/brain/earth', () => ({
   EARTH_RADIUS: 100,
   getEarthPose: () => ({ center: [0, 0, 0], spinQuat: [0, 0, 0, 1], invSpinQuat: [0, 0, 0, 1] }),

@@ -23,6 +23,7 @@ import { swellPhases, tideFrameAt } from '@/lib/brain/sea/seaSurface';
 import { makeSeaMaterial } from '@/components/brain/sea/seaMaterial';
 import { seaStateFor } from '@/lib/brain/sea/vessel';
 import { weatherCurvatureBoost, windAt } from '@/lib/world/weather';
+import { BEACH_LOW_M, BEACH_TOP_M } from '@/lib/brain/beach';
 
 /**
  * Procedural blue-green Earth with shared-pose solar lighting. The
@@ -87,6 +88,10 @@ const earthFragment = /* glsl */ `
   uniform float uVolcCraterR;
   uniform float uVolcCraterD;
   uniform float uEarthR;
+  // Beach band (m above mean sea level), from beach.ts: the sand a shovel
+  // scoops salt from is exactly the sand drawn here.
+  uniform float uBeachTop;
+  uniform float uBeachLow;
   // The summit crater is cut out of the baked Earth mesh and drawn by the
   // crater patch (same shader, CRATER_PATCH defined) from the carved
   // heights physics walks on (craterCarve.ts).
@@ -132,6 +137,14 @@ const earthFragment = /* glsl */ `
     float volcMask = smoothstep(2.0, 8.0, volcLift);
     col = mix(col, uColVolc, volcMask);
     float polar = smoothstep(0.78, 0.92, abs(n.y));
+    // Beach: one band of the drawn ground's own height, from wet sand just
+    // under the waterline to a crisp edge with the grass at uBeachTop.
+    float elev = length(vLocalPos) - uEarthR;
+    float beachMask = smoothstep(uBeachLow - 0.3, uBeachLow, elev)
+      * (1.0 - smoothstep(uBeachTop - 0.12, uBeachTop + 0.12, elev))
+      * (1.0 - volcMask) * (1.0 - polar);
+    vec3 sand = uColShore * 1.12;
+    col = mix(col, sand, beachMask);
     col = mix(col, uColIce, polar);
     // Local refs for downstream near-camera blending.
     vec3 ocean = uColOcean;
@@ -165,6 +178,11 @@ const earthFragment = /* glsl */ `
       vec3 volcanicStone = uColVolc * (0.55 + micro * 0.65);
       vec3 surfaceCol = mix(seaBed, groundCol, landMask);
       surfaceCol = mix(surfaceCol, volcanicStone, volcMask);
+      // Sand: fine ripples, darker where the sea wets it.
+      float wet = 1.0 - smoothstep(-0.1, 0.45, elev);
+      vec3 drySand = sand * (0.9 + micro2 * 0.16 + micro3 * 0.08);
+      vec3 beachCol = mix(drySand, drySand * 0.72, wet);
+      surfaceCol = mix(surfaceCol, beachCol, beachMask);
       surfaceCol = mix(surfaceCol, uColIce * (0.85 + micro * 0.15), polar);
       col = mix(col, surfaceCol, nearMix);
     }
@@ -253,6 +271,8 @@ export function EarthBody() {
         uVolcCraterR: { value: organ.craterRadius },
         uVolcCraterD: { value: organ.craterDepth },
         uEarthR: { value: EARTH_RADIUS },
+        uBeachTop: { value: BEACH_TOP_M },
+        uBeachLow: { value: BEACH_LOW_M },
         // Hole a little inside the rim: the patch overlaps the mesh there.
         uCraterHoleCos: { value: Math.cos((getCraterCarve().rimR - CRATER_HOLE_OVERLAP_M) / EARTH_RADIUS) },
         // Observation channel palette — per-channel colors for each

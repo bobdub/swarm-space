@@ -28,10 +28,18 @@
 
 export type NatureEventKind = 'fell' | 'hive-down' | 'hen-caught' | 'shark-caught' | 'egg-taken';
 
-/** Catches and taken eggs only matter for minutes; they are dropped after an hour. */
-function isShortLived(kind: NatureEventKind): boolean {
-  return kind === 'hen-caught' || kind === 'shark-caught' || kind === 'egg-taken';
+/**
+ * Catches and taken eggs only matter for minutes, and a felled wild tree
+ * (out in the open land, anchor `wild:<patch>`, see nature/wildLand.ts)
+ * grows back after an hour; they are all dropped after an hour.
+ */
+function isShortLived(e: Pick<NatureEvent, 'kind' | 'anchorPeerId'>): boolean {
+  return e.kind === 'hen-caught' || e.kind === 'shark-caught' || e.kind === 'egg-taken'
+    || (e.kind === 'fell' && typeof e.anchorPeerId === 'string' && e.anchorPeerId.startsWith(WILD_ANCHOR_PREFIX));
 }
+
+/** Anchor prefix of the open land's wild patches (nature/wildLand.ts). */
+export const WILD_ANCHOR_PREFIX = 'wild:';
 
 /** Hen catches older than this are forgotten (well past any respawn). */
 export const HEN_EVENT_TTL_MS = 60 * 60_000;
@@ -99,7 +107,7 @@ function persist(): void {
 
 function prune(now = Date.now()): void {
   for (const e of events.values()) {
-    if (isShortLived(e.kind) && now - e.at > HEN_EVENT_TTL_MS) events.delete(e.id);
+    if (isShortLived(e) && now - e.at > HEN_EVENT_TTL_MS) events.delete(e.id);
   }
   if (events.size > MAX_EVENTS) {
     const oldest = [...events.values()].sort((a, b) => a.at - b.at).slice(0, events.size - MAX_EVENTS);
@@ -118,7 +126,7 @@ function add(e: NatureEvent, now: number): boolean {
   // Ignore anything claiming to come from the future.
   if (e.at - now > 5 * 60_000) return false;
   // A long-past hen catch changes nothing: the hen is back.
-  if (isShortLived(e.kind) && now - e.at > HEN_EVENT_TTL_MS) return false;
+  if (isShortLived(e) && now - e.at > HEN_EVENT_TTL_MS) return false;
   events.set(e.id, e);
   prune(now);
   persist();

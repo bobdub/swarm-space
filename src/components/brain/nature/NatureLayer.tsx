@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { BuilderBlockView } from '@/components/brain/builder/BuilderBlockView';
 import { useBlockList } from '@/components/brain/builder/useBlockList';
 import { blockOffsetInFrame } from '@/lib/brain/blockFrame';
@@ -25,7 +25,8 @@ import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
 } from '@/lib/brain/volcanoOrgan';
-import { EARTH_RADIUS, getEarthPose, quatRotate } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, quatRotate, worldPosToLocalNormal } from '@/lib/brain/earth';
+import { clearWildLand, syncWildLand } from '@/lib/brain/nature/wildLand';
 import {
   getTreeChop,
   TOPPLE_MS,
@@ -87,8 +88,44 @@ export function NatureLayer({ anchorPeerId }: { anchorPeerId: string }) {
           displacement in EarthBody). This overlay only adds the bits
           that belong above the crater. */}
       <VolcanoOverlay anchorPeerId={anchorPeerId} />
+      <WildLandStreamer />
     </>
   );
+}
+
+/** How often (ms) the wild patches round the viewer are brought up to date. */
+const WILD_SYNC_MS = 1500;
+/** Above this altitude (m) the camera is off the ground and nothing streams in. */
+const WILD_VIEW_ALT_M = 250;
+
+/**
+ * Trees, grass, flowers and boulders out across the open land (wildLand):
+ * the patches round the camera are placed as ordinary biome blocks, which
+ * the block list above draws, and taken down again once left behind.
+ */
+function WildLandStreamer() {
+  const { camera } = useThree();
+  useEffect(() => {
+    const sync = () => {
+      try {
+        const p = camera.position;
+        const pose = getEarthPose();
+        // Only for a viewer down on the ground, not one looking from orbit.
+        const alt = Math.hypot(p.x - pose.center[0], p.y - pose.center[1], p.z - pose.center[2]) - EARTH_RADIUS;
+        if (alt > WILD_VIEW_ALT_M) return;
+        syncWildLand(worldPosToLocalNormal([p.x, p.y, p.z], pose));
+      } catch (err) {
+        console.warn('[wildLand] sync failed', err);
+      }
+    };
+    sync();
+    const timer = window.setInterval(sync, WILD_SYNC_MS);
+    return () => {
+      window.clearInterval(timer);
+      clearWildLand();
+    };
+  }, [camera]);
+  return null;
 }
 
 /** Dispatch by kind. Geometry is intentionally minimal in Phase 2. */

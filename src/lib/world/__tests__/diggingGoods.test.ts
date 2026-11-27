@@ -26,6 +26,8 @@ vi.mock('@/lib/brain/sculpting', () => ({
 const surface = vi.hoisted(() => ({ cls: 'land' }));
 vi.mock('@/lib/brain/surfaceClass', () => ({ sampleSurfaceClass: () => surface.cls }));
 vi.mock('@/lib/brain/nature/natureCatalog', () => ({ getNatureSpec: () => undefined }));
+vi.mock('@/lib/brain/beach', () => ({ isBeachAt: () => surface.cls === 'shore' }));
+vi.mock('@/lib/brain/volcanoOrgan', () => ({ getVolcanoOrgan: () => ({}), SHARED_VOLCANO_ANCHOR_ID: 'volcano' }));
 vi.mock('@/lib/brain/earth', () => ({
   EARTH_RADIUS: 100,
   getEarthPose: () => ({ center: [0, 0, 0], spinQuat: [0, 0, 0, 1], invSpinQuat: [0, 0, 0, 1] }),
@@ -134,6 +136,25 @@ describe('beach sand is salt', () => {
   it('a bucket on the shore still collects water, not salt', async () => {
     surface.cls = 'shore';
     await applyToolToTarget(BUCKET, beach);
+    expect(getHarvested('good:salt')).toBe(0);
+  });
+
+  it('a shovel on beach sand picked as ground still gathers Salt, not dirt', async () => {
+    surface.cls = 'shore';
+    expect(await applyToolToTarget(SHOVEL, ground)).toBe(true);
+    expect(getHarvested('good:salt')).toBe(1);
+    expect(getHarvested('good:dirt')).toBe(0);
+  });
+
+  it('a shovel swung on the beach with nothing picked scoops Salt', async () => {
+    surface.cls = 'shore';
+    expect(await applyToolToTarget(SHOVEL, null, 'self')).toBe(true);
+    expect(getHarvested('good:salt')).toBe(1);
+  });
+
+  it('a shovel swung inland with nothing picked gathers no salt', async () => {
+    surface.cls = 'land';
+    await applyToolToTarget(SHOVEL, null, 'self');
     expect(getHarvested('good:salt')).toBe(0);
   });
 

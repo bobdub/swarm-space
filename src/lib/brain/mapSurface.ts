@@ -9,6 +9,7 @@
  */
 import type { Vec3 } from './earth';
 import { groundElevationAt } from './groundHeight';
+import { BEACH_TOP_M } from './beach';
 import { SHELF_DEPTH_M, WATER_WADE_DEPTH } from './surfaceProfile';
 import { sampleVolcanoElevation, type VolcanoOrgan } from './volcanoOrgan';
 
@@ -23,7 +24,8 @@ export function sampleMapSurface(localNormal: Vec3, volcano?: VolcanoOrgan): Map
   if (e < 0) return 'shallow';
   if (volcano && sampleVolcanoElevation(volcano, localNormal) >= WATER_WADE_DEPTH) return 'volcano';
   if (Math.abs(localNormal[1]) >= ICE_LATITUDE_ABS) return 'ice';
-  if (e < WATER_WADE_DEPTH) return 'beach';
+  // The same sand band the Earth draws and a shovel scoops salt from.
+  if (e < BEACH_TOP_M) return 'beach';
   return 'land';
 }
 
