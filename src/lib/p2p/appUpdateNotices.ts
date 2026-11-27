@@ -1,5 +1,5 @@
 import { namespaceIdentity } from '@/lib/uqrc/namespaceIdentity';
-import type { BuildStamp } from './appVersion';
+import type { ReleaseStamp } from './appVersion';
 
 // Actual scene mounts, not URL guesses: /index can also show the entry screen.
 const scenes = new Set<symbol>();
@@ -19,8 +19,8 @@ export function enterBrainUpdateContext() {
   };
 }
 
-export const appUpdateNoticeId = (userId: string, build: BuildStamp) =>
-  `app-update:${userId}:${build.builtAt}`;
+export const appUpdateNoticeId = (userId: string, deployed: ReleaseStamp) =>
+  `app-update:${userId}:r${deployed.release}`;
 
 /** Public receiving metadata only; no signing key is requested. */
 export async function appUpdateNamespace(userId: string, username: string, address: string | null) {

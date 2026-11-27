@@ -1,83 +1,91 @@
 /**
- * App build handoff over the mesh.
+ * App release handoff over the mesh.
  *
  * There is no service worker, so a tab keeps running the build it loaded
  * until it is refreshed. Chain rule changes need every peer on the new
- * build, so peers swap build stamps when a data channel opens. A stamp
- * carries the release number (one peer says 0.010, the other 0.012); stamps
- * from before the counter fall back to build time. A peer that hears of a
- * newer version asks its OWN host (`version.json`, written
- * at build time) what is deployed, and only a deployed build newer than
- * its own leads to a refresh notice:
+ * build, so peers tell each other their release once a data channel has
+ * settled (`releaseHandshake.ts`). The wire packet carries only internal
+ * identifiers, never a timestamp:
  *
- * - Each version is checked once per tab: the first claim newer than any
- *   already checked triggers one `version.json` read, and repeats of that
- *   version (reconnects, other peers) are ignored. There are no timers.
- * - A fake or foreign stamp from a peer can never force a refresh.
- * - A peer on a newer build that this host has not deployed yet (another
- *   host, a preview, a dev server) changes nothing, so a refresh can never
- *   land on the same old build and loop.
+ *   { type: 'app-release', release: 14, id: 'a4f89c0' }
+ *
+ * Releases are ordered strictly by the monotonic counter in `release.json`
+ * (v0.014 = 14); no wall clock is consulted. A peer's claim is only a hint.
+ * Infinity verifies it against this tab's OWN host (`version.json`, written
+ * at build time) before anyone is told:
+ *
+ * - The host must be serving a release at least as new as the claim and
+ *   newer than this tab. A spoofed claim (release 99999) fails that check
+ *   and is dropped silently.
+ * - Each claimed release is checked at most once per tab (a host read
+ *   that fails outright forgets the claim so a later one can retry). Claims that
+ *   arrive while a read is in flight are answered together by the next
+ *   read. There are no timers.
+ * - A claim at or below a release the host has already shown is confirmed
+ *   by that read, with no new request.
+ * - A peer on a release this host has not deployed (another host, a
+ *   preview, a dev server) changes nothing, so a refresh can never land on
+ *   the same old build and loop.
  * - Every update waits for an explicit choice; there is no auto-refresh.
- * - A live call and the current world remain intact until that choice.
+ *   A live call, the current world and mesh sync remain intact until then.
  */
 
 import { isCallActive } from './callActivity';
 
-export interface BuildStamp {
+export interface ReleaseStamp {
+  /** Monotonic release counter (v0.014 = 14), bumped on every merge to main. */
+  release: number;
   /** Short commit hash (or a fallback id); for display only. */
   id: string;
-  /** Build time in ms since epoch; this is what orders builds. */
-  builtAt: number;
-  /** Release counter (v0.012 = 12), bumped on every merge to main. */
-  release?: number;
 }
 
-/**
- * True when `a` is a later version than `b`. Peers compare release numbers
- * (0.010 vs 0.012); a stamp without one (builds from before the counter)
- * falls back to build time.
- */
-export function isNewerBuild(a: BuildStamp, b: BuildStamp | null): boolean {
-  if (!b) return true;
-  if (a.release && b.release) return a.release > b.release;
-  return a.builtAt > b.builtAt;
+/** The one packet peers swap about versions. */
+export interface AppReleasePacket {
+  type: 'app-release';
+  release: number;
+  id: string;
 }
 
-declare const __APP_BUILD__: BuildStamp | undefined;
+const MAX_ID_LENGTH = 64;
+export const MAX_RELEASE = 10_000_000;
+/** Remembered spoofed claims; a bounded set so a noisy peer cannot grow it. */
+const MAX_REJECTED = 64;
+const RELOAD_ATTEMPT_KEY = 'swarm-app-release-reload-attempt';
 
-/** The build this tab is running. builtAt 0 means unknown (tests). */
-export const LOCAL_BUILD: BuildStamp = (() => {
+/** True when `a` is a later release than `b`. */
+export function isNewerRelease(a: ReleaseStamp, b: ReleaseStamp | null): boolean {
+  return a.release > (b?.release ?? 0);
+}
+
+/** Validates a stamp from a peer packet or `version.json`. */
+export function parseReleaseStamp(raw: unknown): ReleaseStamp | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const { release, id } = raw as { release?: unknown; id?: unknown };
+  if (typeof release !== 'number' || !Number.isSafeInteger(release) || release <= 0 || release > MAX_RELEASE) return null;
+  if (id === undefined) return { release, id: '' };
+  if (typeof id !== 'string' || id.length > MAX_ID_LENGTH) return null;
+  return { release, id };
+}
+
+export function appReleasePacket(local: ReleaseStamp): AppReleasePacket {
+  return { type: 'app-release', release: local.release, id: local.id };
+}
+
+declare const __APP_BUILD__: unknown;
+
+/** The release this tab is running. release 0 means unknown (tests). */
+export const LOCAL_RELEASE: ReleaseStamp = (() => {
   try {
-    if (typeof __APP_BUILD__ !== 'undefined' && __APP_BUILD__) {
-      const parsed = parseBuildStamp(__APP_BUILD__, Number.POSITIVE_INFINITY);
+    if (typeof __APP_BUILD__ !== 'undefined') {
+      const parsed = parseReleaseStamp(__APP_BUILD__);
       if (parsed) return parsed;
     }
   } catch { /* not defined */ }
-  return { id: 'unknown', builtAt: 0 };
+  return { release: 0, id: 'unknown' };
 })();
 
-/** Stamps further than this into the future are refused as spoofed. */
-export const MAX_FUTURE_SKEW_MS = 10 * 60_000;
-
-const RELOAD_ATTEMPT_KEY = 'swarm-app-reload-attempt';
-const MAX_ID_LENGTH = 64;
-const MAX_RELEASE = 10_000_000;
-
-export function parseBuildStamp(raw: unknown, nowMs: number): BuildStamp | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const { id, builtAt } = raw as { id?: unknown; builtAt?: unknown };
-  if (typeof id !== 'string' || id.length === 0 || id.length > MAX_ID_LENGTH) return null;
-  if (typeof builtAt !== 'number' || !Number.isSafeInteger(builtAt) || builtAt <= 0) return null;
-  if (builtAt > nowMs + MAX_FUTURE_SKEW_MS) return null;
-  const { release } = raw as { release?: unknown };
-  if (typeof release === 'number' && Number.isSafeInteger(release) && release > 0 && release <= MAX_RELEASE) {
-    return { id, builtAt, release };
-  }
-  return { id, builtAt };
-}
-
 export type UpdateNoticeReason =
-  /** A refresh for this build already ran and the old build came back. */
+  /** A refresh for this release already ran and the old build came back. */
   | 'stale-cache'
   /** A call is live, so the refresh waits for the person. */
   | 'call'
@@ -88,15 +96,14 @@ export type AppUpdateState =
   | { status: 'idle' }
   | {
       status: 'available';
-      deployed: BuildStamp;
+      deployed: ReleaseStamp;
       mode: 'manual';
       deadline: null;
       reason: UpdateNoticeReason | null;
     };
 
 export interface AppVersionDeps {
-  local: BuildStamp;
-  now: () => number;
+  local: ReleaseStamp;
   fetchDeployed: () => Promise<unknown>;
   reload: () => void;
   isCallActive: () => boolean;
@@ -109,12 +116,16 @@ export class AppVersionWatch {
   private state: AppUpdateState = { status: 'idle' };
   private listeners = new Set<Listener>();
   private checking = false;
-  /** Newest version a host read has already answered. */
-  private checked: BuildStamp | null = null;
-  /** Newest version claimed so far; the next host read answers it. */
-  private newestClaim: BuildStamp | null = null;
-  /** Builds the person said "Not now" to in this tab. */
-  private dismissed: BuildStamp | null = null;
+  /** Claimed releases waiting for the next host read. */
+  private pending = new Set<number>();
+  /** Claimed releases the read in flight will answer. */
+  private inFlight = new Set<number>();
+  /** Newest release the host itself has shown this tab. */
+  private hostRelease: ReleaseStamp | null = null;
+  /** Claims the host did not back (spoofed, or another host's build). */
+  private rejected = new Set<number>();
+  /** Release the person said "Not now" to in this tab. */
+  private dismissed: ReleaseStamp | null = null;
 
   constructor(private readonly deps: AppVersionDeps) {
     this.clearSucceededAttempt();
@@ -130,74 +141,97 @@ export class AppVersionWatch {
   }
 
   /** The stamp this node announces to peers. */
-  getLocalBuild(): BuildStamp {
+  getLocalRelease(): ReleaseStamp {
     return this.deps.local;
   }
 
   /**
-   * A peer told us its build. Returns true when it led to a host check.
+   * A peer told us its release. Returns true when it led to a host read.
    * The claim is only a hint; the host's `version.json` decides.
    */
-  notePeerBuild(raw: unknown): boolean {
-    const { local, now } = this.deps;
-    if (local.builtAt <= 0) return false;
-    const t = now();
-    const claim = parseBuildStamp(raw, t);
-    if (!claim || !isNewerBuild(claim, local)) return false;
-    if (this.state.status === 'available' && !isNewerBuild(claim, this.state.deployed)) return false;
-    // Once per version: a version already checked is never read again.
-    if (!isNewerBuild(claim, this.newestClaim)) return false;
-    this.newestClaim = claim;
-    // A read in flight answers an older claim; this one follows it.
+  notePeerRelease(raw: unknown): boolean {
+    const { local } = this.deps;
+    if (local.release <= 0) return false;
+    const claim = parseReleaseStamp(raw);
+    if (!claim || !isNewerRelease(claim, local)) return false;
+    // The host already showed a release at least this new: confirmed.
+    if (this.hostRelease && claim.release <= this.hostRelease.release) {
+      this.confirm(this.hostRelease);
+      return false;
+    }
+    const r = claim.release;
+    if (this.rejected.has(r) || this.pending.has(r) || this.inFlight.has(r)) return false;
+    this.pending.add(r);
+    // A read in flight answers older claims; this one rides the next read.
     if (this.checking) return false;
     void this.checkHost();
     return true;
   }
 
+  /** Infinity's verification loop: one host read answers every pending claim. */
   private async checkHost(): Promise<void> {
-    if (this.checking) return;
+    if (this.checking || this.pending.size === 0) return;
     this.checking = true;
-    this.checked = this.newestClaim;
-    let deployed: BuildStamp | null = null;
+    const claims = [...this.pending];
+    this.inFlight = new Set(claims);
+    this.pending.clear();
+    let deployed: ReleaseStamp | null = null;
     try {
-      deployed = parseBuildStamp(await this.deps.fetchDeployed(), this.deps.now());
+      deployed = parseReleaseStamp(await this.deps.fetchDeployed());
     } catch {
       deployed = null;
     } finally {
       this.checking = false;
+      this.inFlight = new Set();
     }
-    // A newer version was claimed while this read was in flight.
-    if (this.newestClaim && this.newestClaim !== this.checked) void this.checkHost();
-    // Nothing newer on this host (a peer on another host, a preview, a
-    // build still rolling out, or a made-up stamp): stay put.
-    // The host confirms: only a deployed version truly ahead of ours counts.
-    if (!deployed || !isNewerBuild(deployed, this.deps.local)) return;
-    if (this.dismissed && !isNewerBuild(deployed, this.dismissed)) return;
-    if (this.state.status === 'available' && !isNewerBuild(deployed, this.state.deployed)) return;
-    this.offer(deployed);
+    // An unreachable host proves nothing either way: forget these claims
+    // so a later announcement (reconnect, another peer) can try again.
+    if (deployed) {
+      if (isNewerRelease(deployed, this.hostRelease)) this.hostRelease = deployed;
+      const shown = this.hostRelease ?? deployed;
+      let confirmed = false;
+      for (const claim of claims) {
+        if (claim <= shown.release) confirmed = true;
+        else this.reject(claim);
+      }
+      if (confirmed) this.confirm(shown);
+    }
+    // Claims that arrived while this read was in flight.
+    if (this.pending.size > 0) void this.checkHost();
   }
 
-  private offer(deployed: BuildStamp): void {
+  private reject(release: number): void {
+    // Silent: a failed claim never reaches the person.
+    this.rejected.add(release);
+    if (this.rejected.size > MAX_REJECTED) {
+      const oldest = this.rejected.values().next().value;
+      if (oldest !== undefined) this.rejected.delete(oldest);
+    }
+  }
+
+  private confirm(deployed: ReleaseStamp): void {
+    if (!isNewerRelease(deployed, this.deps.local)) return;
+    if (this.dismissed && !isNewerRelease(deployed, this.dismissed)) return;
+    if (this.state.status === 'available' && !isNewerRelease(deployed, this.state.deployed)) return;
     let reason: UpdateNoticeReason | null = null;
     const attempt = this.readAttempt();
     if (attempt === undefined) reason = 'no-guard';
-    else if (attempt !== null && attempt >= deployed.builtAt) reason = 'stale-cache';
+    else if (attempt !== null && attempt >= deployed.release) reason = 'stale-cache';
     else if (this.deps.isCallActive()) reason = 'call';
-
     this.setState({ status: 'available', deployed, mode: 'manual', deadline: null, reason });
   }
 
-  /** The person pressed Update App: the sole path that reloads this tab. */
+  /** The person pressed Update Now: the sole path that reloads this tab. */
   refreshNow(): void {
     if (this.state.status !== 'available') return;
     this.recordAttempt();
     this.deps.reload();
   }
 
-  /** Store the loop guard for the offered build; true only if it reads back. */
+  /** Store the loop guard for the offered release; true only if it reads back. */
   private recordAttempt(): boolean {
     if (this.state.status !== 'available' || !this.deps.storage) return false;
-    const value = String(this.state.deployed.builtAt);
+    const value = String(this.state.deployed.release);
     try {
       this.deps.storage.setItem(RELOAD_ATTEMPT_KEY, value);
       return this.deps.storage.getItem(RELOAD_ATTEMPT_KEY) === value;
@@ -206,10 +240,10 @@ export class AppVersionWatch {
     }
   }
 
-  /** "Not now": hide the notice for this build in this tab. */
+  /** "Not now": hide the notice for this release in this tab. */
   dismiss(): void {
     if (this.state.status !== 'available') return;
-    if (isNewerBuild(this.state.deployed, this.dismissed)) this.dismissed = this.state.deployed;
+    if (isNewerRelease(this.state.deployed, this.dismissed)) this.dismissed = this.state.deployed;
     this.setState({ status: 'idle' });
   }
 
@@ -221,16 +255,16 @@ export class AppVersionWatch {
       const raw = storage.getItem(RELOAD_ATTEMPT_KEY);
       if (raw === null) return null;
       const n = Number(raw);
-      return Number.isFinite(n) ? n : null;
+      return Number.isSafeInteger(n) ? n : null;
     } catch {
       return undefined;
     }
   }
 
-  /** The refresh worked once this tab runs a build at least as new as its target. */
+  /** The refresh worked once this tab runs a release at least as new as its target. */
   private clearSucceededAttempt(): void {
     const attempt = this.readAttempt();
-    if (typeof attempt === 'number' && this.deps.local.builtAt >= attempt) {
+    if (typeof attempt === 'number' && this.deps.local.release >= attempt) {
       try { this.deps.storage?.removeItem(RELOAD_ATTEMPT_KEY); } catch { /* ignore */ }
     }
   }
@@ -255,9 +289,11 @@ function browserStorage(): AppVersionDeps['storage'] {
   }
 }
 
-async function fetchDeployedBuild(): Promise<unknown> {
+async function fetchDeployedRelease(): Promise<unknown> {
   const base = (import.meta.env?.BASE_URL as string | undefined) ?? '/';
-  const url = `${base.endsWith('/') ? base : `${base}/`}version.json?t=${Date.now()}`;
+  // `cache: 'no-store'` plus a per-request nonce (not a clock) defeats caches.
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const url = `${base.endsWith('/') ? base : `${base}/`}version.json?n=${nonce}`;
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) return null;
   return res.json();
@@ -268,9 +304,8 @@ let shared: AppVersionWatch | null = null;
 export function getAppVersionWatch(): AppVersionWatch {
   if (!shared) {
     shared = new AppVersionWatch({
-      local: LOCAL_BUILD,
-      now: () => Date.now(),
-      fetchDeployed: fetchDeployedBuild,
+      local: LOCAL_RELEASE,
+      fetchDeployed: fetchDeployedRelease,
       reload: () => window.location.reload(),
       isCallActive,
       storage: typeof window === 'undefined' ? null : browserStorage(),

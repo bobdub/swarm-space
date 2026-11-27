@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { webcrypto } from 'node:crypto';
-import { AppVersionWatch, type BuildStamp } from '@/lib/p2p/appVersion';
+import { AppVersionWatch, type ReleaseStamp } from '@/lib/p2p/appVersion';
 import { AppUpdateNotice } from '@/components/AppUpdateNotice';
 import { useBrainAppUpdate } from '../useBrainAppUpdate';
 import { appUpdateNamespace, enterBrainUpdateContext, isBrainUpdateContext } from '@/lib/p2p/appUpdateNotices';
@@ -35,9 +35,9 @@ vi.mock('@/lib/p2p/appVersion', async (original) => {
   } };
 });
 
-const OLD: BuildStamp = { id: 'old', builtAt: 1000 };
-const NEW: BuildStamp = { id: 'new', builtAt: 2000 };
-let deployed: BuildStamp;
+const OLD: ReleaseStamp = { release: 12, id: 'old' };
+const NEW: ReleaseStamp = { release: 14, id: 'new' };
+let deployed: ReleaseStamp;
 let reload: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.stubGlobal('crypto', webcrypto);
@@ -45,7 +45,7 @@ beforeEach(() => {
   deployed = NEW;
   reload = vi.fn();
   mocks.watch = new AppVersionWatch({
-    local: OLD, now: () => 3000, fetchDeployed: async () => deployed,
+    local: OLD, fetchDeployed: async () => deployed,
     reload, isCallActive: () => true, storage: null,
   });
 });
@@ -54,9 +54,9 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('gentle update delivery', () => {
   it('records a verified update in the Bell inbox without refreshing', async () => {
     render(<AppUpdateNotice />);
-    act(() => { mocks.watch?.notePeerBuild(NEW); });
+    act(() => { mocks.watch?.notePeerRelease(NEW); });
     await waitFor(() => expect(mocks.stored.size).toBe(1));
-    expect([...mocks.stored.values()][0]).toMatchObject({ userId: 'mike-id', type: 'app_update', appBuildAt: 2000, read: false });
+    expect([...mocks.stored.values()][0]).toMatchObject({ userId: 'mike-id', type: 'app_update', appRelease: 14, read: false });
     expect(reload).not.toHaveBeenCalled();
     act(() => { mocks.watch?.refreshNow(); });
     expect(reload).toHaveBeenCalledTimes(1);
@@ -65,22 +65,22 @@ describe('gentle update delivery', () => {
   it('does not notify for an unverified higher peer stamp', async () => {
     deployed = OLD;
     render(<AppUpdateNotice />);
-    act(() => { mocks.watch?.notePeerBuild(NEW); });
+    act(() => { mocks.watch?.notePeerRelease(NEW); });
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
     expect(mocks.watch?.getState()).toEqual({ status: 'idle' });
     expect(mocks.stored.size).toBe(0);
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it('lets the user read the inbox notice and choose Update App through the page', async () => {
+  it('lets the user read the inbox notice and choose Update Now through the page', async () => {
     const view = render(<MemoryRouter><AppUpdateNotice /><Notifications /></MemoryRouter>);
-    act(() => { mocks.watch?.notePeerBuild(NEW); });
-    await view.findByRole('button', { name: 'Update App' });
+    act(() => { mocks.watch?.notePeerRelease(NEW); });
+    await view.findByRole('button', { name: 'Update Now' });
     expect(await getUnreadCount()).toBe(1);
     fireEvent.click(view.getByRole('button', { name: 'Mark all as read' }));
     await waitFor(async () => expect(await getUnreadCount()).toBe(0));
     expect(reload).not.toHaveBeenCalled();
-    fireEvent.click(await view.findByRole('button', { name: 'Update App' }));
+    fireEvent.click(await view.findByRole('button', { name: 'Update Now' }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
@@ -100,9 +100,10 @@ describe('gentle update delivery', () => {
     render(<AppUpdateNotice />);
     const hook = renderHook(() => useBrainAppUpdate(mocks.user, 'brain-room'));
     expect(isBrainUpdateContext()).toBe(true);
-    act(() => { mocks.watch?.notePeerBuild(NEW); });
+    act(() => { mocks.watch?.notePeerRelease(NEW); });
     await waitFor(() => expect(hook.result.current?.systemNotice).toBe('app_update'));
     expect(hook.result.current?.text).toContain('@Mike#356ef7cf');
+    expect(hook.result.current?.text).toContain('A newer Swarm Space version (v0.014) is live.');
     expect(hook.result.current?.authorId).toBeUndefined();
     expect(hook.result.current?.infinityReplyTo).toBeUndefined();
     const id = hook.result.current?.id;

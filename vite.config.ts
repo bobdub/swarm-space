@@ -7,16 +7,17 @@ import { execSync } from "child_process";
 import { readFileSync } from "fs";
 import type { Plugin } from "vite";
 
-// Build stamp: peers swap it over the mesh and compare `builtAt` to learn
-// that a newer build is deployed (src/lib/p2p/appVersion.ts). version.json
-// carries the same stamp so a tab can ask its own host what is live.
-function resolveBuildId(builtAt: number): string {
+// Release stamp: peers swap { release, id } over the mesh and compare the
+// release counter to learn that a newer version exists
+// (src/lib/p2p/appVersion.ts). version.json carries the same stamp so a tab
+// can ask its own host what is live. No build time is published.
+function resolveBuildId(release: number): string {
   const fromEnv = process.env.VITE_BUILD_ID?.trim();
   if (fromEnv) return fromEnv.slice(0, 64);
   try {
-    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || builtAt.toString(36);
+    return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim() || `r${release}`;
   } catch {
-    return builtAt.toString(36);
+    return `r${release}`;
   }
 }
 // Human-facing release counter (release.json, bumped on every push to main).
@@ -30,8 +31,7 @@ function readRelease(): number {
 }
 const APP_RELEASE = readRelease();
 
-const BUILT_AT = Date.now();
-const APP_BUILD = { id: resolveBuildId(BUILT_AT), builtAt: BUILT_AT, release: APP_RELEASE };
+const APP_BUILD = { release: APP_RELEASE, id: resolveBuildId(APP_RELEASE) };
 
 function buildStampPlugin(): Plugin {
   return {
