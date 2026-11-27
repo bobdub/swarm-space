@@ -4,6 +4,8 @@ import { groundElevationAt } from '@/lib/brain/groundHeight';
 import { BEACH_TOP_M } from '@/lib/brain/beach';
 import { EARTH_RADIUS, SHARED_VILLAGE_ISLAND_ANCHOR, getEarthLocalSiteFrame, type Vec3 } from '@/lib/brain/earth';
 import { getHens } from '@/lib/brain/land/chickens';
+import { recordNatureEvent, HEN_EVENT_TTL_MS } from '@/lib/world/natureEventsStore';
+import { isTreeFelled } from '@/lib/world/treeChopStore';
 import {
   WILD_PATCH_COUNT,
   WILD_VILLAGE_CLEAR_M,
@@ -94,5 +96,22 @@ describe('wild land', () => {
     // Walk to the far side of the planet: everything here is taken down.
     syncWildLand([-here[0], -here[1], -here[2]]);
     expect(engine.listBlocks((b) => b.anchorPeerId === `wild:${landPatch}`)).toHaveLength(0);
+  });
+
+  it('stands a remotely felled tree up again when the tab slept through its regrow', () => {
+    const engine = getBuilderBlockEngine();
+    const i = Array.from({ length: WILD_PATCH_COUNT }, (_, k) => k).find((k) => wildPatch(k)?.pieces.some((p) => p.kind === 'tree'))!;
+    const here = wildPatchCentre(i);
+    const fellAt = Date.now() - 1500;
+    syncWildLand(here, fellAt - 1000);
+    const tree = engine.listBlocks((b) => b.kind === 'tree' && b.anchorPeerId === `wild:${i}`)[0];
+    recordNatureEvent('fell', tree.bodyId, tree.anchorPeerId, tree.rightOffset, tree.forwardOffset, fellAt);
+    // Mid-fall: shown coming down.
+    syncWildLand(here, fellAt + 1500);
+    expect(isTreeFelled(tree.bodyId)).toBe(true);
+    // Next sync lands after the regrow: the same block stands again.
+    syncWildLand(here, fellAt + HEN_EVENT_TTL_MS + 1);
+    expect(engine.getBlock(tree.bodyId)).toBeDefined();
+    expect(isTreeFelled(tree.bodyId)).toBe(false);
   });
 });

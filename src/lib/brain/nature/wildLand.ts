@@ -35,7 +35,7 @@ import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '../volcanoOrgan';
 import { getBuilderBlockEngine } from '../builderBlockEngine';
 import { NATURE_CATALOG } from './natureCatalog';
 import { HEN_EVENT_TTL_MS, WILD_ANCHOR_PREFIX, listNatureEvents } from '@/lib/world/natureEventsStore';
-import { STUMP_FADE_MS, TOPPLE_MS, clearTreeChop, markTreeFelled } from '@/lib/world/treeChopStore';
+import { STUMP_FADE_MS, TOPPLE_MS, clearTreeChop, isTreeFelled, markTreeFelled } from '@/lib/world/treeChopStore';
 
 export { WILD_ANCHOR_PREFIX };
 
@@ -424,6 +424,9 @@ export function syncWildLand(viewer: Vec3, now = Date.now()): void {
         if (present) markTreeFelled(bodyId, fells.get(bodyId)!);
         continue;
       }
+      // Standing again: a felling this device saw start (say the tab slept
+      // through the stump fading and the regrow) must not keep it down.
+      if (piece.kind === 'tree' && isTreeFelled(bodyId)) clearTreeChop(bodyId);
       if (!present) {
         const spec = NATURE_CATALOG[piece.kind];
         engine.placeBlock({
