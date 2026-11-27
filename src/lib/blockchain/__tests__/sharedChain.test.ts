@@ -274,10 +274,10 @@ describe("mining against a moving tip", () => {
     // Hold our miner inside its first ledger check until the peer block is in.
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
-    const target = local as unknown as { validateWalletTipLedger: (b: Block[]) => Promise<boolean> };
-    const original = target.validateWalletTipLedger.bind(local);
+    const target = local as unknown as { ledgerProblem: (b: Block[]) => Promise<unknown> };
+    const original = target.ledgerProblem.bind(local);
     let first = true;
-    target.validateWalletTipLedger = async (b) => {
+    target.ledgerProblem = async (b) => {
       if (first) { first = false; await gate; }
       return original(b);
     };

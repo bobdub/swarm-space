@@ -369,7 +369,11 @@ export function startCreditGossip(onCreditTransfer: CreditGossipDeps["onCreditTr
         },
         subscribeLocalChainTx: (listener) => chain.onTransactionAdded(listener),
         // Vault donations wait in pending until someone mines them; offer them to every new peer.
-        unminedLocalChainTxs: async () => [...await signedUnminedDonations(chain), ...await unminedLegacyClaims(chain)],
+        unminedLocalChainTxs: async () => {
+          // Our own older SWARM transfers need our signature before any miner will carry them.
+          try { await (await import("@/lib/blockchain/token")).signOwnPendingTransfers(chain); } catch { /* retried on the next offer */ }
+          return [...await signedUnminedDonations(chain), ...await unminedLegacyClaims(chain)];
+        },
       });
       gossip.start();
       // Pending entries load from IndexedDB without passing through

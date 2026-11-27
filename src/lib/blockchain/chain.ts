@@ -5,8 +5,8 @@ import { getChainState, saveChainState, saveBlock } from "./storage";
 import { recordBlockAccepted, bootstrapChainBridge, resolveFork } from "./chainHealthBridge";
 import { planAdoption } from "./chainCatchup";
 import { beatIsFree, headerFor, verifyBlockHeader, type BlockSigner } from "./blockHeader";
-import { blockForbidsLegacyClaims, blockForbidsSelfMints, COMMUNITY_POOL, HOLLOW_REWARD_SHARE, isLegacyRewardClaim, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
-import { verifyLegacyRewardClaim, verifyPoolDonation, verifyWalletTip } from "./wallets/tipSignature";
+import { blockChecksSpends, blockForbidsLegacyClaims, blockForbidsSelfMints, COMMUNITY_POOL, isCheckedSwarmSpend, isMemberAddress, HOLLOW_REWARD_SHARE, isLegacyRewardClaim, isRewardMature, isSelfIssuedSwarmMint, POOL_REWARD_SHARE } from "./issuance";
+import { verifyLegacyRewardClaim, verifyPoolDonation, verifySwarmTransfer, verifyWalletTip } from "./wallets/tipSignature";
 import { canSettleCustomTokenTip, isCustomTokenTip } from "./deposits/customTokenTips";
 import { canSettleCreatorTokenTip, isCreatorTokenTip } from "./wallets/creatorTokenTips";
 import { isNativeMintMeCustody as isNativeMintMeDeposit, isNativeMintMeWithdraw, isNativeMintMeTip, nativeMintMeBalanceUnits, nativeMintMeUnits } from "./wallets/nativeMintmeLedger";
@@ -492,15 +492,13 @@ export class SwarmChain {
     ];
 
     // Only carry payments peers will accept: one funded by a local-only mint
-    // or an unripe reward stays pending instead of poisoning the block.
-    const transactions = [...carried, ...rewardTransactions];
+    // or an unripe reward stays pending instead of poisoning the block, and a
+    // spend whose SWARM is already gone leaves pending for good.
     const draft = { index: parent.index + 1, timestamp: new Date(startedAt).toISOString() };
     const history = this.chain.slice(0, parent.index + 1);
-    while (!await this.validateWalletTipLedger([...history, { ...draft, transactions } as SwarmBlock])) {
-      const last = transactions.map((tx) => tx.type).lastIndexOf("wallet_tip");
-      if (last < 0) break;
-      transactions.splice(last, 1);
-    }
+    const { kept, unfundable } = await this.planBlock(history, draft, [...carried, ...rewardTransactions]);
+    const transactions = kept;
+    if (unfundable.length) this.dropRefusedSpends(unfundable);
     if (transactions.length === rewardTransactions.length && !options.allowEmpty) return null;
     // Record the agreements our parent collected (signed blocks only, from the cutoff on).
     const witnesses = signer && options.witnesses?.length && blockMayRecordWitnesses(draft)
@@ -887,6 +885,84 @@ export class SwarmChain {
     return paid <= this.rewardAtHeight(block.index) + 1e-9;
   }
 
+  /**
+   * Fit `transactions` into a block on top of `history`: take out each entry
+   * the ledger refuses, one at a time, until the rest check out. Spends that
+   * can never be funded are reported separately so the caller can let go of them.
+   */
+  private async planBlock(
+    history: SwarmBlock[],
+    draft: { index: number; timestamp: string },
+    transactions: SwarmTransaction[],
+  ): Promise<{ kept: SwarmTransaction[]; unfundable: SwarmTransaction[] }> {
+    const kept = transactions.slice();
+    const unfundable: SwarmTransaction[] = [];
+    for (;;) {
+      const problem = await this.ledgerProblem([...history, { ...draft, transactions: kept } as SwarmBlock]);
+      if (!problem || problem.blockIndex !== draft.index) break;
+      const at = kept.indexOf(problem.tx);
+      if (at < 0 || problem.tx.type === "mining_reward") break;
+      kept.splice(at, 1);
+      if (!problem.unfundable || !isCheckedSwarmSpend(problem.tx)) continue;
+      // A payment to the spender that waits in pending (left out of this
+      // block for now) may still fund it later: only let go when it can't.
+      const spender = problem.tx.from;
+      const waiting = transactions.filter((tx) => !kept.includes(tx) && tx.from !== spender)
+        .reduce((sum, tx) => sum + Math.max(0, this.applyTransactionToBalance(tx, spender)), 0);
+      if (problem.shortfall > waiting + 1e-9) unfundable.push(problem.tx);
+    }
+    return { kept, unfundable };
+  }
+
+  /**
+   * Let go of pending SWARM spends the mined ledger can never fund (the SWARM
+   * was spent elsewhere first, say on another device), together with the
+   * other legs of the same order, so they stop being offered to peers, stop
+   * counting against the local balance, and leave the local tab.
+   */
+  private dropRefusedSpends(refused: SwarmTransaction[]): SwarmTransaction[] {
+    const ids = new Set(refused.map((tx) => tx.id));
+    const operations = new Set(refused.map((tx) => tx.meta?.operationId).filter((op): op is string => typeof op === "string" && !!op));
+    const dropped = this.pendingTransactions.filter((tx) => ids.has(tx.id)
+      || (typeof tx.meta?.operationId === "string" && operations.has(tx.meta.operationId)));
+    if (dropped.length === 0) return [];
+    const gone = new Set(dropped.map((tx) => tx.id));
+    this.pendingTransactions = this.pendingTransactions.filter((tx) => !gone.has(tx.id));
+    this._markDirtyAndScheduleFlush();
+    console.warn(`[Chain] Dropped ${dropped.length} pending entr${dropped.length === 1 ? "y" : "ies"} whose SWARM was already spent: ${[...gone].join(", ")}`);
+    if (typeof window !== "undefined") {
+      try { window.dispatchEvent(new CustomEvent("swarm-spend-refused", { detail: { transactions: dropped } })); } catch { /* non-fatal */ }
+    }
+    return dropped;
+  }
+
+  /**
+   * Check this device's pending SWARM spends against the mined chain as it
+   * stands now, and drop the ones it can never fund. Runs after the chain
+   * moves (a peer block or a peer chain), so a spend refused by peers doesn't
+   * stay queued and get offered again forever.
+   */
+  private async sweepRefusedSpends(): Promise<number> {
+    if (!this.pendingTransactions.some(isCheckedSwarmSpend)) return 0;
+    const tip = this.getLatestBlock();
+    const timestamp = new Date(Math.max(networkNow(), Date.parse(tip.timestamp) || 0)).toISOString();
+    if (!blockChecksSpends({ timestamp })) return 0;
+    const candidates = this.pendingTransactions.filter((tx) => tx.type !== "mining_reward" && !isSelfIssuedSwarmMint(tx));
+    const { unfundable } = await this.planBlock(this.chain, { index: tip.index + 1, timestamp }, candidates);
+    return this.dropRefusedSpends(unfundable).length;
+  }
+
+  /** A member's SWARM transfer learned from a peer's branch (or re-admitted after a fork): signed, and funded here. */
+  async acceptSwarmTransfer(transaction: SwarmTransaction): Promise<boolean> {
+    await this.whenReady();
+    if (this.hasTransaction(transaction.id)) return false;
+    if (isMemberAddress(transaction.from) && !await verifySwarmTransfer(transaction)) return false;
+    const need = (transaction.amount ?? 0) + (transaction.fee ?? 0);
+    if (this.getSpendableBalance(transaction.from) + 1e-9 < need) return false;
+    this.addTransaction(transaction);
+    return this.hasTransaction(transaction.id);
+  }
+
   /** Re-admit a transaction from a dropped block through the same checks a new one passes. */
   private async readmitTransaction(tx: SwarmTransaction): Promise<boolean> {
     try {
@@ -900,6 +976,10 @@ export class SwarmChain {
       if (isNativeMintMeDeposit(tx)) return await this.acceptNativeMintMeDeposit(tx);
       if (isNativeEthCustody(tx)) return await this.acceptNativeEthCustody(tx);
       if (isCustomTokenSync(tx)) return await this.acceptCustomTokenDeposit(tx);
+      // A dropped spend must still be signed and funded on the adopted ledger:
+      // the new chain may already carry the same SWARM spent from another device.
+      if (tx.type === "pool_donate" && tx.from !== "system") return await this.acceptPoolDonation(tx);
+      if (tx.type === "token_transfer" && tx.from !== "system") return await this.acceptSwarmTransfer(tx);
       this.addTransaction(tx);
       return this.hasTransaction(tx.id);
     } catch {
@@ -946,6 +1026,7 @@ export class SwarmChain {
       let readmitted = 0;
       for (const tx of plan.requeue) if (await this.readmitTransaction(tx)) readmitted++;
       this.pruneCustomTokenPending();
+      await this.sweepRefusedSpends();
       await this.persistState();
       console.log(`[Chain] Adopted peer chain (${candidate.length} blocks, fork at #${plan.forkPoint}, ${readmitted}/${plan.requeue.length} tx re-queued)`);
       return "adopted";
@@ -981,6 +1062,7 @@ export class SwarmChain {
     const included = new Set(block.transactions.map(tx => tx.id));
     this.pendingTransactions = this.pendingTransactions.filter(tx => !included.has(tx.id));
     this.pruneCustomTokenPending();
+    await this.sweepRefusedSpends();
     await saveBlock(block);
     await this.persistState();
     try { recordBlockAccepted(block); } catch { /* non-fatal */ }
@@ -1005,6 +1087,17 @@ export class SwarmChain {
   private ledgerCache: { length: number; tipHash: string; state: LedgerWalk } | null = null;
 
   private async validateWalletTipLedger(blocks: SwarmBlock[]): Promise<boolean> {
+    return (await this.ledgerProblem(blocks)) === null;
+  }
+
+  /**
+   * Walk `blocks` and return the first transaction the ledger can't accept,
+   * or null when every one checks out. `unfundable` marks a SWARM spend whose
+   * spender couldn't cover it even once every maturing reward ripens and every
+   * later payment in the same block lands: the SWARM went elsewhere (spent
+   * twice, say from another device), so waiting won't help.
+   */
+  private async ledgerProblem(blocks: SwarmBlock[]): Promise<LedgerProblem | null> {
     let start = 0;
     let walk: LedgerWalk;
     const cache = this.ledgerCache;
@@ -1015,9 +1108,11 @@ export class SwarmChain {
       walk = { balances: new Map(), seen: new Set(), accepted: [], nonces: new Set(), maturing: [] };
     }
     const { balances, seen, accepted, nonces, maturing } = walk;
+    let block!: SwarmBlock;
+    const fail = (tx: SwarmTransaction): LedgerProblem => ({ tx, blockIndex: block.index, unfundable: false, shortfall: 0 });
     // Rewards from blocks under the new issuance rules wait to mature before they can be spent.
     for (let b = start; b < blocks.length; b++) {
-      const block = blocks[b];
+      block = blocks[b];
       for (let i = maturing.length - 1; i >= 0; i--) {
         if (!isRewardMature(maturing[i].index, block.index)) continue;
         const { to, amount } = maturing[i];
@@ -1025,34 +1120,48 @@ export class SwarmChain {
         maturing.splice(i, 1);
       }
       const holdRewards = blockForbidsSelfMints(block);
+      const checkSpends = blockChecksSpends(block);
       for (const tx of block.transactions) {
-        if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return false;
-        if (isCustomTokenSync(tx) && (seen.has(tx.id) || !await verifyCustomTokenSync(tx, accepted))) return false;
+        if (isNativeMintMeDeposit(tx) && (seen.has(tx.id) || !await verifyNativeMintMeDeposit(tx, accepted))) return fail(tx);
+        if (isCustomTokenSync(tx) && (seen.has(tx.id) || !await verifyCustomTokenSync(tx, accepted))) return fail(tx);
         if (isNativeEthCustody(tx)) {
-          if (seen.has(tx.id) || !await verifyNativeEthCustody(tx, accepted)) return false;
+          if (seen.has(tx.id) || !await verifyNativeEthCustody(tx, accepted)) return fail(tx);
           const units = nativeEthUnits(tx);
-          if (isNativeEthWithdraw(tx) && (units === null || nativeEthBalanceUnits(accepted, tx.from) < units)) return false;
+          if (isNativeEthWithdraw(tx) && (units === null || nativeEthBalanceUnits(accepted, tx.from) < units)) return fail(tx);
         }
         if (isLegacyRewardClaim(tx)) {
-          if (seen.has(tx.id) || !await verifyLegacyRewardClaim(tx)) return false;
-          if (accepted.some((prior) => isLegacyRewardClaim(prior) && prior.from === tx.from)) return false;
+          if (seen.has(tx.id) || !await verifyLegacyRewardClaim(tx)) return fail(tx);
+          if (accepted.some((prior) => isLegacyRewardClaim(prior) && prior.from === tx.from)) return fail(tx);
         }
         if (tx.type === "wallet_tip") {
-          if (seen.has(tx.id) || !await verifyWalletTip(tx)) return false;
+          if (seen.has(tx.id) || !await verifyWalletTip(tx)) return fail(tx);
           const nonceKey = `${tx.from}:${tx.meta?.assetId}:${tx.nonce}`;
-          if (nonces.has(nonceKey)) return false;
+          if (nonces.has(nonceKey)) return fail(tx);
           nonces.add(nonceKey);
           if (isNativeMintMeTip(tx)) {
             const units = nativeMintMeUnits(tx);
-            if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return false;
+            if (units === null || nativeMintMeBalanceUnits(accepted, tx.from) < units) return fail(tx);
           } else if (isNativeEthTip(tx)) {
             const units = nativeEthUnits(tx);
-            if (units === null || nativeEthBalanceUnits(accepted, tx.from) < units) return false;
+            if (units === null || nativeEthBalanceUnits(accepted, tx.from) < units) return fail(tx);
           } else if (isCustomTokenTip(tx)) {
-            if (!canSettleCustomTokenTip(accepted, tx)) return false;
+            if (!canSettleCustomTokenTip(accepted, tx)) return fail(tx);
           } else if (isCreatorTokenTip(tx)) {
-            if (!canSettleCreatorTokenTip(accepted, tx)) return false;
-          } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return false;
+            if (!canSettleCreatorTokenTip(accepted, tx)) return fail(tx);
+          } else if ((balances.get(tx.from) ?? 0) < (tx.amount ?? 0)) return fail(tx);
+        }
+        if (checkSpends && isCheckedSwarmSpend(tx)) {
+          if (seen.has(tx.id)) return fail(tx);
+          if (tx.type === "pool_donate" ? !await verifyPoolDonation(tx) : (isMemberAddress(tx.from) && !await verifySwarmTransfer(tx))) return fail(tx);
+          const need = -this.applyTransactionToBalance(tx, tx.from);
+          const have = balances.get(tx.from) ?? 0;
+          if (!(need >= 0) || have + 1e-9 < need) {
+            const ripening = maturing.reduce((sum, m) => sum + (m.to === tx.from ? m.amount : 0), 0);
+            const arriving = block.transactions.slice(block.transactions.indexOf(tx) + 1)
+              .reduce((sum, later) => sum + Math.max(0, later.from === tx.from ? 0 : this.applyTransactionToBalance(later, tx.from)), 0);
+            const shortfall = need - (have + ripening + arriving);
+            return { tx, blockIndex: block.index, unfundable: need >= 0 && shortfall > 1e-9, shortfall: need >= 0 ? shortfall : Infinity };
+          }
         }
         seen.add(tx.id);
         accepted.push(tx);
@@ -1072,7 +1181,7 @@ export class SwarmChain {
         }
       }
     }
-    return true;
+    return null;
   }
 }
 
@@ -1082,6 +1191,15 @@ interface ConfirmedBalances {
   tipHash: string;
   settled: Map<string, number>;
   maturing: { index: number; address: string; amount: number }[];
+}
+
+/** The first transaction a ledger walk refused, and whether it can never be funded. */
+interface LedgerProblem {
+  tx: SwarmTransaction;
+  blockIndex: number;
+  unfundable: boolean;
+  /** For an unfundable spend: how much SWARM the spender is short by. */
+  shortfall: number;
 }
 
 /** Running state of a wallet-ledger walk over blocks. */

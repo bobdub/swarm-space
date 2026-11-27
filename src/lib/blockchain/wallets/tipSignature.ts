@@ -96,6 +96,19 @@ export async function verifyPoolDonation(tx: SwarmTransaction): Promise<boolean>
 }
 
 /**
+ * A member's SWARM transfer (a bar drink, a Trading Stand payment, a vault
+ * purchase), well formed and signed by the member. Vault, escrow and stand
+ * accounts have no key; their transfers are only balance-checked.
+ */
+export async function verifySwarmTransfer(tx: SwarmTransaction): Promise<boolean> {
+  if (tx.type !== "token_transfer" || !tx.from || tx.from === "system" || !tx.to || tx.from === tx.to) return false;
+  if (!Number.isFinite(tx.amount) || (tx.amount ?? 0) <= 0 || !Number.isFinite(tx.fee) || tx.fee < 0) return false;
+  if (tx.tokenId || (tx.chainId ?? "SWARM") !== "SWARM") return false;
+  if (!tx.id || tx.id.length > 128 || !Number.isSafeInteger(tx.nonce) || !Number.isFinite(Date.parse(tx.timestamp))) return false;
+  return verifyLedgerSignature(tx);
+}
+
+/**
  * A member's Credits or token gift to the Market Vault, as Support the Vault
  * records it. The donor's own device writes it, so it may travel to peers
  * before it is mined only when the donor signed it.
