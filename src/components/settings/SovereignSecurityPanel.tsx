@@ -324,7 +324,7 @@ export function SovereignSecurityPanel() {
             <div className="space-y-1.5">
               <Label>Namespace handle</Label>
               <div className="flex gap-2">
-                <Input value={handle} readOnly className="font-mono text-sm" />
+                <Input value={handle} readOnly className="min-w-0 font-mono text-sm" />
                 <Button variant="outline" size="icon" aria-label="Copy handle" onClick={() => copy(handle, "Handle")}>
                   <Copy className="h-4 w-4" />
                 </Button>
@@ -339,7 +339,7 @@ export function SovereignSecurityPanel() {
               {vault ? (
                 <div className="space-y-2">
                   <div className="flex gap-2">
-                    <Input value={link} readOnly className="font-mono text-xs" aria-label="Recovery link" />
+                    <Input value={link} readOnly className="min-w-0 font-mono text-xs" aria-label="Recovery link" />
                     <Button variant="outline" size="icon" aria-label="Copy recovery link" onClick={() => copy(link, "Recovery link")}>
                       <Copy className="h-4 w-4" />
                     </Button>
@@ -366,7 +366,7 @@ export function SovereignSecurityPanel() {
               )}
               <div className="space-y-1.5" role="status" aria-label="Vault custody">
                 <p className="flex items-center gap-1.5 text-xs text-foreground/70">
-                  <ShieldCheck className={`h-3.5 w-3.5 ${custodyPeers.length > 0 ? "text-green-500" : "text-foreground/40"}`} />
+                  <ShieldCheck className={`h-3.5 w-3.5 shrink-0 ${custodyPeers.length > 0 ? "text-green-500" : "text-foreground/40"}`} />
                   {custodyLabel}
                 </p>
                 {custodyPeers.length > 0 && (
@@ -376,9 +376,9 @@ export function SovereignSecurityPanel() {
                       return (
                         <li
                           key={p.peerId}
-                          className="flex items-center gap-1.5 rounded-full border border-foreground/15 px-2.5 py-0.5 text-xs text-foreground/70"
+                          className="flex max-w-full items-center gap-1.5 break-all rounded-full border border-foreground/15 px-2.5 py-0.5 text-xs text-foreground/70"
                         >
-                          <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-green-500" : "bg-foreground/30"}`} aria-hidden />
+                          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${online ? "bg-green-500" : "bg-foreground/30"}`} aria-hidden />
                           {p.name || p.peerId.slice(0, 12)}
                           <span className="sr-only">{online ? "(connected)" : "(offline)"}</span>
                         </li>
@@ -410,11 +410,11 @@ export function SovereignSecurityPanel() {
             )}
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <Button variant="outline" className="gap-2" onClick={downloadCredentials} disabled={!vault}>
+              <Button variant="outline" className="w-full gap-2 sm:w-auto" onClick={downloadCredentials} disabled={!vault}>
                 <Download className="h-4 w-4" />
                 Download identity .md
               </Button>
-              <Button className="gap-2" onClick={() => setRotateOpen(true)}>
+              <Button className="h-auto min-h-10 w-full gap-2 whitespace-normal py-2 text-center sm:w-auto" onClick={() => setRotateOpen(true)}>
                 <RefreshCw className="h-4 w-4" />
                 {vault ? "Update Recovery Phrase (Wrap New Outer Shell)" : "Seal Recovery Vault"}
               </Button>
