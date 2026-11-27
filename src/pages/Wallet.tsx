@@ -15,7 +15,7 @@ import {
   Trophy, Pickaxe, Globe, ArrowDownUp,
   Link2, Repeat, ImagePlus, Trash2, Store, BookOpen, ArrowRight,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useP2PContext } from "@/contexts/P2PContext";
 import { getCurrentUser } from "@/lib/auth";
@@ -48,7 +48,6 @@ import { CoinEngravingControl } from "@/components/wallet/CoinEngravingControl";
 import { CoinDeploymentPanel } from "@/components/wallet/CoinDeploymentPanel";
 import { ChainSwitcher } from "@/components/wallet/ChainSwitcher";
 import { CellChainPanel } from "@/components/wallet/CellChainPanel";
-import { CrossChainSwapPanel } from "@/components/wallet/CrossChainSwapPanel";
 import {
   getActiveChain,
   getChainBalance,
@@ -78,7 +77,13 @@ export default function Wallet() {
   const [profileToken, setProfileToken] = useState<CreatorToken | null>(null);
   const [deployPricing, setDeployPricing] = useState<DeployPricing | null>(null);
   const [loading, setLoading] = useState(true);
-  const [walletTab, setWalletTab] = useState("assets");
+  const [searchParams] = useSearchParams();
+  const [walletTab, setWalletTab] = useState(() => searchParams.get("tab") || "assets");
+  // Notification links (e.g. Share my Chain → /wallet?tab=coins) open a tab.
+  const linkedTab = searchParams.get("tab");
+  useEffect(() => {
+    if (linkedTab) setWalletTab(linkedTab);
+  }, [linkedTab]);
   const [assetNetwork, setAssetNetwork] = useState<AssetNetwork>(
     () => loadWalletNetwork(user?.id),
   );
@@ -249,7 +254,6 @@ export default function Wallet() {
     window.addEventListener("credit-transaction", handleCreditTransaction);
     window.addEventListener("blockchain-transaction", handleCreditTransaction);
     window.addEventListener("active-chain-changed", handleChainChanged);
-    window.addEventListener("cross-chain-swap", handleCreditTransaction);
     window.addEventListener("reward-pool-update", handleCreditTransaction);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -260,7 +264,6 @@ export default function Wallet() {
       window.removeEventListener("credit-transaction", handleCreditTransaction);
       window.removeEventListener("blockchain-transaction", handleCreditTransaction);
       window.removeEventListener("active-chain-changed", handleChainChanged);
-      window.removeEventListener("cross-chain-swap", handleCreditTransaction);
       window.removeEventListener("reward-pool-update", handleCreditTransaction);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       clearInterval(interval);
@@ -422,13 +425,12 @@ export default function Wallet() {
           />
         ) : (
         <Tabs value={walletTab} onValueChange={setWalletTab} className="space-y-6">
-          <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-9">
+          <TabsList className="flex w-full max-w-full h-auto gap-1 overflow-x-auto overflow-y-hidden whitespace-nowrap justify-start [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:grid sm:grid-cols-8">
             <TabsTrigger value="assets" className="shrink-0 px-3">Assets</TabsTrigger>
             <TabsTrigger value="transactions" className="shrink-0 px-3">Ledger</TabsTrigger>
             <TabsTrigger value="credits" className="shrink-0 px-3">Labor</TabsTrigger>
             <TabsTrigger value="nfts" className="shrink-0 px-3">NFTs</TabsTrigger>
             <TabsTrigger value="mining" className="shrink-0 px-3">Mining</TabsTrigger>
-            <TabsTrigger value="swap" className="shrink-0 px-3">Swap</TabsTrigger>
             <TabsTrigger value="creator-token" className="shrink-0 px-3">Creator</TabsTrigger>
             <TabsTrigger value="coins" className="shrink-0 px-3">Chain</TabsTrigger>
             <TabsTrigger value="market" className="shrink-0 px-3">Market</TabsTrigger>
@@ -451,11 +453,6 @@ export default function Wallet() {
             <SealedCoinsHistory userId={user?.id || ""} />
             <LabourPayoutsPanel />
             <StandLedgerPanel />
-          </TabsContent>
-
-          {/* ── Swap ──────────────────────────────────────────────── */}
-          <TabsContent value="swap">
-            <CrossChainSwapPanel />
           </TabsContent>
 
           {/* ── NFTs ──────────────────────────────────────────────── */}

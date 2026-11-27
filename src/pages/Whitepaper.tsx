@@ -223,8 +223,8 @@ const Whitepaper = () => {
                   <li>Validation: 3-6 character uppercase ticker (excluding "SWARM"), 1-32 character chain name, minimum 10-character project goal</li>
                   <li>Independent ledger tagged with chain ID & ticker, auto-bridged to SWARM via <Code>swarm-bridge://&#123;coinId&#125;</Code></li>
                   <li>Per-chain balance scanning: sub-chain transactions are filtered by <Code>chainId</Code> across all blocks</li>
-                  <li>Cross-chain swaps: 1:1 between sub-chains, 2:1 when swapping TO SWARM, 1:1 SWARM to sub-chain</li>
-                  <li>Mining is context-aware — rewards accrue on the active chain with chain-tagged reward transactions</li>
+                  <li>One coin per account. The coin is mined on its own chain (the SWARM chain's rules), only while the deployer is online with at least one member or guest; peers it is shared with can help mine</li>
+                  <li>Trading runs through the Market; there are no direct cross-chain swaps</li>
                   <li>Chain switching is instant and does not disrupt the underlying P2P mesh connection</li>
                   <li><B>All coins must pass mineHealth validation</B> before deployment — ensuring the deployer is an active, honest mesh participant</li>
                 </ul>
@@ -241,7 +241,7 @@ const Whitepaper = () => {
                 </ul>
               </SubCard>
 
-              <SubCard title="Creator Tokens — Network Worth & Dual-Swap System">
+              <SubCard title="Creator Tokens — Network Worth">
                 <P>
                   When a user deploys a Creator Token, it represents their <B>"worth" to the network</B>. Tokens unlock similarly to SWARM code mining, but only for the minted token supply:
                 </P>
@@ -253,12 +253,8 @@ const Whitepaper = () => {
                   <li>Once used to lock an NFT post, the token cannot be renamed or redeployed</li>
                 </ul>
                 <P>
-                  <B>Dual-Swap System:</B> Creator Tokens can be exchanged via two paths:
+                  Creator Tokens are traded through the <B>Market</B>, at the live market price.
                 </P>
-                <ul className="list-disc pl-5 space-y-1 text-sm text-foreground/70">
-                  <li><B>Token → Credits (1:1)</B> — direct swap, no pool dependency</li>
-                  <li><B>Token → SWARM (10:1)</B> — 10 tokens required for 1 SWARM coin, executed via Literal Wrap</li>
-                </ul>
               </SubCard>
 
               <SubCard title="Literal Wrap Protocol — Tokens Inside Coins">
@@ -820,19 +816,13 @@ const Whitepaper = () => {
                     ["Transaction Processing Reward", "0.1 SWARM per confirmed action"],
                     ["Content Hosting Reward", "0.05 SWARM per service unit"],
                     ["Credit → SWARM Ratio", "100 credits = 1 SWARM (pool-dependent)"],
-                    ["Cross-Chain Swap (sub ↔ sub)", "1:1"],
-                    ["Cross-Chain Swap (sub → SWARM)", "2:1"],
-                    ["Cross-Chain Swap (SWARM → sub)", "1:1"],
                     ["External Bridge Fee", "1% + 1 SWARM base"],
                     ["Creator Token Deploy Cost", "1,000 credits"],
                     ["Creator Token Max Supply", "10,000 per account"],
-                    ["Token → Credits Swap", "1:1 (direct)"],
-                    ["Token → SWARM Swap", "10:1 (10 tokens = 1 SWARM)"],
-                    ["Token→SWARM Pool Surplus", "+1 SWARM (wrapper returned to pool)"],
                     ["Coin Deploy Cost", "10,000 SWARM total"],
                     ["Coin Liquidity Lock", "5,000 SWARM (floor value backing)"],
                     ["Coin Pool Contribution", "5,000 SWARM to community pool"],
-                    ["MineHealth Gate", "All swaps, deploys, wraps require active mining + peers"],
+                    ["MineHealth Gate", "Deploys and wraps require active mining + peers"],
                     ["Hype Cost", "5 credits (20% burned)"],
                     ["Hype Value", "10 Creator Tokens = 1 credit"],
                     ["Daily Burn", "0.3 credits via quantum metrics"],

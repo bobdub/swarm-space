@@ -56,6 +56,17 @@ scheduleIdle(() => {
     .catch((err) => console.warn('[main] vault custody failed', err));
 });
 
+// ── Deployed coins: Share my Chain offers from peers, and the deployer's
+// "Start Mining my coin" session (follows its switch on Wallet > Chain).
+scheduleIdle(() => {
+  import('./lib/blockchain/coinChainShare')
+    .then((m) => m.attachCoinChainShareToMesh())
+    .catch((err) => console.warn('[main] chain sharing failed', err));
+  import('./lib/blockchain/coinChainMining')
+    .then((m) => m.attachCoinMiningRuntime())
+    .catch((err) => console.warn('[main] coin mining failed', err));
+});
+
 // ── Sync Vault ingest — observes MediaCustody events and writes verified
 // media into the source peer's local vault. Feature-flagged; no new gossip.
 scheduleIdle(() => {
