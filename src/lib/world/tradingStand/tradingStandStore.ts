@@ -18,6 +18,9 @@
  * recorded stock. A goods leg is a `custom_token_transfer` in the `GOOD:<id>`
  * currency between the player and the stand address. Unsupported payment
  * fails closed: the stand settles only in SWARM or Credits.
+ *
+ * Every trade, stocking and funding is online play only (`assertOnlineStand`):
+ * offline the ledger can't be synced, so nothing is charged or recorded.
  */
 import type { SwarmBlock, SwarmTransaction } from '@/lib/blockchain/types';
 import type { UserCell } from '@/lib/p2p/userCell';
@@ -46,6 +49,7 @@ import {
   type StandVaultState,
   type TradingGood,
 } from './pricing';
+import { offlineSpendProblem } from '@/lib/world/playMode';
 import { giveGood, heldGood, shortGoodMessage, takeGood } from './goods';
 
 export const STAND_ADDRESS_PREFIX = 'trading-stand:';
@@ -282,6 +286,12 @@ function assertSupported(currency: string): asserts currency is StandCurrency {
   }
 }
 
+/** Stand trades, stocking and funding all write to the SWARM ledger: online play only. */
+export function assertOnlineStand(action = 'trade at the stand'): void {
+  const problem = offlineSpendProblem(action);
+  if (problem) throw new Error(problem);
+}
+
 async function assertSignedIn(userId: string) {
   const { getCurrentUser } = await import('@/lib/auth');
   if (!userId || getCurrentUser()?.id !== userId) throw new Error('Sign in to trade at the stand.');
@@ -313,6 +323,7 @@ async function addRecord(params: {
 
 /** Player buys goods from the stand, paying SWARM or Credits. */
 export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> {
+  assertOnlineStand('trade at the stand');
   assertOwnVault(req.scope);
   assertSupported(req.currency);
   if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
@@ -394,6 +405,7 @@ export async function buyFromStand(req: StandTradeRequest): Promise<StandQuote> 
 
 /** Player sells goods to the stand for SWARM or Credits. */
 export async function sellToStand(req: StandTradeRequest): Promise<StandQuote> {
+  assertOnlineStand('trade at the stand');
   assertOwnVault(req.scope);
   assertSupported(req.currency);
   if (!getTradingGood(req.good)) throw new Error('The stand does not trade this good.');
@@ -464,6 +476,7 @@ export async function donateGoodsToStand(
   good: TradingGood,
   qty: number,
 ): Promise<void> {
+  assertOnlineStand('stock the stand');
   // Only a stand's owner stocks it, and only into that stand's own vault.
   if (!stand || stand.ownerId !== userId) throw new Error('Only the stand\'s owner can stock it.');
   if (scope.settlesMain || scope.key !== standVaultScope(stand.placementId).key) throw new Error('Stock a stand from that stand.');
@@ -516,6 +529,7 @@ export async function donateToStandVault(
   asset: StandDonationAsset,
   amount: number,
 ): Promise<void> {
+  assertOnlineStand('fund the stand');
   if (stand.ownerId !== userId) throw new Error('Only the stand\'s owner can fund it.');
   if (scope.settlesMain) throw new Error('This stand has no vault of its own to fund.');
   if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter an amount above zero.');

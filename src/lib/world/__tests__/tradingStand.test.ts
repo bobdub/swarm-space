@@ -228,6 +228,7 @@ describe("each stand is its own market", () => {
   });
 
   it("gives every stand its own vault, and lets only the owner fund it", async () => {
+    _resetPlayModeForTest({ online: true });
     const own = standVaultScope('p1', 'Ada');
     expect(own).toMatchObject({ key: 'stand:p1', address: 'trading-stand:stand:p1', settlesMain: false });
     expect(standVaultScope('p2').address).not.toBe(own.address);

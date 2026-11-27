@@ -26,6 +26,7 @@ import {
 } from '@/lib/blockchain/infinity/barTab';
 import { barOrderProblem, orderAtBar } from '@/lib/pub/barOrders';
 import { getLocalMeshPeerId } from '@/lib/streaming/webrtcSignalingBridge.standalone';
+import { useOnlinePlay } from '@/lib/world/useOnlinePlay';
 
 const REFRESH_EVENTS = ['blockchain-transaction', 'reward-pool-update', 'swarm-block-mined', 'peer-gift-outcome'];
 const EMPTY: BarTab = { patrons: [], drinksPoured: 0, takings: 0, orderCount: 0 };
@@ -91,6 +92,8 @@ export function BarMenuPanel({
   onClose: () => void;
 }) {
   const user = getCurrentUser();
+  // Re-render when the mesh comes or goes: ordering is online play only.
+  useOnlinePlay();
   const problem = barOrderProblem(user);
   const { tab, names, ready } = useBarTab();
   const [qty, setQty] = useState<Record<string, number>>({});
