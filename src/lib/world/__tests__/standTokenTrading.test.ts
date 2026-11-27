@@ -164,4 +164,10 @@ describe('bulk buys while stock awaits a block', () => {
     await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 7, currency: 'SWARM', stand })).rejects.toThrow(/keeps its last one/);
     await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 6, currency: 'SWARM', stand })).resolves.toBeTruthy();
   });
+
+  it('never pays more to sell back what was just bought', async () => {
+    const bought = await buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 10, currency: 'SWARM', stand });
+    const sold = await sellToStand({ userId: 'buyer', scope, good: 'wood', qty: 10, currency: 'SWARM', stand });
+    expect(sold.swarm).toBeLessThanOrEqual(bought.swarm);
+  });
 });
