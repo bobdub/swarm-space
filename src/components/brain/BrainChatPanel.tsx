@@ -63,6 +63,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isPeerMuted, mutePeer, unmutePeer, useMutedPeers } from '@/lib/brain/mutedPeersStore';
 import { GuestPeerConnectionPrompt } from './GuestPeerConnectionPrompt';
+import { CopyMessageButton } from '@/components/chat/CopyMessageButton';
 import { BrainInviteControl, BrainInviteStatus } from './BrainInviteControl';
 import { CHAT_MESSAGE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { networkNow } from '@/lib/time/networkClock';
@@ -961,10 +962,13 @@ export function BrainChatPanel({
                 Saved {new Date(viewingCoin.wrappedChat.savedAt).toLocaleString()} · {viewingCoin.wrappedChat.messageCount} messages · {viewingCoin.wrappedChat.participants.length} participants
               </p>
               {viewingCoin.wrappedChat.messages.map((m, i) => (
-                <div key={`${m.ts}-${i}`} className="rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
+                <div key={`${m.ts}-${i}`} className="group rounded-md border border-white/10 bg-black/20 px-2 py-1.5 text-xs">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-foreground/60">
                     <span className="truncate font-medium">{m.author}</span>
-                    <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                    <div className="flex items-center gap-1">
+                      <span>{new Date(m.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <CopyMessageButton text={m.text} />
+                    </div>
                   </div>
                   <div className="prose prose-invert prose-sm max-w-none break-words text-foreground/90 [&_a]:text-primary [&_li]:my-0.5 [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={CHAT_MARKDOWN_COMPONENTS}>{formatChatMarkdown(m.text)}</ReactMarkdown>
@@ -1066,6 +1070,7 @@ export function BrainChatPanel({
                       </div>
                       <div className="flex items-center gap-1">
                         <span>{new Date(line.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <CopyMessageButton text={line.text} />
                         <button
                           type="button"
                           onClick={() => setReplyTo({
