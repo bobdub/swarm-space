@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { getBuilderBlockEngine } from '@/lib/brain/builderBlockEngine';
 import { blockWorldBasis } from '@/lib/brain/blockFrame';
-import { DARTS_BOARD_ROLL, DONOR_BOARD_YAW, DONOR_RIGHT, STAR_CHART_FORWARD, STAR_CHART_RIGHT, STAR_CHART_YAW } from './SurfaceBar';
+import { DARTS_BOARD_ROLL, DONOR_BOARD_YAW, DONOR_RIGHT, STAR_CHART_FORWARD, STAR_CHART_RIGHT, STAR_CHART_YAW, STAR_GRID_HALF } from './SurfaceBar';
 
 // Wall-hung bar pieces must face the bar's centre. The render frame's local
 // +X is the site frame's left, so a piece placed at +rightOffset sits on
@@ -35,18 +35,18 @@ describe('bar wall pieces face the room', () => {
     expect(facing([-4.8, 0], [0, 0], face)).toBeGreaterThan(0.95);
   });
 
-  it('star chart beside the dartboard faces into the room', () => {
+  it('star charts beside the dartboard face into the room', () => {
     const face = new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(0, STAR_CHART_YAW, 0));
     expect(facing([STAR_CHART_RIGHT, STAR_CHART_FORWARD], [0, STAR_CHART_FORWARD], face)).toBeGreaterThan(0.95);
     // Readable from the middle of the room too.
     expect(facing([STAR_CHART_RIGHT, STAR_CHART_FORWARD], [0, 0], face)).toBeGreaterThan(0.7);
   });
 
-  it('star chart hangs to the left of the dartboard as you face it, clear of it and the sconce', () => {
+  it('star charts hang to the left of the dartboard as you face it, clear of it and the sconce', () => {
     // Facing the west wall from inside, your left is toward the front (−forward).
     const dartsForward = -3;
     const dartsR = 0.34;
-    const halfW = 1.2;
+    const halfW = STAR_GRID_HALF;
     expect(STAR_CHART_FORWARD + halfW).toBeLessThan(dartsForward - dartsR - 0.3);
     // West wall sconce at forward −5 (2.75 m up) and the front wall at −9.75.
     expect(STAR_CHART_FORWARD + halfW).toBeLessThan(-5.2);

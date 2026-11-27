@@ -1,16 +1,16 @@
 /**
  * Star hunt: the game behind the constellations.
  *
- * Each night the star chart in the bar (The Green Cat & Red Dragon) shows one
- * constellation, "tonight's stars". A player reads the chart indoors, walks
- * outside after dark and finds the figure among the ordinary stars. The sky
+ * Four star charts hang in the bar (The Green Cat & Red Dragon), one per
+ * constellation, each with tonight's hint for its figure. A player reads the
+ * charts indoors, walks outside after dark and finds the figures among the
+ * ordinary stars. The sky
  * draws no figure lines and the figure's stars are only a little brighter
  * than the rest, so the chart's shape and a loose hint are what make it
  * findable. Holding your gaze on it logs the find.
  *
  * Everything here is a pure function of the shared Earth clock and the
- * village's site, so every peer gets the same constellation on the same
- * night, with the same hint.
+ * village's site, so every peer gets the same hints on the same night.
  */
 import {
   EARTH_RADIUS,
@@ -151,13 +151,6 @@ export interface NightSighting {
   bestPhase: number;
 }
 
-function hashNight(n: number): number {
-  let h = (n | 0) ^ 0x9e3779b9;
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  return (h ^ (h >>> 16)) >>> 0;
-}
-
 /** How each constellation shows from the village on night `n`. */
 export function nightSightings(n: number): NightSighting[] {
   const place = villagePlace();
@@ -191,24 +184,21 @@ export function nightSightings(n: number): NightSighting[] {
   return out;
 }
 
-const tonightCache = new Map<number, NightSighting>();
+const sightingsCache = new Map<number, NightSighting[]>();
 
-/**
- * Tonight's constellation for night `n`: one of the figures that is well up
- * after dark, chosen by a hash of the night so nights vary but every peer
- * agrees. If none is well up, the best placed one.
- */
-export function tonightsConstellation(n: number): NightSighting {
-  const cached = tonightCache.get(n);
+/** `nightSightings`, memoised: each night is sampled once. */
+export function sightingsForNight(n: number): NightSighting[] {
+  const cached = sightingsCache.get(n);
   if (cached) return cached;
-  const sightings = nightSightings(n);
-  const good = sightings.filter((s) => s.upSamples >= TONIGHT_MIN_SAMPLES);
-  const pick = good.length > 0
-    ? good[hashNight(n) % good.length]
-    : sightings.reduce((a, b) => (b.bestAlt > a.bestAlt ? b : a));
-  if (tonightCache.size > 16) tonightCache.clear();
-  tonightCache.set(n, pick);
-  return pick;
+  const s = nightSightings(n);
+  if (sightingsCache.size > 16) sightingsCache.clear();
+  sightingsCache.set(n, s);
+  return s;
+}
+
+/** Whether a sighting is worth hunting tonight: well up after dark for a while. */
+export function isUpTonight(s: NightSighting): boolean {
+  return s.upSamples >= TONIGHT_MIN_SAMPLES;
 }
 
 /**
@@ -216,6 +206,7 @@ export function tonightsConstellation(n: number): NightSighting {
  * which part of the sky to search, not enough to skip learning the shape.
  */
 export function sightingHint(s: NightSighting): string {
+  if (!isUpTonight(s)) return 'Not up after dark tonight. Try another night';
   const when = s.bestPhase < 0.35 ? 'early in the night' : s.bestPhase > 0.65 ? 'before dawn' : 'around midnight';
   const height = s.bestAlt > 65 ? 'high overhead' : s.bestAlt > 40 ? 'high' : 'low';
   if (height === 'high overhead') return `Rides high overhead ${when}`;

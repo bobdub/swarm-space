@@ -20,8 +20,8 @@ export function StarHuntHud() {
       description: all
         ? 'Every figure is in your star log. You are a Star Navigator.'
         : entry.count > 1
-          ? `Found ${entry.count} times now. Check the bar for tomorrow's chart.`
-          : `${logged} of ${CONSTELLATIONS.length} in your star log. A new chart goes up in the bar tomorrow.`,
+          ? `Found ${entry.count} times now. Each figure counts once a night.`
+          : `${logged} of ${CONSTELLATIONS.length} in your star log. The charts in the bar show where the others are tonight.`,
     });
   }), [log]);
 

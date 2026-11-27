@@ -96,13 +96,27 @@ export const DONOR_RIGHT = -HALF_W + 2.75;
 /** Turns the board's face (local +Z) to −forward, south into the room. */
 export const DONOR_BOARD_YAW = Math.PI;
 /**
- * The star chart (tonight's constellation for the star hunt) hangs on the
- * west wall in the games nook, to the left of the dartboard as you face it
- * (toward the front wall), clear of the wall sconce. Read it here, then go
- * out after dark and find the figure.
+ * The four star charts (one per constellation, for the star hunt) hang in a
+ * 2 × 2 grid on the west wall in the games nook, to the left of the
+ * dartboard as you face it (toward the front wall), clear of the wall
+ * sconce. Read them here, then go out after dark and find the figures.
  */
-const STARS_W = 2.4;
-const STARS_H = 3.0;
+const STARS_W = 1.2;
+const STARS_H = 1.5;
+const STARS_GAP = 0.1;
+/** Grid half-width along the wall (two charts and a gap). */
+export const STAR_GRID_HALF = STARS_W + STARS_GAP / 2;
+/**
+ * Each chart's place in the grid, in the chart group's frame (x along the
+ * wall, to your right as you face it; y up). Top row: Cat, Dragon; bottom
+ * row: Pirate Ship, Flask, matching the order of CONSTELLATIONS.
+ */
+const STAR_CHART_SLOTS: Array<{ id: string; x: number; y: number }> = [
+  { id: 'cat', x: -(STARS_W + STARS_GAP) / 2, y: (STARS_H + STARS_GAP) / 2 },
+  { id: 'dragon', x: (STARS_W + STARS_GAP) / 2, y: (STARS_H + STARS_GAP) / 2 },
+  { id: 'ship', x: -(STARS_W + STARS_GAP) / 2, y: -(STARS_H + STARS_GAP) / 2 },
+  { id: 'flask', x: (STARS_W + STARS_GAP) / 2, y: -(STARS_H + STARS_GAP) / 2 },
+];
 export const STAR_CHART_RIGHT = -HALF_W + WALL_T / 2 + 0.08;
 export const STAR_CHART_FORWARD = -6.6;
 /**
@@ -372,7 +386,7 @@ export const SurfaceBar = memo(function SurfaceBar({
   // Donor leaderboard on the back wall behind the card table, facing the door.
   const donorBlockId = `${id}:donors:${anchorPeerId}`;
   const donorBodyId = `bar-donors:${donorBlockId}`;
-  // Star chart for the star hunt, beside the dartboard facing into the room.
+  // The four star charts for the star hunt, beside the dartboard facing into the room.
   const starsBlockId = `${id}:stars:${anchorPeerId}`;
   const starsBodyId = `bar-stars:${starsBlockId}`;
 
@@ -500,7 +514,7 @@ export const SurfaceBar = memo(function SurfaceBar({
       upOffset: 2.0,
       mass: 4,
       basin: 0,
-      meta: { width: STARS_W, height: STARS_H },
+      meta: { width: STAR_GRID_HALF * 2, height: STARS_H * 2 + STARS_GAP },
     });
     return () => {
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
@@ -848,7 +862,11 @@ export const SurfaceBar = memo(function SurfaceBar({
       <BuilderBlockView bodyId={starsBodyId}>
         {() => (
           <group rotation={[0, STAR_CHART_YAW, 0]}>
-            <StarChartBoard width={STARS_W} height={STARS_H} />
+            {STAR_CHART_SLOTS.map((slot) => (
+              <group key={slot.id} position={[slot.x, slot.y, 0]}>
+                <StarChartBoard chartId={slot.id} width={STARS_W} height={STARS_H} />
+              </group>
+            ))}
           </group>
         )}
       </BuilderBlockView>

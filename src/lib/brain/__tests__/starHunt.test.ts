@@ -12,14 +12,15 @@ import {
   localSky,
   nightIndexAt,
   sightingHint,
+  sightingsForNight,
+  isUpTonight,
   stepGaze,
-  tonightsConstellation,
   villageNoonOffset,
   villagePlace,
 } from '../starHunt';
 import { foundTonight, getStarHunt, logFind, markChartRead, resetStarHuntForTests } from '../starHuntStore';
 
-describe('star hunt: tonight’s constellation', () => {
+describe('star hunt: tonight’s sky', () => {
   it('counts nights noon to noon, so the chart never changes in the dark', () => {
     const noon = villageNoonOffset();
     const n = 40;
@@ -32,26 +33,31 @@ describe('star hunt: tonight’s constellation', () => {
     expect(skyCadenceAt(localSky(place, mid).pos, mid).starOpacity).toBeGreaterThan(0.5);
   });
 
-  it('picks a figure that is well up after dark, the same for everyone', () => {
+  it('gives every figure tonight\'s hint, the same for everyone', () => {
     for (let n = 0; n < 400; n += 13) {
-      const s = tonightsConstellation(n);
-      expect(s.upSamples).toBeGreaterThanOrEqual(4);
-      expect(s.bestAlt).toBeGreaterThan(20);
-      expect(tonightsConstellation(n).chart.id).toBe(s.chart.id);
+      const a = sightingsForNight(n);
+      expect(a.map((s) => s.chart.id)).toEqual(CONSTELLATIONS.map((c) => c.id));
+      expect(sightingsForNight(n)).toBe(a);
+      // There is always something to hunt.
+      expect(a.filter(isUpTonight).length).toBeGreaterThanOrEqual(1);
+      for (const s of a) {
+        const hint = sightingHint(s);
+        expect(hint).not.toMatch(/\d/);
+        if (isUpTonight(s)) {
+          expect(s.bestAlt).toBeGreaterThan(20);
+          expect(hint).toMatch(/north|south|east|west|overhead/);
+          expect(hint).toMatch(/early in the night|around midnight|before dawn/);
+        } else {
+          expect(hint).toMatch(/Not up after dark tonight/);
+        }
+      }
     }
   });
 
-  it('varies over the nights: every figure gets its turn', () => {
-    const seen = new Set<string>();
-    for (let n = 0; n < 365; n++) seen.add(tonightsConstellation(n).chart.id);
-    expect(seen.size).toBe(CONSTELLATIONS.length);
-  });
-
-  it('gives a loose hint: a compass point and a time of night, never coordinates', () => {
-    const hint = sightingHint(tonightsConstellation(7));
-    expect(hint).toMatch(/north|south|east|west|overhead/);
-    expect(hint).toMatch(/early in the night|around midnight|before dawn/);
-    expect(hint).not.toMatch(/\d/);
+  it('over a year every figure is up on some nights', () => {
+    const up = new Set<string>();
+    for (let n = 0; n < 365; n++) sightingsForNight(n).filter(isUpTonight).forEach((s) => up.add(s.chart.id));
+    expect(up.size).toBe(CONSTELLATIONS.length);
   });
 
   it('compass and altitude agree with the local horizon', () => {
