@@ -55,7 +55,8 @@ vi.mock('@/lib/world/henHunting', () => ({ tryCatchNearbyHen: () => false, tryTa
 import { applyToolToTarget, digYieldForShell, goldToolRefusal } from '@/lib/world/toolActions';
 import { _resetHarvestedForTest, getHarvested, recordHarvestForResource } from '@/lib/remix/harvestedInventory';
 import { checkAffordable, formatCost, gatheredGoodTotals, GATHERED_GOODS, prefabCost, spendMaterials } from '@/lib/world/materials';
-import { setToolTarget } from '@/lib/world/toolTargetStore';
+import { getToolTarget, setToolTarget } from '@/lib/world/toolTargetStore';
+import { setHeldTool } from '@/lib/world/heldToolStore';
 import { _resetSwingFeedbackForTest } from '@/lib/world/swingFeedback';
 import { getTradingGood } from '@/lib/world/tradingStand/pricing';
 import { heldGood } from '@/lib/world/tradingStand/goods';
@@ -155,6 +156,33 @@ describe('beach sand is salt', () => {
   it('a shovel swung inland with nothing picked gathers no salt', async () => {
     surface.cls = 'land';
     await applyToolToTarget(SHOVEL, null, 'self');
+    expect(getHarvested('good:salt')).toBe(0);
+  });
+
+  it('a spot picked far behind the player is forgotten, so the shovel digs the sand underfoot', async () => {
+    surface.cls = 'shore';
+    const far: ToolTarget = { ...beach, id: 'surface:far', point: [0, 100, 40] };
+    setToolTarget(far);
+    expect(await applyToolToTarget(SHOVEL, far, 'self')).toBe(true);
+    expect(getHarvested('good:salt')).toBe(1);
+    expect(getToolTarget()).toBeNull();
+  });
+
+  it('switching tools forgets the spot picked for the last one', () => {
+    setHeldTool({ prefabId: BUCKET, source: {} as never });
+    setToolTarget(beach);
+    setHeldTool({ prefabId: SHOVEL, source: {} as never });
+    expect(getToolTarget()).toBeNull();
+    // Picking a spot for the same tool keeps it.
+    setToolTarget(beach);
+    setHeldTool({ prefabId: SHOVEL, source: {} as never });
+    expect(getToolTarget()).toBe(beach);
+    setHeldTool(null);
+  });
+
+  it('a shovel at water says to dig the beach, not that there is no water', async () => {
+    surface.cls = 'ocean';
+    expect(await applyToolToTarget(SHOVEL, beach)).toBe(false);
     expect(getHarvested('good:salt')).toBe(0);
   });
 

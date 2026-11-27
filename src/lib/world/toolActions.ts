@@ -132,6 +132,25 @@ function isBeachSand(point: Vec3): boolean {
   return isBeachAt(worldPosToLocalNormal(point, getEarthPose()), getVolcanoOrgan(SHARED_VOLCANO_ANCHOR_ID));
 }
 
+/** How far (m) a picked ground or water spot may be from the player and still count. */
+export const GROUND_TARGET_REACH_M = 6;
+
+/** True when the player has walked away from a picked ground or water spot. */
+function isStaleGroundTarget(point: Vec3, selfId?: string): boolean {
+  if (!selfId) return false;
+  const body = getBrainPhysics().getBody(selfId);
+  if (!body) return false;
+  const d = Math.hypot(point[0] - body.pos[0], point[1] - body.pos[1], point[2] - body.pos[2]);
+  return Number.isFinite(d) && d > GROUND_TARGET_REACH_M;
+}
+
+/** What a swing at water that gathered nothing tells the player. */
+function surfaceMissMessage(verb: ToolVerb, label: string): string {
+  if (verb === 'gather') return 'No gatherable water at this impact point.';
+  if (verb === 'dig') return 'Nothing to dig here. Dig the beach sand for salt.';
+  return `${label} can't gather water. Use a bucket.`;
+}
+
 /** Scoop a shovelful of beach sand at `point`: +1 Salt. */
 function scoopBeachSalt(toolPrefabId: string, point: Vec3): boolean {
   const prefab = getPrefab(toolPrefabId);
@@ -429,6 +448,13 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
   if (target?.kind !== 'placement' && tryCatchNearbyHen(toolPrefabId, selfId)) return true;
   // Standing at a flock's nest with an egg in it: any tool's swing takes the egg.
   if (target?.kind !== 'placement' && tryTakeNestEgg(toolPrefabId, selfId)) return true;
+  // A ground or water spot picked earlier only counts while the player is
+  // still beside it; walking off leaves it behind (the swing then works on
+  // what is in front of them).
+  if (target && (target.kind === 'surface' || target.kind === 'shell') && isStaleGroundTarget(target.point, selfId)) {
+    setToolTarget(null);
+    target = null;
+  }
   if (!target) target = resolveNearbyTarget(toolPrefabId, selfId);
   if (!target) {
     // A shovel swung on the beach with nothing picked scoops the sand
@@ -456,7 +482,7 @@ export async function applyToolToTarget(toolPrefabId: string, target: ToolTarget
     const ok = verb === 'gather' && target.surfaceKind === 'water' && isSurfaceGatherable(target.point);
     emitTargetImpact(target.point, up, prefab.color, probe.intensity, ok ? 'collect' : 'miss', ok, 'water');
     if (!ok) {
-      swingProgress(toolPrefabId, prefab.label, 'No gatherable water at this impact point.');
+      swingProgress(toolPrefabId, prefab.label, surfaceMissMessage(verb, prefab.label));
       return false;
     }
     recordPlayerHarvest('water', 1);
