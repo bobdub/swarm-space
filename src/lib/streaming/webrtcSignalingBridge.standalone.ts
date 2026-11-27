@@ -18,6 +18,14 @@ import { CHAT_WIRE_MAX_LENGTH } from '@/lib/chat/chatLimits';
 import { BRAIN_ROOM_ID, isNetworkChatRoom } from '@/lib/chat/networkChatRoom';
 import { causalNow, observeCausalTimestamp, reconcileLiveTimestamp, syncNetworkClock } from '@/lib/time/networkClock';
 import { causalOrder } from '@/lib/chat/chatOrder';
+import {
+  isRoomGraphPeerPresent,
+  joinRoomGraph,
+  leaveRoomGraph,
+  onRoomGraphPeer,
+  onRoomInboxSignal,
+  sendRoomInboxSignal,
+} from './roomGraph';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -51,6 +59,8 @@ interface SignalEnvelope {
   participants?: string[]; // for room-sync
   /** Relay hop count (absent = direct). */
   hops?: number;
+  /** Unique message id for directed call signals (dedup across routes). */
+  mid?: string;
   ts: number;
 }
 
@@ -315,8 +325,101 @@ export function isRoomPeerPresent(roomId: string, peerId: string): boolean {
   const members = joinedRooms.get(roomId);
   if (!members) return false;
   const key = roomKey(roomId, peerId);
-  if (departedAt.has(key) || silentAt.has(key)) return false;
+  if (departedAt.has(key)) return false;
+  // A fresh heartbeat in the Gun room graph is presence too, even when the
+  // mesh has gone quiet between us.
+  if (isRoomGraphPeerPresent(roomId, peerId)) return true;
+  if (silentAt.has(key)) return false;
   return members.has(peerId);
+}
+
+// ── Room graph web (Gun) ───────────────────────────────────────────────
+const roomWebPeerHandlers = new Set<(roomId: string, peerId: string) => void>();
+
+/**
+ * A member of our room was seen in the Gun room graph (first sighting and
+ * every heartbeat). The call layer closes the web from here: the lower
+ * mesh ID dials any member it has no connection with.
+ */
+export function onRoomWebPeer(handler: (roomId: string, peerId: string) => void): () => void {
+  roomWebPeerHandlers.add(handler);
+  return () => { roomWebPeerHandlers.delete(handler); };
+}
+
+/** Graph departures are only trusted this long after a mesh leave-room. */
+const GRAPH_REJOIN_AFTER_LEAVE_MS = 30_000;
+
+function handleRoomGraphPeer(roomId: string, peerId: string): void {
+  const mesh = meshRef;
+  const room = joinedRooms.get(roomId);
+  if (!mesh || !room || !room.has(mesh.getPeerId()) || peerId === mesh.getPeerId()) return;
+  if (loadBlocklistFromStorage().some(entry => entry.peerId === peerId)) return;
+  const key = roomKey(roomId, peerId);
+  const left = departedAt.get(key);
+  // A heartbeat written just before a leave can still be in flight.
+  if (left !== undefined && Date.now() - left < GRAPH_REJOIN_AFTER_LEAVE_MS) return;
+  if (left !== undefined) departedAt.delete(key);
+  silentAt.delete(key);
+  lastHeardAt.set(key, Date.now());
+  if (!room.has(peerId)) {
+    room.add(peerId);
+    console.log(`[WebRTC-Bridge] 🕸️ ${peerId} found in the ${roomId} room graph`);
+  }
+  // Also try to open a data link (backoff-respecting, like any room peer).
+  dialRoomPeer(peerId);
+  for (const h of roomWebPeerHandlers) {
+    try { h(roomId, peerId); } catch { /* ignore */ }
+  }
+  flushPendingInbox(roomId, peerId);
+}
+
+/**
+ * Call setup that reached us through our Gun room inbox. Only call setup
+ * types, only for a room we are in, and only from someone the room knows.
+ * It then takes the normal path, where the message id dedups it against
+ * any copy that also came over the mesh.
+ */
+function handleRoomInboxSignal(roomId: string, fromPeerId: string, raw: Record<string, unknown>): void {
+  const mesh = meshRef;
+  const room = joinedRooms.get(roomId);
+  if (!mesh || !room || !room.has(mesh.getPeerId())) return;
+  const msgType = raw.msgType as SignalEnvelope['msgType'];
+  if (typeof msgType !== 'string' || !CALL_SIGNAL_TYPES.has(msgType)) return;
+  if (typeof raw.mid !== 'string' || !raw.mid) return;
+  if (!room.has(fromPeerId) && !isRoomGraphPeerPresent(roomId, fromPeerId)) {
+    // Their offer can beat their own heartbeat to us. Hold it briefly and
+    // apply it the moment they show up in the room graph.
+    const key = roomKey(roomId, fromPeerId);
+    const held = pendingInbox.get(key) ?? [];
+    if (held.length < PENDING_INBOX_MAX) held.push({ at: Date.now(), raw });
+    pendingInbox.set(key, held);
+    return;
+  }
+  handleIncoming(fromPeerId, { ...raw, to: mesh.getPeerId(), hops: MAX_CALL_SIGNAL_HOPS });
+}
+
+/** Inbox setup from someone we have not seen in the room yet, per room|peer. */
+const pendingInbox = new Map<string, Array<{ at: number; raw: Record<string, unknown> }>>();
+const PENDING_INBOX_MAX = 40;
+const PENDING_INBOX_TTL_MS = 20_000;
+
+function flushPendingInbox(roomId: string, peerId: string): void {
+  const key = roomKey(roomId, peerId);
+  const held = pendingInbox.get(key);
+  if (!held) return;
+  pendingInbox.delete(key);
+  const now = Date.now();
+  for (const { at, raw } of held) {
+    if (now - at <= PENDING_INBOX_TTL_MS) handleRoomInboxSignal(roomId, peerId, raw);
+  }
+}
+
+let unsubRoomGraph: (() => void) | null = null;
+function subscribeRoomGraph(): void {
+  if (unsubRoomGraph) return;
+  const offPeer = onRoomGraphPeer(handleRoomGraphPeer);
+  const offInbox = onRoomInboxSignal(handleRoomInboxSignal);
+  unsubRoomGraph = () => { offPeer(); offInbox(); };
 }
 
 function heartbeatRooms(): void {
@@ -352,6 +455,21 @@ function ensureSweep(): void {
 // relays so peers without a direct mesh edge can still form a full media
 // mesh. Dedup keys stop the same envelope from acting twice.
 const MAX_SIGNAL_HOPS = 2;
+/**
+ * Call setup (SDP, ICE, reconnect) is room-directed and must reach every
+ * pair, whatever the mesh shape: in a line A-B-C-D, A and D are 3 hops
+ * apart. These hop further and flood past nodes that cannot reach the
+ * target; the per-message id stops duplicates from acting twice.
+ */
+const MAX_CALL_SIGNAL_HOPS = 4;
+const CALL_SIGNAL_TYPES = new Set<SignalEnvelope['msgType']>([
+  'offer', 'answer', 'candidate', 'reconnect-request', 'reconnect-ack',
+]);
+let midSeq = 0;
+function newSignalId(from: string): string {
+  midSeq = (midSeq + 1) % 1_000_000;
+  return `${from}:${Date.now().toString(36)}:${midSeq.toString(36)}:${Math.random().toString(36).slice(2, 8)}`;
+}
 const seenSignals = new Set<string>();
 const seenOrder: string[] = [];
 const MAX_SEEN_SIGNALS = 2000;
@@ -362,6 +480,10 @@ const RELAYED_ANNOUNCEMENTS = new Set<SignalEnvelope['msgType']>([
 
 /** Test/internal: identity of an envelope for dedup. */
 export function signalDedupKey(e: SignalEnvelope): string {
+  // Two ICE candidates sent in the same millisecond used to share a key, so
+  // the second one was dropped as a "duplicate". Directed call signals carry
+  // their own id; anything older falls back to the field-based key.
+  if (typeof e.mid === 'string' && e.mid) return `mid|${e.from}|${e.mid}`;
   const id = (e.data as { id?: unknown } | undefined)?.id;
   return `${e.from}|${e.to ?? ''}|${e.roomId}|${e.msgType}|${e.ts}|${typeof id === 'string' ? id : ''}`;
 }
@@ -388,12 +510,26 @@ function reachablePeerIds(mesh: MeshLike): string[] {
 }
 
 function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
-  if (!meshRef || !envelope.to) return;
+  const mesh = meshRef;
+  if (!mesh || !envelope.to) return;
   const hops = envelope.hops ?? 0;
-  if (hops >= MAX_SIGNAL_HOPS) return;
-  if (!reachablePeerIds(meshRef).includes(envelope.to)) return;
+  const isCall = CALL_SIGNAL_TYPES.has(envelope.msgType);
+  if (hops >= (isCall ? MAX_CALL_SIGNAL_HOPS : MAX_SIGNAL_HOPS)) return;
   if (envelope.to === fromPeerId) return;
-  void meshRef.send(SIGNAL_CHANNEL, envelope.to, { ...envelope, hops: hops + 1 }).catch(() => undefined);
+  const next = { ...envelope, hops: hops + 1 };
+  // Call setup that we cannot hand to the target goes on to every other
+  // neighbour, so it crosses any line of members; dedup ends the flood.
+  const flood = () => {
+    if (!isCall || meshRef !== mesh) return;
+    for (const peerId of reachablePeerIds(mesh)) {
+      if (peerId === fromPeerId || peerId === envelope.from || peerId === envelope.to) continue;
+      void Promise.resolve(mesh.send(SIGNAL_CHANNEL, peerId, next)).catch(() => undefined);
+    }
+  };
+  if (!reachablePeerIds(mesh).includes(envelope.to)) { flood(); return; }
+  void Promise.resolve(mesh.send(SIGNAL_CHANNEL, envelope.to, next))
+    .then((ok) => { if (ok === false) flood(); })
+    .catch(flood);
 }
 
 /**
@@ -408,6 +544,12 @@ function relayDirected(fromPeerId: string, envelope: SignalEnvelope): void {
 function sendDirected(envelope: SignalEnvelope & { to: string }): void {
   const mesh = meshRef;
   if (!mesh) return;
+  // No open data channel to them yet: call setup also goes through their
+  // Gun room inbox (setup strings only; media stays on WebRTC). The mesh
+  // route below still runs, and the message id dedups the two copies.
+  if (CALL_SIGNAL_TYPES.has(envelope.msgType) && envelope.mid && !mesh.getConnectedPeerIds().includes(envelope.to)) {
+    sendRoomInboxSignal(envelope.roomId, envelope.to, envelope as unknown as Record<string, unknown>);
+  }
   const fallback = () => {
     if (meshRef !== mesh) return;
     for (const peerId of reachablePeerIds(mesh)) {
@@ -1050,6 +1192,7 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
   stopSignalingBridge();
   meshRef = mesh;
   unsubChannel = mesh.onMessage(SIGNAL_CHANNEL, handleIncoming);
+  subscribeRoomGraph();
   const offBeforeStop = mesh.onBeforeStop?.(() => announceMeshGoodbye());
   const offDeparted = mesh.onPeerDeparted?.((peerId, reason) => {
     // Silence on our direct link is not silence in the room: room members
@@ -1139,6 +1282,10 @@ export function startSignalingBridge(mesh: MeshLike): () => void {
 
 export function stopSignalingBridge(): void {
   roomDialAt.clear();
+  leaveRoomGraph();
+  unsubRoomGraph?.();
+  unsubRoomGraph = null;
+  pendingInbox.clear();
   unsubDepartures?.();
   unsubDepartures = null;
   if (unsubChannel) {
@@ -1175,12 +1322,14 @@ export function sendSignalViaMesh(
     console.warn('[WebRTC-Bridge] No mesh — signal dropped');
     return;
   }
+  const from = meshRef.getPeerId();
   const envelope: SignalEnvelope = {
     msgType: type,
-    from: meshRef.getPeerId(),
+    from,
     to: toPeerId,
     roomId,
     data,
+    mid: newSignalId(from),
     ts: Date.now(),
   };
   // Direct when we have an edge to them, otherwise through a neighbour.
@@ -1199,11 +1348,13 @@ export function sendReconnectRequest(
     console.warn('[WebRTC-Bridge] No mesh — reconnect signal dropped');
     return;
   }
+  const from = meshRef.getPeerId();
   const envelope: SignalEnvelope = {
     msgType: type,
-    from: meshRef.getPeerId(),
+    from,
     to: toPeerId,
     roomId,
+    mid: newSignalId(from),
     ts: Date.now(),
   };
   sendDirected(envelope as SignalEnvelope & { to: string });
@@ -1286,6 +1437,8 @@ export function announceJoinRoom(roomId: string, userId: string, username: strin
   
   if (!joinedRooms.has(roomId)) joinedRooms.set(roomId, new Set());
   joinedRooms.get(roomId)!.add(meshRef.getPeerId());
+  // Everyone in the room also meets in the Gun room graph.
+  joinRoomGraph(roomId, meshRef.getPeerId());
 
   meshRef.broadcast(SIGNAL_CHANNEL, {
     msgType: 'join-room',
@@ -1303,6 +1456,7 @@ export function announceJoinRoom(roomId: string, userId: string, username: strin
  */
 export function announceLeaveRoom(roomId: string): void {
   if (activeJoin?.roomId === roomId) activeJoin = null;
+  leaveRoomGraph(roomId);
   if (!meshRef) return;
   
   meshRef.broadcast(SIGNAL_CHANNEL, {

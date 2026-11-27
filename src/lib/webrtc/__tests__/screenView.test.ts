@@ -13,6 +13,7 @@ let peerPresent = true;
 const viewSignals: Array<{ to: string; view: string }> = [];
 
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendSignalViaMesh: (to: string, _room: string, type: string, data: unknown) => {
     sentSignals.push({ to, type, data });
   },

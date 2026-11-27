@@ -163,3 +163,36 @@ describe('relay edges (stalled same-Wi-Fi dial)', () => {
     expect(b.sent.some((s) => s.to === 'C' && s.payload.msgType === 'room-sync')).toBe(true);
   });
 });
+
+describe('multi-hop call setup', () => {
+  it('keeps two ICE candidates sent in the same millisecond apart', async () => {
+    const b = makeMesh('B', ['A']);
+    startSignalingBridge(b.mesh as never);
+    const { onSignal } = await import('../webrtcSignalingBridge.standalone');
+    const got: unknown[] = [];
+    const off = onSignal((e) => { if (e.msgType === 'candidate') got.push(e.data); });
+    b.deliver('A', { msgType: 'candidate', from: 'A', to: 'B', roomId: 'r', data: { candidate: 'c1' }, mid: 'A:1', ts: 7 });
+    b.deliver('A', { msgType: 'candidate', from: 'A', to: 'B', roomId: 'r', data: { candidate: 'c2' }, mid: 'A:2', ts: 7 });
+    b.deliver('A', { msgType: 'candidate', from: 'A', to: 'B', roomId: 'r', data: { candidate: 'c2' }, mid: 'A:2', ts: 7 });
+    off();
+    expect(got).toEqual([{ candidate: 'c1' }, { candidate: 'c2' }]);
+  });
+
+  it('a node that cannot reach the target passes call setup on to its other neighbours', async () => {
+    // Line A-B-C-D: B has no edge to D, so A's offer for D goes on to C.
+    const b = makeMesh('B', ['A', 'C']);
+    startSignalingBridge(b.mesh as never);
+    b.deliver('A', { msgType: 'offer', from: 'A', to: 'D', roomId: 'r', data: {}, mid: 'A:9', ts: 1 });
+    await Promise.resolve();
+    expect(b.sent.filter((s) => s.payload.msgType === 'offer').map((s) => [s.to, s.payload.hops])).toEqual([['C', 1]]);
+  });
+
+  it('stops call setup at its hop budget, and never floods non-call messages', async () => {
+    const b = makeMesh('B', ['A', 'C']);
+    startSignalingBridge(b.mesh as never);
+    b.deliver('A', { msgType: 'answer', from: 'A', to: 'D', roomId: 'r', data: {}, mid: 'A:10', hops: 4, ts: 1 });
+    b.deliver('A', { msgType: 'room-sync', from: 'A', to: 'D', roomId: 'r', participants: [], ts: 2 });
+    await Promise.resolve();
+    expect(b.sent).toHaveLength(0);
+  });
+});

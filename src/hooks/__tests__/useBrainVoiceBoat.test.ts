@@ -19,6 +19,7 @@ vi.mock('@/lib/webrtc/manager', () => ({
 vi.mock('../useAuth', () => ({ useAuth: () => ({ user: { id: 'u1', username: 'sailor' } }) }));
 vi.mock('@/lib/virtualHub/avatars', () => ({ loadHubPrefs: () => ({ avatarId: 'rabbit' }) }));
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendRoomChatMessage: () => {},
   onRoomChatMessage: () => () => {},
   sendRoomPresence: (_room: string, p: Record<string, unknown>) => { sent.push(p); },

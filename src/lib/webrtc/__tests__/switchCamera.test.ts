@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/streaming/webrtcSignalingBridge.standalone', () => ({
+  onRoomWebPeer: () => () => {},
   sendSignalViaMesh: vi.fn(),
   sendReconnectRequest: vi.fn(),
   sendScreenShareState: vi.fn(),
