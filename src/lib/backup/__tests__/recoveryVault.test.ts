@@ -9,7 +9,7 @@ import {
   recoveryUrl,
   parseRecoveryParams,
   recoverySearchFromLink,
-  chooseRecoveryHolder,
+  peerIdFromInput,
   canonicalRecoverHref,
   VAULT_PBKDF2_ITERATIONS,
 } from "../recoveryVault";
@@ -71,10 +71,14 @@ describe("recovery vault outer shell", () => {
 });
 
 describe("recovery links", () => {
-  it("round-trips id, version and host peer", () => {
-    const url = recoveryUrl("https://swarm.example", { id: "0123456789abcdef", v: 3, peer: "peer-abc_1" });
-    expect(url).toBe("https://swarm.example/recover?id=0123456789abcdef&v=3&peer=peer-abc_1");
-    expect(parseRecoveryParams(new URL(url).search)).toEqual({ id: "0123456789abcdef", v: 3, peer: "peer-abc_1" });
+  it("builds one account-bound link that names no peer", () => {
+    const url = recoveryUrl("https://swarm.example", { id: "0123456789abcdef", v: 3 });
+    expect(url).toBe("https://swarm.example/recover?id=0123456789abcdef&v=3");
+    expect(parseRecoveryParams(new URL(url).search)).toEqual({ id: "0123456789abcdef", v: 3, peer: null });
+  });
+
+  it("still reads a legacy &peer= as a hint", () => {
+    expect(parseRecoveryParams("?id=0123456789abcdef&v=2&peer=peer-abc_1")).toEqual({ id: "0123456789abcdef", v: 2, peer: "peer-abc_1" });
   });
 
   it("drops malformed ids and peers", () => {
@@ -106,13 +110,18 @@ describe("scanned and pasted recovery links", () => {
   });
 });
 
-describe("recovery link holder", () => {
-  it("names the chosen custodian, else a connected one, else any custodian, else this node", () => {
-    const custodians = ["peer-a", "peer-b", "peer-c"];
-    expect(chooseRecoveryHolder({ custodians, connected: ["peer-c"], selected: "peer-b", self: "peer-me" })).toBe("peer-b");
-    expect(chooseRecoveryHolder({ custodians, connected: new Set(["peer-c"]), selected: "peer-gone", self: "peer-me" })).toBe("peer-c");
-    expect(chooseRecoveryHolder({ custodians, connected: [], self: "peer-me" })).toBe("peer-a");
-    expect(chooseRecoveryHolder({ custodians: [], connected: [], self: "peer-me" })).toBe("peer-me");
-    expect(chooseRecoveryHolder({ custodians: [], connected: [] })).toBeNull();
+describe("peer typed on the recover page", () => {
+  const origin = "https://swarm.example";
+  it("accepts a bare peer id or an invite link", () => {
+    expect(peerIdFromInput(" peer-abc_1 ", origin)).toBe("peer-abc_1");
+    expect(peerIdFromInput("https://swarm.example/connect#peer-abc_1", origin)).toBe("peer-abc_1");
+    expect(peerIdFromInput("https://swarm.example/#/connect#peer-abc_1", origin)).toBe("peer-abc_1");
+    expect(peerIdFromInput("https://swarm.example/brain/join?peer=peer-abc_1", origin)).toBe("peer-abc_1");
+  });
+
+  it("refuses anything else", () => {
+    expect(peerIdFromInput("", origin)).toBeNull();
+    expect(peerIdFromInput("alice", origin)).toBeNull();
+    expect(peerIdFromInput("https://swarm.example/recover?id=0123456789abcdef&v=1", origin)).toBeNull();
   });
 });

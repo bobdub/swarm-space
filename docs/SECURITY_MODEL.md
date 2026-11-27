@@ -80,9 +80,12 @@ _Version 3.0 | Last Updated: 2026-03-28_
 - Custody is capped at 256 held vaults per device, and envelopes over 16 KB are refused
 - Anyone may query by `userId`: the answer is ciphertext only the passphrase opens
 
-**Flow — Recovery** (`/recover?id=<userId>&v=<version>&peer=<custodianPeerId>`):
-1. Boot a guest transport and dial the custodian peer named in the link
-2. Ask connected peers for the highest signed envelope for `id`
+**Flow — Recovery** (`/recover?id=<userId>&v=<version>`):
+
+The Recovery Link is account-bound: it names the identity and the active shell version, never a peer, so it stays the same whichever custodians hold the vault or are online. Settings → Security shows custodians only as read-only status.
+
+1. Boot a guest transport and ask every connected peer for the highest signed envelope for `id`
+2. Optionally, the person pastes a peer ID or invite link of a friend or custodian who is not auto-discovered; that peer is dialled (manual path) and asked first. Older links with `&peer=` still work, and that peer is treated as the same kind of hint
 3. Open the shell locally with the passphrase; nothing typed is sent to a peer
 4. Rehydrate the identity under a new local password
 

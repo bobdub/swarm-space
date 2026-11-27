@@ -1,15 +1,16 @@
 /**
- * /recover?id=<userId>&v=<shellVersion>&peer=<hostPeerId>
+ * /recover?id=<userId>&v=<shellVersion>
  *
- * Invite-style sovereign recovery: boots a guest transport, dials the host
- * peer through the manual (user-intent) path, asks connected peers for the
- * highest signed vault envelope for `id`, then opens the outer shell locally
- * with the Recovery Passphrase and rehydrates the identity under a new local
- * password. Nothing typed here is ever sent to a peer.
+ * Universal sovereign recovery: boots a guest transport, asks every connected
+ * peer for the highest signed vault envelope for `id`, then opens the outer
+ * shell locally with the Recovery Passphrase and rehydrates the identity under
+ * a new local password. Nothing typed here is ever sent to a peer.
  *
- * The link can be pasted or scanned as a QR code from any device still
- * signed in (Settings → Security). It names a peer holding the vault: a
- * connected custodian, or the person's own merged device.
+ * The link is account-bound and names no peer, so it never goes stale. To get
+ * the vault from a particular friend or custodian who is not auto-discovered,
+ * paste their peer ID or invite link: it is dialled through the manual
+ * (user-intent) path and asked first. Older links that carry `&peer=` still
+ * work; that peer is treated the same way, as a hint.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +34,7 @@ import {
   sameEnvelope,
   parseRecoveryParams,
   recoverySearchFromLink,
+  peerIdFromInput,
   WrongRecoveryPassphraseError,
   type RecoveryVaultEnvelope,
 } from "@/lib/backup/recoveryVault";
@@ -66,7 +68,9 @@ export default function Recover() {
   const [restoring, setRestoring] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const dialedRef = useRef<string | null>(null);
+  const [peerInput, setPeerInput] = useState("");
+  const [manualPeers, setManualPeers] = useState<string[]>([]);
+  const dialedRef = useRef(new Set<string>());
   const queriedRef = useRef(new Map<string, number>());
 
   const memberSignedIn = !!user && !isGuestUser(user);
@@ -75,9 +79,15 @@ export default function Recover() {
   useEffect(() => {
     setPhase(params ? "starting" : "no-link");
     setEnvelope(null);
-    dialedRef.current = null;
+    dialedRef.current.clear();
     queriedRef.current.clear();
   }, [params, attempt]);
+
+  // Peers to dial first: any the person pasted, plus a legacy `&peer=` hint.
+  const hintPeers = useMemo(
+    () => [...new Set([...manualPeers, ...(params?.peer ? [params.peer] : [])])],
+    [manualPeers, params],
+  );
 
   // 1. A transport needs an identity: provision an ephemeral guest if signed out.
   useEffect(() => {
@@ -115,7 +125,7 @@ export default function Recover() {
     if (candidate.version >= params.v) setPhase("found");
   }, [params]);
 
-  // 4. Dial the host peer (manual, user-intent path) and query connected peers.
+  // 4. Ask every connected peer; dial any hinted peer (manual, user-intent path).
   useEffect(() => {
     if (!params || phase !== "searching" || !isEnabled) return;
     const startedAt = Date.now();
@@ -125,15 +135,19 @@ export default function Recover() {
       const { getSwarmMeshStandalone } = await import("@/lib/p2p/swarmMesh.standalone");
       const mesh = getSwarmMeshStandalone();
       const online = stats.status === "online" || stats.status === "waiting" || stats.status === "connecting";
-      if (params.peer && dialedRef.current !== params.peer && online) {
-        const connected = mesh.getConnectedPeerIds().includes(params.peer);
-        if (connected || connectToPeer(params.peer, { manual: true, source: "recovery" })) dialedRef.current = params.peer;
+      if (online) {
+        for (const hint of hintPeers) {
+          if (dialedRef.current.has(hint)) continue;
+          const already = mesh.getConnectedPeerIds().includes(hint);
+          if (already || connectToPeer(hint, { manual: true, source: "recovery" })) dialedRef.current.add(hint);
+        }
       }
       const connected = mesh.getConnectedPeerIds();
-      // Ask the host first; any other connected peer may hold a copy too.
-      const ordered = params.peer && connected.includes(params.peer)
-        ? [params.peer, ...connected.filter((p) => p !== params.peer)]
-        : connected;
+      // Hinted peers first; any other connected peer may hold a copy too.
+      const ordered = [
+        ...hintPeers.filter((p) => connected.includes(p)),
+        ...connected.filter((p) => !hintPeers.includes(p)),
+      ];
       for (const peerId of ordered) {
         const last = queriedRef.current.get(peerId) ?? 0;
         if (Date.now() - last < 15_000) continue;
@@ -147,7 +161,22 @@ export default function Recover() {
     void tick();
     const timer = window.setInterval(() => void tick(), QUERY_INTERVAL_MS);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [params, phase, isEnabled, stats.status, connectToPeer, consider]);
+  }, [params, phase, isEnabled, stats.status, connectToPeer, consider, hintPeers]);
+
+  const addPeer = () => {
+    const peerId = peerIdFromInput(peerInput, window.location.origin);
+    if (!peerId) {
+      toast.error("That doesn't look like a peer ID or invite link");
+      return;
+    }
+    setPeerInput("");
+    setManualPeers((prev) => (prev.includes(peerId) ? prev : [...prev, peerId]));
+    dialedRef.current.delete(peerId);
+    queriedRef.current.delete(peerId);
+    // A fresh search window, so the new peer has time to answer.
+    setPhase((p) => (p === "not-found" ? "searching" : p));
+    toast.success("Asking that peer for your vault");
+  };
 
   const openLink = (text = linkInput) => {
     const search = recoverySearchFromLink(text, window.location.origin);
@@ -224,7 +253,7 @@ export default function Recover() {
                 id="recovery-link"
                 value={linkInput}
                 onChange={(e) => setLinkInput(e.target.value)}
-                placeholder="https://…/recover?id=…&v=…&peer=…"
+                placeholder="https://…/recover?id=…&v=…"
                 className="font-mono text-xs"
               />
               <p className="text-xs text-muted-foreground">
@@ -246,7 +275,9 @@ export default function Recover() {
           {params && (
             <div className="rounded-lg border border-border/60 p-3 text-xs text-muted-foreground">
               <div>Identity <code className="text-foreground">{params.id}</code>, shell v{params.v} or newer</div>
-              {params.peer && <div className="truncate">Host peer <code>{params.peer}</code></div>}
+              {hintPeers.length > 0 && (
+                <div className="truncate">Also dialling <code>{hintPeers.join(", ")}</code></div>
+              )}
             </div>
           )}
 
@@ -270,9 +301,7 @@ export default function Recover() {
               <span>
                 {!isEnabled || isConnecting
                   ? "Starting a secure peer connection…"
-                  : params?.peer
-                    ? "Reaching your host peer and asking for your vault…"
-                    : "Asking connected peers for your vault…"}
+                  : `Asking connected peers for your vault… (${stats.connectedPeers ?? 0} connected)`}
               </span>
             </div>
           )}
@@ -291,7 +320,8 @@ export default function Recover() {
               <Alert className="border-amber-500/50 bg-amber-500/10">
                 <Wifi className="h-4 w-4 text-amber-500" />
                 <AlertDescription className="text-xs">
-                  No connected peer has returned your vault yet. Make sure the host peer is online, then try again.
+                  No connected peer has returned your vault yet. Ask a friend or custodian who holds it to come online,
+                  or paste their peer ID below, then try again.
                   {envelope && ` An older shell (v${envelope.version}) is available below.`}
                 </AlertDescription>
               </Alert>
@@ -300,6 +330,32 @@ export default function Recover() {
                 Try again
               </Button>
             </div>
+          )}
+
+          {params && (phase === "searching" || phase === "not-found") && (
+            <form
+              className="space-y-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                addPeer();
+              }}
+            >
+              <Label htmlFor="recover-peer">Ask a specific peer (optional)</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="recover-peer"
+                  value={peerInput}
+                  onChange={(e) => setPeerInput(e.target.value)}
+                  placeholder="peer-… or an invite link"
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                />
+                <Button type="submit" variant="outline" disabled={!peerInput.trim()}>Connect</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                If the friend or custodian holding your vault isn't found automatically, paste their peer ID or invite link.
+              </p>
+            </form>
           )}
 
           {envelope && (phase === "found" || phase === "not-found") && (

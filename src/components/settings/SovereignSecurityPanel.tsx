@@ -1,8 +1,8 @@
 /**
  * Settings → Security: the sovereign identity dashboard.
  *
- * Shows the namespace handle (#discriminator), the versioned Recovery Link
- * (and its QR code, naming a chosen vault holder) with live peer-custody status, a downloadable credential `.md`, and the
+ * Shows the namespace handle (#discriminator), the account-bound Recovery Link
+ * (and its QR code) with a read-only peer-custody status, a downloadable credential `.md`, and the
  * "Wrap New Outer Shell" rotation. Also hosts the local password change,
  * which only re-wraps the on-device key and never touches the vault.
  */
@@ -28,8 +28,7 @@ import { toast } from "sonner";
 import { getCachedPrivateKey, getCurrentUser, loginUser, type UserMeta, type WrappedKey } from "@/lib/auth";
 import { unwrapPrivateKey, wrapPrivateKey } from "@/lib/crypto";
 import { get, put } from "@/lib/store";
-import { useP2P } from "@/hooks/useP2P";
-import { chooseRecoveryHolder, openRecoveryVault, recoveryUrl } from "@/lib/backup/recoveryVault";
+import { openRecoveryVault, recoveryUrl } from "@/lib/backup/recoveryVault";
 import {
   CUSTODY_EVENT,
   getCustodyAcks,
@@ -96,8 +95,6 @@ async function unlockKey(accountPassword: string): Promise<string | null> {
 
 export function SovereignSecurityPanel() {
   const user = getCurrentUser();
-  const { getPeerId } = useP2P();
-  const peerId = getPeerId();
 
   const [vault, setVault] = useState<OwnVaultRecord | null>(null);
   const [custodyPeers, setCustodyPeers] = useState<Array<{ peerId: string; name?: string }>>([]);
@@ -117,7 +114,6 @@ export function SovereignSecurityPanel() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
-  const [holder, setHolder] = useState<string | null>(null);
   const [showQr, setShowQr] = useState(false);
   const connectedPeers = useConnectedPeerIds();
 
@@ -184,21 +180,14 @@ export function SovereignSecurityPanel() {
 
   const version = vault?.envelope.version ?? 0;
   const handle = discriminator ? `${user.username}#${discriminator}` : user.username;
-  // The link names a CUSTODIAN (a peer that acked this shell), because the
-  // device you recover from is usually not this one: the person's pick, else
-  // one connected now. Before any custody, fall back to this node so a second
-  // device can still recover while it is online.
-  const linkPeer = chooseRecoveryHolder({
-    custodians: custodyPeers.map((p) => p.peerId),
-    connected: connectedPeers,
-    selected: holder,
-    self: peerId,
-  });
-  const link = version > 0 ? recoveryUrl(window.location.origin, { id: user.id, v: version, peer: linkPeer }) : "";
+  // One canonical, account-bound link: it never names a peer, so it does not
+  // change with who is online or which custodian holds the vault. /recover
+  // asks whichever peers it can reach.
+  const link = version > 0 ? recoveryUrl(window.location.origin, { id: user.id, v: version }) : "";
   const custodyLabel = !vault
     ? "No recovery vault sealed yet"
     : custodyPeers.length > 0
-      ? `Vault v${version} synced to ${custodyPeers.length} peer${custodyPeers.length === 1 ? "" : "s"}`
+      ? `Vault v${version} synced to ${custodyPeers.length} custodian${custodyPeers.length === 1 ? "" : "s"}`
       : "Waiting for a peer connection";
 
   const copy = (text: string, label: string) => {
@@ -358,31 +347,6 @@ export function SovereignSecurityPanel() {
                       <QrCode className="h-4 w-4" />
                     </Button>
                   </div>
-                  {custodyPeers.length > 1 && (
-                    <div className="space-y-1">
-                      <p className="text-xs text-foreground/60">Vault holder named in this link</p>
-                      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Vault holder">
-                        {custodyPeers.map((p) => {
-                          const active = p.peerId === linkPeer;
-                          const online = connectedPeers.has(p.peerId);
-                          return (
-                            <button
-                              key={p.peerId}
-                              type="button"
-                              role="radio"
-                              aria-checked={active}
-                              onClick={() => setHolder(p.peerId)}
-                              className={`flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs ${active ? "border-primary bg-primary/15 text-primary" : "border-foreground/15 text-foreground/70 hover:text-foreground"}`}
-                            >
-                              <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-green-500" : "bg-foreground/30"}`} aria-hidden />
-                              {p.name || p.peerId.slice(0, 12)}
-                              <span className="sr-only">{online ? "(connected)" : "(offline)"}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
                   {showQr && (
                     <div className="space-y-2">
                       <div className="flex justify-center rounded-xl bg-white p-3">
@@ -390,9 +354,9 @@ export function SovereignSecurityPanel() {
                       </div>
                       <p className="text-xs leading-relaxed text-foreground/60">
                         Scan it from the device you want to recover on (its camera app, or Scan Recovery QR on the recovery
-                        page). Share this link or QR only with your own devices or connected peers who hold your recovery
-                        vault. We recommend merging your devices (Merge Account below), so a device of your own always
-                        keeps a copy of the vault.
+                        page). This link and QR stay the same until you wrap a new outer shell: save them somewhere safe.
+                        On recovery, any connected peer that holds your vault can hand it over. We recommend merging
+                        your devices (Merge Account below), so a device of your own always keeps a copy of the vault.
                       </p>
                     </div>
                   )}
@@ -400,15 +364,29 @@ export function SovereignSecurityPanel() {
               ) : (
                 <p className="text-sm text-foreground/60">{loaded ? "Seal a recovery vault to get your link." : "Loading…"}</p>
               )}
-              <p className="flex items-center gap-1.5 text-xs text-foreground/70">
-                <ShieldCheck className={`h-3.5 w-3.5 ${custodyPeers.length > 0 ? "text-green-500" : "text-foreground/40"}`} />
-                {custodyLabel}
+              <div className="space-y-1.5" role="status" aria-label="Vault custody">
+                <p className="flex items-center gap-1.5 text-xs text-foreground/70">
+                  <ShieldCheck className={`h-3.5 w-3.5 ${custodyPeers.length > 0 ? "text-green-500" : "text-foreground/40"}`} />
+                  {custodyLabel}
+                </p>
                 {custodyPeers.length > 0 && (
-                  <span className="text-foreground/50">
-                    ({custodyPeers.map((p) => p.name || p.peerId.slice(0, 12)).join(", ")})
-                  </span>
+                  <ul className="flex flex-wrap gap-1.5" aria-label="Custodians holding your vault">
+                    {custodyPeers.map((p) => {
+                      const online = connectedPeers.has(p.peerId);
+                      return (
+                        <li
+                          key={p.peerId}
+                          className="flex items-center gap-1.5 rounded-full border border-foreground/15 px-2.5 py-0.5 text-xs text-foreground/70"
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${online ? "bg-green-500" : "bg-foreground/30"}`} aria-hidden />
+                          {p.name || p.peerId.slice(0, 12)}
+                          <span className="sr-only">{online ? "(connected)" : "(offline)"}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
-              </p>
+              </div>
             </div>
 
             {loaded && !vault && (

@@ -21,6 +21,7 @@
 
 import { arrayBufferToBase64, base64ToArrayBuffer, computeUserId } from "../crypto";
 import { canonicalJsonBytes } from "../utils/canonicalJson";
+import { resolveInviteLocation } from "../p2p/brainInvite";
 
 export const VAULT_FORMAT = "swarm-recovery-vault";
 export const VAULT_PBKDF2_ITERATIONS = 250_000;
@@ -301,12 +302,21 @@ export const RECOVER_PATH = "/recover";
 export interface RecoveryLinkParams {
   id: string;
   v: number;
-  peer: string | null;
+  /**
+   * Legacy hint only. Older links carried `&peer=<peerId>`; it is still read so
+   * those links keep working (the named peer is dialled first), but a Recovery
+   * Link is account-bound and never written with a peer.
+   */
+  peer?: string | null;
 }
 
-export function recoveryUrl(origin: string, params: RecoveryLinkParams): string {
+/**
+ * The canonical, account-bound Recovery Link: `/recover?id=<userId>&v=<version>`.
+ * It names no peer, so it stays the same whichever peers hold the vault or are
+ * online, and can be saved once in a password manager or on paper.
+ */
+export function recoveryUrl(origin: string, params: Pick<RecoveryLinkParams, "id" | "v">): string {
   const q = new URLSearchParams({ id: params.id, v: String(params.v) });
-  if (params.peer) q.set("peer", params.peer);
   return `${origin}${RECOVER_PATH}?${q.toString()}`;
 }
 
@@ -362,18 +372,19 @@ export function recoverySearchFromLink(text: string, origin: string): string | n
 }
 
 /**
- * Which vault holder a Recovery Link / QR names. The person's pick wins when
- * it still holds the current shell; otherwise a custodian that is connected
- * right now, then any custodian, then this node (so a second device can still
- * recover while this one is online).
+ * A peer to ask for the vault, from what a person pasted on /recover: a bare
+ * `peer-…` id, or an invite link (`/connect#peer-…`, `/brain/join#peer-…`,
+ * hash-routed or `?peer=` forms). Null for anything else.
  */
-export function chooseRecoveryHolder(input: {
-  custodians: readonly string[];
-  connected: ReadonlySet<string> | readonly string[];
-  selected?: string | null;
-  self?: string | null;
-}): string | null {
-  const connected = input.connected instanceof Set ? input.connected : new Set(input.connected as readonly string[]);
-  if (input.selected && input.custodians.includes(input.selected)) return input.selected;
-  return input.custodians.find((p) => connected.has(p)) ?? input.custodians[0] ?? input.self ?? null;
+export function peerIdFromInput(text: string, origin: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (PEER_ID_PATTERN.test(trimmed)) return trimmed;
+  let url: URL;
+  try {
+    url = new URL(trimmed, origin);
+  } catch {
+    return null;
+  }
+  return resolveInviteLocation(url.pathname, url.hash, url.search)?.peerId ?? null;
 }
