@@ -23,7 +23,7 @@ Four original constellations hang in the Brain's night sky: **the Cat**, **the D
 
 The game behind the constellations (`src/lib/brain/starHunt.ts`, state in `starHuntStore.ts`).
 
-1. **Read the chart.** A star chart hangs on the east wall inside The Green Cat & Red Dragon (`StarChartBoard.tsx`). It shows tonight's constellation with its figure lines, north up, and a loose hint such as "Look high in the south around midnight". Standing within 6 m of it opens tonight's hunt.
+1. **Read the chart.** A star chart hangs on the west wall inside The Green Cat & Red Dragon, to the left of the dartboard (`StarChartBoard.tsx`). It shows tonight's constellation with its figure lines, north up, and a loose hint such as "Look high in the south around midnight". Standing within 6 m of it opens tonight's hunt.
 2. **Go outside after dark.** Tonight's figure is one that stands at least 20° up after dark from the village. It's chosen by a hash of the night, so the nights vary and every peer gets the same chart. Nights run noon to noon at the village, so the chart never changes in the dark.
 3. **Find it and hold your gaze.** Keep the centre of the screen within 7° of the figure's centre for 2.2 s. The hold ring only appears after 0.8 s already on target, so sweeping the sky doesn't work as a metal detector. The find doesn't count indoors, below 10° altitude, or before the stars are out.
 4. **Star log.** Each find is logged once per night, on this device only, and the chart shows your log. Logging all four makes you a Star Navigator.

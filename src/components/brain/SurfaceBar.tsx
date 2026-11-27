@@ -97,12 +97,19 @@ export const DONOR_RIGHT = -HALF_W + 2.75;
 export const DONOR_BOARD_YAW = Math.PI;
 /**
  * The star chart (tonight's constellation for the star hunt) hangs on the
- * east wall's inside face, between its two sconces, facing west into the
- * room. Read it here, then go out after dark and find the figure.
+ * west wall in the games nook, to the left of the dartboard as you face it
+ * (toward the front wall), clear of the wall sconce. Read it here, then go
+ * out after dark and find the figure.
  */
 const STARS_W = 2.4;
 const STARS_H = 3.0;
-/** Turns the chart's face (local +Z) to −right, west into the room. */
+export const STAR_CHART_RIGHT = -HALF_W + WALL_T / 2 + 0.08;
+export const STAR_CHART_FORWARD = -6.6;
+/**
+ * Turns the chart's face (local +Z) to local −X, east into the room. The
+ * render frame's +X is the site frame's left, so the west wall
+ * (−rightOffset) sits on local +X, like the dartboard's.
+ */
 export const STAR_CHART_YAW = -Math.PI / 2;
 
 // One pub table + 2 stools in the middle of the room.
@@ -365,7 +372,7 @@ export const SurfaceBar = memo(function SurfaceBar({
   // Donor leaderboard on the back wall behind the card table, facing the door.
   const donorBlockId = `${id}:donors:${anchorPeerId}`;
   const donorBodyId = `bar-donors:${donorBlockId}`;
-  // Star chart for the star hunt, on the east wall facing into the room.
+  // Star chart for the star hunt, beside the dartboard facing into the room.
   const starsBlockId = `${id}:stars:${anchorPeerId}`;
   const starsBodyId = `bar-stars:${starsBlockId}`;
 
@@ -488,8 +495,8 @@ export const SurfaceBar = memo(function SurfaceBar({
       id: starsBlockId,
       kind: 'bar-stars',
       anchorPeerId,
-      rightOffset: rightOffset + HALF_W - WALL_T / 2 - 0.08,
-      forwardOffset,
+      rightOffset: rightOffset + STAR_CHART_RIGHT,
+      forwardOffset: forwardOffset + STAR_CHART_FORWARD,
       upOffset: 2.0,
       mass: 4,
       basin: 0,
