@@ -39,6 +39,9 @@ function legCurrency(tx: SwarmTransaction): string {
   if (tx.type === 'token_transfer') return 'SWARM';
   const c = String(metaOf(tx).currency ?? '');
   if (c.toUpperCase() === 'CREDITS') return 'Credits';
+  // A token leg shows its symbol when the trade carried one.
+  const ticker = metaOf(tx).ticker;
+  if (!c.startsWith('GOOD:') && typeof ticker === 'string' && ticker.trim()) return ticker.trim();
   return c;
 }
 
