@@ -39,6 +39,8 @@ const WIRE_VERSION = 1;
 const MAX_CIPHERTEXT_LENGTH = CHAT_MESSAGE_MAX_LENGTH * 6 + 1024;
 /** Undelivered lines re-sent after a (re)handshake, newest first. */
 const RESEND_LIMIT = 50;
+/** Cap on links remembered while locked. */
+const MAX_DEFERRED_PEERS = 256;
 
 export type DirectMessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
 
@@ -226,6 +228,8 @@ interface InternalSession extends DirectPeerSession {
 export class DirectMessenger {
   private keyPair: Promise<{ privateKey: CryptoKey; pub: string }>;
   private sessions = new Map<string, InternalSession>();
+  /** Links whose handshakes or lines arrived while locked, greeted on unlock. */
+  private deferred = new Set<string>();
   /** Waiters for a session with a peer (peerId -> resolvers). */
   private sessionWaiters = new Map<string, Array<(s: DirectPeerSession | null) => void>>();
   private clocks = new Map<string, Record<string, number>>();
@@ -327,7 +331,9 @@ export class DirectMessenger {
   async resume(): Promise<void> {
     if (await this.locked()) return;
     const connected = new Set(this.mesh.getConnectedPeerIds());
-    for (const peerId of this.sessions.keys()) {
+    const targets = new Set([...this.sessions.keys(), ...this.deferred]);
+    this.deferred.clear();
+    for (const peerId of targets) {
       if (connected.has(peerId)) await this.sendHello(peerId, false);
     }
   }
@@ -500,7 +506,12 @@ export class DirectMessenger {
     if (!wire) return;
     // Locked: take no new handshakes or lines. Without our answer or ack the
     // sender keeps them and re-sends once we unlock and say hello again.
-    if ((wire.kind === 'hello' || wire.kind === 'msg') && (await this.locked())) return;
+    if ((wire.kind === 'hello' || wire.kind === 'msg') && (await this.locked())) {
+      // Remember who tried, so unlocking greets them even with no session
+      // here (e.g. this app reloaded while locked).
+      if (this.deferred.size < MAX_DEFERRED_PEERS) this.deferred.add(peerId);
+      return;
+    }
     switch (wire.kind) {
       case 'hello':
         return this.onHello(peerId, wire);
