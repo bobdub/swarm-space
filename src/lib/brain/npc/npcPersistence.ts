@@ -19,6 +19,7 @@ const SAVE_THROTTLE_MS = 2.5 * 60 * 1000;
 
 let lastSaveAt = 0;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingRoster: Npc[] | null = null;
 
 function openDb(): Promise<IDBDatabase | null> {
   return new Promise((resolve) => {
@@ -74,18 +75,23 @@ export function scheduleNpcRosterSave(roster: Npc[]): void {
     void dbPut('roster', roster);
     return;
   }
+  // Keep the newest roster so the deferred save isn't minutes stale.
+  pendingRoster = roster;
   if (saveTimer !== null) return;
   const wait = SAVE_THROTTLE_MS - elapsed;
   saveTimer = setTimeout(() => {
     saveTimer = null;
     lastSaveAt = Date.now();
-    void dbPut('roster', roster);
+    const latest = pendingRoster ?? roster;
+    pendingRoster = null;
+    void dbPut('roster', latest);
   }, wait);
 }
 
 /** Force a save right now (used on visibilitychange / beforeunload). */
 export function flushNpcRosterSave(roster: Npc[]): void {
   if (saveTimer !== null) { clearTimeout(saveTimer); saveTimer = null; }
+  pendingRoster = null;
   lastSaveAt = Date.now();
   void dbPut('roster', roster);
 }

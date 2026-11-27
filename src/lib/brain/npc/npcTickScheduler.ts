@@ -53,6 +53,7 @@ import {
 } from './npcTools';
 import { resolveLocalAnchorId } from './localAnchor';
 import { isNpcSceneActive } from './npcSceneGate';
+import { hasBreedingPair, topUpVillage } from './villageFloor';
 
 export { retainNpcScene, isNpcSceneActive } from './npcSceneGate';
 
@@ -298,6 +299,8 @@ function tickOne(npc: Npc, dtSeconds: number): void {
       despawnNpc(aged.id);
       clearNpcSignalMemo(aged.id);
       emitNpcDecision({ npcId: aged.id, verb: 'die', qDelta: pDeath });
+      // Without a female × male pair the village can only shrink.
+      if (!hasBreedingPair()) topUpVillage(aged.anchorPeerId);
       return;
     }
   }
