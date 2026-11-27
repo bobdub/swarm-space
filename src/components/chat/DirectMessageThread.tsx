@@ -19,6 +19,7 @@ import {
   type DirectPeerSession,
 } from '@/lib/chat/directMessages';
 import type { ConnectedChatPeer } from '@/hooks/useGlobalChat';
+import { CopyMessageButton } from './CopyMessageButton';
 
 const MARKDOWN_COMPONENTS = { a: SwarmLink };
 const TYPING_SEND_EVERY_MS = 3_000;
@@ -250,7 +251,7 @@ export function DirectMessageThread({
             <div key={r.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
               <div
                 className={cn(
-                  'max-w-[80%] rounded-2xl px-3 py-1.5 text-sm',
+                  'group max-w-[80%] rounded-2xl px-3 py-1.5 text-sm',
                   mine ? 'bg-primary/20 text-foreground' : 'bg-foreground/10 text-foreground',
                 )}
               >
@@ -267,6 +268,7 @@ export function DirectMessageThread({
                 )}
                 <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-foreground/50">
                   {new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {!r.locked && <CopyMessageButton text={r.text} />}
                   {mine && r.status === 'failed' ? (
                     <button
                       type="button"
