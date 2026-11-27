@@ -151,7 +151,6 @@ Credits and SWARM are separate balances: new SWARM only enters the chain as bloc
 | **Labor** | Coin engraving, sealed coins, and labour payouts from harvesting, building, and NPC work |
 | **NFTs** | Creator token holdings and your NFT collection |
 | **Mining** | Mining status for the active chain |
-| **Swap** | Cross-chain swaps (sub-chain ↔ sub-chain 1:1, to SWARM 2:1) |
 | **Creator** | Deploy or manage your creator token and its vaults |
 | **Chain** | Deploy your coin (one sub-chain per account), mine it with Start Mining my coin, and send it to peers with Share my Chain |
 | **Market** | Coin market and the **Support the Vault** donation card |

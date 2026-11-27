@@ -12,8 +12,6 @@
 import type { DeployedCoin, SwarmTransaction } from "./types";
 import { getActiveCoins, getCoin } from "./coinDeployment";
 import { getSwarmChain } from "./chain";
-import { generateTransactionId } from "./crypto";
-import { SWAP_RATIO_DEFAULT, SWAP_RATIO_TO_SWARM } from "./types";
 
 // ── Active Chain State ────────────────────────────────────────────────
 
@@ -153,121 +151,6 @@ export async function getChainBalance(address: string, chainId: string): Promise
   for (const tx of chain.getPendingTransactions()) scan(tx);
 
   return Math.max(0, balance);
-}
-
-// ── Cross-Chain Swap ──────────────────────────────────────────────────
-
-export interface SwapParams {
-  userId: string;
-  fromChainId: string;
-  fromTicker: string;
-  toChainId: string;
-  toTicker: string;
-  amount: number;
-}
-
-export interface SwapResult {
-  debitTx: SwarmTransaction;
-  creditTx: SwarmTransaction;
-  amountSent: number;
-  amountReceived: number;
-  ratio: number;
-}
-
-/**
- * Swap coins between blockchains.
- * - Sub-chain ↔ Sub-chain: 1:1
- * - Sub-chain → SWARM: 2:1 (pay 2 sub-chain coins to get 1 SWARM)
- * - SWARM → Sub-chain: 1:1 (1 SWARM = 1 sub-chain coin)
- */
-export async function swapCrossChain(params: SwapParams): Promise<SwapResult> {
-  const { userId, fromChainId, fromTicker, toChainId, toTicker, amount } = params;
-
-  if (fromChainId === toChainId) throw new Error("Cannot swap to the same chain");
-  // A mined coin's balance lives on its own chain, which a bridge record on
-  // SWARM can't debit or credit: refuse rather than simulate settlement.
-  const { hasCoinChain } = await import("./coinChainMining");
-  if (hasCoinChain(fromChainId) || hasCoinChain(toChainId)) {
-    throw new Error("Swaps aren't available yet for coins mined on their own chain");
-  }
-  if (amount <= 0) throw new Error("Amount must be positive");
-
-  // Determine ratio
-  const toSwarm = toChainId === "SWARM";
-  const ratio = toSwarm ? SWAP_RATIO_TO_SWARM : SWAP_RATIO_DEFAULT;
-  const amountReceived = amount / ratio;
-
-  if (amountReceived < 0.01) throw new Error("Amount too small to swap");
-
-  // Check source balance
-  const srcBalance = await getChainBalance(userId, fromChainId);
-  if (srcBalance < amount) {
-    throw new Error(
-      `Insufficient ${fromTicker} balance. Have ${srcBalance.toFixed(2)}, need ${amount}`
-    );
-  }
-
-  const chain = getSwarmChain();
-  const now = new Date().toISOString();
-
-  // Debit on source chain
-  const debitTx: SwarmTransaction = {
-    id: generateTransactionId(),
-    type: "cross_chain_swap",
-    from: userId,
-    to: `bridge:${toChainId}`,
-    amount,
-    timestamp: now,
-    signature: `sig-${Date.now()}`,
-    publicKey: userId,
-    nonce: Date.now(),
-    fee: 0,
-    chainId: fromChainId,
-    meta: {
-      swapDirection: "debit",
-      fromChain: fromTicker,
-      toChain: toTicker,
-      ratio,
-      amountReceived,
-    },
-  };
-
-  // Credit on destination chain
-  const creditTx: SwarmTransaction = {
-    id: generateTransactionId(),
-    type: "cross_chain_swap",
-    from: `bridge:${fromChainId}`,
-    to: userId,
-    amount: amountReceived,
-    timestamp: now,
-    signature: `sig-${Date.now()}`,
-    publicKey: userId,
-    nonce: Date.now() + 1,
-    fee: 0,
-    chainId: toChainId,
-    meta: {
-      swapDirection: "credit",
-      fromChain: fromTicker,
-      toChain: toTicker,
-      ratio,
-      amountSent: amount,
-    },
-  };
-
-  chain.addTransaction(debitTx);
-  chain.addTransaction(creditTx);
-
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: debitTx }));
-    window.dispatchEvent(new CustomEvent("blockchain-transaction", { detail: creditTx }));
-    window.dispatchEvent(new CustomEvent("cross-chain-swap", { detail: { debitTx, creditTx } }));
-  }
-
-  console.log(
-    `[Swap] ${amount} ${fromTicker} → ${amountReceived} ${toTicker} (${ratio}:1)`
-  );
-
-  return { debitTx, creditTx, amountSent: amount, amountReceived, ratio };
 }
 
 // ── Transaction Log Helpers ───────────────────────────────────────────
