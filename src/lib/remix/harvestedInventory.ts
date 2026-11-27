@@ -50,6 +50,11 @@ export interface BagScope {
    * ledger (Trading Stand trades and stock, coin crafting).
    */
   onlineOnly?: boolean;
+  /**
+   * Only the offline bag: a read lens, so panels can mark how much of what
+   * the player holds in offline play was gathered offline.
+   */
+  offlineOnly?: boolean;
 }
 
 const OFFLINE_PREFIX = 'offline:';
@@ -71,6 +76,7 @@ function parseKey(key: string): { bag: 'online' | 'offline' | 'seed'; symbol: st
 /** Raw keys a scope may draw `symbol` from, in spend order. */
 function visibleKeys(symbol: string, scope?: BagScope): string[] {
   if (scope?.onlineOnly) return [symbol];
+  if (scope?.offlineOnly) return [offlineKey(symbol)];
   const keys: string[] = [];
   const project = activeBrainProject();
   if (project) keys.push(seedKey(project, symbol));
