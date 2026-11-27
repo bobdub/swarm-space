@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Store } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { getStandLedger, type StandLedgerEntry } from "@/lib/world/tradingStand/standLedger";
@@ -61,7 +60,7 @@ export function StandLedgerPanel() {
         {rows.length === 0 ? (
           <div className="text-center py-6 text-muted-foreground text-sm">No Trading Stand trades yet.</div>
         ) : (
-          <ScrollArea className="h-64 pr-3">
+          <div className="max-h-64 overflow-y-auto pr-1">
             <div className="space-y-1.5">
               {rows.map((e) => {
                 const good = e.good ? getTradingGood(e.good) : undefined;
@@ -86,7 +85,7 @@ export function StandLedgerPanel() {
                 );
               })}
             </div>
-          </ScrollArea>
+          </div>
         )}
       </CardContent>
     </Card>
