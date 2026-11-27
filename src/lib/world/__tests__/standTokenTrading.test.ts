@@ -111,6 +111,14 @@ describe('trading in a token the stand holds', () => {
     expect(row).toMatchObject({ kind: 'bought', currency: 'DRM' });
   });
 
+  it('pays the owner their 15% back when they buy at their own stand', async () => {
+    const q = await buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 3, currency: DREAMS, stand: { placementId: 'p1', ownerId: 'buyer' } });
+    const owner = Math.floor(q.amount * 0.15 * 1e8) / 1e8;
+    const paid = h.pending.filter((t) => t.from === 'buyer' && t.meta?.currency === DREAMS).reduce((a, t) => a + t.amount, 0);
+    expect(paid).toBeCloseTo(q.amount, 8);
+    expect(h.pending.find((t) => t.from === scope.address && t.meta?.tradeLeg === 'owner-cut')).toMatchObject({ to: 'buyer', amount: owner });
+  });
+
   it('refuses a token buy the wallet cannot cover and charges nothing', async () => {
     h.tokenBalance = 0;
     await expect(buyFromStand({ userId: 'buyer', scope, good: 'wood', qty: 3, currency: DREAMS, stand })).rejects.toThrow(/Not enough DRM/);

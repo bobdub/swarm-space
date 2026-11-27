@@ -550,16 +550,23 @@ async function buyFromStandWithToken(req: StandTradeRequest, token: string): Pro
     const meta = { tradingStand: true, standKey: req.scope.key, direction: 'stand-buy', operationId, good: req.good, goodQty: req.qty, ...(ticker ? { ticker } : {}), ...standMeta };
     const total = quote.tokenAmount;
     const ownerBuys = !!req.stand && req.stand.ownerId === req.userId;
-    const owner = req.stand && !ownerBuys ? Math.floor(total * 0.15 * 1e8) / 1e8 : 0;
+    const owner = req.stand ? Math.floor(total * 0.15 * 1e8) / 1e8 : 0;
     const community = Math.floor(total * 0.05 * 1e8) / 1e8;
-    const toVault = Math.round((total - owner - community) * 1e8) / 1e8;
-    if (owner > 0 && req.stand) await addRecord({ from: req.userId, to: req.stand.ownerId, amount: owner, currency: token, meta: { ...meta, tradeLeg: 'owner-cut' } });
+    const vault = Math.round((total - owner - community) * 1e8) / 1e8;
+    // As with SWARM and Credits, the owner buying at their own stand pays the
+    // full price and the vault pays their 15% back.
+    const toVault = ownerBuys ? Math.round((vault + owner) * 1e8) / 1e8 : vault;
+    if (owner > 0 && req.stand && !ownerBuys) await addRecord({ from: req.userId, to: req.stand.ownerId, amount: owner, currency: token, meta: { ...meta, tradeLeg: 'owner-cut' } });
     if (community > 0) await addRecord({ from: req.userId, to: COMMUNITY_POOL, amount: community, currency: token, meta: { ...meta, tradeLeg: 'community', marketVault: true } });
     const payment = await addRecord({ from: req.userId, to: req.scope.address, amount: toVault, currency: token, meta: { ...meta, tradeLeg: 'payment' } });
+    const refund = ownerBuys && owner > 0
+      ? await addRecord({ from: req.scope.address, to: req.userId, amount: owner, currency: token, meta: { ...meta, tradeLeg: 'owner-cut' } })
+      : undefined;
     const goods = await addRecord({ from: req.scope.address, to: req.userId, amount: req.qty, currency: goodCurrency(req.good),
       meta: { ...meta, tradeLeg: 'goods', paidAmount: total, paidAsset: token } });
     giveGood(req.good, req.qty);
     announce(req.scope, payment);
+    if (refund) announce(req.scope, refund);
     announce(req.scope, goods);
     return quote;
   });
