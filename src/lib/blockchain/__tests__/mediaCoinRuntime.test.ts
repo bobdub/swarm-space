@@ -128,7 +128,8 @@ describe("mediaCoinRuntime courier mode", () => {
     const ref = await attach("file-a", new Uint8Array(300_000).map((_, i) => i % 199));
 
     const prepared = await prepareCourierFiles([ref], { postId: "post-1", creatorId: "user-alice" });
-    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier" }); // reserved
+    // Reserved, and the reservation is persisted on the coin so a reload can give it back.
+    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier", mediaReservation: expect.objectContaining({ prev: expect.any(Object) }) });
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
     await prepared.commit();
 

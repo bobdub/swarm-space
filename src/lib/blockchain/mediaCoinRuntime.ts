@@ -52,6 +52,7 @@ export type { MediaCoinPostRef };
 
 let unsubs: Array<() => void> = [];
 let pendingTimer: ReturnType<typeof setInterval> | null = null;
+let recoveryTimer: ReturnType<typeof setInterval> | null = null;
 
 /** Stable identity for a coin's content: its Merkle root never changes between coins or hops. */
 export function unpackedContentHash(merkleRoot: string): string {
@@ -150,6 +151,7 @@ export function startMediaCoinRuntime(transport: MeshTransportAdapter): void {
   unsubs.push(engine.onAlreadyHeld((h) => note(h.manifest, h.route.hops.length - 1)));
   void refreshMediaCoinContents();
   void recoverInterruptedReservations().catch(() => 0);
+  recoveryTimer = setInterval(() => { void recoverInterruptedReservations().catch(() => 0); }, RESERVATION_RECOVERY_INTERVAL_MS);
   void sweepMediaCoinDrafts(MEDIA_COIN_DRAFT_STALE_MS).catch(() => 0);
   void drainPendingLaunches().catch(() => {});
   pendingTimer = setInterval(() => { void drainPendingLaunches().catch(() => {}); }, 5_000);
@@ -160,6 +162,8 @@ export function stopMediaCoinRuntime(): void {
   unsubs = [];
   if (pendingTimer) clearInterval(pendingTimer);
   pendingTimer = null;
+  if (recoveryTimer) clearInterval(recoveryTimer);
+  recoveryTimer = null;
   launched.clear();
   resetMediaCoinEngine();
 }
@@ -252,14 +256,24 @@ async function releaseReservedCoin(userId: string, coinId: string, role: CoinRol
 
 /** Reservations this tab holds right now (a pack in progress). */
 const activeReservations = new Set<string>();
-/** A reservation older than this, held by no running pack, was interrupted. */
-export const MEDIA_COIN_RESERVATION_STALE_MS = 30 * 60 * 1000;
+/**
+ * A reservation older than this, held by no publish in this tab, was
+ * interrupted. Files are encrypted at attach time, so a reservation only
+ * spans Publish (reserve, save the post, engrave): seconds, not minutes.
+ * The window only has to cover another tab that is mid-publish.
+ */
+export const MEDIA_COIN_RESERVATION_STALE_MS = 5 * 60 * 1000;
+/** How often a running app re-checks for interrupted reservations. */
+const RESERVATION_RECOVERY_INTERVAL_MS = 60 * 1000;
 
 /**
  * Give back coins whose reservation was interrupted (the tab closed or
- * reloaded while a post was being packed): reserved, never engraved, not
- * held by a pack in this tab, and older than the stale window so another
- * tab's pack in progress is left alone.
+ * reloaded mid-publish). The reservation is persisted on the coin itself
+ * (`mediaReservation`, with the fields it replaced), so this works after a
+ * restart: reserved, never engraved, not held by a publish in this tab,
+ * and older than the stale window so another tab's publish is left alone.
+ * Runs at startup and then every minute, so a reservation that was still
+ * fresh at startup is released once it goes stale.
  */
 export async function recoverInterruptedReservations(now = Date.now()): Promise<number> {
   const userId = await currentUserId();
