@@ -5,13 +5,17 @@
  * `swarm-npcs`), and NPCs age and die. Only a female × male pair can
  * have children, so once a device is down to one NPC (or only one sex)
  * the village can never recover, and that small roster is saved and
- * restored on every visit. This tops the village back up with starter
+ * restored on every visit. When the village drops below VILLAGE_FLOOR or
+ * loses its last breeding pair, this tops it back up with starter
  * newcomers whose names aren't taken.
  */
 import { spawnNpc } from './npcEngine';
 import { listNpcs } from './npcRegistry';
 import { INITIAL_NPCS } from './seedCommunity';
 import type { Npc } from './npcTypes';
+
+/** Below this headcount the village is topped back up. */
+export const VILLAGE_FLOOR = 4;
 
 /** True when the village still has at least one female and one male. */
 export function hasBreedingPair(roster: Npc[] = listNpcs()): boolean {
@@ -25,21 +29,32 @@ export function hasBreedingPair(roster: Npc[] = listNpcs()): boolean {
   return false;
 }
 
+/** True when the village is below the floor or has no breeding pair. */
+export function needsTopUp(roster: Npc[] = listNpcs()): boolean {
+  return roster.length < VILLAGE_FLOOR || !hasBreedingPair(roster);
+}
+
 /**
- * Spawn starter NPCs (skipping names already present) until the village
- * has at least the starter headcount and a breeding pair. Returns how
- * many were spawned. Never throws.
+ * When the village is below VILLAGE_FLOOR or has no breeding pair, spawn
+ * starter NPCs (skipping names already present) until it has at least
+ * VILLAGE_FLOOR NPCs and a breeding pair. Returns how many were spawned.
+ * Never throws.
  */
 export function topUpVillage(anchorPeerId: string): number {
   let spawned = 0;
   try {
-    const taken = new Set(listNpcs().map((n) => n.name));
-    for (const spec of INITIAL_NPCS) {
+    const start = listNpcs();
+    const taken = new Set(start.map((n) => n.name));
+    // A missing sex comes first, so a lone survivor gets a partner before
+    // the headcount fills up.
+    const has = (sex: string) => start.some((n) => n.sex === sex);
+    const ordered = [...INITIAL_NPCS].sort((a, b) => Number(has(a.sex)) - Number(has(b.sex)));
+    for (const spec of ordered) {
       const roster = listNpcs();
-      if (roster.length >= INITIAL_NPCS.length && hasBreedingPair(roster)) break;
+      if (!needsTopUp(roster)) break;
       if (taken.has(spec.name)) continue;
       // Once the headcount is met, only add the missing sex.
-      if (roster.length >= INITIAL_NPCS.length && roster.some((n) => n.sex === spec.sex)) continue;
+      if (roster.length >= VILLAGE_FLOOR && roster.some((n) => n.sex === spec.sex)) continue;
       try {
         const res = spawnNpc({ name: spec.name, sex: spec.sex, anchorPeerId, seed: spec.baseString });
         if ('ok' in res && res.ok) {

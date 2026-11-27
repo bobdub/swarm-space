@@ -12,33 +12,42 @@ vi.mock('../npcEngine', () => ({
   },
 }));
 
-import { topUpVillage, hasBreedingPair } from '../villageFloor';
-import { INITIAL_NPCS } from '../seedCommunity';
+import { topUpVillage, hasBreedingPair, VILLAGE_FLOOR } from '../villageFloor';
 
 describe('villageFloor', () => {
   beforeEach(() => { roster.length = 0; });
 
-  it('seeds the full starter village when empty', () => {
-    expect(topUpVillage('a')).toBe(INITIAL_NPCS.length);
-    expect(hasBreedingPair(roster as never)).toBe(true);
-  });
-
-  it('tops a lone survivor back up without duplicating its name', () => {
+  it('tops a lone survivor back up to the floor without duplicating its name', () => {
     roster.push({ id: 'x', name: 'Aria', sex: 'female' });
     topUpVillage('a');
-    expect(roster.length).toBe(INITIAL_NPCS.length);
+    expect(roster.length).toBe(VILLAGE_FLOOR);
     expect(roster.filter((n) => n.name === 'Aria').length).toBe(1);
     expect(hasBreedingPair(roster as never)).toBe(true);
   });
 
-  it('adds only the missing sex to a big one-sex village', () => {
+  it('adds only the missing sex to a one-sex village at or above the floor', () => {
     for (let i = 0; i < 10; i++) roster.push({ id: `f${i}`, name: `Kid${i}`, sex: 'female' });
     expect(topUpVillage('a')).toBe(1);
     expect(roster.at(-1)?.sex).toBe('male');
   });
 
-  it('leaves a healthy village alone', () => {
-    topUpVillage('a');
+  it('leaves a village of four with a pair alone', () => {
+    roster.push(
+      { id: 'a', name: 'Aria', sex: 'female' },
+      { id: 'b', name: 'Beth', sex: 'female' },
+      { id: 'c', name: 'Cleo', sex: 'female' },
+      { id: 'd', name: 'Ash', sex: 'male' },
+    );
     expect(topUpVillage('a')).toBe(0);
+  });
+
+  it('refills a village of three even with a pair', () => {
+    roster.push(
+      { id: 'a', name: 'Aria', sex: 'female' },
+      { id: 'b', name: 'Beth', sex: 'female' },
+      { id: 'd', name: 'Ash', sex: 'male' },
+    );
+    expect(topUpVillage('a')).toBe(1);
+    expect(roster.length).toBe(VILLAGE_FLOOR);
   });
 });
