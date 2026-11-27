@@ -3,11 +3,13 @@
  *
  *  - Starts the engine on the live mesh transport (called by SwarmMesh),
  *    with the IndexedDB content store and the device's refused list.
- *  - Publish: a post whose media is above the torrent size goes by Media
- *    Coin. Each file is minted once into the content store (keyed by its
- *    merkleRoot), engraved onto a hollow wallet coin when one is free,
- *    and launched. It is minted from the user's File and never touches the
- *    torrent store, torrent announce or personal-server sync.
+ *  - Attach: a file routed to Media Coin is encrypted straight from the
+ *    user's File into the content store (keyed by its merkleRoot) as a
+ *    draft, while it uploads. It never touches the torrent store, torrent
+ *    announce or personal-server sync.
+ *  - Publish: the encrypted drafts are checked (nothing unencrypted is
+ *    posted), bound to the post and a hollow wallet coin when one is free,
+ *    and launched.
  *  - Arrivals: content that arrives whole, or a coin for content already
  *    held (0 bytes), is noted on the content record: the coin, its hops
  *    and, for Support Coins, the supporter. Torrents are never re-filled
@@ -34,6 +36,9 @@ import {
   mediaCoinContentKey,
   getMediaCoinContent,
   markMediaCoinContentSelf,
+  markMediaCoinContentDraft,
+  publishMediaCoinDraft,
+  sweepMediaCoinDrafts,
   recordMediaCoinSighting,
   deleteMediaCoinContent,
   refreshMediaCoinContents,
@@ -145,6 +150,7 @@ export function startMediaCoinRuntime(transport: MeshTransportAdapter): void {
   unsubs.push(engine.onAlreadyHeld((h) => note(h.manifest, h.route.hops.length - 1)));
   void refreshMediaCoinContents();
   void recoverInterruptedReservations().catch(() => 0);
+  void sweepMediaCoinDrafts(MEDIA_COIN_DRAFT_STALE_MS).catch(() => 0);
   void drainPendingLaunches().catch(() => {});
   pendingTimer = setInterval(() => { void drainPendingLaunches().catch(() => {}); }, 5_000);
 }
@@ -273,91 +279,107 @@ export async function recoverInterruptedReservations(now = Date.now()): Promise<
   });
 }
 
-// ── Publish (post time) ───────────────────────────────────────────────
+// ── Attach & publish ──────────────────────────────────────────────────
+
+/** Drafts left by a composer closed without posting are dropped after this. */
+export const MEDIA_COIN_DRAFT_STALE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * A file attached to a post that goes by Media Coin. It is minted straight
- * from the user's File: it is never written to, read from, announced by or
- * synced through the torrent store. Torrent and Media Coin are separate
- * distributions.
+ * Encrypt a file the user just attached straight into the Media Coin
+ * content store (AES-GCM, its own key), as a draft. This runs while the
+ * file uploads, before Publish, and never touches the torrent store,
+ * torrent announce or personal-server sync. Torrent and Media Coin are
+ * separate distributions.
  */
-export interface CourierFile {
-  file: File | Blob;
-  name?: string;
-  mediaWidth?: number;
-  mediaHeight?: number;
-}
-
-/** A post's files packed as Media Coins, not yet committed. */
-export interface PreparedCourierPost {
-  refs: MediaCoinPostRef[];
-  /** After the post is saved: engrave the coins and launch them. */
-  commit(): Promise<void>;
-  /** The post was not saved: give the coins back and drop the packed content. */
-  abort(): Promise<void>;
-}
-
-/**
- * Pack a post's files for Media Coin courier mode: reserve a hollow coin
- * per file when one is free (else the coin gets a generated id) and mint
- * each file, straight from the user's File, into the Media Coin content
- * store. The torrent store is never touched. Nothing is launched until
- * `commit()`, so a failure (here or before the post is saved) can be
- * retried with the same attachments.
- */
-export async function prepareCourierFiles(
-  files: CourierFile[],
-  opts: { postId: string; creatorId: string; onProgress?: (fileIndex: number, percent: number) => void },
-): Promise<PreparedCourierPost> {
-  const total = files.reduce((s, f) => s + (f.file.size || 0), 0);
-  if (total > MEDIA_COIN_PASS_MAX_BYTES) throw new Error("Post media is over the Media Coin limit");
-  const userId = (await currentUserId()) ?? opts.creatorId;
-  const packed: Array<{ file: CourierFile; manifest: MediaCoinManifest; claim: { coinId: string; snapshot: CoinSnapshot } | null }> = [];
-  const claimed = new Set<string>();
-
-  const abort = async () => {
-    for (const p of packed) {
-      if (p.claim) await releaseReservedCoin(userId, p.claim.coinId, "courier", p.claim.snapshot).catch(() => {});
-      await deleteMediaCoinContent(p.manifest.merkleRoot).catch(() => {});
-    }
-    packed.length = 0;
-  };
-
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    const claim = await claimHollowCoin(userId, "courier", claimed).catch(() => null);
-    if (claim) claimed.add(claim.coinId);
-    try {
-      const manifest = await mintMediaCoinContent(mediaCoinSourceOf(f.file, f.name), opts.creatorId, mediaCoinContentStore, {
-        encrypt: true,
-        coinId: claim?.coinId,
-        postId: opts.postId,
-        mediaWidth: f.mediaWidth,
-        mediaHeight: f.mediaHeight,
-        onProgress: (p) => opts.onProgress?.(i, p.phase === "hashing" ? p.percent / 2 : 50 + p.percent / 2),
-      });
-      packed.push({ file: f, manifest, claim });
-    } catch (err) {
-      if (claim) await releaseReservedCoin(userId, claim.coinId, "courier", claim.snapshot).catch(() => {});
-      await abort();
-      throw err;
-    }
-  }
-
-  const refs: MediaCoinPostRef[] = packed.map(({ file, manifest }) => ({
+export async function encryptCourierFile(
+  file: File | Blob,
+  opts: {
+    creatorId: string;
+    name?: string;
+    mediaWidth?: number;
+    mediaHeight?: number;
+    onProgress?: (percent: number) => void;
+  },
+): Promise<MediaCoinPostRef> {
+  const manifest = await mintMediaCoinContent(mediaCoinSourceOf(file, opts.name), opts.creatorId, mediaCoinContentStore, {
+    encrypt: true,
+    mediaWidth: opts.mediaWidth,
+    mediaHeight: opts.mediaHeight,
+    onProgress: (p) => opts.onProgress?.(p.phase === "hashing" ? Math.round(p.percent / 2) : 50 + Math.round(p.percent / 2)),
+  });
+  await markMediaCoinContentDraft(manifest.merkleRoot);
+  return {
     merkleRoot: manifest.merkleRoot,
     name: manifest.name,
     mime: manifest.mimeType,
     size: manifest.totalSize,
-    mediaWidth: file.mediaWidth,
-    mediaHeight: file.mediaHeight,
-  }));
+    mediaWidth: opts.mediaWidth,
+    mediaHeight: opts.mediaHeight,
+  };
+}
+
+/** The attachment was removed before posting: drop its encrypted draft. */
+export async function discardCourierFile(merkleRoot: string): Promise<void> {
+  const rec = await getMediaCoinContent(merkleRoot);
+  if (rec?.draft) await deleteMediaCoinContent(merkleRoot);
+}
+
+/** A post's Media Coin attachments, checked and ready to publish. */
+export interface PreparedCourierPost {
+  refs: MediaCoinPostRef[];
+  /** After the post is saved: bind, engrave and launch the coins. */
+  commit(): Promise<void>;
+  /** The post was not saved: give the coins back. The encrypted drafts stay for a retry. */
+  abort(): Promise<void>;
+}
+
+/**
+ * Get a post's already-encrypted Media Coin attachments ready to publish.
+ * Refuses any attachment that is not held whole and encrypted, so nothing
+ * unencrypted is ever posted. Reserves a hollow coin per file when one is
+ * free (else the coin gets a generated id). Nothing launches until
+ * `commit()`.
+ */
+export async function prepareCourierFiles(
+  refs: MediaCoinPostRef[],
+  opts: { postId: string; creatorId: string },
+): Promise<PreparedCourierPost> {
+  const total = refs.reduce((s, r) => s + (r.size || 0), 0);
+  if (total > MEDIA_COIN_PASS_MAX_BYTES) throw new Error("Post media is over the Media Coin limit");
+  for (const ref of refs) {
+    const rec = await getMediaCoinContent(ref.merkleRoot);
+    if (!rec?.complete) throw new Error(`${ref.name} is not encrypted on this device yet`);
+    if (!rec.manifest.encryptionKey) throw new Error(`${ref.name} is not encrypted; it cannot be posted`);
+  }
+  const userId = (await currentUserId()) ?? opts.creatorId;
+  const claims: Array<{ ref: MediaCoinPostRef; claim: { coinId: string; snapshot: CoinSnapshot } | null }> = [];
+  const claimed = new Set<string>();
+
+  const abort = async () => {
+    for (const c of claims) {
+      if (c.claim) await releaseReservedCoin(userId, c.claim.coinId, "courier", c.claim.snapshot).catch(() => {});
+    }
+    claims.length = 0;
+  };
+
+  try {
+    for (const ref of refs) {
+      const claim = await claimHollowCoin(userId, "courier", claimed).catch(() => null);
+      if (claim) claimed.add(claim.coinId);
+      claims.push({ ref, claim });
+    }
+  } catch (err) {
+    await abort();
+    throw err;
+  }
 
   const commit = async () => {
-    for (const { manifest, claim } of packed) {
-      if (claim) await engraveReservedCoin(userId, claim.coinId, "courier", manifest.merkleRoot, manifest.totalSize).catch(() => false);
-      await markMediaCoinContentSelf(manifest.merkleRoot);
-      queueLaunch({ coinId: manifest.coinId, merkleRoot: manifest.merkleRoot });
+    for (const { ref, claim } of claims) {
+      const coinId = claim?.coinId ?? `media-coin-${opts.postId}-${ref.merkleRoot.slice(0, 12)}`;
+      await publishMediaCoinDraft(ref.merkleRoot, { coinId, postId: opts.postId });
+      if (claim) await engraveReservedCoin(userId, claim.coinId, "courier", ref.merkleRoot, ref.size).catch(() => false);
+      await markMediaCoinContentSelf(ref.merkleRoot);
+      queueLaunch({ coinId, merkleRoot: ref.merkleRoot });
     }
     void drainPendingLaunches().catch(() => {});
   };

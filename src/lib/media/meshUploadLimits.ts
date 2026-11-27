@@ -12,9 +12,12 @@
  *    pass. 1 GB+ waits for real-mesh measurements; at a typical
  *    1-4 MB/s peer link, 500 MB is ~2-8 minutes per hop.
  *
- * A post holds at most five uploads and 500 MB in total. When all of a
- * post's media is 50 MB or less it uses torrent distribution; above that
- * the whole post goes by Media Coin.
+ * A post holds at most five uploads and 500 MB in total. Each file's
+ * path is chosen from its size the moment it is attached
+ * (`routeUploadFor`), and it is encrypted for that path while it uploads:
+ * files go by torrent while the post's torrent share stays at 50 MB or
+ * less; a file that would take it over goes by Media Coin. The two are
+ * separate distributions and never share a copy.
  */
 export const TORRENT_DISTRIBUTION_MAX_BYTES = 50 * 1024 * 1024;
 
@@ -35,9 +38,13 @@ export const MESH_POST_UPLOAD_LIMIT_BYTES = TORRENT_DISTRIBUTION_MAX_BYTES;
 
 export type PostDistribution = "torrent" | "media-coin";
 
-/** How a post's media travels: torrent at 50 MB or less, Media Coin above. */
-export function postDistributionFor(totalMediaBytes: number): PostDistribution {
-  return totalMediaBytes > TORRENT_DISTRIBUTION_MAX_BYTES ? "media-coin" : "torrent";
+/**
+ * The path for a newly attached file, given the bytes this post already
+ * sends by torrent: torrent while that share stays within 50 MB,
+ * Media Coin otherwise.
+ */
+export function routeUploadFor(fileBytes: number, torrentBytesSoFar: number): PostDistribution {
+  return torrentBytesSoFar + fileBytes > TORRENT_DISTRIBUTION_MAX_BYTES ? "media-coin" : "torrent";
 }
 
 /** Human label for a byte limit, e.g. "25 MB" or "1 GB". */

@@ -8,7 +8,8 @@ import { chunkAndEncryptFile, genFileKey, Manifest } from "@/lib/fileEncryption"
 import { getAdaptiveChunkSize } from "@/lib/p2p/torrentSwarm.standalone";
 import { toast } from "sonner";
 import { useP2PContext } from "@/contexts/P2PContext";
-import { formatUploadLimit, VIDEO_TRANSCODE_WAIT_TOOLTIP } from "@/lib/media/meshUploadLimits";
+import { formatUploadLimit, routeUploadFor, VIDEO_TRANSCODE_WAIT_TOOLTIP, type PostDistribution } from "@/lib/media/meshUploadLimits";
+import type { MediaCoinPostRef } from "@/types";
 import { AudioTranscodeError, shouldTranscodeAudio, transcodeAudioForMesh } from "@/lib/media/audioTranscode";
 
 /** Extract natural width/height from an image or video File */
@@ -49,26 +50,32 @@ function getMediaDimensions(file: File): Promise<{ width: number; height: number
 }
 
 /**
- * A file held raw (not yet encrypted anywhere) for a parent that chooses
- * its distribution later. PostComposer uses this so a post over the
- * torrent size is minted straight into Media Coins and never touches the
- * torrent store.
+ * An attached file, already encrypted for the path its size chose:
+ * torrent (torrent store) or Media Coin (Media Coin content store).
+ * The two never share a copy.
  */
-export interface PendingAttachment {
-  id: string;
-  file: File;
-  mediaWidth?: number;
-  mediaHeight?: number;
-}
+export type RoutedAttachment =
+  | { id: string; route: "torrent"; size: number; manifest: Manifest }
+  | { id: string; route: "media-coin"; size: number; ref: MediaCoinPostRef };
+
+/** Encrypts a file into the Media Coin content store (supplied by the poster). */
+export type MediaCoinEncryptor = (
+  file: File,
+  info: { mediaWidth?: number; mediaHeight?: number; onProgress: (percent: number) => void },
+) => Promise<MediaCoinPostRef>;
 
 interface FileUploadProps {
   onFilesReady?: (manifests: Manifest[]) => void;
   /**
-   * Hold files raw instead of encrypting them into the torrent store, and
-   * hand them to `onAttachmentsReady`. Nothing is written or announced.
+   * Route each file by its size as it is attached (torrent while the
+   * post's torrent share stays within 50 MB, else Media Coin) and encrypt
+   * it for that path right away. Routed files are announced by the poster
+   * at publish time, not here.
    */
-  deferEncryption?: boolean;
-  onAttachmentsReady?: (attachments: PendingAttachment[]) => void;
+  encryptForMediaCoin?: MediaCoinEncryptor;
+  onAttachmentsReady?: (attachments: RoutedAttachment[]) => void;
+  /** A finished attachment was removed; the poster drops its encrypted copy. */
+  onAttachmentRemoved?: (attachment: RoutedAttachment) => void;
   onEncryptingChange?: (encrypting: boolean) => void;
   maxFiles?: number;
   maxFileSize?: number; // in bytes
@@ -88,7 +95,10 @@ interface FileWithProgress {
    * "transcoding" = long audio being compressed to fit the mesh limit.
    */
   status: "queued" | "transcoding" | "encrypting" | "done" | "error";
+  /** Path chosen from the file's size when it was attached (routed mode). */
+  route?: PostDistribution;
   manifest?: Manifest;
+  ref?: MediaCoinPostRef;
   error?: string;
   /** Local blob: URL so queued videos can be watched before they are processed. */
   previewUrl?: string;
@@ -98,8 +108,9 @@ const isVideo = (file: File) => file.type.startsWith("video/");
 
 export const FileUpload = ({
   onFilesReady,
-  deferEncryption = false,
+  encryptForMediaCoin,
   onAttachmentsReady,
+  onAttachmentRemoved,
   onEncryptingChange,
   maxFiles = 10,
   maxFileSize = 20 * 1024 * 1024, // 20MB
@@ -143,6 +154,8 @@ export const FileUpload = ({
       return;
     }
     let usedBytes = kept.reduce((sum, f) => sum + f.file.size, 0);
+    const routed = Boolean(encryptForMediaCoin);
+    let torrentBytes = kept.filter((f) => f.route === "torrent").reduce((sum, f) => sum + f.file.size, 0);
 
     // Validate and add files
     const newFiles: FileWithProgress[] = [];
@@ -163,6 +176,14 @@ export const FileUpload = ({
       }
       usedBytes += file.size;
 
+      // The file's size picks its path now, so it is encrypted for that
+      // path while it uploads.
+      let route: PostDistribution | undefined;
+      if (routed) {
+        route = routeUploadFor(file.size, torrentBytes);
+        if (route === "torrent") torrentBytes += file.size;
+      }
+
       let previewUrl: string | undefined;
       if (isVideo(file)) {
         previewUrl = URL.createObjectURL(file);
@@ -174,6 +195,7 @@ export const FileUpload = ({
         file,
         progress: 0,
         status: "queued",
+        route,
         previewUrl,
       });
     }
@@ -220,15 +242,16 @@ export const FileUpload = ({
 
       updateFile(item.id, { status: "encrypting" });
 
-      if (deferEncryption) {
+      if (item.route === "media-coin" && encryptForMediaCoin) {
         const dims = await getMediaDimensions(source);
-        updateFile(item.id, { status: "done", progress: 100 });
-        onAttachmentsReady?.([{
-          id: item.id,
-          file: source,
-          ...(dims ? { mediaWidth: dims.width, mediaHeight: dims.height } : {}),
-        }]);
-        toast.success(`${source.name} ready`);
+        const ref = await encryptForMediaCoin(source, {
+          mediaWidth: dims?.width,
+          mediaHeight: dims?.height,
+          onProgress: (progress) => updateFile(item.id, { progress }),
+        });
+        updateFile(item.id, { status: "done", ref, progress: 100 });
+        onAttachmentsReady?.([{ id: item.id, route: "media-coin", size: ref.size, ref }]);
+        toast.success(`${source.name} encrypted for Media Coin`);
         return;
       }
 
@@ -250,10 +273,13 @@ export const FileUpload = ({
 
       updateFile(item.id, { status: "done", manifest, progress: 100 });
 
-      // Announce to P2P network
-      announceContent(manifest.fileId);
-
-      onFilesReady?.([manifest]);
+      if (item.route === "torrent") {
+        // Routed: the poster announces at publish time.
+        onAttachmentsReady?.([{ id: item.id, route: "torrent", size: manifest.size, manifest }]);
+      } else {
+        announceContent(manifest.fileId);
+        onFilesReady?.([manifest]);
+      }
       toast.success(`${source.name} encrypted and ready`);
     } catch (error) {
       if (error instanceof AudioTranscodeError) {
@@ -262,21 +288,27 @@ export const FileUpload = ({
         return;
       }
       console.error("Encryption error:", error);
-      updateFile(item.id, { status: "error", error: deferEncryption ? "Couldn't prepare file" : "Encryption failed" });
-      toast.error(deferEncryption ? `Failed to prepare ${item.file.name}` : `Failed to encrypt ${item.file.name}`);
+      updateFile(item.id, { status: "error", error: "Encryption failed" });
+      toast.error(`Failed to encrypt ${item.file.name}`);
     }
   };
 
   const removeFile = (id: string) => {
-    setFiles(prev => {
-      const target = prev.find(f => f.id === id);
-      if (target?.status === "queued") cancelledRef.current.add(id);
-      if (target?.previewUrl) {
-        URL.revokeObjectURL(target.previewUrl);
-        previewUrlsRef.current.delete(target.previewUrl);
+    const target = files.find(f => f.id === id);
+    if (!target) return;
+    if (target.status === "queued") cancelledRef.current.add(id);
+    if (target.status === "done") {
+      if (target.route === "media-coin" && target.ref) {
+        onAttachmentRemoved?.({ id, route: "media-coin", size: target.ref.size, ref: target.ref });
+      } else if (target.route === "torrent" && target.manifest) {
+        onAttachmentRemoved?.({ id, route: "torrent", size: target.manifest.size, manifest: target.manifest });
       }
-      return prev.filter(f => f.id !== id);
-    });
+    }
+    if (target.previewUrl) {
+      URL.revokeObjectURL(target.previewUrl);
+      previewUrlsRef.current.delete(target.previewUrl);
+    }
+    setFiles(prev => prev.filter(f => f.id !== id));
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -373,8 +405,9 @@ export const FileUpload = ({
                     {formatFileSize(fileWithProgress.file.size)}
                     {fileWithProgress.status === "queued" && !isVideo(fileWithProgress.file) && " • Queued"}
                     {fileWithProgress.status === "transcoding" && " • Compressing audio to fit the mesh..."}
-                    {fileWithProgress.status === "encrypting" && (deferEncryption ? " • Preparing..." : " • Encrypting...")}
-                    {fileWithProgress.status === "done" && (deferEncryption ? " • Ready ✓" : " • Encrypted ✓")}
+                    {fileWithProgress.route && ` • ${fileWithProgress.route === "media-coin" ? "Media Coin" : "Torrent"}`}
+                    {fileWithProgress.status === "encrypting" && " • Encrypting..."}
+                    {fileWithProgress.status === "done" && " • Encrypted ✓"}
                     {fileWithProgress.status === "error" && ` • ${fileWithProgress.error}`}
                   </p>
                   

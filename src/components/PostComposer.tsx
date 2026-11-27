@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { FileUpload, type PendingAttachment } from "@/components/FileUpload";
+import { FileUpload, type MediaCoinEncryptor, type RoutedAttachment } from "@/components/FileUpload";
 import { AccountSetupModal } from "@/components/AccountSetupModal";
 import { PostCard } from "@/components/PostCard";
 import { FolderOpen, X, Lock, Coins } from "lucide-react";
@@ -35,7 +35,6 @@ import {
   POST_UPLOAD_TOTAL_LIMIT_BYTES,
   TORRENT_DISTRIBUTION_MAX_BYTES,
   formatUploadLimit,
-  postDistributionFor,
 } from "@/lib/media/meshUploadLimits";
 import type { MediaCoinPostRef } from "@/types";
 
@@ -69,7 +68,7 @@ export const PostComposer = ({
   const [mentions, setMentions] = useState<MentionBinding[]>([]);
   const [loading, setLoading] = useState(false);
   const [showFileUpload, setShowFileUpload] = useState(false);
-  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachments, setAttachments] = useState<RoutedAttachment[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(defaultProjectId ?? "");
   const [userProjects, setUserProjects] = useState<Project[]>([]);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
@@ -178,7 +177,7 @@ export const PostComposer = ({
       return;
     }
 
-    const totalMediaBytes = attachments.reduce((sum, a) => sum + a.file.size, 0);
+    const totalMediaBytes = attachments.reduce((sum, a) => sum + a.size, 0);
     if (attachments.length > POST_UPLOAD_MAX_FILES) {
       toast.error(`A post holds at most ${POST_UPLOAD_MAX_FILES} uploads`);
       return;
@@ -188,39 +187,32 @@ export const PostComposer = ({
       return;
     }
 
+    // Every attachment was encrypted for its path while it uploaded:
+    // torrent files into the torrent store, Media Coin files straight into
+    // the Media Coin content store. The two never share a copy, and nothing
+    // unencrypted is posted.
+    const torrentAttachments = attachments.filter((a): a is Extract<RoutedAttachment, { route: "torrent" }> => a.route === "torrent");
+    const courierAttachments = attachments.filter((a): a is Extract<RoutedAttachment, { route: "media-coin" }> => a.route === "media-coin");
+    if (torrentAttachments.some((a) => !a.manifest.chunks?.length || !(a.manifest.fileKey || a.manifest.fileKeyRaw))) {
+      toast.error("An attachment is not encrypted yet, so the post was not published");
+      return;
+    }
+
     setLoading(true);
-    // Attachments are held raw until now, so each distribution gets its own
-    // copy and the two never meet: 50 MB or less is encrypted into the
-    // torrent store; above that the whole post is minted straight into
-    // Media Coins and never touches the torrent store, announce or sync.
-    // Either is undone if the post is not saved, so a retry starts clean.
     let courier: import("@/lib/blockchain/mediaCoinRuntime").PreparedCourierPost | null = null;
-    const torrentFileIds: string[] = [];
     let postSaved = false;
     try {
-      const distribution = postDistributionFor(totalMediaBytes);
       const postId = `post-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      let manifestIds: string[] = [];
+      const manifestIds = torrentAttachments.map((a) => a.manifest.fileId);
       let mediaCoins: MediaCoinPostRef[] | undefined;
-      if (distribution === "media-coin" && attachments.length > 0) {
+      if (courierAttachments.length > 0) {
+        // Refuses any Media Coin attachment that is not held whole and encrypted.
         const { prepareCourierFiles } = await import("@/lib/blockchain/mediaCoinRuntime");
-        const toastId = toast.loading("Packing media into Media Coins…");
-        try {
-          courier = await prepareCourierFiles(attachments, { postId, creatorId: user.id });
-          mediaCoins = courier.refs;
-        } finally {
-          toast.dismiss(toastId);
-        }
-      } else if (attachments.length > 0) {
-        const { encryptTorrentAttachments } = await import("@/lib/media/torrentAttachments");
-        const toastId = toast.loading("Encrypting attachments…");
-        try {
-          manifestIds = await encryptTorrentAttachments(attachments, (fileId) => torrentFileIds.push(fileId));
-        } finally {
-          toast.dismiss(toastId);
-        }
+        courier = await prepareCourierFiles(courierAttachments.map((a) => a.ref), { postId, creatorId: user.id });
+        mediaCoins = courier.refs;
       }
-      const firstMime = attachments[0]?.file.type ?? "";
+      const first = attachments[0];
+      const firstMime = !first ? "" : first.route === "torrent" ? first.manifest.mime : first.ref.mime;
       const postType = attachments.length > 0
         ? (firstMime.startsWith("image/")
           ? "image"
@@ -466,10 +458,6 @@ export const PostComposer = ({
       onPostCreated?.(signedPost);
     } catch (error) {
       if (courier && !postSaved) await courier.abort().catch(() => {});
-      if (torrentFileIds.length && !postSaved) {
-        const { discardTorrentAttachments } = await import("@/lib/media/torrentAttachments");
-        await discardTorrentAttachments(torrentFileIds).catch(() => {});
-      }
       toast.error("Failed to create post");
       console.error(error);
     } finally {
@@ -477,13 +465,26 @@ export const PostComposer = ({
     }
   };
 
-  const handleAttachmentsReady = (ready: PendingAttachment[]) => {
+  const handleAttachmentsReady = (ready: RoutedAttachment[]) => {
     setAttachments((prev) => [...prev, ...ready]);
   };
 
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((attachment) => attachment.id !== id));
+  // Removed before posting: drop its encrypted copy from whichever store
+  // holds it. Neither was announced yet.
+  const handleAttachmentRemoved = (removed: RoutedAttachment) => {
+    setAttachments((prev) => prev.filter((attachment) => attachment.id !== removed.id));
+    if (removed.route === "torrent") {
+      void import("@/lib/fileEncryption").then((m) => m.deleteManifest(removed.manifest.fileId)).catch(() => {});
+    } else {
+      void import("@/lib/blockchain/mediaCoinRuntime").then((m) => m.discardCourierFile(removed.ref.merkleRoot)).catch(() => {});
+    }
   };
+
+  const encryptForMediaCoin = useCallback<MediaCoinEncryptor>(async (file, info) => {
+    if (!user) throw new Error("Sign in to attach files");
+    const { encryptCourierFile } = await import("@/lib/blockchain/mediaCoinRuntime");
+    return encryptCourierFile(file, { creatorId: user.id, ...info });
+  }, [user]);
 
   const wrapperClasses = useMemo(() => {
     return ["space-y-6", className].filter(Boolean).join(" ");
@@ -691,48 +692,29 @@ export const PostComposer = ({
           </div>
 
           {attachments.length > 0 && (
-            <div className="space-y-2">
-              <Label className="text-sm font-semibold uppercase tracking-wider">Attachments</Label>
-              <p className="text-xs text-muted-foreground" data-testid="post-distribution">
-                {(() => {
-                  const total = attachments.reduce((sum, a) => sum + a.file.size, 0);
-                  const mb = (total / (1024 * 1024)).toFixed(1);
-                  return postDistributionFor(total) === "media-coin"
-                    ? `${mb} MB · travels by Media Coin (over ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)})`
-                    : `${mb} MB · travels by torrent`;
-                })()}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {attachments.map((attachment) => (
-                  <div
-                    key={attachment.id}
-                    className="flex items-center gap-2 rounded-md border border-[hsla(174,59%,56%,0.2)] bg-[hsla(245,70%,12%,0.6)] px-3 py-2 text-sm"
-                  >
-                    <span className="max-w-[200px] truncate">{attachment.file.name}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto p-0"
-                      onClick={() => removeAttachment(attachment.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <p className="text-xs text-muted-foreground" data-testid="post-distribution">
+              {(() => {
+                const mb = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                const torrent = attachments.filter((a) => a.route === "torrent").reduce((sum, a) => sum + a.size, 0);
+                const coin = attachments.filter((a) => a.route === "media-coin").reduce((sum, a) => sum + a.size, 0);
+                return [
+                  torrent > 0 ? `${mb(torrent)} by torrent` : null,
+                  coin > 0 ? `${mb(coin)} by Media Coin` : null,
+                ].filter(Boolean).join(" · ") + " · encrypted";
+              })()}
+            </p>
           )}
 
           {showFileUpload ? (
             <FileUpload
-              deferEncryption
+              encryptForMediaCoin={encryptForMediaCoin}
               onAttachmentsReady={handleAttachmentsReady}
+              onAttachmentRemoved={handleAttachmentRemoved}
               onEncryptingChange={setIsEncrypting}
               maxFiles={POST_UPLOAD_MAX_FILES}
               maxFileSize={MEDIA_COIN_PASS_MAX_BYTES}
               maxTotalSize={POST_UPLOAD_TOTAL_LIMIT_BYTES}
-              hint={`Up to ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)} travels by torrent; bigger posts go by Media Coin.`}
+              hint={`Each file is encrypted as it uploads. Up to ${formatUploadLimit(TORRENT_DISTRIBUTION_MAX_BYTES)} per post travels by torrent; the rest goes by Media Coin.`}
             />
           ) : (
             <Button

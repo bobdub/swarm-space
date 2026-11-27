@@ -48,25 +48,38 @@ import type { MeshTransportAdapter } from "../mediaCoin.standalone";
 import {
   startMediaCoinRuntime,
   stopMediaCoinRuntime,
+  encryptCourierFile,
+  discardCourierFile,
   prepareCourierFiles,
   supportMediaCoin,
   deleteMediaCoinSync,
   recoverInterruptedReservations,
   MEDIA_COIN_RESERVATION_STALE_MS,
+  MEDIA_COIN_DRAFT_STALE_MS,
 } from "../mediaCoinRuntime";
-import { getMediaCoinContent, _resetMediaCoinContentStoreForTest } from "../mediaCoinContentStore";
+import {
+  getMediaCoinContent,
+  mediaCoinContentStore,
+  sweepMediaCoinDrafts,
+  refreshMediaCoinContents,
+  listMediaCoinContents,
+  _resetMediaCoinContentStoreForTest,
+} from "../mediaCoinContentStore";
+import { mintMediaCoinContent, mediaCoinSourceOf } from "../mediaCoin.standalone";
 import { isMediaCoinRefused, _resetRefusedMediaCoinsForTest } from "../refusedMediaCoinsStore";
 
-/** A file the user attached, held raw (never written to the torrent store). */
-function attached(name: string, data: Uint8Array) {
-  return { file: new File([data], `${name}.mp4`, { type: "video/mp4" }) };
-}
+/** A file the user just attached. */
+const attachedFile = (name: string, data: Uint8Array) => new File([data], `${name}.mp4`, { type: "video/mp4" });
 
-/** A file whose bytes can no longer be read (e.g. it was moved on disk). */
-function unreadable(name: string, size: number) {
-  const blob = new Blob([new Uint8Array(size)], { type: "video/mp4" });
-  blob.slice = () => ({ arrayBuffer: () => Promise.reject(new Error(`${name} missing`)) }) as unknown as Blob;
-  return { file: blob, name: `${name}.mp4` };
+/** Attach: encrypted into the Media Coin store as it uploads. */
+const attach = (name: string, data: Uint8Array) => encryptCourierFile(attachedFile(name, data), { creatorId: "user-alice" });
+
+/** Attach, then publish as `postId`. */
+async function publish(name: string, data: Uint8Array, postId: string) {
+  const ref = await attach(name, data);
+  const prepared = await prepareCourierFiles([ref], { postId, creatorId: "user-alice" });
+  await prepared.commit();
+  return ref;
 }
 
 function transport(sent: Array<{ type: string; coinId: string }>): MeshTransportAdapter {
@@ -90,30 +103,44 @@ beforeEach(async () => {
 });
 
 describe("mediaCoinRuntime courier mode", () => {
-  it("publishes a post's files as Media Coins straight from the file, never through the torrent store", async () => {
-    coin("hollow-1");
+  it("encrypts a file into the Media Coin store as it is attached, never through the torrent store", async () => {
     const data = new Uint8Array(300_000).map((_, i) => i % 199);
-    const file = attached("file-a", data);
+    const ref = await attach("file-a", data);
 
-    const prepared = await prepareCourierFiles([file], { postId: "post-1", creatorId: "user-alice" });
-    // Nothing launched until the post is saved.
-    expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
-    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier" }); // reserved
-    await prepared.commit();
-    const refs = prepared.refs;
-
-    expect(refs).toHaveLength(1);
-    const rec = await getMediaCoinContent(refs[0].merkleRoot);
+    const rec = await getMediaCoinContent(ref.merkleRoot);
     expect(rec?.complete).toBe(true);
+    expect(rec?.draft).toBe(true);
+    expect(rec?.manifest.encryptionKey).toBeTruthy();
+    // Ciphertext at rest, not the plaintext.
+    const first = await mediaCoinContentStore.getChunk(ref.merkleRoot, 0);
+    expect(atob(first!).slice(0, 32)).not.toBe(String.fromCharCode(...data.subarray(0, 32)));
+    // A draft is not offered, launched or listed before Publish.
+    expect(await mediaCoinContentStore.isComplete(ref.merkleRoot)).toBe(false);
+    await refreshMediaCoinContents();
+    expect(listMediaCoinContents()).toEqual([]);
+    expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
+    expect(torrentCalls).toEqual([]);
+    expect(s("manifests").size + s("chunks").size).toBe(0);
+  });
+
+  it("publishes the encrypted draft on a hollow coin and launches it as a Media Coin", async () => {
+    coin("hollow-1");
+    const ref = await attach("file-a", new Uint8Array(300_000).map((_, i) => i % 199));
+
+    const prepared = await prepareCourierFiles([ref], { postId: "post-1", creatorId: "user-alice" });
+    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier" }); // reserved
+    expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
+    await prepared.commit();
+
+    const rec = await getMediaCoinContent(ref.merkleRoot);
+    expect(rec?.draft).toBeUndefined();
     expect(rec?.postId).toBe("post-1");
     expect(rec?.coinIds).toEqual(["hollow-1"]);
+    expect(rec?.manifest.coinId).toBe("hollow-1");
     expect(rec?.createdBySelf).toBe(true);
-    expect(rec?.name ?? refs[0].name).toBe("file-a.mp4");
-    expect(torrentCalls).toEqual([]);
-    expect(s("manifests").size).toBe(0);
-    expect(s("chunks").size).toBe(0);
-    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier", mediaContentRoot: refs[0].merkleRoot, fillState: "sealed" });
+    expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaRole: "courier", mediaContentRoot: ref.merkleRoot, fillState: "sealed" });
     expect(lockRuns.length).toBeGreaterThan(0);
+    expect(torrentCalls).toEqual([]);
 
     // Queued until the mesh is up, then offered (never as a torrent).
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toContain("hollow-1");
@@ -123,12 +150,17 @@ describe("mediaCoinRuntime courier mode", () => {
     expect(sent.some((m) => m.type === "coin-pass")).toBe(false);
   });
 
+  it("the publisher refuses content that is not encrypted or not held", async () => {
+    const plain = await mintMediaCoinContent(mediaCoinSourceOf(attachedFile("plain", new Uint8Array(500).fill(9))), "user-alice", mediaCoinContentStore, { encrypt: false });
+    const plainRef = { merkleRoot: plain.merkleRoot, name: "plain.mp4", mime: "video/mp4", size: 500 };
+    await expect(prepareCourierFiles([plainRef], { postId: "p", creatorId: "user-alice" })).rejects.toThrow(/not encrypted/);
+    const missing = { merkleRoot: "nope", name: "gone.mp4", mime: "video/mp4", size: 10 };
+    await expect(prepareCourierFiles([missing], { postId: "p", creatorId: "user-alice" })).rejects.toThrow(/not encrypted/);
+  });
+
   it("support coin uses a different coinId than the original and records the supporter", async () => {
     coin("hollow-1");
-    const file = attached("file-b", new Uint8Array(5000).fill(7));
-    const prepared = await prepareCourierFiles([file], { postId: "post-2", creatorId: "user-alice" });
-    await prepared.commit();
-    const [ref] = prepared.refs;
+    const ref = await publish("file-b", new Uint8Array(5000).fill(7), "post-2");
     coin("hollow-2");
 
     const { coinId } = await supportMediaCoin(ref.merkleRoot);
@@ -141,53 +173,60 @@ describe("mediaCoinRuntime courier mode", () => {
   });
 
   it("support coin is refused without a hollow coin", async () => {
-    const file = attached("file-c", new Uint8Array(100).fill(1));
-    const prepared = await prepareCourierFiles([file], { postId: "post-3", creatorId: "user-alice" });
-    await prepared.commit();
+    const ref = await publish("file-c", new Uint8Array(100).fill(1), "post-3");
     // The content packer loaded this coin after the snapshot was taken.
     coin("busy", { payloadEntries: [{ hash: "h" }] });
-    await expect(supportMediaCoin(prepared.refs[0].merkleRoot)).rejects.toThrow(/hollow coin/);
+    await expect(supportMediaCoin(ref.merkleRoot)).rejects.toThrow(/hollow coin/);
     expect(coinAt("busy").kind).toBeUndefined();
   });
 
   it("Delete Sync removes the local copy and refuses the content", async () => {
-    const file = attached("file-d", new Uint8Array(100).fill(2));
-    const prepared = await prepareCourierFiles([file], { postId: "post-4", creatorId: "user-alice" });
-    await prepared.commit();
-    const [ref] = prepared.refs;
+    const ref = await publish("file-d", new Uint8Array(100).fill(2), "post-4");
     await deleteMediaCoinSync(ref.merkleRoot);
     expect(await getMediaCoinContent(ref.merkleRoot)).toBeNull();
     expect(isMediaCoinRefused(ref.merkleRoot)).toBe(true);
     expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
   });
 
-  it("a failed file gives the coins back and drops packed content, so the post can be retried", async () => {
-    coin("hollow-1");
-    coin("hollow-2");
-    const good = attached("file-e", new Uint8Array(4000).fill(3));
-    const bad = unreadable("file-f", 4000);
-
-    await expect(prepareCourierFiles([good, bad], { postId: "post-5", creatorId: "user-alice" })).rejects.toThrow(/missing/);
-
+  it("a file that can't be read fails at attach time and leaves nothing behind", async () => {
+    const blob = new Blob([new Uint8Array(4000)], { type: "video/mp4" });
+    blob.slice = () => ({ arrayBuffer: () => Promise.reject(new Error("file-f missing")) }) as unknown as Blob;
+    await expect(encryptCourierFile(blob, { creatorId: "user-alice", name: "file-f.mp4" })).rejects.toThrow(/missing/);
+    await refreshMediaCoinContents();
+    expect(listMediaCoinContents()).toEqual([]);
     expect(torrentCalls).toEqual([]);
-    expect(coinAt("hollow-1").kind).toBeUndefined();
-    expect(coinAt("hollow-2").kind).toBeUndefined();
-    expect(localStorage.getItem("media-coin-pending-launches-v2")).toBeNull();
-
-    // Retry once the file can be read again.
-    const fixed = attached("file-f", new Uint8Array(4000).fill(4));
-    const prepared = await prepareCourierFiles([good, fixed], { postId: "post-5", creatorId: "user-alice" });
-    expect(prepared.refs).toHaveLength(2);
   });
 
-  it("abort before the post is saved releases the reserved coin and drops the packed content", async () => {
+  it("abort gives the coins back and keeps the encrypted drafts for a retry", async () => {
     coin("hollow-1");
-    const file = attached("file-g", new Uint8Array(1000).fill(5));
-    const prepared = await prepareCourierFiles([file], { postId: "post-6", creatorId: "user-alice" });
+    const ref = await attach("file-g", new Uint8Array(1000).fill(5));
+    const prepared = await prepareCourierFiles([ref], { postId: "post-6", creatorId: "user-alice" });
     await prepared.abort();
     expect(coinAt("hollow-1").kind).toBeUndefined();
-    expect(await getMediaCoinContent(prepared.refs[0].merkleRoot)).toBeNull();
-    expect(torrentCalls).toEqual([]);
+    expect((await getMediaCoinContent(ref.merkleRoot))?.draft).toBe(true);
+
+    const retry = await prepareCourierFiles([ref], { postId: "post-6", creatorId: "user-alice" });
+    await retry.commit();
+    expect((await getMediaCoinContent(ref.merkleRoot))?.coinIds).toEqual(["hollow-1"]);
+  });
+
+  it("removing an attachment drops its draft but never published content", async () => {
+    const draft = await attach("file-x", new Uint8Array(800).fill(8));
+    await discardCourierFile(draft.merkleRoot);
+    expect(await getMediaCoinContent(draft.merkleRoot)).toBeNull();
+
+    const posted = await publish("file-y", new Uint8Array(800).fill(9), "post-y");
+    await discardCourierFile(posted.merkleRoot);
+    expect(await getMediaCoinContent(posted.merkleRoot)).not.toBeNull();
+  });
+
+  it("sweeps drafts left by a composer that was closed without posting", async () => {
+    const old = await attach("file-old", new Uint8Array(300).fill(1));
+    const posted = await publish("file-posted", new Uint8Array(300).fill(2), "post-z");
+    const later = Date.now() + MEDIA_COIN_DRAFT_STALE_MS + 1;
+    expect(await sweepMediaCoinDrafts(MEDIA_COIN_DRAFT_STALE_MS, later)).toBe(1);
+    expect(await getMediaCoinContent(old.merkleRoot)).toBeNull();
+    expect(await getMediaCoinContent(posted.merkleRoot)).not.toBeNull();
   });
 
   it("gives back a coin whose reservation was interrupted, and leaves a fresh one alone", async () => {
@@ -205,8 +244,8 @@ describe("mediaCoinRuntime courier mode", () => {
 
   it("never releases a reservation a running pack still holds", async () => {
     coin("hollow-1");
-    const file = attached("file-h", new Uint8Array(1000).fill(6));
-    const prepared = await prepareCourierFiles([file], { postId: "post-7", creatorId: "user-alice" });
+    const ref = await attach("file-h", new Uint8Array(1000).fill(6));
+    const prepared = await prepareCourierFiles([ref], { postId: "post-7", creatorId: "user-alice" });
     expect(await recoverInterruptedReservations(Date.now() + MEDIA_COIN_RESERVATION_STALE_MS * 2)).toBe(0);
     await prepared.commit();
     expect(coinAt("hollow-1")).toMatchObject({ kind: "media", mediaContentRoot: prepared.refs[0].merkleRoot });
