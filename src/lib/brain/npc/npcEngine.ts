@@ -16,6 +16,7 @@ import { reseedUntilUnique, seedFromString } from './personalitySeed';
 import { buildNpcBodyGraph } from './npcBody';
 import { initChemistry, clearChemistry } from './npcChemistry';
 import { resolveLocalAnchorId } from './localAnchor';
+import { npcIdForName } from './npcIdentity';
 import {
   isSeedUnique,
   register,
@@ -75,9 +76,6 @@ function syncNpcBlocks(npc: Npc): void {
   }
 }
 
-function uid(prefix: string): string {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
 
 export interface SpawnArgs {
   /** Display name. */
@@ -95,10 +93,11 @@ export interface SpawnArgs {
 
 export type SpawnResult =
   | { ok: true; npc: Npc }
-  | { ok: false; reason: 'cap-reached' | 'duplicate-personality' };
+  | { ok: false; reason: 'cap-reached' | 'duplicate-personality' | 'duplicate-id' };
 
 /**
- * Spawn a new NPC. Routes every body slot through
+ * Spawn a new NPC. Its id comes from its name (`npcIdForName`), so the
+ * same villager has the same id on every device. Routes every body slot through
  * `BuilderBlockEngine.placeBlock` — same path used by trees and
  * habitats. No field writes happen here.
  */
@@ -108,7 +107,7 @@ export function spawnNpc(args: SpawnArgs): SpawnResult {
     ? reseedUntilUnique(args.seed, isSeedUnique)
     : args.seed;
 
-  const id = uid('npc');
+  const id = npcIdForName(args.name);
   const body = buildNpcBodyGraph(baseSeed);
   const offset = (typeof args.tx === 'number' && typeof args.tz === 'number')
     ? { tx: args.tx, tz: args.tz }

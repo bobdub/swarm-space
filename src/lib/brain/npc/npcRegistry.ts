@@ -40,9 +40,12 @@ export function isSeedUnique(seed: PersonalitySeed): boolean {
 
 export type RegisterResult =
   | { ok: true; npc: Npc }
-  | { ok: false; reason: 'cap-reached' | 'duplicate-personality' };
+  | { ok: false; reason: 'cap-reached' | 'duplicate-personality' | 'duplicate-id' };
 
 export function register(npc: Npc): RegisterResult {
+  // Ids come from names, so a second villager with a taken name is refused
+  // rather than silently replacing the first.
+  if (_npcs.has(npc.id)) return { ok: false, reason: 'duplicate-id' };
   if (_npcs.size >= NPC_CAP) return { ok: false, reason: 'cap-reached' };
   if (!isSeedUnique(npc.seed)) return { ok: false, reason: 'duplicate-personality' };
   _npcs.set(npc.id, npc);
