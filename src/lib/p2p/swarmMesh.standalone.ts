@@ -1,4 +1,5 @@
 import { setLiveLibrary } from './liveLibrary';
+import { rankBySynapticPath } from './synapticDispatch';
 import { forgetBlockedNode, isAuthorBlocked, listBlockedNodeContent, recordBlockedNode, resumeNodeContent, stopSupportingNodeContent } from '../content/blockedNodeContent';
 import { runCooperatively, stringifyCooperatively, stringifySteps } from './cooperativeWork';
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
@@ -5831,12 +5832,24 @@ export class StandaloneSwarmMesh {
     if (sourcePeerId && this.connections.has(sourcePeerId)) {
       ordered.push(sourcePeerId);
     }
-    for (const peerId of this.connections.keys()) {
-      if (!ordered.includes(peerId)) {
-        ordered.push(peerId);
-      }
-    }
+    // The peer that announced the file stays first; everyone else is asked
+    // along the lowest-resistance synaptic path (smooth, fast, not busy).
+    const rest = [...this.connections.keys()].filter((peerId) => peerId !== sourcePeerId);
+    ordered.push(...this.rankPeersBySynapticPath(rest));
     return ordered;
+  }
+
+  /**
+   * Order open links by synaptic resistance (`synapticDispatch.ts`), using
+   * our own measured RTTs first. Ordering only: nothing is added or dropped.
+   */
+  rankPeersBySynapticPath(peerIds: readonly string[]): string[] {
+    if (peerIds.length < 2) return [...peerIds];
+    try {
+      return rankBySynapticPath(peerIds, { rttOf: (id) => this.peerData.get(id)?.avgRttMs ?? null });
+    } catch {
+      return [...peerIds];
+    }
   }
 
   private async sendAssetRequest(

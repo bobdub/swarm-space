@@ -4,6 +4,7 @@ import {
   buildManifoldRecord,
   getNetworkSynapsePrior,
   getNetworkSynapseView,
+  getSynapseMapStats,
   getSynapseManifold,
   parseManifoldRecord,
   publishSynapseRecord,
@@ -222,5 +223,29 @@ describe('Bus Cycle smoothness with the synapse map', () => {
     const local = computeSmoothness(0.5, 'peer-t', 0, 20, now);
     for (const r of ['peer-a', 'peer-b', 'peer-c']) handler!(r, record(r, [edge('peer-t', 1, 10)], now));
     expect(computeSmoothness(0.5, 'peer-t', 0, 20, now)).toBe(local);
+  });
+});
+
+describe('synapse map stats', () => {
+  afterEach(() => _resetSynapseExchangerForTests());
+
+  it('counts received, refused and published records, and Bus Cycle assists', () => {
+    _resetSynapseExchangerForTests();
+    _resetSynapseForTests();
+    let handler: ((from: string, payload: unknown) => void) | null = null;
+    startSynapseExchanger({
+      localPeerId: () => 'peer-me',
+      publish: () => true,
+      subscribe: (_c, fn) => { handler = fn; return () => { handler = null; }; },
+      collect: () => ({ conns: 1, phi: null, edges: [edge('peer-b', 0.5)] }),
+      isOnline: () => true,
+    });
+    const now = Date.now();
+    handler!('peer-a', record('peer-a', [edge('peer-t', 1)], now));
+    handler!('peer-a', 'garbage');
+    computeSmoothness(0.5, 'peer-t', 0, 20, now);
+    const stats = getSynapseMapStats(now);
+    expect(stats).toMatchObject({ running: true, shy: false, nodes: 1, edges: 1, received: 1, refused: 1, published: 1, assists: 1 });
+    expect(stats.lastPublishedChars).toBe(Math.ceil(18 / 3) * 4);
   });
 });

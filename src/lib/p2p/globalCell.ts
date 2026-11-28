@@ -27,6 +27,7 @@ import { GUN_RELAYS } from './gunRelays';
 import { getSmoothness, getSmoothedRtt, hasSynapse } from './synapseLayer';
 import {
   getNetworkSynapseView,
+  noteSynapseAssist,
   SYNAPSE_NETWORK_DAMPING,
   startSynapseExchanger,
   stopSynapseExchanger,
@@ -1069,6 +1070,7 @@ export function computeSmoothness(
   if (!hasSynapse(peerId)) {
     const view = getNetworkSynapseView(peerId, now);
     if (view) {
+      noteSynapseAssist();
       s = SYNAPSE_NETWORK_DAMPING * view.smoothness * view.confidence;
       if (rtt === null && view.latencyMs !== null) rtt = view.latencyMs;
     }

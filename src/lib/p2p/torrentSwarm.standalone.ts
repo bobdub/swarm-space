@@ -168,6 +168,11 @@ export interface MeshTransportAdapter {
   getBufferedAmount?(peerId: string): number;
   /** True while this device is on an audio/video call. */
   isCallActive?(): boolean;
+  /**
+   * Order peers best source first (synaptic dispatch). Ordering only: the
+   * result must hold exactly the given ids. Absent means keep the order.
+   */
+  rankPeers?(peerIds: string[]): string[];
 }
 
 // ── Chunk Sizing ──────────────────────────────────────────────────────
@@ -802,6 +807,19 @@ export class TorrentSwarm {
   /** peerId → when we last sent it a piece (for the in-call two-peer rule). */
   private lastServedAt = new Map<string, number>();
 
+  /** peerId → position in the transport's source ranking (identity when absent or invalid). */
+  private sourceRank(peerIds: string[]): Map<string, number> {
+    let ordered = peerIds;
+    try {
+      const ranked = this.transport.rankPeers?.(peerIds.slice());
+      if (ranked && ranked.length === peerIds.length && new Set(ranked).size === ranked.length
+        && ranked.every((id) => peerIds.includes(id))) {
+        ordered = ranked;
+      }
+    } catch { /* keep the original order */ }
+    return new Map(ordered.map((id, i) => [id, i]));
+  }
+
   private inCall(): boolean {
     try { return this.transport.isCallActive?.() ?? false; } catch { return false; }
   }
@@ -963,10 +981,15 @@ export class TorrentSwarm {
       if (pm.requestsInFlight.size > 0) activePeers.add(pid);
     }
 
+    // Ask along the lowest-resistance path: rank every source once per
+    // cycle, then try each chunk's holders in that order (rarest chunk first).
+    const rank = this.sourceRank([...peerMapAll.keys()]);
+    const byRank = (a: string, b: string) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+
     // Request from peers with capacity — multiple chunks per cycle
     for (const [idx, peers] of sorted) {
       let requested = false;
-      for (const pid of peers) {
+      for (const pid of peers.slice().sort(byRank)) {
         const pm = peerMapAll.get(pid)!;
         if (pm.requestsInFlight.size >= perPeerLimit) continue;
         if (pm.requestsInFlight.has(idx)) continue;
