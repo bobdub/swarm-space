@@ -24,7 +24,7 @@ export function SynapseMapPanel() {
 
   const status = !stats.running ? 'Off' : stats.shy ? 'Listening (shy)' : 'Sharing';
   const rows: Array<[string, string]> = [
-    ['Nodes heard from', String(stats.nodes)],
+    ['Nodes heard from', `${stats.nodes} · ${stats.vouched} vouched`],
     ['Links they report', String(stats.edges)],
     ['Records received', `${stats.received} · last ${ago(stats.lastReceivedAt)}`],
     ['Records refused', String(stats.refused)],
@@ -32,6 +32,8 @@ export function SynapseMapPanel() {
       'Our record',
       stats.shy
         ? 'Not shared while shy'
+        : stats.unsigned
+          ? 'Waiting for a signing key'
         : `${stats.published} sent · last ${ago(stats.lastPublishedAt)}` +
           (stats.lastPublishedChars !== null ? ` · ${stats.lastPublishedChars} chars` : ''),
     ],
@@ -47,7 +49,7 @@ export function SynapseMapPanel() {
           <Badge variant="outline" className="ml-auto text-xs">{status}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Link quality nodes share over Gun, as small numbers only. It helps this node pick smoother peers it has never met; what it sees first-hand always wins.
+          Link quality nodes share over Gun, as small signed numbers only. It helps this node pick smoother peers it has never met; what it sees first-hand always wins. Vouched nodes signed with the identity your Connection Library knows them by.
         </p>
       </CardHeader>
       <CardContent>

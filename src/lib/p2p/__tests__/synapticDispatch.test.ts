@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { rankBySynapticPath, synapticResistance, SYNAPSE_NODE_CAPACITY } from "../synapticDispatch";
 import { _resetSynapseForTests, recordHandshake } from "../synapseLayer";
 import {
@@ -7,6 +7,7 @@ import {
   buildManifoldRecord,
   startSynapseExchanger,
   type SynapseEdge,
+  type SynapseSigner,
 } from "../synapseExchanger";
 import { TorrentSwarm, type MeshTransportAdapter, type TorrentManifest } from "../torrentSwarm.standalone";
 
@@ -37,9 +38,18 @@ describe("synaptic resistance", () => {
 });
 
 describe("rankBySynapticPath", () => {
-  let handler: ((from: string, payload: unknown) => void) | null = null;
-  const record = (peerId: string, conns: number, edges: SynapseEdge[] = []) =>
-    buildManifoldRecord({ peerId, at: Date.now(), conns, phi: null, edges })!;
+  let handler: ((from: string, payload: unknown) => void | Promise<void>) | null = null;
+  let signer: SynapseSigner;
+  beforeAll(async () => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const spki = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+    signer = {
+      publicKey: btoa(String.fromCharCode(...spki)),
+      sign: async (data) => new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, data)),
+    };
+  });
+  const record = async (peerId: string, conns: number, edges: SynapseEdge[] = []) =>
+    (await buildManifoldRecord({ peerId, at: Date.now(), conns, phi: null, edges }, signer))!;
 
   beforeEach(() => {
     _resetSynapseForTests();
@@ -49,6 +59,7 @@ describe("rankBySynapticPath", () => {
       publish: () => true,
       subscribe: (_c, fn) => { handler = fn; return () => { handler = null; }; },
       collect: () => ({ conns: 0, phi: null, edges: [] }),
+      signer: async () => signer,
       isOnline: () => false,
     });
   });
@@ -65,9 +76,9 @@ describe("rankBySynapticPath", () => {
     expect(ranked).toEqual(["peer-b", "peer-a"]);
   });
 
-  it("slides traffic away from a peer that reports itself busy", () => {
-    handler!("peer-a", record("peer-a", 40));
-    handler!("peer-b", record("peer-b", 2));
+  it("slides traffic away from a peer that reports itself busy", async () => {
+    await handler!("peer-a", await record("peer-a", 40));
+    await handler!("peer-b", await record("peer-b", 2));
     expect(rankBySynapticPath(["peer-a", "peer-b"])).toEqual(["peer-b", "peer-a"]);
   });
 

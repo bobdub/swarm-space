@@ -409,6 +409,8 @@ class GlobalCell {
       isOnline: () => this.isMeshOnline(),
       isShy: () => getShyMode(),
       collect: () => collectLocalSynapses(),
+      signer: async () => (await import('./synapseSigner')).getSynapseSigner(),
+      knownUserIdOf: (peerId) => libraryUserIdOf(peerId),
     });
   }
 
@@ -1026,6 +1028,15 @@ function collectLocalSynapses(): { conns: number; phi: number | null; edges: Syn
   let phi: number | null = null;
   try { phi = engine ? engine.getPhiSnapshot().phi : null; } catch { /* engine optional */ }
   return { conns: connected.size, phi, edges };
+}
+
+/** The user id our Connection Library learned from this peer (direct-link profile exchange). */
+function libraryUserIdOf(peerId: string): string | null {
+  try {
+    return getSwarmMeshStandalone().getLibrary().find((p) => p.peerId === peerId)?.userId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 type SharedNeural = ReturnType<typeof import('./sharedNeuralEngine')['getSharedNeuralEngine']>;
