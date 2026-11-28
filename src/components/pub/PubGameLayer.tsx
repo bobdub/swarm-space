@@ -99,6 +99,14 @@ export function PubGameLayer({
   }, [openTableId, close]);
   useEffect(() => () => setActiveTable(null, null), []);
 
+  // Leaving the Brain while perched must not strand the stool pin: the
+  // card table releases its seat on unmount, counter stools do it here.
+  const openTableRef = useRef(openTableId);
+  openTableRef.current = openTableId;
+  useEffect(() => () => {
+    if (isBarStoolTable(openTableRef.current) || orderedFromStool.current) leaveSeat();
+  }, []);
+
   // Standing up from a counter stool (moving, Q, or the button) ends the
   // perch straight away so the next stool along is immediately sittable.
   useEffect(() => {
