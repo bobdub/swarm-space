@@ -59,7 +59,9 @@ export function neuralChecks(stats: SynapseMapStats, weights: NeuralWeights): Ne
       state: stats.assists > 0 ? "pass" : "wait",
       detail: stats.assists > 0
         ? `The network view helped choose a peer we had never met ${stats.assists} times.`
-        : "Not used yet. It only steps in for peers this node has no first-hand memory of.",
+        : stats.nodes > 0
+          ? "Not needed yet. The map only steps in for a peer this node has never linked with, so while you are linked with everyone you hear from, this stays waiting. That is healthy."
+          : "Not needed yet. It needs records from other nodes first, and only steps in for peers this node has never linked with.",
     },
     {
       label: "Source weights are learning",
@@ -68,7 +70,7 @@ export function neuralChecks(stats: SynapseMapStats, weights: NeuralWeights): Ne
         ? "Weights left their bounds. Clearing site data resets them."
         : weights.samples > 0
           ? `Tuned by ${weights.samples} manifest and chunk asks.`
-          : "No asks yet. Open a post with media or a file from a peer to teach them.",
+          : "No asks yet. They learn each time this device fetches media or a file from a peer. Anything already saved on this device is not fetched again, so a long-used browser can wait a while; a fresh one learns quickly.",
     },
   ];
 }

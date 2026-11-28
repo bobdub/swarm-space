@@ -9,6 +9,7 @@ import { getProviderForStore } from '../storage/providers';
 import { sha256 } from '../crypto';
 
 import { recordP2PDiagnostic } from './diagnostics';
+import { recordSourceOutcome } from './synapticDispatch';
 import { signManifest, verifyManifestSignature } from './replication';
 import { attachMirrorHints, rememberMirrorHints } from '@/lib/storage/providers/personalServerMirrors';
 
@@ -89,7 +90,16 @@ export class ChunkProtocol {
       };
 
       this.pendingRequests.set(requestId, request);
-      this.requestCallbacks.set(requestId, resolve);
+      // Every answer (or silence) teaches the synaptic dispatch weights.
+      // Learn once per ask, even if a bad reply and the timeout both answer it.
+      let learned = false;
+      this.requestCallbacks.set(requestId, (data) => {
+        if (!learned) {
+          learned = true;
+          try { recordSourceOutcome(peerId, Date.now() - request.timestamp, data !== null); } catch { /* best-effort */ }
+        }
+        resolve(data);
+      });
 
       // Send request
       const sent = this.sendMessage(peerId, {
@@ -157,7 +167,15 @@ export class ChunkProtocol {
         timestamp: Date.now(),
         peerId
       });
-      this.manifestCallbacks.set(requestId, resolve);
+      const askedAt = Date.now();
+      let learned = false;
+      this.manifestCallbacks.set(requestId, (manifest) => {
+        if (!learned) {
+          learned = true;
+          try { recordSourceOutcome(peerId, Date.now() - askedAt, manifest !== null); } catch { /* best-effort */ }
+        }
+        resolve(manifest);
+      });
 
       const sent = this.sendMessage(peerId, {
         type: 'request_manifest',

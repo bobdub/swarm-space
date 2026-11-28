@@ -6,7 +6,8 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, ChevronLeft, CircleDashed, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, CircleDashed, Network, RefreshCw, XCircle } from "lucide-react";
+import { TopNavigationBar } from "@/components/TopNavigationBar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -89,20 +90,21 @@ export default function Neural() {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/40 bg-background/80 p-3 backdrop-blur">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Back">
-          <ChevronLeft className="h-5 w-5" />
-        </Button>
-        <h1 className="text-lg font-semibold">Neural Map</h1>
-        <Badge variant="outline" className="ml-2 text-xs" data-testid="neural-status">{status}</Badge>
-        <div className="ml-auto">
-          <Button variant="outline" size="sm" onClick={refresh} aria-label="Refresh">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
-      </header>
+    <div className="min-h-screen">
+      <TopNavigationBar />
       <main className="mx-auto max-w-2xl space-y-4 p-4" data-testid="neural-page">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold">Neural Map</h1>
+          <Badge variant="outline" className="text-xs" data-testid="neural-status">{status}</Badge>
+          <div className="ml-auto flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate("/node-dashboard")}>
+              <Network className="mr-2 h-4 w-4" /> Connections
+            </Button>
+            <Button variant="outline" size="sm" onClick={refresh} aria-label="Refresh">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
         <p className="text-sm text-foreground/60">
           How this device shares link quality over Gun and uses it to pick peers. Everything here is read from this tab;
           opening the page sends nothing. Updates every 5 seconds, last checked {ago(checkedAt)}.
