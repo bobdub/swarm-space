@@ -279,6 +279,7 @@ export function ChickenLayer() {
     local: new THREE.Matrix4(),
     m: new THREE.Matrix4(),
     xAxis: new THREE.Vector3(1, 0, 0),
+    yAxis: new THREE.Vector3(0, 1, 0),
     zAxis: new THREE.Vector3(0, 0, 1),
     head: new THREE.Matrix4(),
     col: new THREE.Color(),
@@ -315,6 +316,7 @@ export function ChickenLayer() {
     let pk = 0; // plumes
     let ek = 0; // eggs
     let nk = 0; // nests
+    let lk = 0; // legs (sitting hens tuck theirs away)
     const nests = new Set<string>();
     const place = (n: Vec3, lift: number, heading: Vec3, scale: number) => {
       tmp.p.set(n[0], n[1], n[2]).multiplyScalar(EARTH_RADIUS + groundElevationAt(n) + lift);
@@ -348,9 +350,13 @@ export function ChickenLayer() {
 
       // Walking: a little bob, legs swinging, head jerking forward.
       // Pecking: head dips to the ground a few times. Chicks scurry faster.
-      const stride = hp.pecking ? 0 : Math.sin(hp.phase * Math.PI * 2 * (chick ? 14 : 9));
-      const bob = hp.pecking ? 0 : 0.012 * Math.abs(stride);
-      place(hp.n, bob, hp.heading, size);
+      // Roosting: hens settle down onto their legs, head drawn in; the
+      // rooster stands on watch, turning his head now and then.
+      const still = hp.pecking || hp.roosting;
+      const sitting = hp.roosting && !rooster;
+      const stride = still ? 0 : Math.sin(hp.phase * Math.PI * 2 * (chick ? 14 : 9));
+      const bob = still ? 0 : 0.012 * Math.abs(stride);
+      place(hp.n, sitting ? -0.13 * size : bob, hp.heading, size);
 
       meshes.body.setMatrixAt(k, tmp.frame);
       meshes.tail.setMatrixAt(k, tmp.frame);
@@ -366,10 +372,15 @@ export function ChickenLayer() {
       }
 
       const peck = hp.pecking ? Math.max(0, Math.sin(hp.phase * Math.PI * 2 * 3)) : 0;
-      const pitch = -1.15 * peck;
-      const jut = hp.pecking ? 0.03 * peck : 0.025 * stride;
+      const pitch = sitting ? 0.35 : -1.15 * peck;
+      const jut = sitting ? -0.06 : hp.pecking ? 0.03 * peck : 0.025 * stride;
       tmp.q2.setFromAxisAngle(tmp.xAxis, -pitch);
-      tmp.local.compose(tmp.p.set(NECK[0], NECK[1] - 0.03 * peck, NECK[2] - jut), tmp.q2, tmp.one);
+      if (hp.roosting && rooster) {
+        // A slow look left and right from the watch post.
+        tmp.q.setFromAxisAngle(tmp.yAxis, 0.6 * Math.sin(t * 0.4 + scale * 17));
+        tmp.q2.premultiply(tmp.q);
+      }
+      tmp.local.compose(tmp.p.set(NECK[0], NECK[1] - 0.03 * peck - (sitting ? 0.04 : 0), NECK[2] - jut), tmp.q2, tmp.one);
       const headM = tmp.head.multiplyMatrices(tmp.frame, tmp.local);
       meshes.head.setMatrixAt(k, headM);
       meshes.head.setColorAt(k, col);
@@ -387,12 +398,12 @@ export function ChickenLayer() {
         meshes.comb.setMatrixAt(k, tmp.m.premultiply(headM));
       }
 
-      for (let side = 0; side < 2; side++) {
+      for (let side = 0; side < 2 && !sitting; side++) {
         const swing = (side === 0 ? 1 : -1) * 0.45 * stride;
         tmp.q2.setFromAxisAngle(tmp.xAxis, swing);
         tmp.local.compose(tmp.p.set(side === 0 ? -HIP_X : HIP_X, HIP_Y, 0.02), tmp.q2, tmp.one);
         tmp.m.multiplyMatrices(tmp.frame, tmp.local);
-        meshes.legs.setMatrixAt(k * 2 + side, tmp.m);
+        meshes.legs.setMatrixAt(lk++, tmp.m);
       }
       k++;
     };
@@ -431,7 +442,7 @@ export function ChickenLayer() {
       drawBird(hp, h.scale, h.rooster, h.plumage, chick, chick ? life.progress : 1);
     }
     const counts: Record<keyof typeof meshes, number> = {
-      body: k, tail: k, head: k, comb: k, beak: k, legs: k * 2,
+      body: k, tail: k, head: k, comb: k, beak: k, legs: lk,
       bigComb: rk, wattle: rk, plume: pk, nest: nk, egg: ek,
     };
     for (const key of Object.keys(meshes) as (keyof typeof meshes)[]) {

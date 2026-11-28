@@ -6,9 +6,16 @@
  * rest a moment at the entrance. Same inputs + same clock → same pose on
  * every peer, so no network state is needed to agree on where a bee is.
  *
+ * Bees keep a day: each worker flies only the trips that start inside its
+ * own working hours (solar time at the hive, from `wildClock.ts`), so at
+ * dusk the workers finish their last trip, rest at the door and go in,
+ * and at dawn they come out again in ones and twos. Pass the shared epoch
+ * clock (`getEarthPoseTime()`), never the device clock, so peers agree.
+ *
  * Coordinates are in the HIVE's local frame (x = right, y = up,
  * z = forward), the frame `BuilderBlockView` draws the hive in.
  */
+import { inHourWindow } from './wildClock';
 
 export type V3 = [number, number, number];
 
@@ -22,7 +29,21 @@ export const BEE_TRIP_S = BEE_OUT_S + BEE_HOVER_S + BEE_BACK_S + BEE_REST_S;
 /** How many of the closest flowers a hive forages from. */
 export const BEE_FORAGE_FLOWERS = 8;
 
-export type BeePhase = 'out' | 'hover' | 'back' | 'rest';
+/** Solar hours the workers start and stop foraging (before each bee's spread). */
+export const BEE_WAKE_HOUR = 6.25;
+export const BEE_BED_HOUR = 19;
+/** Spread of the workers' hours (solar hours), early risers to late. */
+const BEE_HOURS_SPREAD = 0.75;
+
+/** 'home': inside the hive for the night (not drawn). */
+export type BeePhase = 'out' | 'hover' | 'back' | 'rest' | 'home';
+
+/** Worker `index`'s own working hours. */
+export function beeWorkingHours(index: number, count: number): { wake: number; bed: number } {
+  const k = count > 1 ? ((index * 5) % count) / (count - 1) : 0.5;
+  return { wake: BEE_WAKE_HOUR + k * BEE_HOURS_SPREAD, bed: BEE_BED_HOUR + (1 - k) * BEE_HOURS_SPREAD };
+}
+
 
 export interface BeePose {
   pos: V3;
@@ -85,12 +106,20 @@ export function beePoseAt(
   timeS: number,
   entrance: V3,
   flowers: V3[],
+  /** Solar hour at the hive for epoch seconds; omit for a bee that never sleeps. */
+  hourAt?: (seconds: number) => number,
 ): BeePose {
   const seed = (index * 2.399) % (Math.PI * 2);
   const offset = (index / Math.max(1, count)) * BEE_TRIP_S;
   const tt = timeS + offset;
   const trip = Math.floor(tt / BEE_TRIP_S);
   const s = tt - trip * BEE_TRIP_S;
+
+  if (hourAt) {
+    // A trip is flown only if it starts inside her working hours.
+    const { wake, bed } = beeWorkingHours(index, count);
+    if (!inHourWindow(hourAt(timeS - s), wake, bed)) return { pos: entrance, phase: 'home', flower: -1 };
+  }
 
   if (flowers.length === 0) {
     // Nothing to forage: drift in a lazy loop around the entrance.

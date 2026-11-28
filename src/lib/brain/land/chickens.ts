@@ -33,16 +33,24 @@
  *   - a Fibonacci lattice over the whole planet, keeping the points whose
  *     whole loop is on dry, gentle ground away from the volcano.
  *
+ * Hens keep a day, like the villagers (`npc/villageSchedule.ts`): by the
+ * solar hour at their own nest (`nature/wildClock.ts`) they forage their
+ * loop through the day, walk home at dusk, roost in a ring round the nest
+ * overnight (the rooster a little further out, on watch) and walk back out
+ * at dawn. Each bird's bedtime and waking hour is shifted a little by its
+ * id, so a flock drifts home in ones and twos rather than all at once.
+ *
  * Everything is in Earth-local coordinates (the frame that spins with the
  * planet), like the jetty, boats and sea life.
  */
 
-import { SHARED_VILLAGE_ISLAND_ANCHOR, getEarthLocalSiteFrame, type Vec3 } from '../earth';
+import { GAME_HOUR_SECONDS, SHARED_VILLAGE_ISLAND_ANCHOR, getEarthLocalSiteFrame, type Vec3 } from '../earth';
 import { groundElevationAt } from '../groundHeight';
 import { getVolcanoOrgan, SHARED_VOLCANO_ANCHOR_ID } from '../volcanoOrgan';
 import { starboardOf, travel } from '../sea/dockSite';
 import { arcMetres } from '../sea/seaLife';
 import { listNatureEvents, subscribeNatureEvents } from '@/lib/world/natureEventsStore';
+import { hoursSince, inHourWindow, solarHourAt } from '../nature/wildClock';
 
 /** Food a caught hen gives, and a caught rooster (a bigger bird). */
 export const FOOD_PER_HEN = 3;
@@ -133,7 +141,20 @@ export interface HenPose {
   pecking: boolean;
   /** 0..1 through the current walk or peck, for the animation. */
   phase: number;
+  /** True while she sits at the nest for the night. */
+  roosting: boolean;
 }
+
+/** Solar hours a flock goes home to roost, and walks out again (before each bird's shift). */
+export const HEN_ROOST_HOUR = 19.25;
+export const HEN_WAKE_HOUR = 5.75;
+/** Largest per-bird shift of bedtime and waking (solar hours). */
+const ROOST_SHIFT_H = 0.35;
+/** Seconds a hen takes to walk between her loop and her roost. */
+export const HEN_COMMUTE_S = 40;
+/** Roost ring round the nest (m): hens close in, the rooster further out. */
+const ROOST_RING_M = 0.55;
+const ROOSTER_WATCH_M = 1.3;
 
 /** Small deterministic PRNG (mulberry32), as in seaLife. */
 function rand(seed: number): () => number {
@@ -292,8 +313,8 @@ export function roosterOf(flock: string): Hen | undefined {
   return roosters?.get(flock);
 }
 
-/** Where a hen is at shared time `t` (seconds). */
-export function henPoseAt(h: Hen, t: number): HenPose {
+/** Where a hen is on her foraging loop at shared time `t` (seconds), ignoring the time of day. */
+export function henLoopPoseAt(h: Hen, t: number): HenPose {
   const local = t + h.offset;
   const k = Math.floor(local / CYCLE_S);
   const inCycle = local - k * CYCLE_S;
@@ -314,7 +335,61 @@ export function henPoseAt(h: Hen, t: number): HenPose {
   const d = raw[0] * n[0] + raw[1] * n[1] + raw[2] * n[2];
   const heading = normalize([raw[0] - n[0] * d, raw[1] - n[1] * d, raw[2] - n[2] * d]);
   const phase = walking ? inCycle / h.walkS : (inCycle - h.walkS) / (CYCLE_S - h.walkS);
-  return { n, heading, pecking: !walking, phase };
+  return { n, heading, pecking: !walking, phase, roosting: false };
+}
+
+const routines = new Map<string, { roostAt: number; wakeAt: number; roost: Vec3; face: Vec3 }>();
+
+/** A bird's own bedtime, waking hour and roosting spot, fixed by its id. */
+function routineOf(h: Hen): { roostAt: number; wakeAt: number; roost: Vec3; face: Vec3 } {
+  let r = routines.get(h.id);
+  if (!r) {
+    const shift = (k: string) => (hash01(`${h.id}:${k}`) * 2 - 1) * ROOST_SHIFT_H;
+    const a = h.rooster ? hash01(`${h.flock}:watch`) * Math.PI * 2 : h.slot * 2.399963229728653;
+    const [e1] = tangents(h.nest, a);
+    const roost = travel(h.nest, e1, h.rooster ? ROOSTER_WATCH_M : ROOST_RING_M * (0.8 + 0.4 * hash01(`${h.id}:ring`)));
+    r = { roostAt: HEN_ROOST_HOUR + shift('roost'), wakeAt: HEN_WAKE_HOUR + shift('wake'), roost, face: e1 };
+    routines.set(h.id, r);
+  }
+  return r;
+}
+
+function mix(a: Vec3, b: Vec3, f: number): Vec3 {
+  return normalize([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]);
+}
+
+/** Unit tangent at `n` pointing toward `to`, or `fallback` when they meet. */
+function toward(n: Vec3, to: Vec3, fallback: Vec3): Vec3 {
+  const d = [to[0] - n[0], to[1] - n[1], to[2] - n[2]];
+  const r = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+  const t: Vec3 = [d[0] - n[0] * r, d[1] - n[1] * r, d[2] - n[2] * r];
+  return Math.hypot(t[0], t[1], t[2]) < 1e-9 ? fallback : normalize(t);
+}
+
+/**
+ * Where a hen is at shared time `t` (seconds): on her loop by day, walking
+ * home at dusk, roosting by the nest overnight, walking out at dawn. Pure,
+ * so every peer puts her on the same spot.
+ */
+export function henPoseAt(h: Hen, t: number): HenPose {
+  const r = routineOf(h);
+  const hour = solarHourAt(h.nest, t);
+  const walkPhase = (((t + h.offset) / h.walkS) % 1 + 1) % 1;
+  if (inHourWindow(hour, r.roostAt, r.wakeAt)) {
+    // Evening: from wherever her loop has her, home to the roost; then sit.
+    const f = Math.min(1, (hoursSince(hour, r.roostAt) * GAME_HOUR_SECONDS) / HEN_COMMUTE_S);
+    if (f >= 1) return { n: r.roost, heading: r.face, pecking: false, phase: 0, roosting: true };
+    const n = mix(henLoopPoseAt(h, t).n, r.roost, f);
+    return { n, heading: toward(n, r.roost, r.face), pecking: false, phase: walkPhase, roosting: false };
+  }
+  const since = hoursSince(hour, r.wakeAt) * GAME_HOUR_SECONDS;
+  if (since < HEN_COMMUTE_S) {
+    // Morning: off the roost and out onto the loop where it has got to.
+    const loop = henLoopPoseAt(h, t);
+    const n = mix(r.roost, loop.n, since / HEN_COMMUTE_S);
+    return { n, heading: toward(n, loop.n, loop.heading), pecking: false, phase: walkPhase, roosting: false };
+  }
+  return henLoopPoseAt(h, t);
 }
 
 /** Hens whose loop comes within `radiusM` of `n` (cheap broad phase). */
@@ -585,7 +660,7 @@ export function broodChickPoseAt(c: BroodChick, t: number): HenPose {
     n = travel(n, e1, away * 12);
     heading = e1;
   }
-  return { n, heading, pecking: mom.pecking, phase: mom.phase };
+  return { n, heading, pecking: mom.pecking, phase: mom.phase, roosting: mom.roosting && c.progress <= 0.8 };
 }
 
 /** The flock mates of `h` (including her). */
@@ -652,4 +727,5 @@ export function _resetChickensForTest(): void {
   unsubscribe?.();
   unsubscribe = null;
   volcano = null;
+  routines.clear();
 }
