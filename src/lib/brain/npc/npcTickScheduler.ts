@@ -9,7 +9,7 @@
  *
  * Per tick, for every NPC:
  *   1. derive DriveSignals from the live field (deficits ramp)
- *   2. fetch a dropped tool it lacks, unless thirst or hunger can't wait
+ *   2. fetch a dropped tool it lacks, except during a scheduled meal
  *   3. otherwise follow the shared daily routine (`villageSchedule.ts`):
  *      position and drive are a pure function of name, personality and
  *      the shared clock, so every peer sees the same village
@@ -109,8 +109,8 @@ export function npcWalkSpeed(npc: Npc): number {
   return uqrcSpeed(npc, 1.0) * BRAIN_TIME_SCALE;
 }
 
-/** Tool fetching yields to thirst and hunger past this deficit. */
-const FETCH_DEFICIT_LIMIT = 0.7;
+/** Routine blocks a tool detour never interrupts (the villager's meals). */
+const MEAL_DRIVES: ReadonlySet<NpcDrive> = new Set(['drink', 'eat']);
 /** How often unwanted dropped tools are checked for vanishing. */
 const VANISH_SWEEP_MS = 1000;
 
@@ -231,13 +231,22 @@ function tickOne(npc: Npc, dtSeconds: number, frame: TickFrame): void {
 
   const owned = ownedToolKinds(npc.name);
   const hasTool = owned.size > 0 || (npc.skills?.['craft'] ?? 0) > 0.55;
-  const sig = sampleSignalsForNpc(engine, npc, dtSeconds, hasTool);
+  // Keeps the deficit memo ramping; the routine's meal blocks relax it.
+  sampleSignalsForNpc(engine, npc, dtSeconds, hasTool);
+
+  // The shared daily routine decides where the villager is and what it is
+  // doing (`villageSchedule.ts`): a pure function of name, personality and
+  // the shared clock, so every peer agrees without a byte on the wire.
+  const speed = npcWalkSpeed(npc);
+  const plan = villagePlan(npc, frame.seconds, speed);
 
   // A dropped tool nearby that this NPC has no kind of yet: go and get it,
-  // unless thirst or hunger can't wait. Picking it up counts as gathering.
-  const urgent = sig.hydrationDeficit >= FETCH_DEFICIT_LIMIT || sig.energyDeficit >= FETCH_DEFICIT_LIMIT;
-  if (urgent) releaseFetch(npc.id);
-  const fetched = urgent ? null : fetchTool(npc, owned, dtSeconds);
+  // except during its scheduled drink or meal, which every peer agrees on
+  // (deficits are per device, so they can't gate this). Picking it up
+  // counts as gathering.
+  const mealtime = MEAL_DRIVES.has(plan.drive);
+  if (mealtime) releaseFetch(npc.id);
+  const fetched = mealtime ? null : fetchTool(npc, owned, dtSeconds);
   if (fetched) {
     const moved: Npc = {
       ...npc,
@@ -252,13 +261,8 @@ function tickOne(npc: Npc, dtSeconds: number, frame: TickFrame): void {
     return;
   }
 
-  // The shared daily routine decides where the villager is and what it is
-  // doing (`villageSchedule.ts`): a pure function of name, personality and
-  // the shared clock, so every peer agrees without a byte on the wire.
   // A villager knocked off its spot (a tool detour) walks back at a brisk
   // pace; on waking from sleep everyone snaps straight to the routine.
-  const speed = npcWalkSpeed(npc);
-  const plan = villagePlan(npc, frame.seconds, speed);
   const picked = plan.drive;
   let nextTx = plan.tx;
   let nextTz = plan.tz;
