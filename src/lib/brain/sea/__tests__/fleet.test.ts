@@ -29,6 +29,7 @@ import {
 import { OAR_SPOTS } from '../boatLayout';
 import {
   Fleet,
+  HELM_SPOT,
   OARS_SPOT,
   decodeBoatPresence,
   deadReckon,
@@ -202,6 +203,51 @@ describe('hulls bump instead of passing through', () => {
   });
 });
 
+describe('the wheel is anyone\'s while it is free', () => {
+  it('takes one helmsman at a time, names them on the wire, and frees the wheel after silence', () => {
+    const A = new Fleet({ selfPeer: () => 'peerA', registerDecks: false, localCrew: false });
+    const aBoat = A.claimDock()!;
+    const hm = { o: 'peerA', id: aBoat.wireId, w: 0.5, s: 1 };
+    expect(A.helmHolder(aBoat)).toBeNull();
+    expect(A.presenceFor(null)!.v!.hp).toBeUndefined();
+    A.remoteHelm('peerB', hm, t, 1);
+    expect(A.helmHolder(aBoat)).toBe('peerB');
+    // C cannot take the wheel while B holds it.
+    A.remoteHelm('peerC', { ...hm, w: -1 }, t, 1);
+    expect(A.helmHolder(aBoat)).toBe('peerB');
+    const wire = decodeBoatPresence(JSON.parse(JSON.stringify(A.presenceFor(null))))!;
+    expect(wire.v!.hp).toBe('peerB');
+    // B steers A's boat.
+    for (let i = 0; i < 30; i++) {
+      advance();
+      A.remoteHelm('peerB', hm, t, 2 + Math.floor(i / 20));
+      A.tick(null, DT, CALM);
+    }
+    expect(aBoat.vessel.cmd.wheel).toBeGreaterThan(0.4);
+    expect(aBoat.vessel.cmd.sail).toBeGreaterThan(0);
+    // B goes quiet: the wheel is free again, and C may take it.
+    for (let i = 0; i < 60 * 2; i++) { advance(); A.tick(null, DT, CALM); }
+    expect(A.helmHolder(aBoat)).toBeNull();
+    expect(aBoat.vessel.cmd.wheel).toBeCloseTo(0, 5);
+    A.remoteHelm('peerC', { ...hm, w: -1 }, t, 9);
+    expect(A.helmHolder(aBoat)).toBe('peerC');
+  });
+
+  it('a helm sent for someone else\'s boat is ignored', () => {
+    const A = new Fleet({ selfPeer: () => 'peerA', registerDecks: false, localCrew: false });
+    const aBoat = A.claimDock()!;
+    A.remoteHelm('peerB', { o: 'peerZ', id: aBoat.wireId, w: 1, s: 0 }, t, 1);
+    A.remoteHelm('peerB', { o: 'peerA', id: 'other', w: 1, s: 0 }, t, 2);
+    expect(A.helmHolder(aBoat)).toBeNull();
+  });
+
+  it('round-trips the helm on the wire', () => {
+    const wire = { hm: { o: 'peerA', id: 'dock-1', w: -0.25, s: 1 } };
+    expect(decodeBoatPresence(JSON.parse(JSON.stringify(wire)))).toEqual(wire);
+    expect(decodeBoatPresence({ hm: { o: 'peerA', id: 'dock-1', w: 'left', s: 1 } })).toBeUndefined();
+  });
+});
+
 describe('two worlds, one sail', () => {
   type P = UqrcPhysics & { tick(): void };
 
@@ -271,9 +317,9 @@ describe('two worlds, one sail', () => {
     expect(aDock.visible).toBe(true);
     expect(B.dock()!.visible).toBe(true);
 
-    // Only the owner takes the wheel: B by A's helm is offered nothing.
-    const helmPos = deckPointOn(bBoat, 0, 3.0);
-    expect(boatActionFor(helmPos)?.kind === 'take' && (boatActionFor(helmPos) as { role: string }).role === 'helm').toBe(false);
+    // A is not at the wheel, so B by A's helm is offered it.
+    const helmPos = deckPointOn(bBoat, HELM_SPOT[0], HELM_SPOT[1]);
+    expect(boatActionFor(helmPos)).toMatchObject({ kind: 'take', role: 'helm', boatKey: bBoat.key });
 
     // A leaves the room: the boat goes, B drops into the sea and swims.
     B.retainPeers(new Set());
@@ -323,6 +369,46 @@ describe('two worlds, one sail', () => {
     setCrewInput({ row: 0 });
     for (let i = 0; i < 60 * 30; i++) { advance(); A.tick(null, DT, CALM); }
     expect(aBoat.vessel.speed()).toBeLessThan(0.3);
+    unmount();
+  });
+  it('B takes the wheel of A\'s boat and sails it; C is told someone is at the wheel', () => {
+    const A = new Fleet({ selfPeer: () => 'peerA', registerDecks: false, localCrew: false });
+    const aBoat = A.claimDock()!;
+    const n0 = aBoat.vessel.motion.n;
+    const wind = (n: Vec3): Vec3 => { const s = starboardOf(n, aBoat.vessel.motion.heading); return [s[0] * 0.9, s[1] * 0.9, s[2] * 0.9]; };
+    const B = getFleet();
+    B.setSelfPeer(() => 'peerB');
+    const physics = new UqrcPhysics() as P;
+    const unmount = mountVillageBoat(physics, { wind: CALM });
+    B.applyRemote('peerA', A.presenceFor(null)!.v, t);
+    const bBoat = B.list().find((b) => b.kind === 'remote')!;
+    walker(physics, 'self', deckPointOn(bBoat, HELM_SPOT[0], HELM_SPOT[1]));
+    for (let i = 0; i < 30; i++) { advance(); physics.tick(); }
+    const offer = boatActionFor(physics.getBody('self')!.pos);
+    expect(offer).toMatchObject({ kind: 'take', role: 'helm', boatKey: bBoat.key });
+    takeRole('helm', 'self', bBoat.key);
+    setCrewInput({ wheel: 0, sail: 1 });
+    let stamp = 0;
+    for (let i = 0; i < 60 * 30; i++) {
+      advance();
+      if (i % 20 === 0) {
+        const bp = decodeBoatPresence(JSON.parse(JSON.stringify(B.presenceFor(physics.getBody('self')!.pos)!)))!;
+        if (bp.hm) A.remoteHelm('peerB', bp.hm, t, ++stamp);
+        B.applyRemote('peerA', decodeBoatPresence(JSON.parse(JSON.stringify(A.presenceFor(null))))!.v, t);
+      }
+      A.tick(null, DT, wind);
+      physics.tick();
+    }
+    // B is still at the wheel in B's world, and A's boat sailed under it.
+    expect(B.helmHolder(bBoat)).toBe('peerB');
+    expect(aBoat.vessel.cmd.sail).toBeGreaterThan(0.9);
+    expect(metres(aBoat.vessel.motion.n, n0)).toBeGreaterThan(20);
+    // A third player, C, sees the wheel held by B and is not offered it.
+    const C = new Fleet({ selfPeer: () => 'peerC', registerDecks: false, localCrew: false });
+    C.applyRemote('peerA', decodeBoatPresence(JSON.parse(JSON.stringify(A.presenceFor(null))))!.v, t);
+    const cBoat = C.list().find((b) => b.kind === 'remote')!;
+    expect(C.helmHolder(cBoat)).toBe('peerB');
+    expect(C.helmTaken(cBoat)).toBe(true);
     unmount();
   });
 });

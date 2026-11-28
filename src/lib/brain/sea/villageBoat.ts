@@ -101,7 +101,7 @@ export type BoatAction =
   | { kind: 'full'; boatKey: string }
   | { kind: 'take'; boatKey: string; role: CrewRole; spot?: [number, number] }
   | { kind: 'leave'; role: CrewRole }
-  | { kind: 'busy' };
+  | { kind: 'busy'; reason?: 'helm' };
 
 const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 
@@ -150,17 +150,20 @@ function actionOn(
   if (!p) return null;
   const fleet = getFleet();
   if (isOnDeck(p)) {
-    const ownable = boat.kind === 'dock' || boat.kind === 'mine';
     // The nearest station in reach wins, so slack that widens both reaches
-    // never swaps the oars a body is standing at for the wheel.
+    // never swaps the oars a body is standing at for the wheel. Anyone
+    // aboard may take the wheel while nobody else is steering.
     const reach = STATION_REACH_M + slack * 0.5;
-    const dHelm = ownable ? Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]) : Infinity;
+    const dHelm = Math.hypot(p.x - HELM_SPOT[0], p.z - HELM_SPOT[1]);
     // Any of the oar places: each bench seats a rower either side.
     const oars = nearestOarSpot(p.x, p.z);
     const dOars = oars.d;
     if (Math.min(dHelm, dOars) <= reach) {
       if (boat.kind === 'dock' && fleet.claimBlocked()) return { kind: 'busy' };
-      if (dHelm <= dOars) return { kind: 'take', boatKey: boat.key, role: 'helm' };
+      if (dHelm <= dOars) {
+        if (fleet.helmTaken(boat, t)) return { kind: 'busy', reason: 'helm' };
+        return { kind: 'take', boatKey: boat.key, role: 'helm' };
+      }
       return { kind: 'take', boatKey: boat.key, role: 'oars', spot: oars.spot };
     }
     // A rod holder: anyone may fish from any boat.

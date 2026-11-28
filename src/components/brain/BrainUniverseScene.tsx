@@ -279,6 +279,7 @@ function syncRemotePeerBody(
     fleet.applyRemote(p.peerId, boatInfo?.v);
     // One stroke per presence.
     if (boatInfo?.r && p.presenceTs !== undefined) fleet.remoteRow(p.peerId, boatInfo.r, undefined, p.presenceTs);
+    if (boatInfo?.hm && p.presenceTs !== undefined) fleet.remoteHelm(p.peerId, boatInfo.hm, undefined, p.presenceTs);
     const deckBoat = boatInfo?.d ? fleet.resolveDeck(boatInfo.d) : undefined;
     deckPos = deckBoat && boatInfo?.d ? deckPointOn(deckBoat, boatInfo.d.x, boatInfo.d.z) : null;
   }
@@ -2065,7 +2066,7 @@ const BrainUniverseScene = ({ variant }: BrainUniverseSceneProps) => {
       // Boats go out at 3 Hz while moving, crewed, rowing or stood on;
       // 1 Hz for an owned boat at anchor. Walking stays at 1.5 s.
       const mine = fleet.mine();
-      const busy = !!boat && (!!boat.d || !!boat.r || (mine ? Math.hypot(...mine.vessel.motion.vel) > 0.05 : false));
+      const busy = !!boat && (!!boat.d || !!boat.r || !!boat.hm || (mine ? Math.hypot(...mine.vessel.motion.vel) > 0.05 : false));
       const period = busy ? 333 : boat ? 1000 : 1500;
       if (now - lastAt < period - 5) return;
       // Measured on the ground (Earth-local), not in world space: Earth's
