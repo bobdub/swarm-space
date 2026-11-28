@@ -364,6 +364,61 @@ interface Running {
 
 let running: Running | null = null;
 
+/** Local counters for the Node Dashboard's Synapse map card. Never published. */
+export interface SynapseMapStats {
+  running: boolean;
+  shy: boolean;
+  /** Fresh nodes in the map. */
+  nodes: number;
+  /** Links those nodes report. */
+  edges: number;
+  received: number;
+  refused: number;
+  published: number;
+  lastPublishedAt: number | null;
+  lastPublishedChars: number | null;
+  lastReceivedAt: number | null;
+  /** Times route picking leaned on the network view for an unmet peer. */
+  assists: number;
+}
+
+const counters = {
+  received: 0, refused: 0, published: 0, assists: 0,
+  lastPublishedAt: null as number | null,
+  lastPublishedChars: null as number | null,
+  lastReceivedAt: null as number | null,
+  shy: false,
+};
+
+/** Route picking used the network view for a peer with no first-hand memory. */
+export function noteSynapseAssist(): void {
+  counters.assists += 1;
+}
+
+export function getSynapseMapStats(nowTs = Date.now()): SynapseMapStats {
+  const nodes = shared.getNodes(nowTs);
+  return {
+    running: !!running,
+    shy: counters.shy,
+    nodes: nodes.length,
+    edges: nodes.reduce((sum, n) => sum + n.edges.length, 0),
+    received: counters.received,
+    refused: counters.refused,
+    published: counters.published,
+    lastPublishedAt: counters.lastPublishedAt,
+    lastPublishedChars: counters.lastPublishedChars,
+    lastReceivedAt: counters.lastReceivedAt,
+    assists: counters.assists,
+  };
+}
+
+function resetCounters(): void {
+  Object.assign(counters, {
+    received: 0, refused: 0, published: 0, assists: 0,
+    lastPublishedAt: null, lastPublishedChars: null, lastReceivedAt: null, shy: false,
+  });
+}
+
 /**
  * Publish our own record now (no-op while offline, shy or without an id).
  * Returns true when a record was written. Exported for tests.
@@ -374,7 +429,8 @@ export function publishSynapseRecord(deps: SynapseExchangerDeps): boolean {
   localId = peerId;
   if (!peerId) return false;
   if (deps.isOnline && !deps.isOnline()) return false;
-  if (deps.isShy?.()) return false;
+  counters.shy = !!deps.isShy?.();
+  if (counters.shy) return false;
   const { conns, phi, edges } = deps.collect();
   // An empty record is written once so peers drop our old links, then we go quiet.
   if (edges.length === 0) {
@@ -385,15 +441,27 @@ export function publishSynapseRecord(deps: SynapseExchangerDeps): boolean {
   }
   const raw = buildManifoldRecord({ peerId, at: now, conns, phi, edges });
   if (!raw) return false;
-  try { return deps.publish(SYNAPSE_MANIFOLD_CHANNEL, synapseSlot(peerId), raw); } catch { return false; }
+  let ok = false;
+  try { ok = deps.publish(SYNAPSE_MANIFOLD_CHANNEL, synapseSlot(peerId), raw); } catch { ok = false; }
+  if (ok) {
+    counters.published += 1;
+    counters.lastPublishedAt = now;
+    counters.lastPublishedChars = raw.length;
+  }
+  return ok;
 }
 
 /** Start exchanging. Idempotent; returns a stop function. */
 export function startSynapseExchanger(deps: SynapseExchangerDeps): () => void {
   if (running) return stopSynapseExchanger;
   const unsubscribe = deps.subscribe(SYNAPSE_MANIFOLD_CHANNEL, (from, payload) => {
-    const node = parseManifoldRecord(payload, from, deps.now?.() ?? Date.now());
-    if (node && node.peerId !== deps.localPeerId()) shared.merge(node);
+    const now = deps.now?.() ?? Date.now();
+    const node = parseManifoldRecord(payload, from, now);
+    if (!node) { counters.refused += 1; return; }
+    if (node.peerId === deps.localPeerId()) return;
+    counters.received += 1;
+    counters.lastReceivedAt = now;
+    shared.merge(node);
   });
   running = {
     unsubscribe,
@@ -420,4 +488,5 @@ export function _resetSynapseExchangerForTests(): void {
   stopSynapseExchanger();
   shared.clear();
   localId = null;
+  resetCounters();
 }

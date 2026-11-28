@@ -24,6 +24,7 @@ import { NetworkModeToggle } from '@/components/NetworkModeToggle';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { TorrentSwarmPanel } from '@/components/p2p/dashboard/TorrentSwarmPanel';
 import { UnsupportedContentPanel } from '@/components/p2p/dashboard/UnsupportedContentPanel';
+import { SynapseMapPanel } from '@/components/p2p/dashboard/SynapseMapPanel';
 import { getTestMode, type TestModePhase } from '@/lib/p2p/testMode.standalone';
 import { getSwarmMeshStandalone, type SwarmPhase } from '@/lib/p2p/swarmMesh.standalone';
 import { getStandaloneBuilderMode, type BuilderPhase } from '@/lib/p2p/builderMode.standalone-archived';
@@ -239,6 +240,9 @@ const NodeDashboard = () => {
 
         {/* Torrent Swarm Status — content distribution lives here */}
         {networkEnabled && <TorrentSwarmPanel />}
+
+        {/* Synapse Map — read-only health of the Gun synaptic map */}
+        {networkEnabled && <SynapseMapPanel />}
 
         {/* Unsupported Content — posts this node opted out of (Resume Support) */}
         <UnsupportedContentPanel />
