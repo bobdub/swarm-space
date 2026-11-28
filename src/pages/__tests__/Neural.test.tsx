@@ -38,6 +38,11 @@ describe('neuralChecks', () => {
     expect(failed).toEqual(['Exchanger running', 'Bad records are refused', 'Source weights are learning']);
   });
 
+  it('flags refusals when nothing was accepted at all', () => {
+    const checks = neuralChecks(baseStats({ running: true, received: 0, refused: 3 }), w());
+    expect(checks.find((c) => c.label === 'Bad records are refused')?.state).toBe('fail');
+  });
+
   it('treats shy and unsigned as waiting, not failing', () => {
     const shy = neuralChecks(baseStats({ running: true, shy: true }), w());
     const unsigned = neuralChecks(baseStats({ running: true, unsigned: true }), w());

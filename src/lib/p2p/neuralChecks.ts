@@ -49,7 +49,7 @@ export function neuralChecks(stats: SynapseMapStats, weights: NeuralWeights): Ne
     },
     {
       label: "Bad records are refused",
-      state: stats.received > 0 && stats.refused > stats.received ? "fail" : "pass",
+      state: stats.refused > stats.received ? "fail" : "pass",
       detail: stats.refused === 0
         ? "No records refused."
         : `${stats.refused} refused (bad signature, changed key, or stale). A few are normal; more refused than accepted points to a problem.`,
