@@ -81,6 +81,7 @@ const StorageDiagnostics = lazy(() => import("./pages/StorageDiagnostics"));
 const Donate = lazy(() => import("./pages/Donate"));
 const Adverts = lazy(() => import("./pages/Adverts"));
 const NeuralNetworkPage = lazy(() => import("./pages/NeuralNetwork"));
+const NeuralPage = lazy(() => import("./pages/Neural"));
 const VirtualHub = lazy(() => import("./pages/VirtualHub"));
 const BrainUniverse = lazy(() => import("./pages/BrainUniverse"));
 const BrainDev = lazy(() => import("./pages/BrainDev"));
@@ -186,6 +187,7 @@ function AppContent() {
             <Route path="/swarm-metamask-guide" element={<Navigate to="/cold-wallet-guide" replace />} />
              <Route path="/cold-wallet-guide" element={<ColdWalletGuide />} />
             <Route path="/storage-diagnostics" element={<StorageDiagnostics />} />
+            <Route path="/neural" element={<NeuralPage />} />
             <Route path="/donate" element={<Donate />} />
             <Route path="/fundraiser" element={<Donate />} />
             <Route path="/adverts" element={<Adverts />} />
