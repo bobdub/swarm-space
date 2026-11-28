@@ -91,8 +91,13 @@ export class ChunkProtocol {
 
       this.pendingRequests.set(requestId, request);
       // Every answer (or silence) teaches the synaptic dispatch weights.
+      // Learn once per ask, even if a bad reply and the timeout both answer it.
+      let learned = false;
       this.requestCallbacks.set(requestId, (data) => {
-        try { recordSourceOutcome(peerId, Date.now() - request.timestamp, data !== null); } catch { /* best-effort */ }
+        if (!learned) {
+          learned = true;
+          try { recordSourceOutcome(peerId, Date.now() - request.timestamp, data !== null); } catch { /* best-effort */ }
+        }
         resolve(data);
       });
 
@@ -163,8 +168,12 @@ export class ChunkProtocol {
         peerId
       });
       const askedAt = Date.now();
+      let learned = false;
       this.manifestCallbacks.set(requestId, (manifest) => {
-        try { recordSourceOutcome(peerId, Date.now() - askedAt, manifest !== null); } catch { /* best-effort */ }
+        if (!learned) {
+          learned = true;
+          try { recordSourceOutcome(peerId, Date.now() - askedAt, manifest !== null); } catch { /* best-effort */ }
+        }
         resolve(manifest);
       });
 

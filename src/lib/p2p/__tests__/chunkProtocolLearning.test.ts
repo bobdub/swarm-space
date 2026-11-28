@@ -28,6 +28,20 @@ describe('ChunkProtocol teaches the dispatch weights', () => {
     expect(getResistanceWeights().samples).toBe(1);
   });
 
+  it('learns once when a bad manifest reply is followed by the timeout', async () => {
+    vi.useFakeTimers();
+    _resetResistanceWeightsForTests();
+    let requestId = '';
+    const proto = new ChunkProtocol((_peer, msg) => { requestId = msg.requestId; return true; });
+    const pending = proto.requestManifest('peer-bad', 'manifest-1');
+    const callbacks = (proto as unknown as { manifestCallbacks: Map<string, (m: null) => void> }).manifestCallbacks;
+    callbacks.get(requestId)?.(null);
+    callbacks.get(requestId)?.(null);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(await pending).toBeNull();
+    expect(getResistanceWeights().samples).toBe(1);
+  });
+
   it('does not learn when the ask could not be sent', async () => {
     _resetResistanceWeightsForTests();
     const proto = new ChunkProtocol(() => false);
