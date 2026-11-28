@@ -391,14 +391,43 @@ const Profile = () => {
   const loadAchievementData = useCallback(async (userId: string) => {
     setAchievementsLoading(true);
     try {
-      const [definitions, progressRecords] = await Promise.all([
+      const [definitions, progressRecords, authorPosts] = await Promise.all([
         listAchievementDefinitions(),
         listUserAchievementProgress(userId),
+        // Another user's unlocks never live in this device's progress store
+        // unless they were synced. Their posts carry badge snapshots, so read
+        // those too: otherwise their unlocked achievements show as locked.
+        getAll<Post>("posts").catch(() => [] as Post[]),
       ]);
 
       const progressById = new Map(progressRecords.map((record) => [record.achievementId, record]));
+      const snapshotUnlocks = new Map<string, string | null>();
+      for (const post of authorPosts) {
+        if (post.author !== userId || !Array.isArray(post.authorBadgeSnapshots)) continue;
+        for (const snapshot of post.authorBadgeSnapshots) {
+          if (!snapshot?.id) continue;
+          const at = snapshot.unlockedAt ?? null;
+          const prev = snapshotUnlocks.get(snapshot.id);
+          if (prev === undefined || (at && (!prev || at < prev))) {
+            snapshotUnlocks.set(snapshot.id, at);
+          }
+        }
+      }
+
       const items: AchievementDisplayItem[] = definitions.map((definition) => {
-        const progress = progressById.get(definition.id);
+        const localProgress = progressById.get(definition.id);
+        const snapshotAt = snapshotUnlocks.get(definition.id);
+        const progress =
+          !localProgress?.unlocked && snapshotAt !== undefined
+            ? {
+                ...localProgress,
+                unlocked: true,
+                unlockedAt: snapshotAt ?? undefined,
+                lastUpdated: snapshotAt ?? localProgress?.lastUpdated ?? "",
+                progress: 1,
+                progressLabel: "Unlocked",
+              }
+            : localProgress;
         const unlocked = Boolean(progress?.unlocked);
         return {
           id: definition.id,
