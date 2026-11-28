@@ -9,6 +9,7 @@ import { Network } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getSynapseMapStats, type SynapseMapStats } from '@/lib/p2p/synapseExchanger';
+import { getResistanceWeights } from '@/lib/p2p/synapticDispatch';
 
 const REFRESH_MS = 5_000;
 
@@ -17,14 +18,15 @@ const ago = (at: number | null): string =>
 
 export function SynapseMapPanel() {
   const [stats, setStats] = useState<SynapseMapStats>(() => getSynapseMapStats());
+  const [weights, setWeights] = useState(() => getResistanceWeights());
   useEffect(() => {
-    const id = setInterval(() => setStats(getSynapseMapStats()), REFRESH_MS);
+    const id = setInterval(() => { setStats(getSynapseMapStats()); setWeights(getResistanceWeights()); }, REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
   const status = !stats.running ? 'Off' : stats.shy ? 'Listening (shy)' : 'Sharing';
   const rows: Array<[string, string]> = [
-    ['Nodes heard from', String(stats.nodes)],
+    ['Nodes heard from', `${stats.nodes} · ${stats.vouched} vouched`],
     ['Links they report', String(stats.edges)],
     ['Records received', `${stats.received} · last ${ago(stats.lastReceivedAt)}`],
     ['Records refused', String(stats.refused)],
@@ -32,10 +34,17 @@ export function SynapseMapPanel() {
       'Our record',
       stats.shy
         ? 'Not shared while shy'
+        : stats.unsigned
+          ? 'Waiting for a signing key'
         : `${stats.published} sent · last ${ago(stats.lastPublishedAt)}` +
           (stats.lastPublishedChars !== null ? ` · ${stats.lastPublishedChars} chars` : ''),
     ],
     ['Bus Cycle assists', String(stats.assists)],
+    [
+      'Source weights',
+      `latency ${weights.latency.toFixed(2)} · failures ${weights.failure.toFixed(2)} · load ${weights.load.toFixed(2)}`,
+    ],
+    ['Weights learned from', `${weights.samples} asks · Q ${weights.qScore.toFixed(3)}`],
   ];
 
   return (
@@ -47,7 +56,7 @@ export function SynapseMapPanel() {
           <Badge variant="outline" className="ml-auto text-xs">{status}</Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground">
-          Link quality nodes share over Gun, as small numbers only. It helps this node pick smoother peers it has never met; what it sees first-hand always wins.
+          Link quality nodes share over Gun, as small signed numbers only. It helps this node pick smoother peers it has never met; what it sees first-hand always wins. Vouched nodes signed with the identity your Connection Library knows them by.
         </p>
       </CardHeader>
       <CardContent>

@@ -1,5 +1,5 @@
 import { setLiveLibrary } from './liveLibrary';
-import { rankBySynapticPath } from './synapticDispatch';
+import { rankBySynapticPath, recordSourceOutcome } from './synapticDispatch';
 import { forgetBlockedNode, isAuthorBlocked, listBlockedNodeContent, recordBlockedNode, resumeNodeContent, stopSupportingNodeContent } from '../content/blockedNodeContent';
 import { runCooperatively, stringifyCooperatively, stringifySteps } from './cooperativeWork';
 import { observeConnections, getConnectionAffinity } from './connectionAffinity';
@@ -5839,6 +5839,11 @@ export class StandaloneSwarmMesh {
     return ordered;
   }
 
+  /** A torrent piece ask was answered or failed: teaches the dispatch weights. */
+  noteSourceOutcome(peerId: string, elapsedMs: number, ok: boolean): void {
+    recordSourceOutcome(peerId, elapsedMs, ok, Date.now(), this.peerData.get(peerId)?.avgRttMs ?? null);
+  }
+
   /**
    * Order open links by synaptic resistance (`synapticDispatch.ts`), using
    * our own measured RTTs first. Ordering only: nothing is added or dropped.
@@ -5863,6 +5868,9 @@ export class StandaloneSwarmMesh {
     }
 
     const requestId = this.createAssetRequestId();
+    const askedAt = Date.now();
+    // Every answer (or silence) teaches the synaptic dispatch weights.
+    const learn = (ok: boolean) => recordSourceOutcome(peerId, Date.now() - askedAt, ok, Date.now(), this.peerData.get(peerId)?.avgRttMs ?? null);
     return new Promise((resolve) => {
       const timeoutId = setTimeout(() => {
         const pending = this.pendingAssetRequests.get(requestId);
@@ -5870,11 +5878,15 @@ export class StandaloneSwarmMesh {
           return;
         }
         this.pendingAssetRequests.delete(requestId);
+        learn(false);
         pending.resolve(null);
       }, ASSET_REQUEST_TIMEOUT_MS);
 
       this.pendingAssetRequests.set(requestId, {
-        resolve,
+        resolve: (message) => {
+          if (message) learn(true);
+          resolve(message);
+        },
         timeoutId,
         expectedType,
       });

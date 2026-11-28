@@ -1,12 +1,26 @@
 import "fake-indexeddb/auto";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { rankBySynapticPath, synapticResistance, SYNAPSE_NODE_CAPACITY } from "../synapticDispatch";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  _resetResistanceWeightsForTests,
+  DEFAULT_RESISTANCE_WEIGHTS,
+  getResistanceWeights,
+  learnWeights,
+  normalizeWeights,
+  outcomeCost,
+  rankBySynapticPath,
+  recordSourceOutcome,
+  synapticResistance,
+  SYNAPSE_NODE_CAPACITY,
+  SYNAPSE_WEIGHT_FLOOR,
+  weightQScore,
+} from "../synapticDispatch";
 import { _resetSynapseForTests, recordHandshake } from "../synapseLayer";
 import {
   _resetSynapseExchangerForTests,
   buildManifoldRecord,
   startSynapseExchanger,
   type SynapseEdge,
+  type SynapseSigner,
 } from "../synapseExchanger";
 import { TorrentSwarm, type MeshTransportAdapter, type TorrentManifest } from "../torrentSwarm.standalone";
 
@@ -37,9 +51,18 @@ describe("synaptic resistance", () => {
 });
 
 describe("rankBySynapticPath", () => {
-  let handler: ((from: string, payload: unknown) => void) | null = null;
-  const record = (peerId: string, conns: number, edges: SynapseEdge[] = []) =>
-    buildManifoldRecord({ peerId, at: Date.now(), conns, phi: null, edges })!;
+  let handler: ((from: string, payload: unknown) => void | Promise<void>) | null = null;
+  let signer: SynapseSigner;
+  beforeAll(async () => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const spki = new Uint8Array(await crypto.subtle.exportKey("spki", pair.publicKey));
+    signer = {
+      publicKey: btoa(String.fromCharCode(...spki)),
+      sign: async (data) => new Uint8Array(await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, data)),
+    };
+  });
+  const record = async (peerId: string, conns: number, edges: SynapseEdge[] = []) =>
+    (await buildManifoldRecord({ peerId, at: Date.now(), conns, phi: null, edges }, signer))!;
 
   beforeEach(() => {
     _resetSynapseForTests();
@@ -49,6 +72,7 @@ describe("rankBySynapticPath", () => {
       publish: () => true,
       subscribe: (_c, fn) => { handler = fn; return () => { handler = null; }; },
       collect: () => ({ conns: 0, phi: null, edges: [] }),
+      signer: async () => signer,
       isOnline: () => false,
     });
   });
@@ -65,9 +89,9 @@ describe("rankBySynapticPath", () => {
     expect(ranked).toEqual(["peer-b", "peer-a"]);
   });
 
-  it("slides traffic away from a peer that reports itself busy", () => {
-    handler!("peer-a", record("peer-a", 40));
-    handler!("peer-b", record("peer-b", 2));
+  it("slides traffic away from a peer that reports itself busy", async () => {
+    await handler!("peer-a", await record("peer-a", 40));
+    await handler!("peer-b", await record("peer-b", 2));
     expect(rankBySynapticPath(["peer-a", "peer-b"])).toEqual(["peer-b", "peer-a"]);
   });
 
@@ -114,5 +138,87 @@ describe("torrent chunk requests follow the transport's ranking", () => {
 
   it("ignores a ranking that drops or invents peers", () => {
     expect(setup(() => ["p9"])[0]).toBe("p1");
+  });
+});
+
+describe("self-tuning weights (UQRC step)", () => {
+  beforeEach(() => _resetResistanceWeightsForTests());
+  afterEach(() => _resetResistanceWeightsForTests());
+  const sum = (w: { latency: number; failure: number; load: number }) => w.latency + w.failure + w.load;
+
+  it("start at the ground state with a known Q-score", () => {
+    const w = getResistanceWeights();
+    expect(w).toMatchObject({ ...DEFAULT_RESISTANCE_WEIGHTS, samples: 0 });
+    expect(w.qScore).toBeCloseTo(weightQScore(DEFAULT_RESISTANCE_WEIGHTS));
+  });
+
+  it("lean toward the term that actually predicts slow asks", () => {
+    let w = { ...DEFAULT_RESISTANCE_WEIGHTS };
+    for (let i = 0; i < 400; i++) {
+      // Load tracks the outcome; latency and failures are noise.
+      const busy = i % 2 === 0;
+      w = learnWeights(w, { latency: 0.3, failure: 0.5, load: busy ? 1 : 0 }, busy ? 1 : 0);
+    }
+    expect(w.load).toBeGreaterThan(DEFAULT_RESISTANCE_WEIGHTS.load + 0.05);
+    expect(sum(w)).toBeCloseTo(1);
+  });
+
+  it("keep every weight above the floor and summing to one", () => {
+    let w = { ...DEFAULT_RESISTANCE_WEIGHTS };
+    for (let i = 0; i < 2_000; i++) w = learnWeights(w, { latency: 1, failure: 0, load: 0 }, 0, 0.5);
+    expect(Math.min(w.latency, w.failure, w.load)).toBeGreaterThanOrEqual(SYNAPSE_WEIGHT_FLOOR - 1e-9);
+    expect(sum(w)).toBeCloseTo(1);
+    expect(normalizeWeights({ latency: NaN, failure: -3, load: 9 }).load).toBeLessThan(1);
+  });
+
+  it("relax back toward the ground state when outcomes stop teaching", () => {
+    let w = normalizeWeights({ latency: 0.2, failure: 0.2, load: 0.6 });
+    const before = Math.abs(w.load - DEFAULT_RESISTANCE_WEIGHTS.load);
+    for (let i = 0; i < 500; i++) w = learnWeights(w, { latency: 0, failure: 0, load: 0 }, 0);
+    expect(Math.abs(w.load - DEFAULT_RESISTANCE_WEIGHTS.load)).toBeLessThan(before);
+  });
+
+  it("learn from recorded outcomes and persist them", () => {
+    for (let i = 0; i < 25; i++) recordSourceOutcome("peer-x", 7_900, false);
+    const w = getResistanceWeights();
+    expect(w.samples).toBe(25);
+    expect(w).not.toMatchObject(DEFAULT_RESISTANCE_WEIGHTS);
+    expect(JSON.parse(localStorage.getItem("swarm-synaptic-weights")!).n).toBe(20);
+  });
+
+  it("score outcomes by answer time, failures cost 1", () => {
+    expect(outcomeCost(0, true)).toBe(0);
+    expect(outcomeCost(4_000, true)).toBeCloseTo(0.5);
+    expect(outcomeCost(100, false)).toBe(1);
+  });
+});
+
+describe("torrent piece outcomes reach the adapter", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("reports a timed-out piece ask as a failure", () => {
+    let handler: ((peerId: string, payload: unknown) => void) | null = null;
+    const outcomes: Array<[string, boolean]> = [];
+    const transport: MeshTransportAdapter = {
+      localPeerId: "me",
+      async send() { return true; },
+      broadcast() {},
+      onMessage(_c, h) { handler = h; return () => { handler = null; }; },
+      getConnectedPeerIds: () => ["p1"],
+      noteSourceOutcome: (peerId, _ms, ok) => outcomes.push([peerId, ok]),
+    };
+    const swarm = new TorrentSwarm(transport);
+    swarm.start();
+    swarm.download({
+      id: "m", name: "m", totalSize: 10, chunkSize: 10, totalChunks: 1,
+      chunkHashes: ["x"], contentHash: "y", creatorId: "z", createdAt: 0,
+    });
+    handler!("p1", { msg: "have", manifestId: "m", payload: { indices: [0] }, msgId: "h-p1" });
+    vi.advanceTimersByTime(30_000);
+    swarm.stop();
+    expect(outcomes).toContainEqual(["p1", false]);
   });
 });
