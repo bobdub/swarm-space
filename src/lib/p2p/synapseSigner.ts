@@ -38,14 +38,29 @@ function signerFor(key: CryptoKey, publicKey: string): SynapseSigner {
 let identity: { userId: string; publicKey: string; signer: SynapseSigner } | null = null;
 let tabSigner: Promise<SynapseSigner | null> | null = null;
 
+let lockListening = false;
+
+/** Drop the cached identity signer the moment the wallet locks or the user leaves. */
+function listenForLock(event: string): void {
+  if (lockListening || typeof window === 'undefined') return;
+  lockListening = true;
+  const drop = () => { identity = null; };
+  for (const name of [event, 'user-logout', 'user-login']) {
+    try { window.addEventListener(name, drop); } catch { /* non-browser */ }
+  }
+}
+
 async function identitySigner(): Promise<SynapseSigner | null> {
   const auth = await import('../auth');
+  listenForLock(auth.WALLET_LOCK_EVENT);
   const user = auth.getCurrentUser();
   if (!user?.id || !user.publicKey) { identity = null; return null; }
-  if (identity && identity.userId === user.id && identity.publicKey === user.publicKey) return identity.signer;
+  // Re-check authorization on every publish: a locked wallet keeps the same
+  // user but clears its key, and must fall back to the tab key at once.
   const { isGuestUser, getGuestPrivateKey } = await import('../preview/guestMode');
   const privateKey = isGuestUser(user) ? getGuestPrivateKey(user.id) : await auth.getCachedPrivateKey();
-  if (!privateKey || auth.getCurrentUser()?.id !== user.id) return null;
+  if (!privateKey || auth.getCurrentUser()?.id !== user.id) { identity = null; return null; }
+  if (identity && identity.userId === user.id && identity.publicKey === user.publicKey) return identity.signer;
   const key = await crypto.subtle.importKey('pkcs8', fromBase64(privateKey), ECDSA, false, ['sign']);
   identity = { userId: user.id, publicKey: user.publicKey, signer: signerFor(key, user.publicKey) };
   return identity.signer;
@@ -72,5 +87,6 @@ export async function getSynapseSigner(): Promise<SynapseSigner | null> {
 /** Test hook. */
 export function _resetSynapseSignerForTests(): void {
   identity = null;
+  lockListening = false;
   tabSigner = null;
 }

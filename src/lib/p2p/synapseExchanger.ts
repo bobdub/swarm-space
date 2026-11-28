@@ -13,7 +13,8 @@
  * The record is packed binary, sent as one base64 string (Gun stores
  * strings intact; nested objects become links):
  *
- *   header  8 bytes   version u8 · at u32 (seconds) · conns u16 · Φ u8 (255 = unknown)
+ *   header  9 bytes   version u8 · at u32 (seconds) · conns u16 · Φ u8 (255 = unknown)
+ *                     · edge count u8 (so the signer block never has to be guessed)
  *   edge   10 bytes   peer key 6 bytes · smoothness u8 · latency u16 ms (65535 = unmeasured)
  *                     · weight u8 (log scale)
  *   signer            key length u8 · identity public key (as stored, ≤ 160 bytes)
@@ -65,7 +66,7 @@ export const SYNAPSE_FULL_CONFIDENCE_REPORTERS = 3;
 export const SYNAPSE_NETWORK_DAMPING = 0.5;
 
 const RECORD_VERSION = 3;
-const HEADER_BYTES = 8;
+const HEADER_BYTES = 9;
 const EDGE_BYTES = 10;
 const KEY_BYTES = 6;
 const SIGNER_KEY_MAX_BYTES = 160;
@@ -209,6 +210,7 @@ export function buildManifoldBody(node: { peerId: string; at: number; conns: num
   view.setUint32(1, Math.max(0, Math.floor(node.at / 1000)) >>> 0);
   view.setUint16(5, finite(node.conns) ? clamp(Math.floor(node.conns), 0, 0xffff) : 0);
   view.setUint8(7, finite(node.phi) ? Math.min(254, Math.round(clamp(node.phi, 0, 1) * 254)) : PHI_UNKNOWN);
+  view.setUint8(8, edges.length);
   edges.forEach((e, i) => {
     const o = HEADER_BYTES + i * EDGE_BYTES;
     bytes.set(keyBytes(e.to), o);
@@ -290,17 +292,18 @@ interface ParsedRecord {
   signature: Uint8Array;
 }
 
-/** Find where the edges end: the signer block is the only layout that fits. */
+/**
+ * Locate the signer block from the header's explicit edge count. The layout
+ * must account for every byte exactly; nothing is inferred from edge bytes.
+ */
 function splitRecord(bytes: Uint8Array): { edgesEnd: number; keyLen: number } | null {
-  for (let edges = 0; edges <= SYNAPSE_MAX_EDGES; edges++) {
-    const edgesEnd = HEADER_BYTES + edges * EDGE_BYTES;
-    if (edgesEnd + 1 + SIGNATURE_BYTES > bytes.length) return null;
-    const keyLen = bytes[edgesEnd];
-    if (keyLen > 0 && keyLen <= SIGNER_KEY_MAX_BYTES && edgesEnd + 1 + keyLen + SIGNATURE_BYTES === bytes.length) {
-      return { edgesEnd, keyLen };
-    }
-  }
-  return null;
+  const edges = bytes[8];
+  if (edges > SYNAPSE_MAX_EDGES) return null;
+  const edgesEnd = HEADER_BYTES + edges * EDGE_BYTES;
+  if (edgesEnd + 1 + SIGNATURE_BYTES > bytes.length) return null;
+  const keyLen = bytes[edgesEnd];
+  if (keyLen === 0 || keyLen > SIGNER_KEY_MAX_BYTES) return null;
+  return edgesEnd + 1 + keyLen + SIGNATURE_BYTES === bytes.length ? { edgesEnd, keyLen } : null;
 }
 
 function parseRecord(raw: unknown, from: string, nowTs: number): ParsedRecord | null {

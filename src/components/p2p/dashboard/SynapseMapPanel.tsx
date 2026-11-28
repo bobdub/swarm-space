@@ -9,6 +9,7 @@ import { Network } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { getSynapseMapStats, type SynapseMapStats } from '@/lib/p2p/synapseExchanger';
+import { getResistanceWeights } from '@/lib/p2p/synapticDispatch';
 
 const REFRESH_MS = 5_000;
 
@@ -17,8 +18,9 @@ const ago = (at: number | null): string =>
 
 export function SynapseMapPanel() {
   const [stats, setStats] = useState<SynapseMapStats>(() => getSynapseMapStats());
+  const [weights, setWeights] = useState(() => getResistanceWeights());
   useEffect(() => {
-    const id = setInterval(() => setStats(getSynapseMapStats()), REFRESH_MS);
+    const id = setInterval(() => { setStats(getSynapseMapStats()); setWeights(getResistanceWeights()); }, REFRESH_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -38,6 +40,11 @@ export function SynapseMapPanel() {
           (stats.lastPublishedChars !== null ? ` · ${stats.lastPublishedChars} chars` : ''),
     ],
     ['Bus Cycle assists', String(stats.assists)],
+    [
+      'Source weights',
+      `latency ${weights.latency.toFixed(2)} · failures ${weights.failure.toFixed(2)} · load ${weights.load.toFixed(2)}`,
+    ],
+    ['Weights learned from', `${weights.samples} asks · Q ${weights.qScore.toFixed(3)}`],
   ];
 
   return (

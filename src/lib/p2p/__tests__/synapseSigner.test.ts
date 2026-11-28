@@ -6,6 +6,7 @@ const authState: { user: { id: string; publicKey: string; _guest?: boolean } | n
 const guestKeys: Record<string, string> = {};
 
 vi.mock('../../auth', () => ({
+  WALLET_LOCK_EVENT: 'wallet-lock-test',
   getCurrentUser: () => authState.user,
   getCachedPrivateKey: async () => authState.privateKey,
 }));
@@ -45,6 +46,26 @@ describe('synapse signer', () => {
     const signer = (await getSynapseSigner())!;
     expect(signer.publicKey).toBe(keys.publicKey);
     expect((await signedBy(signer))?.vouched).toBe(true);
+  });
+
+  it('falls back to the tab key as soon as the wallet locks', async () => {
+    const keys = await identityKeys();
+    authState.user = { id: 'member', publicKey: keys.publicKey };
+    authState.privateKey = keys.privateKey;
+    expect((await getSynapseSigner())!.publicKey).toBe(keys.publicKey);
+    // lockWallet keeps the same user but clears the unlocked key.
+    authState.privateKey = null;
+    window.dispatchEvent(new Event('wallet-lock-test'));
+    const locked = (await getSynapseSigner())!;
+    expect(locked.publicKey).not.toBe(keys.publicKey);
+    // The library knows this peer as the member, so a tab-key record is not vouched.
+    const raw = (await buildManifoldRecord({ peerId: 'peer-a', at: Date.now(), conns: 0, phi: null, edges: [] }, locked))!;
+    expect((await verifyManifoldRecord(raw, 'peer-a', Date.now(), await synapseSignerUserId(keys.publicKey)))?.vouched).toBe(false);
+    // Even without the event, a missing key is never served from cache.
+    authState.privateKey = keys.privateKey;
+    expect((await getSynapseSigner())!.publicKey).toBe(keys.publicKey);
+    authState.privateKey = null;
+    expect((await getSynapseSigner())!.publicKey).not.toBe(keys.publicKey);
   });
 
   it('signs with a guest identity key without any login', async () => {

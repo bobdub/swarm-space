@@ -1,6 +1,19 @@
 import "fake-indexeddb/auto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { rankBySynapticPath, synapticResistance, SYNAPSE_NODE_CAPACITY } from "../synapticDispatch";
+import {
+  _resetResistanceWeightsForTests,
+  DEFAULT_RESISTANCE_WEIGHTS,
+  getResistanceWeights,
+  learnWeights,
+  normalizeWeights,
+  outcomeCost,
+  rankBySynapticPath,
+  recordSourceOutcome,
+  synapticResistance,
+  SYNAPSE_NODE_CAPACITY,
+  SYNAPSE_WEIGHT_FLOOR,
+  weightQScore,
+} from "../synapticDispatch";
 import { _resetSynapseForTests, recordHandshake } from "../synapseLayer";
 import {
   _resetSynapseExchangerForTests,
@@ -125,5 +138,87 @@ describe("torrent chunk requests follow the transport's ranking", () => {
 
   it("ignores a ranking that drops or invents peers", () => {
     expect(setup(() => ["p9"])[0]).toBe("p1");
+  });
+});
+
+describe("self-tuning weights (UQRC step)", () => {
+  beforeEach(() => _resetResistanceWeightsForTests());
+  afterEach(() => _resetResistanceWeightsForTests());
+  const sum = (w: { latency: number; failure: number; load: number }) => w.latency + w.failure + w.load;
+
+  it("start at the ground state with a known Q-score", () => {
+    const w = getResistanceWeights();
+    expect(w).toMatchObject({ ...DEFAULT_RESISTANCE_WEIGHTS, samples: 0 });
+    expect(w.qScore).toBeCloseTo(weightQScore(DEFAULT_RESISTANCE_WEIGHTS));
+  });
+
+  it("lean toward the term that actually predicts slow asks", () => {
+    let w = { ...DEFAULT_RESISTANCE_WEIGHTS };
+    for (let i = 0; i < 400; i++) {
+      // Load tracks the outcome; latency and failures are noise.
+      const busy = i % 2 === 0;
+      w = learnWeights(w, { latency: 0.3, failure: 0.5, load: busy ? 1 : 0 }, busy ? 1 : 0);
+    }
+    expect(w.load).toBeGreaterThan(DEFAULT_RESISTANCE_WEIGHTS.load + 0.05);
+    expect(sum(w)).toBeCloseTo(1);
+  });
+
+  it("keep every weight above the floor and summing to one", () => {
+    let w = { ...DEFAULT_RESISTANCE_WEIGHTS };
+    for (let i = 0; i < 2_000; i++) w = learnWeights(w, { latency: 1, failure: 0, load: 0 }, 0, 0.5);
+    expect(Math.min(w.latency, w.failure, w.load)).toBeGreaterThanOrEqual(SYNAPSE_WEIGHT_FLOOR - 1e-9);
+    expect(sum(w)).toBeCloseTo(1);
+    expect(normalizeWeights({ latency: NaN, failure: -3, load: 9 }).load).toBeLessThan(1);
+  });
+
+  it("relax back toward the ground state when outcomes stop teaching", () => {
+    let w = normalizeWeights({ latency: 0.2, failure: 0.2, load: 0.6 });
+    const before = Math.abs(w.load - DEFAULT_RESISTANCE_WEIGHTS.load);
+    for (let i = 0; i < 500; i++) w = learnWeights(w, { latency: 0, failure: 0, load: 0 }, 0);
+    expect(Math.abs(w.load - DEFAULT_RESISTANCE_WEIGHTS.load)).toBeLessThan(before);
+  });
+
+  it("learn from recorded outcomes and persist them", () => {
+    for (let i = 0; i < 25; i++) recordSourceOutcome("peer-x", 7_900, false);
+    const w = getResistanceWeights();
+    expect(w.samples).toBe(25);
+    expect(w).not.toMatchObject(DEFAULT_RESISTANCE_WEIGHTS);
+    expect(JSON.parse(localStorage.getItem("swarm-synaptic-weights")!).n).toBe(20);
+  });
+
+  it("score outcomes by answer time, failures cost 1", () => {
+    expect(outcomeCost(0, true)).toBe(0);
+    expect(outcomeCost(4_000, true)).toBeCloseTo(0.5);
+    expect(outcomeCost(100, false)).toBe(1);
+  });
+});
+
+describe("torrent piece outcomes reach the adapter", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("reports a timed-out piece ask as a failure", () => {
+    let handler: ((peerId: string, payload: unknown) => void) | null = null;
+    const outcomes: Array<[string, boolean]> = [];
+    const transport: MeshTransportAdapter = {
+      localPeerId: "me",
+      async send() { return true; },
+      broadcast() {},
+      onMessage(_c, h) { handler = h; return () => { handler = null; }; },
+      getConnectedPeerIds: () => ["p1"],
+      noteSourceOutcome: (peerId, _ms, ok) => outcomes.push([peerId, ok]),
+    };
+    const swarm = new TorrentSwarm(transport);
+    swarm.start();
+    swarm.download({
+      id: "m", name: "m", totalSize: 10, chunkSize: 10, totalChunks: 1,
+      chunkHashes: ["x"], contentHash: "y", creatorId: "z", createdAt: 0,
+    });
+    handler!("p1", { msg: "have", manifestId: "m", payload: { indices: [0] }, msgId: "h-p1" });
+    vi.advanceTimersByTime(30_000);
+    swarm.stop();
+    expect(outcomes).toContainEqual(["p1", false]);
   });
 });

@@ -75,7 +75,7 @@ describe('synapse manifold records', () => {
   it('is compact binary: header, 10 bytes per edge, signer key and signature, no peer ids', async () => {
     const raw = await record('peer-alice-0123456789', [edge('peer-bob-0123456789', 0.5), edge('peer-carol-0123456789', 0.4)]);
     expect(raw).toMatch(/^[A-Za-z0-9+/]+=*$/);
-    expect(decode(raw)).toHaveLength(8 + 2 * 10 + 1 + SPKI_BYTES + SIG_BYTES);
+    expect(decode(raw)).toHaveLength(9 + 2 * 10 + 1 + SPKI_BYTES + SIG_BYTES);
     expect(atob(raw)).not.toContain('peer-');
     const full = await record('peer-a', Array.from({ length: SYNAPSE_MAX_EDGES }, (_, i) => edge(`peer-n${i}`, 0.5)));
     expect(full.length).toBeLessThanOrEqual(SYNAPSE_MAX_RECORD_CHARS);
@@ -132,8 +132,28 @@ describe('synapse manifold records', () => {
 describe('record signatures', () => {
   it('refuses a tampered record', async () => {
     const bytes = decode(await record('peer-a', [edge('peer-b', 0.2)]));
-    bytes[8 + 6] = 255; // raise the reported smoothness
+    bytes[9 + 6] = 255; // raise the reported smoothness
     expect(await verifyManifoldRecord(encode(bytes), 'peer-a', NOW)).toBeNull();
+  });
+
+  it('keeps every edge when an edge hash starts with a plausible key length', async () => {
+    // peer-14 hashes to 65a1…: its first byte is 101 = one 10-byte edge + a 91-byte SPKI key.
+    expect(synapsePeerKey('peer-14').slice(0, 2)).toBe('65');
+    const raw = await record('peer-a', [edge('peer-14', 0.7)]);
+    const node = await verifyManifoldRecord(raw, 'peer-a', NOW);
+    expect(node?.edges.map((e) => e.key)).toEqual([synapsePeerKey('peer-14')]);
+    for (let i = 0; i < 200; i++) {
+      const many = await record('peer-a', [edge(`peer-${i}`, 0.5), edge(`peer-x${i}`, 0.4)]);
+      expect((await verifyManifoldRecord(many, 'peer-a', NOW))?.edges).toHaveLength(2);
+    }
+  });
+
+  it('refuses a record whose edge count does not match its length', async () => {
+    const bytes = decode(await record('peer-a', [edge('peer-b', 0.5)]));
+    bytes[8] = 2;
+    expect(parseManifoldRecord(encode(bytes), 'peer-a', NOW)).toBeNull();
+    bytes[8] = SYNAPSE_MAX_EDGES + 1;
+    expect(parseManifoldRecord(encode(bytes), 'peer-a', NOW)).toBeNull();
   });
 
   it('refuses a record replayed into another node\'s slot', async () => {
@@ -260,7 +280,7 @@ describe('synapse exchanger lifecycle', () => {
     vi.advanceTimersByTime(60_000);
     await settle();
     expect(published).toHaveLength(2);
-    expect(decode(published[1].payload)).toHaveLength(8 + 1 + SPKI_BYTES + SIG_BYTES);
+    expect(decode(published[1].payload)).toHaveLength(9 + 1 + SPKI_BYTES + SIG_BYTES);
   });
 
   it('shy, offline and unsigned nodes read the map without publishing', async () => {
@@ -336,6 +356,6 @@ describe('synapse map stats', () => {
     computeSmoothness(0.5, 'peer-t', 0, 20, now);
     const stats = getSynapseMapStats(now);
     expect(stats).toMatchObject({ running: true, shy: false, unsigned: false, nodes: 1, edges: 1, vouched: 0, received: 1, refused: 1, published: 1, assists: 1 });
-    expect(stats.lastPublishedChars).toBe(Math.ceil((8 + 10 + 1 + SPKI_BYTES + SIG_BYTES) / 3) * 4);
+    expect(stats.lastPublishedChars).toBe(Math.ceil((9 + 10 + 1 + SPKI_BYTES + SIG_BYTES) / 3) * 4);
   });
 });
