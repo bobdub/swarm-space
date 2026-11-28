@@ -173,6 +173,8 @@ export interface MeshTransportAdapter {
    * result must hold exactly the given ids. Absent means keep the order.
    */
   rankPeers?(peerIds: string[]): string[];
+  /** A piece ask was answered (ok) or failed: teaches synaptic dispatch. */
+  noteSourceOutcome?(peerId: string, elapsedMs: number, ok: boolean): void;
 }
 
 // ── Chunk Sizing ──────────────────────────────────────────────────────
@@ -820,6 +822,17 @@ export class TorrentSwarm {
     return new Map(ordered.map((id, i) => [id, i]));
   }
 
+  /** `${manifestId}|${peerId}|${index}` → when the piece was asked for. */
+  private askedAt = new Map<string, number>();
+
+  private outcome(manifestId: string, peerId: string, index: number, ok: boolean): void {
+    const key = `${manifestId}|${peerId}|${index}`;
+    const at = this.askedAt.get(key);
+    if (at === undefined) return;
+    this.askedAt.delete(key);
+    try { this.transport.noteSourceOutcome?.(peerId, Date.now() - at, ok); } catch { /* optional */ }
+  }
+
   private inCall(): boolean {
     try { return this.transport.isCallActive?.() ?? false; } catch { return false; }
   }
@@ -886,6 +899,7 @@ export class TorrentSwarm {
       const peerMap = this.getOrCreatePeerMap(msg.manifestId, peerId);
       peerMap.failures++;
       peerMap.requestsInFlight.delete(piece.index);
+      this.outcome(msg.manifestId, peerId, piece.index, false);
       return;
     }
 
@@ -904,6 +918,7 @@ export class TorrentSwarm {
     const peerMap = this.getOrCreatePeerMap(msg.manifestId, peerId);
     peerMap.requestsInFlight.delete(piece.index);
     peerMap.lastResponse = Date.now();
+    this.outcome(msg.manifestId, peerId, piece.index, true);
 
     // Announce we have this chunk to other peers (become partial seeder)
     for (const pid of this.transport.getConnectedPeerIds()) {
@@ -966,8 +981,9 @@ export class TorrentSwarm {
 
     // Clear stale requests on all peers first
     const now = Date.now();
-    for (const [, pm] of peerMapAll) {
+    for (const [pid, pm] of peerMapAll) {
       if (pm.requestsInFlight.size > 0 && now - pm.lastResponse > REQUEST_TIMEOUT_MS) {
+        for (const idx of pm.requestsInFlight) this.outcome(manifestId, pid, idx, false);
         pm.requestsInFlight.clear();
         pm.failures++;
       }
@@ -997,6 +1013,8 @@ export class TorrentSwarm {
 
         activePeers.add(pid);
         pm.requestsInFlight.add(idx);
+        this.askedAt.set(`${manifestId}|${pid}|${idx}`, Date.now());
+        if (this.askedAt.size > 4096) this.askedAt.delete(this.askedAt.keys().next().value as string);
         this.sendWithFallback(pid, {
           msg: "request",
           manifestId,

@@ -30,6 +30,7 @@ import {
   Heart,
   Wrench,
   Coins,
+  Activity,
 } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -916,6 +917,7 @@ const Settings = () => {
                 { icon: Lock, label: "Privacy", desc: "Encryption standards & how your data is protected", path: "/privacy" },
                 { icon: Brain, label: "About the Network", desc: "A friendly story explaining how Imagination works", path: "/about-network" },
                 { icon: Sparkles, label: "Neural Network Paper", desc: "Technical architecture of the mesh intelligence layer", path: "/neural-network" },
+                { icon: Activity, label: "Neural Map", desc: "Live check of the synapse map and self-tuning peer weights", path: "/neural" },
                 { icon: Box, label: "Virtual Hub & Builder", desc: "How to walk and build inside 3D project rooms", path: "/about-network#virtual-hub" },
                 { icon: Server, label: "Personal Servers", desc: "Bring your own encrypted storage to the network", path: "/personal-server-guide" },
                 { icon: BookOpen, label: "Native SWARM Wallet Guide", desc: "Custom MintMe deposits, pending sync, cold keys & withdrawals", path: "/cold-wallet-guide" },

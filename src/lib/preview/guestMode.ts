@@ -112,6 +112,21 @@ async function provisionGuestIdentity(): Promise<GuestIdentity | null> {
 }
 
 /** Tear down the guest identity — call before a real sign-up. */
+/**
+ * The active guest's identity private key (base64 PKCS#8), held for this tab
+ * session only. Null when no guest keys are held for `userId`.
+ */
+export function getGuestPrivateKey(userId: string): string | null {
+  try {
+    const me = JSON.parse(localStorage.getItem(GUEST_ME_KEY) ?? 'null') as { id?: string; _guest?: boolean; publicKey?: string } | null;
+    if (!me?._guest || me.id !== userId) return null;
+    const keys = JSON.parse(sessionStorage.getItem(`${GUEST_ME_KEY}:guestKeys`) ?? 'null') as { privateKey?: string; publicKey?: string } | null;
+    return keys?.privateKey && keys.publicKey === me.publicKey ? keys.privateKey : null;
+  } catch {
+    return null;
+  }
+}
+
 export function stopGuestMode(): void {
   if (!isGuestActive()) return;
   const raw = localStorage.getItem(GUEST_ME_KEY);
