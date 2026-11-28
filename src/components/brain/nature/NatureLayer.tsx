@@ -25,7 +25,9 @@ import {
   getVolcanoOrgan,
   SHARED_VOLCANO_ANCHOR_ID,
 } from '@/lib/brain/volcanoOrgan';
-import { EARTH_RADIUS, getEarthPose, quatRotate, worldPosToLocalNormal } from '@/lib/brain/earth';
+import { EARTH_RADIUS, getEarthPose, getEarthPoseTime, quatRotate, worldPosToLocalNormal } from '@/lib/brain/earth';
+import { createTierGate } from '@/lib/brain/renderGovernor';
+import { villageSolarHour } from '@/lib/brain/npc/villageSchedule';
 import { clearWildLand, syncWildLand } from '@/lib/brain/nature/wildLand';
 import {
   getTreeChop,
@@ -640,9 +642,32 @@ function BeeModel({
   );
 }
 
+/** Past this distance (m) from the camera the hive's bees are not drawn. */
+const BEE_VIEW_M = 70;
+
+/** One worker's parts as plain geometries, nose along +z (as BeeModel). */
+function beeGeometries() {
+  const body = new THREE.SphereGeometry(0.11, 10, 8);
+  body.scale(0.78, 0.78, 1.3);
+  const stripe = new THREE.TorusGeometry(0.083, 0.024, 6, 14);
+  stripe.scale(1, 1, 0.55);
+  const head = new THREE.SphereGeometry(0.065, 8, 6);
+  head.translate(0, 0.01, 0.15);
+  // Left wing, hinged at the origin (the wing root).
+  const wing = new THREE.PlaneGeometry(0.2, 0.11);
+  wing.rotateX(-Math.PI / 2);
+  wing.translate(0.1, 0, 0);
+  const pollen = new THREE.SphereGeometry(0.035, 6, 5);
+  return { body, stripe, head, wing, pollen };
+}
+
 /**
  * The hive's workers: one flying bee per worker block, foraging the
- * closest flowers on a shared clock so every peer sees the same flight.
+ * closest flowers on the shared clock so every peer sees the same flight.
+ * All workers draw as five instanced meshes (body, stripes, head, wings,
+ * pollen) rather than eight meshes a bee. They fly by the village's solar
+ * day: out at dawn, home at dusk, indoors (not drawn) overnight. Nothing
+ * is drawn or posed while the hive is out of sight range.
  */
 function BeeSwarm({
   hive,
@@ -656,6 +681,7 @@ function BeeSwarm({
   buildRef: React.MutableRefObject<number>;
 }) {
   const engine = useMemo(() => getBuilderBlockEngine(), []);
+  const { camera } = useThree();
   const [flowers, setFlowers] = useState<V3[]>([]);
   const [workers, setWorkers] = useState(0);
 
@@ -676,13 +702,59 @@ function BeeSwarm({
     });
   }, [engine, hive, entrance]);
 
-  const bees = useRef<(THREE.Group | null)[]>([]);
-  const wingsL = useRef<(THREE.Group | null)[]>([]);
-  const wingsR = useRef<(THREE.Group | null)[]>([]);
-  const pollen = useRef<(THREE.Group | null)[]>([]);
+  // Room for every worker, grown in steps of eight so a new bee rarely
+  // rebuilds the meshes.
+  const capacity = Math.max(8, Math.ceil(workers / 8) * 8);
+  const meshes = useMemo(() => {
+    const g = beeGeometries();
+    const make = (geo: THREE.BufferGeometry, mat: THREE.Material, count: number) => {
+      const m = new THREE.InstancedMesh(geo, mat, count);
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.frustumCulled = false;
+      m.count = 0;
+      return m;
+    };
+    return {
+      body: make(g.body, new THREE.MeshStandardMaterial({ color: BEE_YELLOW, emissive: BEE_YELLOW, emissiveIntensity: 0.22, roughness: 0.55 }), capacity),
+      stripe: make(g.stripe, new THREE.MeshStandardMaterial({ color: '#141008', roughness: 0.9 }), capacity * 2),
+      head: make(g.head, new THREE.MeshStandardMaterial({ color: '#141008', roughness: 0.7 }), capacity),
+      wing: make(g.wing, new THREE.MeshStandardMaterial({ color: '#eaf6ff', transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false }), capacity * 2),
+      pollen: make(g.pollen, new THREE.MeshStandardMaterial({ color: '#ffb300', emissive: '#ff9500', emissiveIntensity: 0.3 }), capacity * 2),
+    };
+  }, [capacity]);
+  useEffect(() => () => {
+    for (const m of Object.values(meshes)) {
+      m.geometry.dispose();
+      (m.material as THREE.Material).dispose();
+      m.dispose();
+    }
+  }, [meshes]);
 
-  useFrame(() => {
-    const now = Date.now() / 1000;
+  const groupRef = useRef<THREE.Group>(null);
+  const tmp = useMemo(() => ({
+    bee: new THREE.Matrix4(),
+    local: new THREE.Matrix4(),
+    m: new THREE.Matrix4(),
+    e: new THREE.Euler(),
+    q: new THREE.Quaternion(),
+    p: new THREE.Vector3(),
+    s: new THREE.Vector3(),
+    one: new THREE.Vector3(1, 1, 1),
+    world: new THREE.Vector3(),
+  }), []);
+  const gate = useMemo(() => createTierGate('proximity'), []);
+
+  useFrame((_state, delta) => {
+    const group = groupRef.current;
+    if (!group) return;
+    // Out of sight range: draw nothing and skip the flight maths.
+    group.getWorldPosition(tmp.world);
+    const far = tmp.world.distanceTo(camera.position) > BEE_VIEW_M;
+    group.visible = !far;
+    if (far) return;
+    if (gate(delta) === null) return;
+
+    const now = getEarthPoseTime();
     const drop = dropRef.current;
     const build = buildRef.current;
     // While the comb is being built it is smaller, so its door sits closer in.
@@ -694,9 +766,11 @@ function BeeSwarm({
     const k = build >= 1 ? 1 : Math.max(0, (build - 0.88) / 0.12);
     const ease = k * k * (3 - 2 * k);
     const poseAt = (i: number, t: number) => {
-      const forage = beePoseAt(i, workers, t, door, flowers);
+      const forage = beePoseAt(i, workers, t, door, flowers, villageSolarHour);
       if (ease >= 1) return forage;
+      // Builders work through the night: crowding the comb has no hours.
       const crowd = beePoseAt(i, workers, t, combCentre, []);
+      if (forage.phase === 'home') return ease > 0.5 ? forage : crowd;
       const pos: V3 = [
         crowd.pos[0] + (forage.pos[0] - crowd.pos[0]) * ease,
         crowd.pos[1] + (forage.pos[1] - crowd.pos[1]) * ease,
@@ -704,44 +778,58 @@ function BeeSwarm({
       ];
       return { pos, phase: ease > 0.5 ? forage.phase : crowd.phase, flower: forage.flower };
     };
-    for (let i = 0; i < workers; i++) {
-      const g = bees.current[i];
-      if (!g) continue;
+
+    let n = 0;
+    let pk = 0;
+    for (let i = 0; i < workers && n < capacity; i++) {
       const p = poseAt(i, now);
+      if (p.phase === 'home') continue;
       const ahead = poseAt(i, now + 0.08).pos;
-      g.position.set(p.pos[0], p.pos[1], p.pos[2]);
       const dx = ahead[0] - p.pos[0];
       const dy = ahead[1] - p.pos[1];
       const dz = ahead[2] - p.pos[2];
       const flat = Math.hypot(dx, dz);
-      if (flat > 1e-4) {
-        g.rotation.set(-Math.atan2(dy, flat) * 0.6, Math.atan2(dx, dz), 0);
-      } else if (p.phase === 'rest') {
-        // Resting at the door: face out, away from the hive.
-        g.rotation.set(0, Math.atan2(entrance[0], entrance[2]), 0);
+      if (flat > 1e-4) tmp.e.set(-Math.atan2(dy, flat) * 0.6, Math.atan2(dx, dz), 0);
+      // Resting at the door: face out, away from the hive.
+      else tmp.e.set(0, Math.atan2(entrance[0], entrance[2]), 0);
+      tmp.bee.compose(tmp.p.set(p.pos[0], p.pos[1], p.pos[2]), tmp.q.setFromEuler(tmp.e), tmp.one);
+
+      meshes.body.setMatrixAt(n, tmp.bee);
+      meshes.head.setMatrixAt(n, tmp.bee);
+      for (let j = 0; j < 2; j++) {
+        tmp.local.makeTranslation(0, 0, j === 0 ? -0.035 : 0.05);
+        meshes.stripe.setMatrixAt(n * 2 + j, tmp.m.multiplyMatrices(tmp.bee, tmp.local));
       }
+      // Wings hinge at the body so they flap, not spin; the right one is
+      // the left mirrored.
       const flap = p.phase === 'rest' ? 0.15 : Math.sin(now * 90 + i) * 0.7;
-      const wl = wingsL.current[i];
-      const wr = wingsR.current[i];
-      if (wl) wl.rotation.z = 0.25 + flap;
-      if (wr) wr.rotation.z = -0.25 - flap;
-      const pg = pollen.current[i];
-      if (pg) pg.visible = p.phase === 'back' || p.phase === 'rest';
+      for (let j = 0; j < 2; j++) {
+        const side = j === 0 ? 1 : -1;
+        tmp.q.setFromEuler(tmp.e.set(0, 0, side * (0.25 + flap)));
+        tmp.local.compose(tmp.p.set(side * 0.03, 0.075, 0.02), tmp.q, tmp.s.set(side, 1, 1));
+        meshes.wing.setMatrixAt(n * 2 + j, tmp.m.multiplyMatrices(tmp.bee, tmp.local));
+      }
+      if (p.phase === 'back' || p.phase === 'rest') {
+        for (const side of [-1, 1]) {
+          tmp.local.makeTranslation(side * 0.07, -0.06, -0.01);
+          meshes.pollen.setMatrixAt(pk++, tmp.m.multiplyMatrices(tmp.bee, tmp.local));
+        }
+      }
+      n++;
+    }
+    const counts = { body: n, stripe: n * 2, head: n, wing: n * 2, pollen: pk };
+    for (const key of Object.keys(meshes) as (keyof typeof meshes)[]) {
+      meshes[key].count = counts[key];
+      meshes[key].instanceMatrix.needsUpdate = true;
     }
   });
 
   return (
-    <>
-      {Array.from({ length: workers }, (_, i) => (
-        <group key={i} ref={(el) => { bees.current[i] = el; }} position={entrance}>
-          <BeeModel
-            wingL={(el) => { wingsL.current[i] = el; }}
-            wingR={(el) => { wingsR.current[i] = el; }}
-            pollen={(el) => { pollen.current[i] = el; }}
-          />
-        </group>
+    <group ref={groupRef}>
+      {Object.entries(meshes).map(([key, m]) => (
+        <primitive key={key} object={m} />
       ))}
-    </>
+    </group>
   );
 }
 
