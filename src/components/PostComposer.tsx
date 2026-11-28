@@ -239,7 +239,9 @@ export const PostComposer = ({
             const bTime = b.unlockedAt ? new Date(b.unlockedAt).getTime() : 0;
             return bTime - aTime;
           })
-          .slice(0, 6);
+          // Carry every unlock (not just the newest few) so peers see the
+          // author's full set on their profile.
+          .slice(0, 64);
 
         if (unlocked.length > 0) {
           badgeSnapshots = unlocked;
