@@ -5,7 +5,15 @@ import { getGlobalCell, inviteKnockSlot } from '../globalCell';
 
 function fakeGun() {
   const writes: Array<{ slot: string; data: { type: string } }> = [];
-  const gun = { get: () => ({ get: (slot: string) => ({ put: (data: { type: string }) => writes.push({ slot, data }) }) }) };
+  const souls = new Map<string, { type: string }>();
+  // Envelopes go to their own soul (`<graphKey>/<slot>`), then that node is
+  // linked into the slot so map().on() subscribers see it.
+  const gun = {
+    get: (key: string) => ({
+      put: (data: { type: string }) => { souls.set(key, data); return { soul: key }; },
+      get: (slot: string) => ({ put: (ref: { soul: string }) => writes.push({ slot, data: souls.get(ref.soul)! }) }),
+    }),
+  };
   return { gun, writes };
 }
 

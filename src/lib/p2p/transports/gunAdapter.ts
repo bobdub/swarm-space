@@ -185,7 +185,12 @@ export class GunAdapter {
         }
         const graph = this.gun.get(graphKey);
         if (this.options.registryMode) {
-          graph.get(options.slot ?? this.localPeerId).put(envelope as never);
+          // A nested put on a path is never linked into the parent map, so
+          // map().on() subscribers never fire. Write the envelope to its own
+          // soul and link that node into the registry slot.
+          const slot = options.slot ?? this.localPeerId;
+          const node = this.gun.get(`${graphKey}/${slot}`).put(envelope as never);
+          graph.get(slot).put(node as never);
         } else {
           graph.set(envelope as never);
         }
