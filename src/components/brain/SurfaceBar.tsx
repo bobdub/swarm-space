@@ -8,6 +8,7 @@ import { useBarLightsOn } from '@/lib/brain/barLightsStore';
 import { BarLightSwitchButton } from '@/components/brain/BarLightSwitchButton';
 import { registerPubAnchor, registerPubSeatAnchor } from '@/lib/world/pubAnchors';
 import { useActiveTableId } from '@/lib/pub/activeTableStore';
+import { barStoolOffsets, barStoolTableId, counterColliderOffsets } from '@/lib/pub/barStools';
 import { PubLeaveHold } from '@/components/pub/PubLeaveHold';
 import { BarSignArt, DonorLeaderboardBoard, DrinksMenuBoard, BAR_SIGN_ASPECT } from '@/components/brain/BarSignage';
 import { StarChartBoard } from '@/components/brain/StarChartBoard';
@@ -65,9 +66,12 @@ const COUNTER_SEGS = 5; // basin coverage along the counter
 /** The drinks chalkboard stands on the middle counter segment, facing the room. */
 const MENU_W = 0.9;
 const MENU_H = 0.75;
+// Walk-through guard. Avatar push-out works on circles, so the counter
+// carries a row of invisible colliders every half metre; each one's
+// radius is the counter's half-depth, so the row reads as a solid slab.
+const COUNTER_COLLIDER_R = COUNTER_DEPTH / 2;
 
-// Stool layout — 4 stools along the customer side of the counter.
-const STOOL_COUNT = 4;
+// Stool layout — stools along the full customer side of the counter.
 const STOOL_R = 0.35;
 const STOOL_H = 0.85;
 const STOOL_FORWARD = COUNTER_FORWARD - COUNTER_DEPTH / 2 - 0.7;
@@ -193,6 +197,14 @@ export const SurfaceBar = memo(function SurfaceBar({
     });
   }, [segments, id, anchorPeerId]);
 
+  // Invisible colliders that make the counter solid to walk into.
+  const counterColliders = useMemo(() => {
+    return counterColliderOffsets(COUNTER_LEN).map((x, i) => ({
+      blockId: `${id}:counter-solid-${i}:${anchorPeerId}`,
+      rightOffset: x,
+    }));
+  }, [id, anchorPeerId]);
+
   // Roof is a single block centred on the bar.
   const roofBlockId = `${id}:roof:${anchorPeerId}`;
   const roofBodyId = `bar-roof:${roofBlockId}`;
@@ -232,11 +244,7 @@ export const SurfaceBar = memo(function SurfaceBar({
     }
 
     // Stools at the counter (customer side, south of counter).
-    const stoolSpan = COUNTER_LEN - 1.5;
-    for (let i = 0; i < STOOL_COUNT; i++) {
-      const denom = STOOL_COUNT - 1;
-      const t = denom <= 0 ? 0.5 : i / denom;
-      const cx = -stoolSpan / 2 + stoolSpan * t;
+    barStoolOffsets(COUNTER_LEN).forEach((cx, i) => {
       const blockId = `${id}:stool-c-${i}:${anchorPeerId}`;
       items.push({
         kind: 'bar-stool',
@@ -249,7 +257,7 @@ export const SurfaceBar = memo(function SurfaceBar({
         mass: 6,
         meta: { radius: STOOL_R, height: STOOL_H },
       });
-    }
+    });
 
     // Central pub table.
     const tableX = 2;
@@ -372,6 +380,24 @@ export const SurfaceBar = memo(function SurfaceBar({
           }));
         });
     }
+    // Every stool along the counter is its own one-seat perch.
+    furniture
+      .filter((f) => f.blockId.includes(':stool-c-'))
+      .forEach((stool, index) => {
+        const tableId = barStoolTableId(id, index);
+        cleanups.push(registerPubAnchor({
+          key: stool.bodyId,
+          tag: 'bar-stool',
+          bodyId: stool.bodyId,
+          tableId,
+        }));
+        cleanups.push(registerPubSeatAnchor({
+          tableId,
+          index: 0,
+          bodyId: stool.bodyId,
+          height: (stool.meta?.height as number) ?? STOOL_H,
+        }));
+      });
     return () => { cleanups.forEach((fn) => fn()); };
   }, [furniture, id]);
 
@@ -472,6 +498,19 @@ export const SurfaceBar = memo(function SurfaceBar({
         meta: f.meta,
       });
     }
+    for (const c of counterColliders) {
+      engine.placeBlock({
+        id: c.blockId,
+        kind: 'bar-counter-solid',
+        anchorPeerId,
+        rightOffset: rightOffset + c.rightOffset,
+        forwardOffset: forwardOffset + COUNTER_FORWARD,
+        upOffset: COUNTER_H / 2,
+        mass: 30,
+        basin: 0, // collision only; the counter segments own the field basin
+        meta: { solidRadius: COUNTER_COLLIDER_R },
+      });
+    }
     engine.placeBlock({
       id: signBlockId,
       kind: 'bar-sign',
@@ -520,12 +559,13 @@ export const SurfaceBar = memo(function SurfaceBar({
       for (const { blockId } of blocks) engine.removeBlock(blockId, 'bar-wall');
       engine.removeBlock(roofBlockId, 'bar-roof');
       for (const f of furniture) engine.removeBlock(f.blockId, f.kind);
+      for (const c of counterColliders) engine.removeBlock(c.blockId, 'bar-counter-solid');
       engine.removeBlock(signBlockId, 'bar-sign');
       engine.removeBlock(outSignBlockId, 'bar-sign');
       engine.removeBlock(donorBlockId, 'bar-donors');
       engine.removeBlock(starsBlockId, 'bar-stars');
     };
-  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, signBlockId, outSignBlockId, donorBlockId, starsBlockId]);
+  }, [blocks, anchorPeerId, rightOffset, forwardOffset, roofBlockId, furniture, counterColliders, signBlockId, outSignBlockId, donorBlockId, starsBlockId]);
 
   return (
     <>
