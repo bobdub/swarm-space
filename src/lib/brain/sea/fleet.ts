@@ -2,7 +2,7 @@
  * fleet — every boat in this player's world.
  *
  * Decided with bobdub: every player gets their own boat; anyone can board
- * any boat; only the owner takes its wheel.
+ * any boat; anyone aboard may take its wheel while nobody else holds it.
  *
  * - The dock boat lies at the village berth, the same in every world.
  *   Taking its wheel or its oars makes it yours, and the dock refills: a
@@ -17,6 +17,11 @@
  * - A rower on someone else's boat sends their stroke (`r`); the owner's
  *   world adds it as a force and drops it after 1 s of silence. Food is
  *   spent on the rower's own device.
+ * - Someone at the wheel of another player's boat sends their wheel and
+ *   sail (`hm`) every presence while they hold it. The owner's world steers
+ *   with it and names who holds the wheel in the boat's state (`hp`), so
+ *   everyone else is offered the wheel only while it is free. The owner
+ *   frees it after HELM_TIMEOUT_S of silence; the owner too waits for it.
  * - Owner silent for 3 s: the boat drifts to a stop. Owner gone: the boat
  *   is removed and anyone aboard drops into the sea and swims.
  * - Every visible boat registers its deck and walls, so you can stand on,
@@ -83,6 +88,8 @@ export interface VesselWire {
   /** Load sinkage (m) and people aboard. */
   k: number;
   p: number;
+  /** Peer id of whoever holds the wheel (absent: the wheel is free). */
+  hp?: string;
   /** Shared Earth clock at the moment of this state (s). */
   t: number;
 }
@@ -104,10 +111,21 @@ export interface RowWire {
   tn: number;
 }
 
+/** A helmsman's wheel and sail on someone else's boat. */
+export interface HelmWire {
+  o: string;
+  id: string;
+  /** Wheel −1..1. */
+  w: number;
+  /** Sail command: +1 raise, −1 lower, 0 hold. */
+  s: number;
+}
+
 export interface BoatPresence {
   v?: VesselWire;
   d?: DeckWire;
   r?: RowWire;
+  hm?: HelmWire;
 }
 
 const r6 = (x: number) => Math.round(x * 1e6) / 1e6;
@@ -133,6 +151,7 @@ export function decodeBoatPresence(raw: unknown): BoatPresence | undefined {
   if (v && typeof v === 'object' && isStr(v.id) && isVec(v.n) && isVec(v.h) && isVec(v.v)
     && isNum(v.yr) && isNum(v.w) && isNum(v.s) && isNum(v.k) && isNum(v.p) && isNum(v.t)) {
     out.v = { id: v.id, n: v.n, h: v.h, v: v.v, yr: v.yr, w: v.w, s: v.s, k: v.k, p: v.p, t: v.t };
+    if (isStr(v.hp)) out.v.hp = v.hp;
   }
   const d = o.d as Record<string, unknown> | undefined;
   if (d && typeof d === 'object' && (d.o === null || isStr(d.o)) && isStr(d.id) && isNum(d.x) && isNum(d.z)) {
@@ -142,12 +161,16 @@ export function decodeBoatPresence(raw: unknown): BoatPresence | undefined {
   if (r && typeof r === 'object' && isStr(r.o) && isStr(r.id) && isNum(r.s) && isNum(r.tn)) {
     out.r = { o: r.o, id: r.id, s: Math.max(-1, Math.min(1, r.s)), tn: Math.max(-1, Math.min(1, r.tn)) };
   }
-  return out.v || out.d || out.r ? out : undefined;
+  const hm = o.hm as Record<string, unknown> | undefined;
+  if (hm && typeof hm === 'object' && isStr(hm.o) && isStr(hm.id) && isNum(hm.w) && isNum(hm.s)) {
+    out.hm = { o: hm.o, id: hm.id, w: Math.max(-1, Math.min(1, hm.w)), s: Math.max(-1, Math.min(1, hm.s)) };
+  }
+  return out.v || out.d || out.r || out.hm ? out : undefined;
 }
 
-export function encodeVessel(id: string, vessel: Vessel, t: number): VesselWire {
+export function encodeVessel(id: string, vessel: Vessel, t: number, helmPeer?: string | null): VesselWire {
   const m = vessel.motion;
-  return {
+  const out: VesselWire = {
     id,
     n: v8(m.n),
     h: v8(m.heading),
@@ -159,6 +182,8 @@ export function encodeVessel(id: string, vessel: Vessel, t: number): VesselWire 
     p: vessel.people,
     t: r6(t),
   };
+  if (helmPeer) out.hp = helmPeer;
+  return out;
 }
 
 // ── Dead reckoning ──────────────────────────────────────────────────
@@ -244,6 +269,8 @@ export interface FleetBoat {
   ease?: { dn: Vec3; dh: number };
   /** Owner side: strokes from rowers in other worlds. */
   rowers: Map<string, { s: number; tn: number; at: number }>;
+  /** Owner side: a helmsman in another world holding this boat's wheel. */
+  helm?: { peer: string; w: number; s: number; at: number };
   deckOff?: () => void;
 }
 
@@ -255,6 +282,9 @@ const WHEEL_RATE = 2;
 const SAIL_RATE = 0.4;
 /** Rower silence after which their stroke is dropped (s). */
 const ROWER_TIMEOUT_S = 1;
+/** Helmsman silence after which the wheel is free again (s). Presence
+ *  goes out at 3 Hz while crewed, so this rides out a dropped packet. */
+export const HELM_TIMEOUT_S = 1.5;
 
 export { HELM_SPOT, OARS_SPOT, OAR_SPOTS } from './boatLayout';
 
@@ -458,6 +488,58 @@ export class Fleet {
     return dock;
   }
 
+  /** Is this player at the wheel of `boat` here? */
+  private localHelmOn(boat: FleetBoat): boolean {
+    return this.crewRole() === 'helm' && this.crewKey() === boat.key;
+  }
+
+  /** Owner side: the live remote helmsman of this player's boat, if any. */
+  private liveRemoteHelm(boat: FleetBoat, now = getEarthPoseTime()): FleetBoat['helm'] {
+    if (boat.helm && now - boat.helm.at > HELM_TIMEOUT_S) boat.helm = undefined;
+    return boat.helm;
+  }
+
+  /**
+   * Who holds the wheel of `boat` (a peer id), or null when it is free.
+   * Your own boat: you, or the remote helmsman steering it. Someone
+   * else's: whoever its owner says holds it. The dock boat: you or nobody.
+   */
+  helmHolder(boat: FleetBoat, now = getEarthPoseTime()): string | null {
+    if (boat.kind === 'remote') return boat.remote?.hp ?? null;
+    // A remote helmsman is only taken while you are not at the wheel, so
+    // one who is live got there first.
+    const far = boat.kind === 'mine' ? this.liveRemoteHelm(boat, now) : undefined;
+    if (far) return far.peer;
+    return this.localHelmOn(boat) ? this.selfPeer() : null;
+  }
+
+  /** Is the wheel of `boat` held by someone other than this player? */
+  helmTaken(boat: FleetBoat, now = getEarthPoseTime()): boolean {
+    const holder = this.helmHolder(boat, now);
+    return !!holder && holder !== this.selfPeer();
+  }
+
+  /**
+   * A helmsman's wheel and sail from another world (owner side). Taken
+   * only while the wheel is free or already theirs; once per presence, so
+   * a helmsman who goes quiet lets go after HELM_TIMEOUT_S.
+   */
+  remoteHelm(peer: string, hm: HelmWire, now = getEarthPoseTime(), stamp?: number): void {
+    const mine = this.mine();
+    if (!mine || hm.o !== this.selfPeer() || hm.id !== mine.wireId) return;
+    if (this.localHelmOn(mine)) return;
+    const cur = this.liveRemoteHelm(mine, now);
+    if (cur && cur.peer !== peer) return;
+    if (stamp !== undefined) {
+      if (this.helmStamps.get(peer) === stamp) return;
+      this.helmStamps.set(peer, stamp);
+    }
+    mine.helm = { peer, w: hm.w, s: hm.s, at: now };
+  }
+
+  /** Presence stamp of the last helm taken from each remote helmsman. */
+  private helmStamps = new Map<string, number>();
+
   /** Another player's boat state (or its absence) from their presence. */
   applyRemote(peer: string, wire: VesselWire | undefined, now = getEarthPoseTime()): void {
     if (peer === this.selfPeer()) return;
@@ -496,9 +578,11 @@ export class Fleet {
   /** Forget everything from a peer that left. */
   dropPeer(peer: string): void {
     this.rowStamps.delete(peer);
+    this.helmStamps.delete(peer);
     for (const b of this.list()) {
       if (b.kind === 'remote' && b.owner === peer) this.remove(b.key);
       b.rowers.delete(peer);
+      if (b.helm?.peer === peer) b.helm = undefined;
     }
   }
 
@@ -508,6 +592,8 @@ export class Fleet {
       if (b.kind === 'remote' && b.owner && !peers.has(b.owner)) this.remove(b.key);
     }
     for (const peer of Array.from(this.rowStamps.keys())) if (!peers.has(peer)) this.rowStamps.delete(peer);
+    for (const peer of Array.from(this.helmStamps.keys())) if (!peers.has(peer)) this.helmStamps.delete(peer);
+    for (const b of this.list()) if (b.helm && !peers.has(b.helm.peer)) b.helm = undefined;
   }
 
   /** Presence stamp of the last stroke taken from each remote rower. */
@@ -553,7 +639,7 @@ export class Fleet {
   presenceFor(selfPos: [number, number, number] | null, t = getEarthPoseTime()): BoatPresence | undefined {
     const out: BoatPresence = {};
     const mine = this.mine();
-    if (mine) out.v = encodeVessel(mine.wireId, mine.vessel, t);
+    if (mine) out.v = encodeVessel(mine.wireId, mine.vessel, t, this.helmHolder(mine, t));
     if (selfPos) {
       const on = this.boatUnder(selfPos, t);
       if (on) {
@@ -574,7 +660,13 @@ export class Fleet {
         out.r = { o: crewBoat.owner, id: crewBoat.wireId, s: r6(input.row), tn: r6(input.rowTurn) };
       }
     }
-    return out.v || out.d || out.r ? out : undefined;
+    // At the wheel of someone else's boat: sent every presence, still or
+    // not, so the owner knows the wheel is held.
+    if (this.crewRole() === 'helm' && crewBoat?.kind === 'remote' && crewBoat.owner) {
+      const input = getCrewInput();
+      out.hm = { o: crewBoat.owner, id: crewBoat.wireId, w: r6(input.wheel), s: r6(input.sail) };
+    }
+    return out.v || out.d || out.r || out.hm ? out : undefined;
   }
 
   private jettyCapsule(): Capsule | null {
@@ -606,8 +698,8 @@ export class Fleet {
         // The wheel or the oars make the dock boat yours; fishing off it
         // does not.
         if (!this.claimDock()) leaveRole();
-      } else if (b.kind === 'remote' && role === 'helm') {
-        leaveRole(); // only the owner takes the wheel
+      } else if (role === 'helm' && this.helmTaken(b, t)) {
+        leaveRole(); // someone else is already steering
       }
     }
     crewKey = this.crewKey();
@@ -685,9 +777,13 @@ export class Fleet {
         v.step(dt);
         if (b.kind === 'mine') {
           const mineCrew = crewKey === b.key ? role : null;
-          v.cmd.wheel = approach(v.cmd.wheel, mineCrew === 'helm' ? input.wheel : 0, WHEEL_RATE, dt);
-          if (mineCrew === 'helm' && input.sail !== 0) {
-            v.cmd.sail = approach(v.cmd.sail, input.sail > 0 ? 1 : 0, SAIL_RATE, dt);
+          // The wheel answers whoever holds it: you, or a helmsman in
+          // another world.
+          const far = mineCrew === 'helm' ? undefined : this.liveRemoteHelm(b, t);
+          const helm = mineCrew === 'helm' ? { w: input.wheel, s: input.sail } : far ? { w: far.w, s: far.s } : null;
+          v.cmd.wheel = approach(v.cmd.wheel, helm ? helm.w : 0, WHEEL_RATE, dt);
+          if (helm && helm.s !== 0) {
+            v.cmd.sail = approach(v.cmd.sail, helm.s > 0 ? 1 : 0, SAIL_RATE, dt);
           }
           // Every rower's stroke adds up, as many as the sea lets keep
           // time together (all the benches on a calm day, one in a gale).
@@ -768,6 +864,7 @@ export class Fleet {
     this.detachAllDecks();
     this.boats.clear();
     this.rowStamps.clear();
+    this.helmStamps.clear();
     this.dockSeq = 0;
     this.tickCount = 0;
     this.wind = [0, 0, 0];

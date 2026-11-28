@@ -107,7 +107,7 @@ export function BoatHoldButton({ selfId, mobile }: { selfId: string; mobile: boo
   const label = action.kind === 'full'
     ? 'Boat is full'
     : action.kind === 'busy'
-      ? 'Your boat is out with people aboard'
+      ? action.reason === 'helm' ? 'Someone is at the wheel' : 'Your boat is out with people aboard'
       : action.kind === 'board'
       ? 'Hold to board'
       : action.kind === 'climb'
