@@ -48,6 +48,11 @@ export function createMeshTorrentAdapter(
       return isCallActive();
     },
 
+    rankPeers(peerIds: string[]): string[] {
+      const m = mesh as AnyMesh & { rankPeersBySynapticPath?: (ids: readonly string[]) => string[] };
+      return typeof m.rankPeersBySynapticPath === "function" ? m.rankPeersBySynapticPath(peerIds) : peerIds;
+    },
+
     getBufferedAmount(peerId: string): number {
       const m = mesh as AnyMesh & { getBufferedAmount?: (id: string) => number };
       return typeof m.getBufferedAmount === "function" ? m.getBufferedAmount(peerId) : 0;
