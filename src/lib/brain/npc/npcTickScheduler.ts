@@ -8,13 +8,15 @@
  *   • Uses a stress sampler so tests run without a real Field.
  *
  * Per tick, for every NPC:
- *   1. derive DriveSignals from the live field
- *   2. choose a drive via personality-weighted utility
- *   3. tie-break across "near-best" candidates with selectByMinCurvature
- *      (the |Ψ_Output⟩ rule — never Math.random())
- *   4. apply the drive's consumption to the local memo
- *   5. emit `npc:decision` on the scaffold bus and record an outcome
- *      in the NPC's skill memory
+ *   1. derive DriveSignals from the live field (deficits ramp)
+ *   2. fetch a dropped tool it lacks, unless thirst or hunger can't wait
+ *   3. otherwise follow the shared daily routine (`villageSchedule.ts`):
+ *      position and drive are a pure function of name, personality and
+ *      the shared clock, so every peer sees the same village
+ *   4. once per WORK_PERIOD_S on the block's spot, do the wet work and
+ *      apply the drive's consumption to the local memo
+ *   5. emit `npc:decision` on a new drive or a piece of work, and record
+ *      the outcome in the NPC's skill memory
  *   6. age the NPC by `dt / brainYearSeconds`
  *
  * Population maintenance is light-touch here — `seedCommunity` is
@@ -29,7 +31,6 @@ import { getFeatureFlags, subscribeToFeatureFlags } from '@/config/featureFlags'
 import { listNpcs, update as updateNpc } from './npcRegistry';
 import { spawnNpc, despawnNpc, syncNpcBodyBlocks } from './npcEngine';
 import { INITIAL_NPCS } from './seedCommunity';
-import { chooseIntent } from './npcDrives';
 import { sampleSignalsForNpc, applyDriveOutcome, clearNpcSignalMemo } from './npcSignals';
 import { recordOutcome } from './npcSkills';
 import { emitNpcDecision } from './npc.bus';
@@ -37,9 +38,11 @@ import { batchScaffoldInjects } from '@/lib/uqrc/scaffoldBus';
 import { startBeatLoop, type BeatLoop } from '@/lib/time/sharedBeat';
 import { scheduleNpcRosterSave, flushNpcRosterSave } from './npcPersistence';
 import { type Npc, type NpcDrive } from './npcTypes';
+import { villagePlan } from './villageSchedule';
+import { getEarthPoseTime } from '@/lib/brain/earth';
 import { mortalityProbability } from './mortality';
-import { driveToResourceKind, nearestSite, ARRIVE_RADIUS } from '@/lib/world/resourceTargeting';
-import { tickRegrowth } from '@/lib/world/baseResources';
+import { driveToResourceKind } from '@/lib/world/resourceTargeting';
+import { listResourceSites, tickRegrowth } from '@/lib/world/baseResources';
 import { interact as wetInteract } from '@/lib/world/wetWork';
 import {
   listLooseTools,
@@ -92,6 +95,18 @@ function uqrcSpeed(npc: Npc, curvatureGate: number): number {
   // Normalise so a REFERENCE_MASS body at gate=1.0 ≈ 1.2 m/s baseline.
   const v = raw * (1.2 * REFERENCE_MASS / BASE_DRIVE_FORCE);
   return Math.max(MIN_SPEED, Math.min(MAX_SPEED, v));
+}
+
+/** Extra pace (× walking speed) for a villager walking back to its routine. */
+const CATCHUP_FACTOR = 0.5;
+/** Seconds between pieces of work while standing at a block's spot. */
+const WORK_PERIOD_S = 6;
+/** npcId → last work slot, so work happens once per WORK_PERIOD_S. */
+const _lastWorkSlot = new Map<string, number>();
+
+/** Real walking speed (m/s) of `npc` along its routine. */
+export function npcWalkSpeed(npc: Npc): number {
+  return uqrcSpeed(npc, 1.0) * BRAIN_TIME_SCALE;
 }
 
 /** Tool fetching yields to thirst and hunger past this deficit. */
@@ -201,7 +216,16 @@ function topKVerbs(scored: Array<[NpcDrive, number]>, k: number): NpcDrive[] {
   return sorted.slice(0, k).map(([d]) => d);
 }
 
-function tickOne(npc: Npc, dtSeconds: number): void {
+interface TickFrame {
+  /** Shared epoch seconds of this beat. */
+  seconds: number;
+  /** Wall seconds this tick covers. */
+  wallDt: number;
+  /** First beat after sleep: jump to the routine instead of walking to it. */
+  snap: boolean;
+}
+
+function tickOne(npc: Npc, dtSeconds: number, frame: TickFrame): void {
   let engine;
   try { engine = getSharedFieldEngine(); } catch { return; }
 
@@ -228,52 +252,46 @@ function tickOne(npc: Npc, dtSeconds: number): void {
     return;
   }
 
-  // Primary choice via personality utility (deterministic, fast).
-  const primary = chooseIntent(npc.seed, sig);
-
-  // Tie-break against 2 alternates using the field's min-curvature rule.
-  // Falls back to `primary` until the field is warmed up.
-  const alternates: NpcDrive[] = (['rest', 'gather', 'socialise'] as const)
-    .filter((d) => d !== primary)
-    .slice(0, 2);
-  const candidates: NpcDrive[] = [primary, ...alternates];
-  const picked = selectByMinCurvature(
-    candidates,
-    engine,
-    (d) => `npc:${npc.id}:verb:${d}`,
-    0.18,
-  ) ?? primary;
-
-  // Phase 8 — wet work. Only fire deficit relaxation when the NPC is
-  // actually in contact with a resource site (or for non-resource
-  // verbs that don't need one).
-  const kind = driveToResourceKind(picked);
-  let contacted = false;
-  let nextTx = npc.tx;
-  let nextTz = npc.tz;
-  if (kind) {
-    const site = nearestSite(npc.tx, npc.tz, kind);
-    if (site) {
-      const dx = site.tx - npc.tx;
-      const dz = site.tz - npc.tz;
-      const d = Math.hypot(dx, dz);
-      if (d > ARRIVE_RADIUS) {
-        // Curvature gate: agreement between primary & picked verb ⇒ full
-        // drive; disagreement ⇒ hesitant (κ ↓). Pure-deterministic.
-        const gate = picked === primary ? 1.0 : 0.6;
-        const speed = uqrcSpeed(npc, gate);
-        const step = Math.min(d, speed * dtSeconds);
-        nextTx += (dx / d) * step;
-        nextTz += (dz / d) * step;
-      } else {
-        const outcome = wetInteract(npc, picked, site, owned);
-        contacted = outcome.ok;
-      }
+  // The shared daily routine decides where the villager is and what it is
+  // doing (`villageSchedule.ts`): a pure function of name, personality and
+  // the shared clock, so every peer agrees without a byte on the wire.
+  // A villager knocked off its spot (a tool detour) walks back at a brisk
+  // pace; on waking from sleep everyone snaps straight to the routine.
+  const speed = npcWalkSpeed(npc);
+  const plan = villagePlan(npc, frame.seconds, speed);
+  const picked = plan.drive;
+  let nextTx = plan.tx;
+  let nextTz = plan.tz;
+  if (!frame.snap) {
+    const dx = plan.tx - npc.tx;
+    const dz = plan.tz - npc.tz;
+    const d = Math.hypot(dx, dz);
+    const reach = (speed + speed * CATCHUP_FACTOR) * frame.wallDt;
+    if (d > reach) {
+      nextTx = npc.tx + (dx / d) * reach;
+      nextTz = npc.tz + (dz / d) * reach;
     }
   }
-  if (contacted || !kind) applyDriveOutcome(npc.id, picked);
-  const success = picked === primary && (contacted || !kind);
-  recordOutcome(npc.id, picked, success);
+  const onSpot = nextTx === plan.tx && nextTz === plan.tz;
+
+  // Wet work: once per WORK_PERIOD_S while standing on the block's spot.
+  const kind = driveToResourceKind(picked);
+  const slot = Math.floor(frame.seconds / WORK_PERIOD_S);
+  const working = plan.arrived && onSpot && _lastWorkSlot.get(npc.id) !== slot;
+  let qDelta = 0;
+  if (working) {
+    _lastWorkSlot.set(npc.id, slot);
+    let contacted = !kind;
+    if (kind) {
+      const sites = listResourceSites();
+      // Eating only needs food in hand; any site satisfies the signature.
+      const site = sites.find((x) => x.id === plan.siteId) ?? (picked === 'eat' ? sites[0] : undefined);
+      if (site) contacted = wetInteract(npc, picked, site, owned).ok;
+    }
+    if (contacted) applyDriveOutcome(npc.id, picked);
+    recordOutcome(npc.id, picked, contacted);
+    qDelta = contacted ? 0 : 0.05;
+  }
 
   // Aging in brain-years — no clamp; mortality is a smooth logistic.
   const aged: Npc = {
@@ -298,6 +316,7 @@ function tickOne(npc: Npc, dtSeconds: number): void {
     if (verdict === 'die') {
       despawnNpc(aged.id);
       clearNpcSignalMemo(aged.id);
+      _lastWorkSlot.delete(aged.id);
       emitNpcDecision({ npcId: aged.id, verb: 'die', qDelta: pDeath });
       // Below the floor, or without a female × male pair, refill.
       if (needsTopUp()) topUpVillage(aged.anchorPeerId);
@@ -305,9 +324,9 @@ function tickOne(npc: Npc, dtSeconds: number): void {
     }
   }
 
-  // Cheap qDelta proxy: agreement → 0, disagreement → small positive.
-  const qDelta = success ? 0 : 0.05;
-  emitNpcDecision({ npcId: npc.id, verb: picked, qDelta });
+  // Tell the field (and the body pulse) about real events only: a new
+  // drive or a piece of work, not every 8 Hz beat of a walk.
+  if (working || picked !== npc.currentDrive) emitNpcDecision({ npcId: npc.id, verb: picked, qDelta });
 }
 
 function tickAll(_beat: number, elapsedBeats: number): void {
@@ -321,10 +340,12 @@ function tickAll(_beat: number, elapsedBeats: number): void {
   const now = Date.now();
   // dt comes from shared beats, so every peer steps the village by the
   // same amount on the same beat. Cap catch-up after a throttled tab.
+  const snap = !_awake;
   const beats = _awake ? Math.max(1, Math.min(MAX_CATCHUP_BEATS, elapsedBeats)) : 1;
   _awake = true;
   const wallDt = (beats * TICK_MS) / 1000;
   const brainDt = wallDt * BRAIN_TIME_SCALE;
+  const frame: TickFrame = { seconds: getEarthPoseTime(), wallDt, snap };
 
   // Regrow resource sites once per tick (cheap O(n_sites)).
   try { tickRegrowth(now); } catch { /* noop */ }
@@ -352,7 +373,7 @@ function tickAll(_beat: number, elapsedBeats: number): void {
   // engine's curvature cache for each other mid-pass.
   batchScaffoldInjects(() => {
     for (const npc of roster) {
-      try { tickOne(npc, brainDt); } catch (err) {
+      try { tickOne(npc, brainDt, frame); } catch (err) {
         console.warn('[npcTick] tick failed for', npc.id, err);
       }
     }
@@ -413,5 +434,6 @@ export function _resetTickSchedulerForTest(): void {
   _unloadHooked = false;
   _looseTools = new Map();
   _fetching.clear();
+  _lastWorkSlot.clear();
   _lastVanishSweepAt = 0;
 }
