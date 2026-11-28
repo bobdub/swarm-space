@@ -94,6 +94,12 @@ export function getSmoothness(peerId: string, now = Date.now()): number {
   return Math.max(0, Math.min(1, successRate * recency));
 }
 
+/** True when this device has first-hand handshake memory of the peer. */
+export function hasSynapse(peerId: string): boolean {
+  const e = load().get(peerId);
+  return !!e && e.n > 0;
+}
+
 /**
  * Smoothed RTT in ms, or null if unmeasured.
  */

@@ -24,7 +24,15 @@
 import { getSwarmMeshStandalone } from './swarmMesh.standalone';
 import { recordP2PDiagnostic } from './diagnostics';
 import { GUN_RELAYS } from './gunRelays';
-import { getSmoothness, getSmoothedRtt } from './synapseLayer';
+import { getSmoothness, getSmoothedRtt, hasSynapse } from './synapseLayer';
+import {
+  getNetworkSynapseView,
+  SYNAPSE_NETWORK_DAMPING,
+  startSynapseExchanger,
+  stopSynapseExchanger,
+  type SynapseEdge,
+} from './synapseExchanger';
+import { getShyMode } from './shyMode';
 
 // ── Shared Constants (exported so SwarmMesh uses the same values) ──────
 
@@ -385,6 +393,22 @@ class GlobalCell {
     this.pruneTimer = setInterval(() => this.pruneAndEmit(), PRUNE_INTERVAL);
     this.discoveryPulseTimer = setInterval(() => this.maintainReachabilityPulse(), UNDER_CONNECTED_PRESENCE_INTERVAL);
     this.scheduleOnlinePresenceRetry();
+    this.startSynapseMap();
+  }
+
+  /**
+   * Phase 1 of the Gun neural map: share our live links' topology numbers on
+   * this registry and fold everyone else's into the synapse map.
+   */
+  private startSynapseMap(): void {
+    startSynapseExchanger({
+      localPeerId: () => this.localPeerId ?? getSwarmMeshStandalone().getPeerId() ?? null,
+      publish: (channel, slot, payload) => this.publishRegistry(channel, slot, payload),
+      subscribe: (channel, fn) => this.onRegistry(channel, fn),
+      isOnline: () => this.isMeshOnline(),
+      isShy: () => getShyMode(),
+      collect: () => collectLocalSynapses(),
+    });
   }
 
   stop(): void {
@@ -405,6 +429,7 @@ class GlobalCell {
       this.gunAdapter = null;
     }
     this.attachedRegistryChannels.clear();
+    stopSynapseExchanger();
 
     if (this.busDebounceTimer) { clearTimeout(this.busDebounceTimer); this.busDebounceTimer = null; }
     this.knownPresence.clear();
@@ -974,6 +999,50 @@ class GlobalCell {
   }
 }
 
+// ── Synapse map collection ────────────────────────────────────────────────
+
+/**
+ * Our open links as synapse edges: mesh peer id, handshake smoothness,
+ * smoothed RTT and the neural weight we give the peer. Topology numbers only.
+ */
+function collectLocalSynapses(): { conns: number; phi: number | null; edges: SynapseEdge[] } {
+  const mesh = getSwarmMeshStandalone();
+  const connected = new Set(mesh.getConnectedPeers());
+  const now = Date.now();
+  const engine = neuralEngineForSynapses();
+  const edges: SynapseEdge[] = [];
+  for (const peer of mesh.getPeerDetails()) {
+    if (!connected.has(peer.peerId)) continue;
+    let weight = 0;
+    try { weight = engine ? Math.max(0, engine.getPeerScore(peer.peerId)) : 0; } catch { /* engine optional */ }
+    edges.push({
+      to: peer.peerId,
+      smoothness: getSmoothness(peer.peerId, now),
+      latencyMs: peer.avgRttMs ?? getSmoothedRtt(peer.peerId),
+      weight,
+    });
+  }
+  let phi: number | null = null;
+  try { phi = engine ? engine.getPhiSnapshot().phi : null; } catch { /* engine optional */ }
+  return { conns: connected.size, phi, edges };
+}
+
+type SharedNeural = ReturnType<typeof import('./sharedNeuralEngine')['getSharedNeuralEngine']>;
+let synapseNeuralModule: typeof import('./sharedNeuralEngine') | null = null;
+let synapseNeuralLoading = false;
+
+/** The shared neural engine once loaded (kept out of this module's static graph). */
+function neuralEngineForSynapses(): SharedNeural | null {
+  if (synapseNeuralModule) return synapseNeuralModule.getSharedNeuralEngine();
+  if (!synapseNeuralLoading) {
+    synapseNeuralLoading = true;
+    void import('./sharedNeuralEngine')
+      .then((m) => { synapseNeuralModule = m; })
+      .catch(() => { synapseNeuralLoading = false; });
+  }
+  return null;
+}
+
 // ── Smoothness computation (pure, exported for tests) ────────────────────
 
 /**
@@ -981,6 +1050,7 @@ class GlobalCell {
  *
  * - trust:     beacon-supplied trust score                              ∈ [0,1]
  * - S_smooth:  synapse memory of past handshakes for this peer          ∈ [0,1]
+ *              (no memory yet: damped network view from the synapse map)
  * - rttNorm:   smoothed RTT clamped to [0, 600 ms] then normalized      ∈ [0,1]
  * - loadNorm:  local mesh fullness = connected/target                   ∈ [0,1]
  */
@@ -992,8 +1062,17 @@ export function computeSmoothness(
   now = Date.now(),
 ): number {
   const t = clamp01(trust);
-  const s = getSmoothness(peerId, now);
-  const rtt = getSmoothedRtt(peerId);
+  let s = getSmoothness(peerId, now);
+  let rtt = getSmoothedRtt(peerId);
+  // No first-hand memory of this peer: borrow the network's synaptic map
+  // (damped and confidence-scaled, so a few forged reports cannot dominate).
+  if (!hasSynapse(peerId)) {
+    const view = getNetworkSynapseView(peerId, now);
+    if (view) {
+      s = SYNAPSE_NETWORK_DAMPING * view.smoothness * view.confidence;
+      if (rtt === null && view.latencyMs !== null) rtt = view.latencyMs;
+    }
+  }
   const rttNorm = rtt === null ? 0.5 : clamp01(Math.min(rtt, 600) / 600);
   const loadNorm = targetConnections > 0
     ? clamp01(connectedPeers / targetConnections)

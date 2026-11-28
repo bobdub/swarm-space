@@ -5,6 +5,7 @@ import { getSharedFieldEngine } from '../uqrc/fieldEngine';
 import { queueFieldInject } from '../uqrc/fieldInjectQueue';
 import { selectByMinCurvature } from '../uqrc/fieldProjection';
 import { CORE_MEMORY_STORAGE_KEY, adoptReflectionCoins, engravePendingIntoCoins } from '../brain/coreMemories';
+import { getNetworkSynapsePrior } from './synapseExchanger';
 
 export type InteractionKind =
   | 'gossip'
@@ -664,9 +665,11 @@ export class NeuralStateEngine {
   }
 
   selectPeers(candidatePeerIds: string[], count = 3): string[] {
+    // First-hand score decides; the network synapse map (Gun, damped) only
+    // breaks ties, which mostly means ordering peers we have never met.
     return candidatePeerIds
-      .map((peerId) => ({ peerId, score: this.getPeerScore(peerId) }))
-      .sort((a, b) => b.score - a.score)
+      .map((peerId) => ({ peerId, score: this.getPeerScore(peerId), prior: getNetworkSynapsePrior(peerId) }))
+      .sort((a, b) => (b.score - a.score) || (b.prior - a.prior))
       .slice(0, Math.max(1, count))
       .map((entry) => entry.peerId);
   }
