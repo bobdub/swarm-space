@@ -8,17 +8,28 @@
  * every stranger as a blank slate. The exchanger lets nodes share the
  * outward-facing shape of those links: once a minute each node writes one
  * small record into its own slot on the Global Cell Gun registry
- * (`neural-manifold` channel, slot `neural~<peerId>`):
+ * (`neural-manifold` channel, slot `neural~<peerId>`).
  *
- *   { v, peerId, at, conns, phi, e: [[toPeerId, smoothness, latencyMs, weight], …] }
+ * The record is packed binary, sent as one base64 string (Gun stores
+ * strings intact; nested objects become links):
+ *
+ *   header  8 bytes   version u8 · at u32 (seconds) · conns u16 · Φ u8 (255 = unknown)
+ *   edge   10 bytes   peer key 6 bytes · smoothness u8 · latency u16 ms (65535 = unmeasured)
+ *                     · weight u8 (log scale)
+ *
+ * A peer is named by a 48-bit key hashed from its mesh peer id, not the id
+ * itself: a reader only ever asks about peers it already knows, so it hashes
+ * their ids and looks the keys up. 24 edges come to 248 bytes (332 base64
+ * characters), against about 1.5 KB as JSON with full peer ids.
  *
  * Every node folds the fresh records into a shared map, so the Bus Cycle and
  * `NeuralStateEngine.selectPeers` can lean on what other nodes have seen of a
  * peer they have never linked with themselves.
  *
  * Boundaries (keep them):
- * - Topology numbers only: mesh peer ids, link smoothness, latency, weight,
- *   connection count and Φ. Never user ids, content, keys or private learning.
+ * - Topology numbers only: hashed mesh peer keys, link smoothness, latency,
+ *   weight, connection count and Φ. Never user ids, content, keys or private
+ *   learning.
  * - Bytes never cross Gun here. Media, chunks and messages stay on WebRTC and
  *   torrent swarms; this map only informs which peer to try.
  * - The map is a hint, not a fact. Gun has no authentication, so a record can
@@ -26,9 +37,6 @@
  *   weight, and never override a node's own first-hand synapse memory.
  *   Ownership and consensus stay with signatures.
  * - Shy nodes read the map but do not publish their own links.
- *
- * Gun stores nested objects as links, so the record travels as a JSON
- * string, like the public cell registry.
  * ═══════════════════════════════════════════════════════════════════════
  */
 
@@ -39,8 +47,6 @@ export const SYNAPSE_PUBLISH_MS = 60_000;
 export const SYNAPSE_STALE_MS = 3 * 60_000;
 /** Edges per record: the strongest links only. */
 export const SYNAPSE_MAX_EDGES = 24;
-/** Hard size cap for one serialized record. */
-export const SYNAPSE_MAX_BYTES = 4096;
 /** Nodes kept in the map; the stalest are evicted first. */
 export const SYNAPSE_MAX_NODES = 512;
 /** Reporters needed before a network view carries full confidence. */
@@ -48,11 +54,21 @@ export const SYNAPSE_FULL_CONFIDENCE_REPORTERS = 3;
 /** Second-hand smoothness never weighs more than this fraction of first-hand. */
 export const SYNAPSE_NETWORK_DAMPING = 0.5;
 
-const RECORD_VERSION = 1;
-const MAX_LATENCY_MS = 60_000;
+const RECORD_VERSION = 2;
+const HEADER_BYTES = 8;
+const EDGE_BYTES = 10;
+const KEY_BYTES = 6;
+/** Largest valid record, in base64 characters. */
+export const SYNAPSE_MAX_RECORD_CHARS = Math.ceil((HEADER_BYTES + SYNAPSE_MAX_EDGES * EDGE_BYTES) / 3) * 4;
+const LATENCY_UNMEASURED = 0xffff;
+const MAX_LATENCY_MS = LATENCY_UNMEASURED - 1;
+const PHI_UNKNOWN = 0xff;
+/** weight byte = round(log2(1 + w) · 25): 0 → 0, 1000 → 249. */
+const WEIGHT_SCALE = 25;
 const MAX_WEIGHT = 1_000;
 const PEER_ID_RE = /^peer-[a-zA-Z0-9_-]{1,120}$/;
 
+/** One of our links, as we publish it. */
 export interface SynapseEdge {
   /** Mesh peer id at the other end of the link. */
   to: string;
@@ -64,15 +80,24 @@ export interface SynapseEdge {
   weight: number;
 }
 
+/** A link as another node reported it: the far end is a hashed peer key. */
+export interface ReportedEdge {
+  /** `synapsePeerKey(toPeerId)`. */
+  key: string;
+  smoothness: number;
+  latencyMs: number | null;
+  weight: number;
+}
+
 export interface ManifoldNode {
   peerId: string;
-  /** Reporter's clock when the record was written. */
+  /** Reporter's clock when the record was written (ms, second precision). */
   at: number;
   /** Open mesh links the reporter had. */
   conns: number;
   /** Reporter's Φ transition quality ∈ [0, 1], null when unknown. */
   phi: number | null;
-  edges: SynapseEdge[];
+  edges: ReportedEdge[];
 }
 
 export interface NetworkSynapseView {
@@ -92,89 +117,115 @@ export function synapseSlot(peerId: string): string {
 }
 
 const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
-const round = (x: number, places: number): number => {
-  const f = 10 ** places;
-  return Math.round(x * f) / f;
-};
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
-function normalizeEdge(raw: unknown, owner: string): SynapseEdge | null {
-  let to: unknown; let smoothness: unknown; let latencyMs: unknown; let weight: unknown;
-  if (Array.isArray(raw)) {
-    [to, smoothness, latencyMs, weight] = raw;
-  } else if (raw && typeof raw === 'object') {
-    ({ to, smoothness, latencyMs, weight } = raw as Record<string, unknown>);
-  } else {
+function fnv1a(text: string, basis: number): number {
+  let h = basis >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function keyBytes(peerId: string): Uint8Array {
+  const a = fnv1a(peerId, 0x811c9dc5);
+  const b = fnv1a(peerId, 0x9e3779b9);
+  return Uint8Array.of(a >>> 24, (a >>> 16) & 0xff, (a >>> 8) & 0xff, a & 0xff, (b >>> 8) & 0xff, b & 0xff);
+}
+
+const hex = (bytes: Uint8Array): string => Array.from(bytes, (x) => x.toString(16).padStart(2, '0')).join('');
+
+/** 48-bit key naming a peer inside records (12 hex characters). */
+export function synapsePeerKey(peerId: string): string {
+  return hex(keyBytes(peerId));
+}
+
+const encodeSmoothness = (s: number): number => Math.round(clamp(s, 0, 1) * 255);
+const decodeSmoothness = (b: number): number => b / 255;
+const encodeWeight = (w: number): number => Math.min(255, Math.round(Math.log2(1 + clamp(w, 0, MAX_WEIGHT)) * WEIGHT_SCALE));
+const decodeWeight = (b: number): number => Math.round((2 ** (b / WEIGHT_SCALE) - 1) * 100) / 100;
+
+function toBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (const x of bytes) bin += String.fromCharCode(x);
+  return btoa(bin);
+}
+
+function fromBase64(text: string): Uint8Array | null {
+  try {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
     return null;
   }
-  if (typeof to !== 'string' || !PEER_ID_RE.test(to) || to === owner) return null;
-  if (!finite(smoothness)) return null;
-  return {
-    to,
-    smoothness: round(clamp(smoothness, 0, 1), 3),
-    latencyMs: finite(latencyMs) && latencyMs >= 0 ? Math.round(Math.min(latencyMs, MAX_LATENCY_MS)) : null,
-    weight: finite(weight) ? round(clamp(weight, 0, MAX_WEIGHT), 2) : 0,
-  };
 }
 
 /**
- * Serialize our own record (pure — exported for tests). Keeps the strongest
- * SYNAPSE_MAX_EDGES valid links, rounded, one per peer. Returns null when the
- * peer id is invalid.
+ * Pack our own record (pure — exported for tests). Keeps the strongest
+ * SYNAPSE_MAX_EDGES valid links, one per peer. Returns null when the peer id
+ * is invalid.
  */
-export function buildManifoldRecord(node: ManifoldNode): string | null {
+export function buildManifoldRecord(node: { peerId: string; at: number; conns: number; phi: number | null; edges: SynapseEdge[] }): string | null {
   if (!PEER_ID_RE.test(node.peerId)) return null;
   const seen = new Set<string>();
   const edges = node.edges
-    .map((e) => normalizeEdge(e, node.peerId))
-    .filter((e): e is SynapseEdge => !!e && !seen.has(e.to) && !!seen.add(e.to))
-    .sort((a, b) => (b.smoothness - a.smoothness) || (b.weight - a.weight) || (a.to < b.to ? -1 : 1))
+    .filter((e) => typeof e.to === 'string' && PEER_ID_RE.test(e.to) && e.to !== node.peerId && finite(e.smoothness))
+    .filter((e) => !seen.has(e.to) && !!seen.add(e.to))
+    .sort((a, b) => (b.smoothness - a.smoothness) || ((b.weight || 0) - (a.weight || 0)) || (a.to < b.to ? -1 : 1))
     .slice(0, SYNAPSE_MAX_EDGES);
-  const record = {
-    v: RECORD_VERSION,
-    peerId: node.peerId,
-    at: Math.round(node.at),
-    conns: finite(node.conns) ? Math.max(0, Math.min(10_000, Math.floor(node.conns))) : 0,
-    phi: finite(node.phi) ? round(clamp(node.phi, 0, 1), 3) : null,
-    e: edges.map((e) => [e.to, e.smoothness, e.latencyMs, e.weight]),
-  };
-  let raw = JSON.stringify(record);
-  // Peer ids are bounded, so this only trims in pathological cases.
-  while (raw.length > SYNAPSE_MAX_BYTES && record.e.length > 0) {
-    record.e.pop();
-    raw = JSON.stringify(record);
-  }
-  return raw.length > SYNAPSE_MAX_BYTES ? null : raw;
+  const bytes = new Uint8Array(HEADER_BYTES + edges.length * EDGE_BYTES);
+  const view = new DataView(bytes.buffer);
+  view.setUint8(0, RECORD_VERSION);
+  view.setUint32(1, Math.max(0, Math.floor(node.at / 1000)) >>> 0);
+  view.setUint16(5, finite(node.conns) ? clamp(Math.floor(node.conns), 0, 0xffff) : 0);
+  view.setUint8(7, finite(node.phi) ? Math.min(254, Math.round(clamp(node.phi, 0, 1) * 254)) : PHI_UNKNOWN);
+  edges.forEach((e, i) => {
+    const o = HEADER_BYTES + i * EDGE_BYTES;
+    bytes.set(keyBytes(e.to), o);
+    view.setUint8(o + 6, encodeSmoothness(e.smoothness));
+    view.setUint16(o + 7, finite(e.latencyMs) && e.latencyMs >= 0 ? Math.min(Math.round(e.latencyMs), MAX_LATENCY_MS) : LATENCY_UNMEASURED);
+    view.setUint8(o + 9, finite(e.weight) ? encodeWeight(e.weight) : 0);
+  });
+  return toBase64(bytes);
 }
 
 /**
- * Validate a registry payload (pure — exported for tests). The record must be
- * written by the node it describes (`from`, the Gun envelope sender), fresh,
- * not from the future, small, and made of well-formed numbers.
+ * Unpack a registry payload (pure — exported for tests). The record is
+ * attributed to `from`, the Gun envelope sender and slot owner; it must be
+ * fresh, not from the future, the right size and version.
  */
 export function parseManifoldRecord(raw: unknown, from: string, nowTs = Date.now()): ManifoldNode | null {
-  if (typeof raw !== 'string' || raw.length > SYNAPSE_MAX_BYTES) return null;
-  let data: unknown;
-  try { data = JSON.parse(raw); } catch { return null; }
-  if (!data || typeof data !== 'object') return null;
-  const d = data as Record<string, unknown>;
-  if (d.v !== RECORD_VERSION) return null;
-  if (typeof d.peerId !== 'string' || !PEER_ID_RE.test(d.peerId) || d.peerId !== from) return null;
-  if (!finite(d.at) || nowTs - d.at > SYNAPSE_STALE_MS || d.at - nowTs > SYNAPSE_STALE_MS) return null;
-  if (!Array.isArray(d.e) || d.e.length > SYNAPSE_MAX_EDGES) return null;
+  if (typeof raw !== 'string' || raw.length > SYNAPSE_MAX_RECORD_CHARS || !PEER_ID_RE.test(from)) return null;
+  const bytes = fromBase64(raw);
+  if (!bytes || bytes.length < HEADER_BYTES || (bytes.length - HEADER_BYTES) % EDGE_BYTES !== 0) return null;
+  const view = new DataView(bytes.buffer);
+  if (view.getUint8(0) !== RECORD_VERSION) return null;
+  const at = view.getUint32(1) * 1000;
+  if (nowTs - at > SYNAPSE_STALE_MS || at - nowTs > SYNAPSE_STALE_MS) return null;
+  const phiByte = view.getUint8(7);
+  const ownKey = synapsePeerKey(from);
   const seen = new Set<string>();
-  const edges: SynapseEdge[] = [];
-  for (const rawEdge of d.e) {
-    const edge = normalizeEdge(rawEdge, d.peerId);
-    if (!edge || seen.has(edge.to)) continue;
-    seen.add(edge.to);
-    edges.push(edge);
+  const edges: ReportedEdge[] = [];
+  for (let o = HEADER_BYTES; o < bytes.length; o += EDGE_BYTES) {
+    const key = hex(bytes.subarray(o, o + KEY_BYTES));
+    if (key === ownKey || seen.has(key)) continue;
+    seen.add(key);
+    const latency = view.getUint16(o + 7);
+    edges.push({
+      key,
+      smoothness: decodeSmoothness(view.getUint8(o + 6)),
+      latencyMs: latency === LATENCY_UNMEASURED ? null : latency,
+      weight: decodeWeight(view.getUint8(o + 9)),
+    });
   }
   return {
-    peerId: d.peerId,
-    at: d.at,
-    conns: finite(d.conns) && d.conns > 0 ? Math.min(Math.floor(d.conns), 10_000) : 0,
-    phi: finite(d.phi) ? clamp(d.phi, 0, 1) : null,
+    peerId: from,
+    at,
+    conns: view.getUint16(5),
+    phi: phiByte === PHI_UNKNOWN ? null : Math.min(1, phiByte / 254),
     edges,
   };
 }
@@ -217,9 +268,10 @@ export class SynapseManifold {
     return [...this.nodes.values()].filter((n) => nowTs - n.at <= SYNAPSE_STALE_MS);
   }
 
-  /** The link `from` reports to `to`, if its record is fresh. */
-  getEdge(from: string, to: string, nowTs = Date.now()): SynapseEdge | null {
-    return this.getNode(from, nowTs)?.edges.find((e) => e.to === to) ?? null;
+  /** The link `from` reports to the peer `to`, if its record is fresh. */
+  getEdge(from: string, to: string, nowTs = Date.now()): ReportedEdge | null {
+    const key = synapsePeerKey(to);
+    return this.getNode(from, nowTs)?.edges.find((e) => e.key === key) ?? null;
   }
 
   /**
@@ -227,12 +279,13 @@ export class SynapseManifold {
    * `excludeReporter` drops one reporter (normally ourselves).
    */
   getNetworkView(peerId: string, nowTs = Date.now(), excludeReporter?: string | null): NetworkSynapseView | null {
+    const key = synapsePeerKey(peerId);
     const smooth: number[] = [];
     const latency: number[] = [];
     for (const n of this.nodes.values()) {
       if (n.peerId === peerId || n.peerId === excludeReporter) continue;
       if (nowTs - n.at > SYNAPSE_STALE_MS) continue;
-      const edge = n.edges.find((e) => e.to === peerId);
+      const edge = n.edges.find((e) => e.key === key);
       if (!edge) continue;
       smooth.push(edge.smoothness);
       if (edge.latencyMs !== null) latency.push(edge.latencyMs);
